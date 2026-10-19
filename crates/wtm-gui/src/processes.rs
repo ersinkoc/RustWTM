@@ -100,14 +100,18 @@ fn tree_rows(procs: &[ProcessInfo], col: Col, descending: bool) -> Vec<(&Process
 
     let mut out = Vec::with_capacity(procs.len());
     let mut seen = HashSet::new();
-    let mut stack: Vec<(usize, usize)> = roots.into_iter().rev().map(|i| (i, 0)).collect();
-    while let Some((i, depth)) = stack.pop() {
-        if !seen.insert(i) {
-            continue;
-        }
-        out.push((&procs[i], depth));
-        if let Some(kids) = children.get(&i) {
-            stack.extend(kids.iter().rev().map(|&k| (k, depth + 1)));
+    // Processes that are only reachable through a parent cycle (same create
+    // time, PIDs reused) are appended as extra roots so none goes missing.
+    for start in roots.into_iter().chain(0..procs.len()) {
+        let mut stack = vec![(start, 0)];
+        while let Some((i, depth)) = stack.pop() {
+            if !seen.insert(i) {
+                continue;
+            }
+            out.push((&procs[i], depth));
+            if let Some(kids) = children.get(&i) {
+                stack.extend(kids.iter().rev().map(|&k| (k, depth + 1)));
+            }
         }
     }
     out
@@ -389,5 +393,16 @@ mod tests {
             order,
             [(0, 0), (4, 1), (10, 2), (11, 3), (12, 3), (13, 0), (14, 0)]
         );
+    }
+
+    #[test]
+    fn tree_keeps_processes_in_parent_cycles() {
+        // Each names the other as parent with the same create time.
+        let procs = [p(20, 21, 1.0, 7), p(21, 20, 2.0, 7), p(22, 21, 0.0, 8)];
+        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true)
+            .into_iter()
+            .map(|(p, d)| (p.pid, d))
+            .collect();
+        assert_eq!(order, [(20, 0), (21, 1), (22, 2)]);
     }
 }

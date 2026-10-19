@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
   `chronic_gpu_actions`; report only by default). Existing history databases
   are upgraded in place.
 
+### Fixed
+
+- Tree view: processes whose parents form a cycle (reused PIDs with identical
+  start times) were missing from the list.
+
 ## [0.1.1] - 2026-10-19
 
 ### Fixed
