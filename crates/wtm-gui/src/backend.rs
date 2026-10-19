@@ -90,6 +90,8 @@ pub enum UiCommand {
     },
     /// Replace the service's configuration file (admin only).
     SaveConfig(String),
+    /// Show the process's executable in Explorer.
+    OpenLocation(ProcessRef),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -132,6 +134,7 @@ impl Backend {
             next_connect: Instant::now(),
             last_event: 0,
             notify,
+            open: open_location,
             sampler: Sampler::new(),
             limiter: Limiter::new(),
         };
@@ -179,6 +182,8 @@ struct Worker {
     last_event: u64,
     /// Shows a desktop notification for an event.
     notify: fn(&Event),
+    /// Shows a file in Explorer.
+    open: fn(&str) -> io::Result<()>,
     sampler: Sampler,
     /// Job handles for limits applied in local mode.
     limiter: Limiter,
@@ -296,6 +301,17 @@ impl Worker {
                 };
                 self.data().message = Some(service_message(op, &name, result));
                 self.load(Panel::Services);
+            }
+            UiCommand::OpenLocation(target) => {
+                let opened = control::image_path(&target)
+                    .map_err(|e| e.to_string())
+                    .and_then(|path| (self.open)(&path).map_err(|e| e.to_string()));
+                if let Err(e) = opened {
+                    self.data().message = Some((
+                        EventLevel::Error,
+                        format!("Cannot open the location of {}: {e}", target.name),
+                    ));
+                }
             }
             UiCommand::SaveConfig(toml) => {
                 let result = match self.client.as_mut() {
@@ -599,6 +615,16 @@ fn notify(e: &Event) {
     let _ = notification(e).show();
 }
 
+/// Opens Explorer with `path` selected.
+fn open_location(path: &str) -> io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    // Explorer parses its own command line and needs the path quoted.
+    std::process::Command::new("explorer.exe")
+        .raw_arg(format!("/select,\"{path}\""))
+        .spawn()
+        .map(drop)
+}
+
 /// AppUserModelID used for toast notifications.
 const APP_ID: &str = "RustWTM.TaskManager";
 
@@ -656,6 +682,7 @@ mod tests {
             last_event: 0,
             // Not called while `notifications` is off.
             notify,
+            open: |_| Ok(()),
             sampler: Sampler::new(),
             limiter: Limiter::new(),
         }
@@ -951,6 +978,8 @@ mod tests {
             }
             Request::Inspect(_) => Response::Details(ProcessDetails {
                 path: None,
+                command_line: None,
+                user: None,
                 priority: None,
                 affinity: None,
                 eco_qos: None,
@@ -1158,5 +1187,50 @@ mod tests {
         );
         e.pid = None;
         assert_eq!(notification(&e).summary, "RustWTM");
+    }
+
+    static OPENED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+    #[test]
+    fn open_location_shows_the_image_or_reports_why_not() {
+        let mut w = worker();
+        w.open = |path| {
+            OPENED.lock().unwrap().push(path.to_owned());
+            Ok(())
+        };
+        let me = ProcessRef {
+            pid: std::process::id(),
+            create_time: wtm_sys::control::ProcessHandle::open(
+                std::process::id(),
+                wtm_sys::control::Access::QUERY,
+            )
+            .unwrap()
+            .create_time()
+            .unwrap(),
+            name: "me.exe".into(),
+        };
+        w.handle(UiCommand::OpenLocation(me.clone()));
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(
+            OPENED.lock().unwrap().as_slice(),
+            [exe.display().to_string()]
+        );
+        assert!(w.data().message.is_none());
+
+        w.open = |_| Err(io::Error::other("no explorer"));
+        w.handle(UiCommand::OpenLocation(me));
+        assert!(message(&w).1.ends_with("no explorer"));
+
+        w.handle(UiCommand::OpenLocation(ProcessRef {
+            pid: 0xFFFF_FFF0,
+            create_time: 1,
+            name: "gone.exe".into(),
+        }));
+        let (level, text) = message(&w);
+        assert_eq!(level, EventLevel::Error);
+        assert!(
+            text.starts_with("Cannot open the location of gone.exe"),
+            "{text}"
+        );
     }
 }

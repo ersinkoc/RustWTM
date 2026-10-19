@@ -11,6 +11,9 @@ All notable changes to this project are documented here. The format follows
 - Settings tab in the GUI: edit the service's configuration with live
   validation, switch between dry-run and enforcing, save (elevated).
 - `wtm config show | default | check <file> | apply <file>`.
+- Process details show the command line and the user account (GUI details
+  panel with *Copy command line*, `wtm info`); *Open file location* in the
+  details panel and the context menu.
 - IPC protocol 4: `GetConfig` and `SetConfig` (admin only; validated, written
   atomically).
 

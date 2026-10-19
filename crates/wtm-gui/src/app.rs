@@ -285,6 +285,7 @@ impl eframe::App for App {
                     backend.send(UiCommand::Control { target, command });
                 }
                 Intent::Confirm(target, command) => state.confirm = Some((target, command)),
+                Intent::OpenLocation(target) => backend.send(UiCommand::OpenLocation(target)),
             }
         }
     }
@@ -409,10 +410,22 @@ fn details_panel(
 
     if let Some((r, Ok(d))) = &data.details
         && r == sel
-        && let Some(path) = &d.path
     {
-        ui.add_space(6.0);
-        ui.label(RichText::new(path).small().weak());
+        if let Some(user) = &d.user {
+            ui.add_space(6.0);
+            ui.label(format!("User: {user}"));
+        }
+        if let Some(path) = &d.path {
+            ui.add_space(6.0);
+            ui.label(RichText::new(path).small().weak());
+        }
+        if let Some(cmd) = d.command_line.as_deref().filter(|c| !c.is_empty()) {
+            ui.add_space(4.0);
+            ui.label(RichText::new(cmd).small().monospace());
+            if ui.small_button("Copy command line").clicked() {
+                ui.ctx().copy_text(cmd.to_owned());
+            }
+        }
     }
 
     ui.add_space(8.0);
@@ -423,6 +436,9 @@ fn details_panel(
         ui.menu_button("More actions", |ui| {
             context_menu(ui, sel, snap.system.logical_cpus, intents)
         });
+        if ui.button("Open file location").clicked() {
+            intents.push(Intent::OpenLocation(sel.clone()));
+        }
         if ui.button("Refresh").clicked() {
             intents.push(Intent::Select(sel.clone()));
         }
@@ -848,6 +864,7 @@ mod tests {
             UiCommand::LoadSeries { app, hours } => format!("series {app} {hours}"),
             UiCommand::Service { name, op } => format!("service {name} {op:?}"),
             UiCommand::SaveConfig(toml) => format!("save config {}", toml.len()),
+            UiCommand::OpenLocation(t) => format!("open {}", t.pid),
         }
     }
 
@@ -882,6 +899,17 @@ mod tests {
         h.get_by_label("Suspend").click();
         let s = step(&mut h, &mut sent);
         assert_eq!(s, ["inspect 100", "inspect 100", "control 100 Suspend"]);
+
+        // Account, command line and file location.
+        assert!(h.query_by_label(r"User: PC\user").is_some());
+        h.get_by_label("Copy command line").click();
+        step(&mut h, &mut sent);
+        h.get_all_by_label("Open file location")
+            .next()
+            .unwrap()
+            .click();
+        let s = step(&mut h, &mut sent);
+        assert_eq!(s.last().map(String::as_str), Some("open 100"));
 
         // End task asks first; the dialog's own button sends the command.
         h.get_by_label("End task").click();

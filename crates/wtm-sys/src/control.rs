@@ -3,11 +3,16 @@
 use std::ops::BitOr;
 use std::time::Duration;
 
-use windows::Win32::Foundation::{FILETIME, HANDLE, NTSTATUS, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{
+    FILETIME, HANDLE, NTSTATUS, UNICODE_STRING, WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
+use windows::Win32::Security::{
+    GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER, TokenUser,
+};
 use windows::Win32::System::Threading::{
     ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, GetPriorityClass,
     GetProcessAffinityMask, GetProcessInformation, GetProcessTimes, HIGH_PRIORITY_CLASS,
-    IDLE_PRIORITY_CLASS, IsProcessCritical, NORMAL_PRIORITY_CLASS, OpenProcess,
+    IDLE_PRIORITY_CLASS, IsProcessCritical, NORMAL_PRIORITY_CLASS, OpenProcess, OpenProcessToken,
     PROCESS_ACCESS_RIGHTS, PROCESS_CREATION_FLAGS, PROCESS_NAME_WIN32,
     PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
     PROCESS_POWER_THROTTLING_STATE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION,
@@ -22,6 +27,16 @@ use crate::{Error, Result};
 
 windows::core::link!("ntdll.dll" "system" fn NtSuspendProcess(process_handle: HANDLE) -> NTSTATUS);
 windows::core::link!("ntdll.dll" "system" fn NtResumeProcess(process_handle: HANDLE) -> NTSTATUS);
+windows::core::link!("ntdll.dll" "system" fn NtQueryInformationProcess(
+    process_handle: HANDLE,
+    class: u32,
+    info: *mut core::ffi::c_void,
+    len: u32,
+    returned: *mut u32,
+) -> NTSTATUS);
+
+/// `PROCESSINFOCLASS::ProcessCommandLineInformation` (Windows 8.1+).
+const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
 
 /// Access rights requested when opening a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +155,95 @@ impl ProcessHandle {
             )?
         };
         Ok(String::from_utf16_lossy(&buf[..len as usize]))
+    }
+
+    /// The command line the process was started with.
+    pub fn command_line(&self) -> Result<String> {
+        let mut len = 0u32;
+        // SAFETY: a zero-length query only reports the required size.
+        unsafe {
+            let _ = NtQueryInformationProcess(
+                self.raw(),
+                PROCESS_COMMAND_LINE_INFORMATION,
+                std::ptr::null_mut(),
+                0,
+                &mut len,
+            );
+        }
+        // u64 elements keep the UNICODE_STRING header aligned.
+        let mut buf = vec![0u64; (len as usize).div_ceil(8).max(2)];
+        let size = (buf.len() * 8) as u32;
+        // SAFETY: uf is writable for size bytes.
+        let status = unsafe {
+            NtQueryInformationProcess(
+                self.raw(),
+                PROCESS_COMMAND_LINE_INFORMATION,
+                buf.as_mut_ptr().cast(),
+                size,
+                &mut len,
+            )
+        };
+        nt_ok("NtQueryInformationProcess", status)?;
+        // SAFETY: on success the buffer starts with a UNICODE_STRING whose
+        // text lies inside the same buffer.
+        let text = unsafe {
+            let s = &*buf.as_ptr().cast::<UNICODE_STRING>();
+            if s.Length == 0 || s.Buffer.is_null() {
+                &[][..]
+            } else {
+                std::slice::from_raw_parts(s.Buffer.0, usize::from(s.Length) / 2)
+            }
+        };
+        Ok(String::from_utf16_lossy(text))
+    }
+
+    /// The account the process runs as, e.g. NT AUTHORITY\SYSTEM.
+    pub fn user(&self) -> Result<String> {
+        let mut raw = HANDLE::default();
+        // SAFETY: aw receives a token handle that OwnedHandle closes.
+        unsafe { OpenProcessToken(self.raw(), TOKEN_QUERY, &mut raw)? };
+        let token = OwnedHandle::new(raw);
+        let mut len = 0u32;
+        // SAFETY: a null buffer only reports the required size.
+        let _ = unsafe { GetTokenInformation(token.raw(), TokenUser, None, 0, &mut len) };
+        let mut buf = vec![0u64; (len as usize).div_ceil(8).max(1)];
+        // SAFETY: uf is writable for len bytes and suitably aligned.
+        unsafe {
+            GetTokenInformation(
+                token.raw(),
+                TokenUser,
+                Some(buf.as_mut_ptr().cast()),
+                len,
+                &mut len,
+            )?
+        };
+        // SAFETY: on success the buffer holds a TOKEN_USER.
+        let sid = unsafe { (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid };
+        let mut name = [0u16; 256];
+        let mut domain = [0u16; 256];
+        let (mut name_len, mut domain_len) = (name.len() as u32, domain.len() as u32);
+        let mut kind = SID_NAME_USE::default();
+        // SAFETY: both buffers are writable for the lengths passed; sid
+        // points into uf, which outlives the call.
+        unsafe {
+            LookupAccountSidW(
+                None,
+                sid,
+                Some(PWSTR(name.as_mut_ptr())),
+                &mut name_len,
+                Some(PWSTR(domain.as_mut_ptr())),
+                &mut domain_len,
+                &mut kind,
+            )?
+        };
+        let name = String::from_utf16_lossy(&name[..name_len as usize]);
+        Ok(match domain_len {
+            0 => name,
+            n => format!(
+                "{}\\{name}",
+                String::from_utf16_lossy(&domain[..n as usize])
+            ),
+        })
     }
 
     /// Whether terminating this process would bug-check the system.
@@ -294,6 +398,22 @@ mod tests {
             .spawn()
             .expect("spawn ping");
         ChildGuard(child)
+    }
+
+    #[test]
+    fn reads_command_line_and_user() {
+        let child = spawn_ping();
+        let h = ProcessHandle::open(child.0.id(), Access::QUERY).unwrap();
+        let cmd = h.command_line().unwrap();
+        assert!(cmd.to_lowercase().contains("ping"), "{cmd}");
+        assert!(cmd.ends_with("-n 60 127.0.0.1"), "{cmd}");
+        let user = h.user().unwrap();
+        assert!(user.contains('\\') && user.len() > 2, "{user}");
+
+        // A handle without query rights is refused, not misread.
+        let h = ProcessHandle::open(child.0.id(), Access::SYNCHRONIZE).unwrap();
+        assert!(h.command_line().unwrap_err().is_access_denied());
+        assert!(h.user().unwrap_err().is_access_denied());
     }
 
     #[test]

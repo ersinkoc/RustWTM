@@ -40,6 +40,8 @@ pub enum Intent {
     Command(ProcessRef, Command),
     /// Destructive: ask before sending.
     Confirm(ProcessRef, Command),
+    /// Show the executable in Explorer.
+    OpenLocation(ProcessRef),
 }
 
 pub struct ProcessView {
@@ -340,6 +342,11 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
         }
     });
     cmd(ui, "Remove limits", Command::Unlimit, false);
+    ui.separator();
+    if ui.button("Open file location").clicked() {
+        intents.push(Intent::OpenLocation(t.clone()));
+        ui.close();
+    }
     ui.separator();
     if ui.button("Properties").clicked() {
         intents.push(Intent::Select(t.clone()));

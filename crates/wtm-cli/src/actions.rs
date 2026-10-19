@@ -198,6 +198,8 @@ fn details(d: ControlResult<ProcessDetails>) -> Result<String, String> {
     let na = || "n/a".to_owned();
     let lines = [
         ("Path", d.path.unwrap_or_else(na)),
+        ("Command", d.command_line.unwrap_or_else(na)),
+        ("User", d.user.unwrap_or_else(na)),
         ("Priority", d.priority.map_or_else(na, |p| format!("{p:?}"))),
         (
             "Affinity",
@@ -381,6 +383,8 @@ mod tests {
     fn detail_lines() {
         let full = ProcessDetails {
             path: Some(r"C:\app.exe".into()),
+            command_line: Some(r#""C:\app.exe" --fast"#.into()),
+            user: Some(r"PC\ana".into()),
             priority: Some(PriorityClass::High),
             affinity: Some((0b11, 0xF)),
             eco_qos: Some(EcoQos::On),
@@ -390,6 +394,8 @@ mod tests {
         assert_eq!(
             details(Ok(full)).unwrap(),
             "Path         C:\\app.exe\n\
+             Command      \"C:\\app.exe\" --fast\n\
+             User         PC\\ana\n\
              Priority     High\n\
              Affinity     0-1\n\
              EcoQoS       On\n\
@@ -398,6 +404,8 @@ mod tests {
         );
         let empty = ProcessDetails {
             path: None,
+            command_line: None,
+            user: None,
             priority: None,
             affinity: None,
             eco_qos: None,
@@ -406,7 +414,9 @@ mod tests {
         };
         let text = details(Ok(empty)).unwrap();
         assert!(
-            text.starts_with("Path         n/a\nPriority     n/a\n"),
+            text.starts_with(
+                "Path         n/a\nCommand      n/a\nUser         n/a\nPriority     n/a\n"
+            ),
             "{text}"
         );
         assert!(

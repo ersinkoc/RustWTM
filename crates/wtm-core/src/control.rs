@@ -172,6 +172,9 @@ pub fn set_eco_qos(target: &ProcessRef, mode: EcoQos) -> ControlResult<()> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessDetails {
     pub path: Option<String>,
+    pub command_line: Option<String>,
+    /// Account the process runs as, `DOMAIN\user`.
+    pub user: Option<String>,
     pub priority: Option<PriorityClass>,
     /// `(process_mask, system_mask)`.
     pub affinity: Option<(u64, u64)>,
@@ -191,6 +194,8 @@ pub fn inspect(target: &ProcessRef) -> ControlResult<ProcessDetails> {
     let h = open_verified(target, Access::QUERY)?;
     Ok(ProcessDetails {
         path: h.image_path().ok(),
+        command_line: h.command_line().ok(),
+        user: h.user().ok(),
         priority: h.priority().ok(),
         affinity: h.affinity().ok(),
         eco_qos: h.eco_qos().ok(),

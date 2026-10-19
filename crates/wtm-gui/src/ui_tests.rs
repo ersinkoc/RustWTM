@@ -103,6 +103,8 @@ pub fn data() -> Data {
             alpha.clone(),
             Ok(ProcessDetails {
                 path: Some(r"C:\Apps\alpha.exe".into()),
+                command_line: Some(r#""C:\Apps\alpha.exe" --tray"#.into()),
+                user: Some(r"PC\user".into()),
                 priority: Some(PriorityClass::Normal),
                 affinity: Some((0xff, 0xff)),
                 eco_qos: Some(EcoQos::SystemManaged),
@@ -223,6 +225,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::Select(t) => format!("select {}", t.pid),
         Intent::Command(t, c) => format!("command {} {c:?}", t.pid),
         Intent::Confirm(t, c) => format!("confirm {} {c:?}", t.pid),
+        Intent::OpenLocation(t) => format!("open {}", t.pid),
     }
 }
 
@@ -289,6 +292,7 @@ fn processes_row_click_and_context_menu_produce_intents() {
         ("Suspend", "command 200 Suspend"),
         ("Resume", "command 200 Resume"),
         ("Remove limits", "command 200 Unlimit"),
+        ("Open file location", "open 200"),
         ("Properties", "select 200"),
     ] {
         h.get_by_label("beta.exe").click_secondary();
