@@ -449,6 +449,8 @@ mod process_tests {
     #[test]
     fn sources_compose_and_roll_back_independently() {
         let (_child, t) = spawn();
+        // Inherited from the test runner (BelowNormal on some CI machines).
+        let original = priority(&t);
         let events = EventLog::default();
         let mut e = Executor::new(false, events.clone());
 
@@ -488,7 +490,7 @@ mod process_tests {
         assert_eq!(priority(&t), Some(PriorityClass::Idle));
         // Rule gone: back to the original priority; eco reverts.
         restore(&mut e, Source::Rule, &t).unwrap();
-        assert_eq!(priority(&t), Some(PriorityClass::Normal));
+        assert_eq!(priority(&t), original);
         assert_eq!(
             control::inspect(&t).unwrap().eco_qos,
             Some(EcoQos::SystemManaged)
@@ -536,6 +538,7 @@ mod process_tests {
     #[test]
     fn dry_run_logs_only_and_switching_rolls_back() {
         let (_child, t) = spawn();
+        let original = priority(&t);
         let events = EventLog::default();
         let mut e = Executor::new(true, events.clone());
         apply(
@@ -546,7 +549,7 @@ mod process_tests {
         )
         .unwrap();
         restore(&mut e, Source::Governor, &t).unwrap();
-        assert_eq!(priority(&t), Some(PriorityClass::Normal));
+        assert_eq!(priority(&t), original);
         assert!(
             events
                 .after(0)

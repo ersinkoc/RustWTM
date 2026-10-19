@@ -14,8 +14,8 @@ use tracing::{debug, warn};
 use wtm_core::Snapshot;
 use wtm_core::control::{self, ProcessRef};
 use wtm_ipc::{
-    Command, Outcome, PIPE_NAME, PIPE_SDDL, PROTOCOL_VERSION, Request, Response, Status,
-    read_frame, write_frame,
+    Command, Outcome, PIPE_SDDL, PROTOCOL_VERSION, Request, Response, Status, read_frame,
+    write_frame,
 };
 use wtm_sys::pipe::{PipeConnection, PipeListener};
 
@@ -49,12 +49,13 @@ pub enum EngineMsg {
 
 pub struct Server {
     stop: Arc<AtomicBool>,
+    pipe: String,
     thread: Option<JoinHandle<()>>,
 }
 
-pub fn start(shared: Arc<Shared>, engine: Sender<EngineMsg>) -> anyhow::Result<Server> {
-    let mut listener = PipeListener::bind(PIPE_NAME, PIPE_SDDL)
-        .with_context(|| format!("binding {PIPE_NAME} (is another instance running?)"))?;
+pub fn start(shared: Arc<Shared>, engine: Sender<EngineMsg>, pipe: &str) -> anyhow::Result<Server> {
+    let mut listener = PipeListener::bind(pipe, PIPE_SDDL)
+        .with_context(|| format!("binding {pipe} (is another instance running?)"))?;
     let stop = Arc::new(AtomicBool::new(false));
     let clients = Arc::new(AtomicUsize::new(0));
 
@@ -98,6 +99,7 @@ pub fn start(shared: Arc<Shared>, engine: Sender<EngineMsg>) -> anyhow::Result<S
 
     Ok(Server {
         stop,
+        pipe: pipe.to_owned(),
         thread: Some(thread),
     })
 }
@@ -106,7 +108,7 @@ impl Server {
     pub fn shutdown(mut self) {
         self.stop.store(true, Ordering::SeqCst);
         // Wake the accept loop with a throwaway connection.
-        let _ = OpenOptions::new().read(true).write(true).open(PIPE_NAME);
+        let _ = OpenOptions::new().read(true).write(true).open(&self.pipe);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }

@@ -27,6 +27,8 @@ pub struct Paths {
     pub config: PathBuf,
     pub logs: PathBuf,
     pub history: PathBuf,
+    /// Named pipe served for clients (overridden in tests).
+    pub pipe: String,
 }
 
 impl Paths {
@@ -35,6 +37,7 @@ impl Paths {
             config: data_dir.join("config.toml"),
             logs: data_dir.join("logs"),
             history: data_dir.join("history.sqlite"),
+            pipe: wtm_ipc::PIPE_NAME.to_owned(),
         }
     }
 }
@@ -96,7 +99,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let shared = Arc::new(Shared::default());
     let watcher_stop = Arc::new(AtomicBool::new(false));
     let watcher = spawn_watcher(tx.clone(), watcher_stop.clone());
-    let server = match ipc_server::start(shared.clone(), tx) {
+    let server = match ipc_server::start(shared.clone(), tx, &paths.pipe) {
         Ok(s) => Some(s),
         Err(e) => {
             error!(error = %e, "IPC disabled");
@@ -426,4 +429,234 @@ fn evaluate_insights(
         .findings
         .write()
         .unwrap_or_else(PoisonError::into_inner) = insights.findings();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Command as Proc, Stdio};
+    use std::sync::mpsc;
+
+    use wtm_core::control::{Limits, PriorityClass};
+    use wtm_ipc::{Client, Command, Request, Response};
+
+    struct Guard(Child);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn spawn(exe: &Path) -> Guard {
+        Guard(
+            Proc::new(exe)
+                .raw_arg("/d /c ping -n 60 127.0.0.1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        )
+    }
+
+    fn connect(pipe: &str) -> Client {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match Client::connect_to(pipe) {
+                Ok(c) => return c,
+                Err(e) if Instant::now() < deadline => {
+                    let _ = e;
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Err(e) => panic!("engine never served {pipe}: {e}"),
+            }
+        }
+    }
+
+    fn wait_for<T>(what: &str, mut f: impl FnMut() -> Option<T>) -> T {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(v) = f() {
+                return v;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    fn events(c: &mut Client) -> Vec<wtm_ipc::Event> {
+        match c.call(&Request::Events { after: 0 }).unwrap() {
+            Response::Events(e) => e,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn engine_serves_clients_enforces_rules_and_reloads_config() {
+        let dir = std::env::temp_dir().join(format!("wtm-engine-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("wtm-engine-victim.exe");
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &victim).unwrap();
+
+        let paths = Paths {
+            pipe: format!(r"\\.\pipe\wtm-engine-test-{}", std::process::id()),
+            ..Paths::under(&dir)
+        };
+        std::fs::write(
+            &paths.config,
+            "dry_run = false\nsample_interval_ms = 200\n[governor]\nenabled = false\n\
+             [[rule]]\nname = \"no victims\"\nmatch = { name = \"wtm-engine-victim.exe\" }\nactions = [\"kill\"]\n",
+        )
+        .unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let stop = tx.clone();
+        let engine_paths = paths.clone();
+        let engine = std::thread::spawn(move || run(&engine_paths, tx, &rx));
+
+        let mut client = connect(&paths.pipe);
+        // Not the installed service, so the server cannot be verified.
+        assert!(!client.is_verified());
+
+        // A process matching an unconditional kill rule is terminated quickly.
+        let mut v = spawn(&victim);
+        let status = wait_for("victim killed", || v.0.try_wait().unwrap());
+        assert_eq!(status.code(), Some(1));
+
+        // Read-only requests.
+        let snap = wait_for("snapshot", || {
+            match client.call(&Request::Snapshot).unwrap() {
+                Response::Snapshot(s) => Some(s),
+                _ => None,
+            }
+        });
+        assert!(snap.processes.iter().any(|p| p.pid == std::process::id()));
+        match client.call(&Request::Status).unwrap() {
+            Response::Status(s) => {
+                assert!(!s.dry_run);
+                assert_eq!(s.rules, 1);
+            }
+            other => panic!("{other:?}"),
+        }
+        let log = events(&mut client);
+        assert!(log.iter().any(|e| e.message.starts_with("engine started")));
+        assert!(
+            log.iter().any(|e| e.notify && e.message.contains("kill")),
+            "{log:?}"
+        );
+
+        // Inspect runs with our own rights.
+        let target = wait_for("helper in snapshot", || {
+            let child = spawn(Path::new("cmd.exe"));
+            let pid = child.0.id();
+            std::thread::sleep(Duration::from_millis(500));
+            match client.call(&Request::Snapshot).unwrap() {
+                Response::Snapshot(s) => s
+                    .processes
+                    .iter()
+                    .find(|p| p.pid == pid)
+                    .map(|p| (child, ProcessRef::from(p))),
+                _ => None,
+            }
+        });
+        let (_helper, helper) = target;
+        match client.call(&Request::Inspect(helper.clone())).unwrap() {
+            Response::Details(d) => assert!(d.path.unwrap().to_lowercase().ends_with("cmd.exe")),
+            other => panic!("{other:?}"),
+        }
+
+        // Control requests need an elevated client.
+        let limit = Request::Control {
+            target: helper.clone(),
+            command: Command::Limit(Limits {
+                cpu_percent: Some(50.0),
+                memory_bytes: Some(1 << 30),
+            }),
+        };
+        match client.call(&limit).unwrap() {
+            Response::Control(outcomes) => {
+                assert!(client.is_admin());
+                assert!(outcomes.iter().all(|o| o.result.is_ok()), "{outcomes:?}");
+                for command in [
+                    Command::Priority(PriorityClass::BelowNormal),
+                    Command::Suspend,
+                    Command::Resume,
+                    Command::Unlimit,
+                    Command::KillTree,
+                ] {
+                    let r = client
+                        .call(&Request::Control {
+                            target: helper.clone(),
+                            command,
+                        })
+                        .unwrap();
+                    assert!(matches!(r, Response::Control(_)), "{command:?}: {r:?}");
+                }
+            }
+            Response::Error(e) => {
+                assert!(!client.is_admin());
+                assert!(e.contains("administrator"), "{e}");
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // History is available (possibly still empty).
+        assert!(matches!(
+            client.call(&Request::History { hours: 1 }).unwrap(),
+            Response::History { .. }
+        ));
+        assert!(matches!(
+            client
+                .call(&Request::AppSeries {
+                    app: "cmd.exe".into(),
+                    hours: 1
+                })
+                .unwrap(),
+            Response::Series(_)
+        ));
+        assert!(matches!(
+            client.call(&Request::Hello { version: 0 }).unwrap(),
+            Response::Error(_)
+        ));
+
+        // Config changes are picked up; invalid ones are rejected.
+        std::thread::sleep(Duration::from_millis(1100)); // distinct mtime
+        std::fs::write(&paths.config, "dry_run = true\n").unwrap();
+        wait_for("config reload", || {
+            events(&mut client)
+                .iter()
+                .any(|e| e.message.starts_with("config reloaded"))
+                .then_some(())
+        });
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&paths.config, "dry_run = maybe\n").unwrap();
+        wait_for("rejected config", || {
+            events(&mut client)
+                .iter()
+                .any(|e| e.message.starts_with("config reload failed"))
+                .then_some(())
+        });
+
+        drop(client);
+        stop.send(EngineMsg::Stop).unwrap();
+        engine.join().unwrap().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_config_is_created_and_invalid_config_falls_back() {
+        let dir = std::env::temp_dir().join(format!("wtm-config-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("config.toml");
+        let config = load_config(&path).unwrap();
+        assert!(config.dry_run);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_CONFIG_TOML);
+
+        std::fs::write(&path, "nonsense = [").unwrap();
+        assert_eq!(load_config(&path).unwrap(), Config::default());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
