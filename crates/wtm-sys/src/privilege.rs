@@ -41,3 +41,12 @@ pub fn enable_debug_privilege() -> Result<bool> {
     // SAFETY: reads the calling thread's last-error value.
     Ok(unsafe { GetLastError() } != ERROR_NOT_ALL_ASSIGNED)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn enabling_debug_privilege_does_not_fail() {
+        // Ok(true) when elevated, Ok(false) otherwise.
+        super::enable_debug_privilege().unwrap();
+    }
+}

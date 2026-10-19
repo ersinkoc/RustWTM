@@ -31,6 +31,10 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+        env:
+          # The runner is an elevated, disposable VM: also exercise service
+          # install / uninstall.
+          RUSTWTM_SCM_TESTS: '1'
 
       - name: Lint PowerShell scripts
         shell: pwsh
@@ -40,3 +44,36 @@ jobs:
             [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
             if ($errors) { $errors | ForEach-Object { Write-Error "$($f.Name): $($_.Message)" }; exit 1 }
           }
+
+  coverage:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          rustup show
+          rustup component add llvm-tools
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Coverage
+        env:
+          RUSTWTM_SCM_TESTS: '1'
+        shell: pwsh
+        run: |
+          cargo llvm-cov --workspace --lcov --output-path lcov.info
+          $summary = cargo llvm-cov report --summary-only
+          "## Test coverage`n" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          $summary | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info

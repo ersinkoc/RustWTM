@@ -21,3 +21,22 @@ pub fn init(logs_dir: &Path, console: bool) -> WorkerGuard {
         .init();
     guard
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn writes_to_a_daily_file() {
+        let dir = std::env::temp_dir().join(format!("wtm-log-test-{}", std::process::id()));
+        let guard = super::init(&dir, true);
+        tracing::info!("hello from the logging test");
+        drop(guard); // flushes the non-blocking writer
+        let files: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(files.len(), 1);
+        let text = std::fs::read_to_string(files[0].path()).unwrap();
+        assert!(text.contains("hello from the logging test"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

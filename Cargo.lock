@@ -5605,6 +5605,7 @@ dependencies = [
  "wtm-core",
  "wtm-ipc",
  "wtm-policy",
+ "wtm-sys",
 ]
 
 [[package]]

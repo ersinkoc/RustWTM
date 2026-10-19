@@ -29,4 +29,5 @@ winreg.workspace = true
 workspace = true
 
 [dev-dependencies]
+wtm-sys.workspace = true
 egui_kittest = { version = "0.37.0", features = ["eframe"] }

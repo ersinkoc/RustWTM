@@ -296,3 +296,41 @@ mod tests {
         assert_eq!(rpc.start_type, Some(StartType::Automatic));
     }
 }
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    const MISSING: &str = "NoSuchServiceForRustWTMTests";
+
+    #[test]
+    fn unknown_services_fail_cleanly() {
+        assert!(start_service(MISSING).is_err());
+        assert!(stop_service(MISSING).is_err());
+        assert!(set_start_type(MISSING, StartType::Manual).is_err());
+        assert!(service_pid(MISSING).is_none());
+        assert!(query_config(MISSING).is_err());
+    }
+
+    #[test]
+    fn running_service_has_a_pid() {
+        assert!(service_pid("RpcSs").is_some());
+    }
+
+    #[test]
+    fn state_and_start_type_conversions() {
+        for raw in 1..=8 {
+            let _ = ServiceState::from_raw(raw);
+        }
+        assert_eq!(ServiceState::from_raw(99), ServiceState::Unknown(99));
+        for t in [
+            StartType::Boot,
+            StartType::System,
+            StartType::Automatic,
+            StartType::Manual,
+            StartType::Disabled,
+        ] {
+            assert_eq!(StartType::from_raw(t.to_raw()), Some(t));
+        }
+    }
+}

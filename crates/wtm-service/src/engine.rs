@@ -660,3 +660,165 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Command as Proc, Stdio};
+
+    use rusqlite::params;
+    use wtm_core::control::Limits;
+    use wtm_ipc::Command;
+
+    struct Guard(Child);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn spawn() -> Guard {
+        let g = Guard(
+            Proc::new("cmd.exe")
+                .raw_arg("/d /c ping -n 60 127.0.0.1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        g
+    }
+
+    #[test]
+    fn handle_control_runs_every_command() {
+        let a = spawn();
+        let b = spawn();
+        let procs = Sampler::new().sample().unwrap().processes;
+        let find = |pid| ProcessRef::from(procs.iter().find(|p| p.pid == pid).unwrap());
+        let (ta, tb) = (find(a.0.id()), find(b.0.id()));
+        let shared = Shared::default();
+        // Dry-run must not affect manual commands.
+        let mut executor = Executor::new(true, shared.events.clone());
+
+        for command in [
+            Command::Priority(PriorityClass::BelowNormal),
+            Command::Affinity(1),
+            Command::EcoQos(wtm_core::control::EcoQos::On),
+            Command::Suspend,
+            Command::Resume,
+            Command::Limit(Limits {
+                cpu_percent: Some(50.0),
+                memory_bytes: Some(1 << 30),
+            }),
+            Command::Limit(Limits {
+                cpu_percent: Some(25.0),
+                memory_bytes: None,
+            }),
+            Command::Unlimit,
+            Command::KillTree,
+        ] {
+            let outcomes = handle_control(&mut executor, &procs, &shared, &ta, command);
+            assert!(!outcomes.is_empty());
+            assert!(
+                outcomes.iter().all(|o| o.result.is_ok()),
+                "{command:?}: {outcomes:?}"
+            );
+        }
+        let killed = handle_control(&mut executor, &procs, &shared, &tb, Command::Kill);
+        assert!(killed[0].result.is_ok());
+
+        // Failures are reported, not panicked on.
+        let system = ProcessRef {
+            pid: 4,
+            create_time: 0,
+            name: "System".into(),
+        };
+        let refused = handle_control(&mut executor, &procs, &shared, &system, Command::Suspend);
+        assert!(refused[0].result.is_err());
+        let events = shared.events.after(0);
+        assert!(
+            events
+                .iter()
+                .any(|e| e.message.starts_with("Manual: Suspend failed"))
+        );
+    }
+
+    #[test]
+    fn insights_raise_findings_and_clear_them() {
+        let history = History::with(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
+        let now_minute = 30_000_000i64;
+        for m in 0..90 {
+            history
+                .connection()
+                .execute(
+                    "INSERT INTO app_minute VALUES ('hog.exe', ?1, 40.0, 60.0, 1000, 2000, 1)",
+                    params![now_minute - m],
+                )
+                .unwrap();
+        }
+        let config = Config::default();
+        let snap = Snapshot {
+            interval: Some(Duration::from_secs(1)),
+            system: wtm_core::SystemStats {
+                logical_cpus: 4,
+                ..Default::default()
+            },
+            processes: Vec::new(),
+        };
+        let shared = Shared::default();
+        let mut insights = InsightPolicy::new();
+        let mut executor = Executor::new(true, shared.events.clone());
+        let unix = (now_minute + 1) * 60;
+
+        evaluate_insights(
+            &history,
+            &config,
+            &snap,
+            unix,
+            &mut insights,
+            &mut executor,
+            &shared,
+        );
+        let findings = shared.findings.read().unwrap().clone();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].app, "hog.exe");
+        assert!(
+            shared
+                .events
+                .after(0)
+                .iter()
+                .any(|e| e.notify && e.message.starts_with("hog.exe"))
+        );
+
+        // Disabled insights clear the findings.
+        let mut disabled = config.clone();
+        disabled.insights.enabled = false;
+        evaluate_insights(
+            &history,
+            &disabled,
+            &snap,
+            unix,
+            &mut insights,
+            &mut executor,
+            &shared,
+        );
+        assert!(shared.findings.read().unwrap().is_empty());
+    }
+
+    #[test]
+    fn status_reflects_config_and_executor() {
+        let config = Config::default();
+        let paths = Paths::under(Path::new(r"C:\x"));
+        let executor = Executor::new(true, Default::default());
+        let s = status(&config, &paths, &executor);
+        assert!(s.dry_run);
+        assert_eq!(s.config_path, r"C:\x\config.toml");
+        assert!(s.managed.is_empty());
+        assert!(default_data_dir().ends_with("RustWTM"));
+        assert!(unix_now() > 1_700_000_000);
+    }
+}

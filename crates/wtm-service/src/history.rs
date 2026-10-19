@@ -43,7 +43,7 @@ impl History {
         Self::with(Connection::open(path)?)
     }
 
-    fn with(conn: Connection) -> rusqlite::Result<Self> {
+    pub(crate) fn with(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
         Ok(Self {
             conn,

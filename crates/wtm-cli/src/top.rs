@@ -78,23 +78,37 @@ pub fn run(mut sort: SortKey, interval: Duration) -> anyhow::Result<()> {
 
 fn draw(snap: &Snapshot, sort: SortKey) -> io::Result<()> {
     let (cols, rows) = terminal::size()?;
-    let width = cols as usize;
-    let mut out = io::stdout().lock();
+    render(
+        &mut io::stdout().lock(),
+        snap,
+        sort,
+        cols as usize,
+        rows as usize,
+    )
+}
 
+/// Draws one frame of `cols` x `rows` characters to `out`.
+fn render(
+    out: &mut impl Write,
+    snap: &Snapshot,
+    sort: SortKey,
+    width: usize,
+    rows: usize,
+) -> io::Result<()> {
     queue!(out, cursor::MoveTo(0, 0))?;
-    line(&mut out, &table::summary(&snap.system), width)?;
+    line(out, &table::summary(&snap.system), width)?;
     line(
-        &mut out,
+        out,
         &format!("Sort: {sort:?}   [c]pu [m]emory [d]isk [p]id [n]ame   [q]uit"),
         width,
     )?;
     queue!(out, SetAttribute(Attribute::Reverse))?;
-    line(&mut out, &format!("{:<width$}", table::header()), width)?;
+    line(out, &format!("{:<width$}", table::header()), width)?;
     queue!(out, SetAttribute(Attribute::Reset))?;
 
-    let body_rows = (rows as usize).saturating_sub(3);
+    let body_rows = rows.saturating_sub(3);
     for p in snap.processes.iter().take(body_rows) {
-        line(&mut out, &table::row(p, width), width)?;
+        line(out, &table::row(p, width), width)?;
     }
     queue!(out, Clear(ClearType::FromCursorDown))?;
     out.flush()
@@ -108,4 +122,27 @@ fn line(out: &mut impl Write, text: &str, width: usize) -> io::Result<()> {
         Clear(ClearType::UntilNewLine),
         cursor::MoveToNextLine(1)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wtm_core::Sampler;
+
+    #[test]
+    fn renders_header_rows_and_clips_to_size() {
+        let mut snap = Sampler::new().sample().unwrap();
+        sort_processes(&mut snap.processes, SortKey::Memory);
+        let mut buf = Vec::new();
+        render(&mut buf, &snap, SortKey::Memory, 80, 10).unwrap();
+        let text = String::from_utf8_lossy(&buf);
+        assert!(text.contains("Sort: Memory"));
+        assert!(text.contains("PID"));
+        // 3 header lines + 7 body lines, each ends with a line move.
+        assert_eq!(text.matches("\u{1b}[1E").count(), 10, "{text:?}");
+        // Nothing wider than the terminal.
+        for chunk in text.split('\u{1b}') {
+            assert!(chunk.chars().count() <= 80 + 8, "{chunk:?}");
+        }
+    }
 }

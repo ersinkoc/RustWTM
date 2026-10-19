@@ -179,3 +179,40 @@ pub fn uninstall() -> anyhow::Result<()> {
     println!("Service '{SERVICE_NAME}' removed.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dispatch_fails_outside_the_scm() {
+        assert!(dispatch().is_err());
+    }
+
+    #[test]
+    fn status_accepts_stop_only_while_running() {
+        assert!(
+            status(ServiceState::Running)
+                .controls_accepted
+                .contains(ServiceControlAccept::STOP)
+        );
+        assert!(status(ServiceState::Stopped).controls_accepted.is_empty());
+    }
+
+    /// Installs and removes the real service. Needs elevation and changes
+    /// the machine, so it only runs where RUSTWTM_SCM_TESTS is set (CI).
+    #[test]
+    fn install_stop_and_uninstall() {
+        if std::env::var_os("RUSTWTM_SCM_TESTS").is_none() {
+            return;
+        }
+        install().unwrap();
+        assert!(install().is_err(), "second install must fail");
+        wtm_sys::services::set_start_type(SERVICE_NAME, wtm_sys::services::StartType::Manual)
+            .unwrap();
+        assert!(wtm_sys::services::service_pid(SERVICE_NAME).is_none());
+        stop().unwrap(); // already stopped: no-op
+        uninstall().unwrap();
+        assert!(open(ServiceAccess::QUERY_STATUS).is_err());
+    }
+}

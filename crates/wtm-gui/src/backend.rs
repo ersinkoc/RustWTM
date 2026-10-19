@@ -541,3 +541,268 @@ pub fn register_app_id() {
         let _ = key.set_value("DisplayName", &"RustWTM");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Command as Proc, Stdio};
+
+    use wtm_core::control::Limits;
+    use wtm_ipc::{PROTOCOL_VERSION, read_frame, write_frame};
+
+    struct Guard(Child);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn spawn() -> Guard {
+        let g = Guard(
+            Proc::new("cmd.exe")
+                .raw_arg("/d /c ping -n 60 127.0.0.1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        std::thread::sleep(Duration::from_millis(200));
+        g
+    }
+
+    fn worker() -> Worker {
+        Worker {
+            data: Arc::new(Mutex::new(Data::default())),
+            ctx: egui::Context::default(),
+            notifications: Arc::new(AtomicBool::new(false)),
+            client: None,
+            // Never try the real service pipe from tests.
+            next_connect: Instant::now() + Duration::from_secs(3600),
+            last_event: 0,
+            sampler: Sampler::new(),
+            limiter: Limiter::new(),
+        }
+    }
+
+    fn target_of(w: &Worker, pid: u32) -> ProcessRef {
+        let data = w.data();
+        let snap = data.snapshot.as_ref().unwrap();
+        ProcessRef::from(snap.processes.iter().find(|p| p.pid == pid).unwrap())
+    }
+
+    fn message(w: &Worker) -> (EventLevel, String) {
+        w.data().message.clone().unwrap()
+    }
+
+    #[test]
+    fn local_mode_samples_loads_and_runs_commands() {
+        let mut w = worker();
+        w.tick();
+        w.tick();
+        {
+            let d = w.data();
+            assert_eq!(d.mode, Mode::Local);
+            assert!(d.snapshot.is_some());
+            assert_eq!(d.history.cpu.len(), 1, "first sample has no interval");
+        }
+        for panel in [
+            Panel::Services,
+            Panel::Users,
+            Panel::Network,
+            Panel::Startup,
+            Panel::History,
+        ] {
+            w.handle(UiCommand::Load(panel));
+        }
+        {
+            let d = w.data();
+            assert!(matches!(d.services, Some(Ok(_))));
+            assert!(matches!(d.sessions, Some(Ok(_))));
+            assert!(matches!(d.connections, Some(Ok(_))));
+            assert!(d.startup.is_some());
+        }
+        w.handle(UiCommand::LoadHistory { hours: 1 });
+        assert!(matches!(&w.data().app_history, Some(Err(e)) if e == NO_SERVICE));
+        w.handle(UiCommand::LoadSeries {
+            app: "x".into(),
+            hours: 1,
+        });
+        assert!(w.data().series.is_none());
+
+        let child = spawn();
+        w.tick();
+        let t = target_of(&w, child.0.id());
+        for command in [
+            Command::Suspend,
+            Command::Resume,
+            Command::Priority(wtm_core::control::PriorityClass::BelowNormal),
+            Command::Affinity(1),
+            Command::EcoQos(wtm_core::control::EcoQos::On),
+            Command::Limit(Limits {
+                cpu_percent: Some(50.0),
+                memory_bytes: Some(1 << 30),
+            }),
+            Command::Unlimit,
+        ] {
+            w.handle(UiCommand::Control {
+                target: t.clone(),
+                command,
+            });
+            assert_eq!(
+                message(&w).0,
+                EventLevel::Info,
+                "{command:?}: {:?}",
+                message(&w)
+            );
+        }
+        assert!(matches!(&w.data().details, Some((r, Ok(_))) if *r == t));
+        w.handle(UiCommand::Control {
+            target: t.clone(),
+            command: Command::KillTree,
+        });
+        assert_eq!(message(&w).0, EventLevel::Info);
+        assert!(
+            w.data()
+                .events
+                .iter()
+                .any(|e| e.message.starts_with("Local: End process tree"))
+        );
+
+        // A protected process is refused with a warning.
+        let system = ProcessRef {
+            pid: 4,
+            create_time: 0,
+            name: "System".into(),
+        };
+        w.handle(UiCommand::Control {
+            target: system,
+            command: Command::Kill,
+        });
+        assert_eq!(message(&w).0, EventLevel::Warn);
+
+        // Service operations without rights or on unknown services warn.
+        w.handle(UiCommand::Service {
+            name: "NoSuchServiceForRustWTMTests".into(),
+            op: ServiceOp::Start,
+        });
+        assert_eq!(message(&w).0, EventLevel::Warn);
+    }
+
+    /// Answers like the service would, until the client disconnects.
+    fn fake_server(pipe: String, snapshot: Snapshot) -> std::thread::JoinHandle<()> {
+        let mut listener = wtm_sys::pipe::PipeListener::bind(&pipe, wtm_ipc::PIPE_SDDL).unwrap();
+        std::thread::spawn(move || {
+            let mut conn = listener.accept().unwrap();
+            let target = ProcessRef {
+                pid: 1,
+                create_time: 1,
+                name: "x.exe".into(),
+            };
+            while let Ok(request) = read_frame::<Request>(&mut conn) {
+                let response = match request {
+                    Request::Hello { .. } => Response::Hello {
+                        version: PROTOCOL_VERSION,
+                        admin: true,
+                    },
+                    Request::Snapshot => Response::Snapshot(snapshot.clone()),
+                    Request::Status => Response::Status(Status::default()),
+                    Request::Events { .. } => Response::Events(vec![Event {
+                        id: 7,
+                        unix_ms: 0,
+                        level: EventLevel::Info,
+                        pid: None,
+                        name: None,
+                        message: "from service".into(),
+                        notify: true,
+                    }]),
+                    Request::Inspect(_) => Response::Error("denied".into()),
+                    Request::Control { .. } => Response::Control(vec![Outcome {
+                        target: target.clone(),
+                        result: Ok(()),
+                    }]),
+                    Request::History { .. } => Response::History {
+                        stats: Vec::new(),
+                        findings: Vec::new(),
+                    },
+                    Request::AppSeries { .. } => Response::Series(Vec::new()),
+                };
+                if write_frame(&mut conn, &response).is_err() {
+                    break;
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn service_mode_fetches_controls_and_falls_back_when_lost() {
+        let pipe = format!(r"\\.\pipe\wtm-gui-test-{}", std::process::id());
+        let snapshot = Sampler::new().sample().unwrap();
+        let server = fake_server(pipe.clone(), snapshot);
+
+        let mut w = worker();
+        w.client = Some(Client::connect_to(&pipe).unwrap());
+        w.tick();
+        {
+            let d = w.data();
+            assert_eq!(
+                d.mode,
+                Mode::Service {
+                    admin: true,
+                    verified: false
+                }
+            );
+            assert!(d.status.is_some());
+            assert_eq!(d.events.len(), 1);
+        }
+        assert_eq!(w.last_event, 7);
+
+        let t = ProcessRef {
+            pid: 1,
+            create_time: 1,
+            name: "x.exe".into(),
+        };
+        w.handle(UiCommand::Control {
+            target: t.clone(),
+            command: Command::Suspend,
+        });
+        assert_eq!(message(&w).0, EventLevel::Info);
+        // Inspect after the command went through the service and was refused.
+        assert!(matches!(&w.data().details, Some((_, Err(e))) if e == "denied"));
+        w.handle(UiCommand::LoadHistory { hours: 24 });
+        assert!(matches!(w.data().app_history, Some(Ok(_))));
+        w.handle(UiCommand::LoadSeries {
+            app: "x.exe".into(),
+            hours: 24,
+        });
+        assert!(w.data().series.is_some());
+
+        drop(w.client.take());
+        server.join().unwrap();
+
+        // A server that hangs up right after the handshake: the next tick
+        // must fall back to local sampling and warn.
+        let mut listener = wtm_sys::pipe::PipeListener::bind(&pipe, wtm_ipc::PIPE_SDDL).unwrap();
+        let hangup = std::thread::spawn(move || {
+            let mut conn = listener.accept().unwrap();
+            let _ = read_frame::<Request>(&mut conn);
+            let _ = write_frame(
+                &mut conn,
+                &Response::Hello {
+                    version: PROTOCOL_VERSION,
+                    admin: false,
+                },
+            );
+        });
+        w.client = Some(Client::connect_to(&pipe).unwrap());
+        hangup.join().unwrap();
+        w.tick();
+        assert_eq!(w.data().mode, Mode::Local);
+        assert!(w.client.is_none());
+        let (level, text) = message(&w);
+        assert_eq!(level, EventLevel::Warn);
+        assert!(text.starts_with("Lost connection to service"), "{text}");
+    }
+}
