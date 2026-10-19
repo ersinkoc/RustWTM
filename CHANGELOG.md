@@ -6,18 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-19
+
 ### Fixed
 
+- Memory-only job limits (`wtm limit --memory`, GUI *Limit memory*) failed
+  with "process no longer exists": the limiter tried to disable a CPU cap that
+  was never enabled. Errors other than a missing process are now reported as
+  such.
 - Clicking a process name (or any text) in a table now selects the row; selectable
   text previously swallowed the click.
 - Tables in different tabs no longer share layout state.
 
 ### Added
 
-- MSI package (WiX) attached to every release: installs the service with
+- MSI package (WiX 5) attached to every release: installs the service with
   failure recovery, PATH entry and Start Menu shortcut.
 - Headless GUI tests (egui_kittest), engine/IPC end-to-end tests and CLI
-  integration tests; workspace line coverage is above 80%.
+  integration tests, and real MSI / install-script installs in CI; line coverage
+  is about 90%.
 
 ## [0.1.0] - 2026-10-19
 
@@ -56,5 +63,6 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ersinkoc/RustWTM/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ersinkoc/RustWTM/releases/tag/v0.1.0
