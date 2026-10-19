@@ -375,6 +375,11 @@ mod tests {
         assert_eq!(e.priority, Some(PriorityLevel::Idle));
         assert_eq!(e.cpu_cap, Some(50.0));
         assert_eq!(Effective::fold(&[]).summary(), "none");
+
+        // Kill and relative caps are resolved before they reach the executor.
+        let e = Effective::fold(&[Action::Kill, Action::CpuCapRelative(0.5), Action::Suspend]);
+        assert_eq!(e.limits(), Limits::default());
+        assert_eq!(e.summary(), "suspended");
     }
 }
 
@@ -384,6 +389,8 @@ mod process_tests {
     use std::os::windows::process::CommandExt;
     use std::process::{Child, Command, Stdio};
     use wtm_core::Sampler;
+
+    use crate::test_util::wait_for;
 
     struct Guard(Child);
     impl Drop for Guard {
@@ -405,19 +412,11 @@ mod process_tests {
                 .unwrap(),
         );
         let pid = child.0.id();
-        for _ in 0..100 {
-            if let Some(p) = Sampler::new()
-                .sample()
-                .unwrap()
-                .processes
-                .iter()
-                .find(|p| p.pid == pid)
-            {
-                return (child, p.into());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        panic!("child never appeared");
+        let t = wait_for("child sampled", || {
+            let snap = Sampler::new().sample().unwrap();
+            snap.processes.iter().find(|p| p.pid == pid).map(Into::into)
+        });
+        (child, t)
     }
 
     fn apply(
@@ -479,11 +478,7 @@ mod process_tests {
             managed[0].sources,
             [Source::Governor, Source::Rule, Source::Manual]
         );
-        assert!(
-            managed[0].summary.contains("Idle"),
-            "{}",
-            managed[0].summary
-        );
+        assert!(managed[0].summary.contains("Idle"), "{managed:?}");
 
         // The governor rolling back keeps the rule's stricter priority.
         restore(&mut e, Source::Governor, &t).unwrap();
@@ -586,6 +581,35 @@ mod process_tests {
         e.set_dry_run(true);
         assert_eq!(priority(&t), Some(PriorityClass::BelowNormal));
         assert_eq!(e.managed()[0].sources, [Source::Manual]);
+    }
+
+    #[test]
+    fn restoring_an_exited_process_is_reported_as_incomplete() {
+        let (child, t) = spawn();
+        let events = EventLog::default();
+        let mut e = Executor::new(false, events.clone());
+        apply(
+            &mut e,
+            Source::Manual,
+            &t,
+            Action::Priority(PriorityLevel::Idle),
+        )
+        .unwrap();
+        // Gone before the original priority can be put back. The process
+        // object can outlive the exit while others still hold handles.
+        drop(child);
+        wait_for("process object gone", || {
+            control::inspect(&t).is_err().then_some(())
+        });
+        let err = restore(&mut e, Source::Manual, &t).unwrap_err();
+        assert!(!err.is_empty());
+        assert!(e.managed().is_empty(), "the entry is dropped regardless");
+        assert!(
+            events
+                .after(0)
+                .iter()
+                .any(|ev| ev.message.starts_with("Manual: restore incomplete"))
+        );
     }
 
     #[test]
