@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Clicking a process name (or any text) in a table now selects the row; selectable
+  text previously swallowed the click.
+- Tables in different tabs no longer share layout state.
+
+### Added
+
+- Headless GUI tests (egui_kittest), engine/IPC end-to-end tests and CLI
+  integration tests; workspace line coverage is above 80%.
+
 ## [0.1.0] - 2026-10-19
 
 First public release.

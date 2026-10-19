@@ -163,6 +163,8 @@ impl ProcessView {
         let one_core = 100.0 / logical_cpus as f32;
         let selected = self.selected.as_ref().map(|r| (r.pid, r.create_time));
 
+        // Selectable text would swallow clicks meant for the row.
+        ui.style_mut().interaction.selectable_labels = false;
         TableBuilder::new(ui)
             .striped(true)
             .resizable(true)

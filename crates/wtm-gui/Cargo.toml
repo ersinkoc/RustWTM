@@ -27,3 +27,6 @@ winreg.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["eframe"] }

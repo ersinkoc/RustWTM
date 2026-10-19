@@ -6,6 +6,8 @@ mod app;
 mod backend;
 mod processes;
 mod tray;
+#[cfg(test)]
+mod ui_tests;
 mod views;
 
 use eframe::egui;

@@ -26,15 +26,13 @@ const RECONNECT: Duration = Duration::from_secs(5);
 pub const HISTORY_LEN: usize = 300;
 const EVENTS_KEPT: usize = 2000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Mode {
+    #[default]
     Starting,
     /// Connected to the engine; `admin` means it accepts control requests,
     /// `verified` that it is the installed service (not a console instance).
-    Service {
-        admin: bool,
-        verified: bool,
-    },
+    Service { admin: bool, verified: bool },
     /// No service: sampling and controlling with this process's own rights.
     Local,
 }
@@ -46,7 +44,7 @@ pub struct History {
     pub gpu: VecDeque<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Data {
     pub mode: Mode,
     pub snapshot: Option<Arc<Snapshot>>,
@@ -115,21 +113,7 @@ pub struct Backend {
 
 impl Backend {
     pub fn start(ctx: egui::Context) -> Self {
-        let data = Arc::new(Mutex::new(Data {
-            mode: Mode::Starting,
-            snapshot: None,
-            status: None,
-            events: VecDeque::new(),
-            history: History::default(),
-            details: None,
-            services: None,
-            sessions: None,
-            connections: None,
-            startup: None,
-            app_history: None,
-            series: None,
-            message: None,
-        }));
+        let data = Arc::new(Mutex::new(Data::default()));
         let (tx, rx) = mpsc::channel();
         let notifications = Arc::new(AtomicBool::new(true));
         let mut worker = Worker {

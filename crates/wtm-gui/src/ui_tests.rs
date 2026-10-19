@@ -1,0 +1,477 @@
+//! Headless UI tests with egui_kittest: views are rendered from synthetic
+//! data and driven through the accessibility tree.
+
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
+use wtm_core::control::{EcoQos, PriorityClass, ProcessDetails, ProcessRef};
+use wtm_core::startup::{StartupEntry, StartupScope, StartupSource};
+use wtm_core::{
+    Connection, ProcessInfo, Protocol, ServiceEntry, ServiceState, Session, SessionState, Snapshot,
+    StartType, SystemStats, TcpState,
+};
+use wtm_ipc::{Command, Event, EventLevel, Managed, Status};
+use wtm_policy::{AppStats, Finding, FindingKind, MinuteRow, Source};
+
+use crate::backend::{Data, Mode, UiCommand};
+use crate::processes::{Intent, ManagedMap, ProcessView};
+use crate::views;
+
+pub fn proc(pid: u32, parent_pid: u32, name: &str, cpu: f32) -> ProcessInfo {
+    ProcessInfo {
+        pid,
+        parent_pid,
+        name: name.into(),
+        cpu_percent: cpu,
+        cpu_time: Duration::from_secs(5),
+        working_set: 20 << 20,
+        private_working_set: u64::from(pid) << 20,
+        private_bytes: 30 << 20,
+        thread_count: 3,
+        handle_count: 40,
+        session_id: 1,
+        base_priority: 8,
+        gpu_percent: 1.5,
+        gpu_memory: 1 << 20,
+        io_read_rate: 1000.0,
+        io_write_rate: 0.0,
+        create_time: 116_444_736_000_000_000 + i64::from(pid),
+    }
+}
+
+pub fn snapshot() -> Snapshot {
+    Snapshot {
+        interval: Some(Duration::from_secs(1)),
+        system: SystemStats {
+            cpu_percent: 42.0,
+            logical_cpus: 8,
+            memory_total: 16 << 30,
+            memory_available: 8 << 30,
+            commit_limit: 20 << 30,
+            commit_available: 10 << 30,
+            gpu_percent: 12.0,
+            process_count: 5,
+            thread_count: 15,
+            handle_count: 200,
+        },
+        processes: vec![
+            proc(0, 0, "System Idle Process", 50.0),
+            proc(4, 0, "System", 1.0),
+            proc(100, 4, "alpha.exe", 20.0),
+            proc(101, 100, "alpha-child.exe", 2.0),
+            proc(200, 4, "beta.exe", 0.5),
+        ],
+    }
+}
+
+fn target(pid: u32, name: &str) -> ProcessRef {
+    ProcessRef::from(&proc(pid, 0, name, 0.0))
+}
+
+pub fn data() -> Data {
+    let alpha = target(100, "alpha.exe");
+    let row = |minute, cpu| MinuteRow {
+        minute,
+        cpu_avg: cpu,
+        cpu_peak: cpu * 2.0,
+        mem_avg: 100 << 20,
+        mem_peak: 120 << 20,
+        processes: 1,
+    };
+    let mut d = Data {
+        mode: Mode::Local,
+        snapshot: Some(Arc::new(snapshot())),
+        status: Some(Status {
+            dry_run: true,
+            governor_enabled: true,
+            high_cpu_percent: 90.0,
+            recover_cpu_percent: 70.0,
+            rules: 2,
+            config_path: r"C:\ProgramData\RustWTM\config.toml".into(),
+            managed: vec![Managed {
+                target: alpha.clone(),
+                sources: vec![Source::Governor],
+                summary: "BelowNormal".into(),
+            }],
+        }),
+        details: Some((
+            alpha.clone(),
+            Ok(ProcessDetails {
+                path: Some(r"C:\Apps\alpha.exe".into()),
+                priority: Some(PriorityClass::Normal),
+                affinity: Some((0xff, 0xff)),
+                eco_qos: Some(EcoQos::SystemManaged),
+                critical: Some(false),
+                protected: None,
+            }),
+        )),
+        services: Some(Ok(vec![
+            ServiceEntry {
+                name: "Spooler".into(),
+                display_name: "Print Spooler".into(),
+                state: ServiceState::Running,
+                pid: 300,
+                start_type: Some(StartType::Automatic),
+                binary_path: None,
+                account: Some("LocalSystem".into()),
+            },
+            ServiceEntry {
+                name: "Fax".into(),
+                display_name: "Fax".into(),
+                state: ServiceState::Stopped,
+                pid: 0,
+                start_type: Some(StartType::Manual),
+                binary_path: None,
+                account: None,
+            },
+        ])),
+        sessions: Some(Ok(vec![
+            Session {
+                id: 0,
+                station: "Services".into(),
+                user: String::new(),
+                domain: String::new(),
+                state: SessionState::Disconnected,
+            },
+            Session {
+                id: 1,
+                station: "Console".into(),
+                user: "alice".into(),
+                domain: "PC".into(),
+                state: SessionState::Active,
+            },
+        ])),
+        connections: Some(Ok(vec![
+            Connection {
+                protocol: Protocol::Tcp,
+                local: "127.0.0.1:8080".parse::<SocketAddr>().unwrap(),
+                remote: None,
+                state: Some(TcpState::Listen),
+                pid: 100,
+            },
+            Connection {
+                protocol: Protocol::Udp,
+                local: "[::1]:53".parse().unwrap(),
+                remote: None,
+                state: None,
+                pid: 999,
+            },
+        ])),
+        startup: Some(vec![StartupEntry {
+            name: "Updater".into(),
+            command: r"C:\Apps\updater.exe /background".into(),
+            scope: StartupScope::CurrentUser,
+            source: StartupSource::Run,
+            enabled: true,
+        }]),
+        app_history: Some(Ok((
+            vec![AppStats {
+                app: "alpha.exe".into(),
+                minutes: 125,
+                cpu_avg: 12.5,
+                cpu_p95: 20.0,
+                cpu_peak: 40.0,
+                mem_avg: 100 << 20,
+                mem_peak: 120 << 20,
+                mem_last: 110 << 20,
+                mem_growth_per_hour: 5.0 * 1024.0 * 1024.0,
+                mem_growth_fit: 0.4,
+                cpu_core_seconds: 3600.0,
+            }],
+            vec![Finding {
+                app: "alpha.exe".into(),
+                kind: FindingKind::ChronicCpu,
+                detail: "average CPU 12.5%".into(),
+            }],
+        ))),
+        series: Some(("alpha.exe".into(), vec![row(1, 5.0), row(2, 15.0)])),
+        message: Some((EventLevel::Info, "ready".into())),
+        ..Data::default()
+    };
+    d.events.push_back(Event {
+        id: 1,
+        unix_ms: 1_700_000_000_000,
+        level: EventLevel::Warn,
+        pid: Some(100),
+        name: Some("alpha.exe".into()),
+        message: "Governor: priority BelowNormal".into(),
+        notify: true,
+    });
+    for i in 0..10 {
+        d.history.cpu.push_back(i as f32 * 5.0);
+        d.history.memory.push_back(50.0);
+        d.history.gpu.push_back(3.0);
+    }
+    d
+}
+
+struct ProcState {
+    view: ProcessView,
+    snap: Snapshot,
+    intents: Vec<String>,
+}
+
+fn describe_intent(i: &Intent) -> String {
+    match i {
+        Intent::Select(t) => format!("select {}", t.pid),
+        Intent::Command(t, c) => format!("command {} {c:?}", t.pid),
+        Intent::Confirm(t, c) => format!("confirm {} {c:?}", t.pid),
+    }
+}
+
+fn process_harness() -> Harness<'static, ProcState> {
+    Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1300.0, 700.0])
+        .build_ui_state(
+            |ui, st: &mut ProcState| {
+                let managed: ManagedMap<'_> = HashMap::new();
+                let snap = st.snap.clone();
+                let intents = st.view.ui(ui, &snap, &managed);
+                st.intents.extend(intents.iter().map(describe_intent));
+            },
+            ProcState {
+                view: ProcessView::default(),
+                snap: snapshot(),
+                intents: Vec::new(),
+            },
+        )
+}
+
+#[test]
+fn processes_table_sorts_filters_and_shows_tree() {
+    let mut h = process_harness();
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_some());
+
+    // Sorting by every column, both directions.
+    for header in ["Name", "PID", "Memory", "Disk", "GPU", "Threads", "Handles"] {
+        h.get_by_label_contains(header).click();
+        h.run();
+        h.get_by_label_contains(header).click();
+        h.run();
+    }
+    assert!(!h.state().view.descending || h.state().view.sort == crate::processes::Col::Handles);
+
+    // Tree view.
+    h.get_by_label("Tree view").click();
+    h.run();
+    assert!(h.state().view.tree);
+
+    // Search narrows the list.
+    h.state_mut().view.search = "beta".into();
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_none());
+    assert!(h.query_by_label("beta.exe").is_some());
+    h.get_by_label("✖").click();
+    h.run();
+    assert!(h.state().view.search.is_empty());
+}
+
+#[test]
+fn processes_row_click_and_context_menu_produce_intents() {
+    let mut h = process_harness();
+    h.run();
+    h.get_by_label("beta.exe").click();
+    h.run();
+    assert!(h.state().intents.contains(&"select 200".to_owned()));
+
+    for (item, expected) in [
+        ("End task", "confirm 200 Kill"),
+        ("End process tree", "confirm 200 KillTree"),
+        ("Suspend", "command 200 Suspend"),
+        ("Resume", "command 200 Resume"),
+        ("Remove limits", "command 200 Unlimit"),
+        ("Properties", "select 200"),
+    ] {
+        h.get_by_label("beta.exe").click_secondary();
+        h.run();
+        h.get_by_label(item).click();
+        h.run();
+        assert!(
+            h.state().intents.iter().any(|i| i == expected),
+            "{item}: {:?}",
+            h.state().intents
+        );
+    }
+
+    // Submenus: hover to open, then pick an entry.
+    for (menu, item, expected) in [
+        ("Priority", "Idle", "command 200 Priority(Idle)"),
+        ("Efficiency mode", "On", "command 200 EcoQos(On)"),
+    ] {
+        h.get_by_label("beta.exe").click_secondary();
+        h.run();
+        h.get_by_label(menu).hover();
+        h.run();
+        h.get_by_label(item).click();
+        h.run();
+        assert!(
+            h.state().intents.iter().any(|i| i == expected),
+            "{menu}/{item}"
+        );
+    }
+    h.get_by_label("beta.exe").click_secondary();
+    h.run();
+    h.get_by_label("Limit CPU").hover();
+    h.run();
+    h.get_by_label_contains("1 core").click();
+    h.run();
+    assert!(h.state().intents.iter().any(|i| i.contains("Limit")));
+    h.get_by_label("beta.exe").click_secondary();
+    h.run();
+    h.get_by_label("Limit memory").hover();
+    h.run();
+    h.get_by_label("512.0 MiB").click();
+    h.run();
+    assert!(
+        h.state()
+            .intents
+            .iter()
+            .filter(|i| i.contains("Limit"))
+            .count()
+            >= 2
+    );
+}
+
+#[test]
+fn read_only_views_render() {
+    let mut d = data();
+    let mut filter = String::new();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1200.0, 900.0])
+        .build_ui(|ui| {
+            views::users(ui, &d);
+            views::network(ui, &d, &mut filter, None);
+            views::network(ui, &d, &mut "8080".to_owned(), Some(100));
+        });
+    h.run();
+    assert!(h.query_by_label(r"PC\alice").is_some());
+    assert!(h.query_by_label("127.0.0.1:8080").is_some());
+    drop(h);
+
+    // Loading and error states.
+    d.sessions = None;
+    d.connections = Some(Err("boom".into()));
+    let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
+        views::users(ui, &d);
+        views::network(ui, &d, &mut String::new(), None);
+    });
+    h.run_steps(2);
+    assert!(h.query_by_label("boom").is_some());
+}
+
+struct PickState {
+    data: Data,
+    filter: String,
+    service: Option<wtm_core::ServiceEntry>,
+    startup: Option<StartupEntry>,
+    commands: Vec<String>,
+}
+
+#[test]
+fn services_and_startup_views_select_and_toggle() {
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1200.0, 700.0])
+        .build_ui_state(
+            |ui, st: &mut PickState| {
+                // Two independent areas so neither table hides the other.
+                ui.columns(2, |cols| {
+                    if let Some(s) = views::services(&mut cols[0], &st.data, &mut st.filter) {
+                        st.service = Some(s);
+                    }
+                    if let Some(cmd) = views::startup(&mut cols[1], &st.data, &mut st.startup) {
+                        st.commands.push(match cmd {
+                            UiCommand::SetStartup { entry, enabled } => {
+                                format!("{} {enabled}", entry.name)
+                            }
+                            _ => "other".into(),
+                        });
+                    }
+                });
+            },
+            PickState {
+                data: data(),
+                filter: String::new(),
+                service: None,
+                startup: None,
+                commands: Vec::new(),
+            },
+        );
+    h.run();
+    h.get_by_label("Print Spooler").click();
+    h.run();
+    assert_eq!(h.state().service.as_ref().unwrap().name, "Spooler");
+
+    h.get_by_label("Updater").click();
+    h.run();
+    h.get_by_label("Disable").click();
+    h.run();
+    assert_eq!(h.state().commands, ["Updater false"]);
+
+    h.state_mut().filter = "fax".into();
+    h.run();
+    assert!(h.query_by_label("Print Spooler").is_none());
+}
+
+#[test]
+fn app_history_view_switches_window_sort_and_selection() {
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1300.0, 900.0])
+        .build_ui_state(
+            |ui, st: &mut (Data, views::HistoryView, u32)| {
+                if views::app_history(ui, &st.0, &mut st.1) {
+                    st.2 += 1;
+                }
+            },
+            (data(), views::HistoryView::default(), 0),
+        );
+    h.run();
+    h.get_by_label("7 days").click();
+    h.run();
+    assert_eq!(h.state().1.hours, 168);
+    for sort in ["CPU time", "Peak memory", "Memory growth", "Avg CPU"] {
+        // The sort buttons come before the identically named table headers.
+        h.get_all_by_label(sort).next().unwrap().click();
+        h.run();
+    }
+    h.get_by_label("alpha.exe").click();
+    h.run_steps(3);
+    assert_eq!(h.state().1.selected.as_deref(), Some("alpha.exe"));
+    assert!(h.state().2 >= 2);
+
+    // Error / loading states.
+    h.state_mut().0.app_history = Some(Err("no service".into()));
+    h.run();
+    assert!(h.query_by_label("no service").is_some());
+    h.state_mut().0.app_history = None;
+    h.run_steps(2);
+}
+
+#[test]
+fn backend_describe_covers_every_command() {
+    use wtm_core::control::Limits;
+    for c in [
+        Command::Kill,
+        Command::KillTree,
+        Command::Suspend,
+        Command::Resume,
+        Command::Priority(PriorityClass::High),
+        Command::Affinity(3),
+        Command::EcoQos(EcoQos::On),
+        Command::Limit(Limits {
+            cpu_percent: Some(5.0),
+            memory_bytes: Some(1 << 30),
+        }),
+        Command::Unlimit,
+    ] {
+        assert!(!crate::backend::describe(c).is_empty());
+    }
+}

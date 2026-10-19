@@ -656,3 +656,142 @@ fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCom
     ui.separator();
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    use crate::ui_tests::data;
+
+    #[test]
+    fn full_app_navigates_every_tab() {
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1300.0, 850.0])
+            .build_eframe(|cc| App::new(cc));
+        for _ in 0..100 {
+            h.step();
+            if h.state().backend.data().snapshot.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            h.state().backend.data().snapshot.is_some(),
+            "no snapshot from backend"
+        );
+
+        for tab in [
+            "Performance",
+            "Governor",
+            "App history",
+            "Startup apps",
+            "Users",
+            "Services",
+            "Network",
+            "Events",
+            "Processes",
+        ] {
+            h.get_by_label(tab).click();
+            h.run_steps(2);
+            // Let the backend answer the tab's load request.
+            std::thread::sleep(Duration::from_millis(200));
+            h.run_steps(2);
+        }
+
+        // Select our own process, open its details, ask to end it and cancel.
+        let me = std::process::id();
+        h.state_mut().state.processes.search = me.to_string();
+        h.run_steps(2);
+        let name = std::env::current_exe()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        h.get_by_label(&name).click();
+        h.run_steps(2);
+        std::thread::sleep(Duration::from_millis(300));
+        h.run_steps(2);
+        assert_eq!(
+            h.state().state.processes.selected.as_ref().map(|r| r.pid),
+            Some(me)
+        );
+        h.key_press(egui::Key::Delete);
+        h.run_steps(2);
+        assert!(h.state().state.confirm.is_some());
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(h.state().state.confirm.is_none());
+    }
+
+    #[test]
+    fn panels_render_with_synthetic_data() {
+        let mut d = data();
+        let sel = d.details.as_ref().unwrap().0.clone();
+        let snap = d.snapshot.clone().unwrap();
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 1600.0])
+            .build_ui(|ui| {
+                let mut intents = Vec::new();
+                ui.columns(2, |cols| {
+                    details_panel(&mut cols[0], &d, &snap, &sel, &mut intents);
+                    governor(&mut cols[0], &d);
+                    let _ = service_bar(&mut cols[0], &d, Some("Spooler"));
+                    let _ = service_bar(&mut cols[0], &d, None);
+                    for mode in [
+                        Mode::Starting,
+                        Mode::Local,
+                        Mode::Service {
+                            admin: true,
+                            verified: true,
+                        },
+                        Mode::Service {
+                            admin: false,
+                            verified: true,
+                        },
+                        Mode::Service {
+                            admin: true,
+                            verified: false,
+                        },
+                    ] {
+                        mode_badge(&mut cols[0], mode);
+                    }
+                    performance(&mut cols[1], &d);
+                    events(&mut cols[1], &d);
+                });
+            });
+        h.run_steps(3);
+        assert!(
+            h.query_by_label("Dry-run (decisions are only logged)")
+                .is_some()
+        );
+        assert!(h.query_by_label(r"C:\Apps\alpha.exe").is_some());
+        drop(h);
+
+        // Empty states.
+        d.status = None;
+        d.events.clear();
+        d.snapshot = None;
+        let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
+            governor(ui, &d);
+            events(ui, &d);
+            performance(ui, &d);
+        });
+        h.run_steps(2);
+        assert!(h.query_by_label("Service not running").is_some());
+        assert!(h.query_by_label("No events yet.").is_some());
+    }
+
+    #[test]
+    fn uptime_formats_days_and_hours() {
+        assert_eq!(uptime(None), "n/a");
+        let start = SystemTime::now() - Duration::from_secs(2 * 86_400 + 3 * 3600 + 4 * 60);
+        assert!(uptime(Some(start)).starts_with("2d 03h 04m"));
+        let start = SystemTime::now() - Duration::from_secs(3661);
+        assert!(uptime(Some(start)).starts_with("1h 01m 0"));
+    }
+}

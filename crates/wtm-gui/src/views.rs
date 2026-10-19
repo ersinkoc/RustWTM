@@ -119,7 +119,9 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
         .collect();
 
     let row_height = ui.spacing().interact_size.y;
+    ui.style_mut().interaction.selectable_labels = false;
     TableBuilder::new(ui)
+        .id_salt("network_table")
         .striped(true)
         .resizable(true)
         .cell_layout(Layout::left_to_right(Align::Center))
@@ -201,7 +203,9 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
 
     let mut clicked = None;
     let row_height = ui.spacing().interact_size.y;
+    ui.style_mut().interaction.selectable_labels = false;
     TableBuilder::new(ui)
+        .id_salt("services_table")
         .striped(true)
         .resizable(true)
         .sense(egui::Sense::click())
@@ -368,7 +372,9 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         .id_salt("history_table")
         .max_height(table_height)
         .show(ui, |ui| {
+            ui.style_mut().interaction.selectable_labels = false;
             TableBuilder::new(ui)
+                .id_salt("history_table_rows")
                 .striped(true)
                 .resizable(true)
                 .sense(egui::Sense::click())
@@ -511,7 +517,9 @@ pub fn startup(
     ui.separator();
 
     let row_height = ui.spacing().interact_size.y;
+    ui.style_mut().interaction.selectable_labels = false;
     TableBuilder::new(ui)
+        .id_salt("startup_table")
         .striped(true)
         .resizable(true)
         .sense(egui::Sense::click())
