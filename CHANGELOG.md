@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- MSI package (WiX) attached to every release: installs the service with
+  failure recovery, PATH entry and Start Menu shortcut.
 - Headless GUI tests (egui_kittest), engine/IPC end-to-end tests and CLI
   integration tests; workspace line coverage is above 80%.
 

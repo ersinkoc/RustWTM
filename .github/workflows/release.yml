@@ -38,6 +38,18 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 "dist/$env:ASSET").Hash.ToLowerInvariant()
           Set-Content -Path "dist/$env:ASSET.sha256" -Value "$hash  $env:ASSET" -NoNewline
 
+      - name: MSI
+        shell: pwsh
+        run: |
+          dotnet tool restore
+          dotnet wix extension add WixToolset.Util.wixext/5.0.2
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $msi = "RustWTM-$version-x64.msi"
+          dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=$version -d BinDir=target/release -o "dist/$msi"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$msi").Hash.ToLowerInvariant()
+          Set-Content -Path "dist/$msi.sha256" -Value "$hash  $msi" -NoNewline
+
       - name: Release notes
         shell: pwsh
         run: |
@@ -53,3 +65,5 @@ jobs:
           files: |
             dist/${{ env.ASSET }}
             dist/${{ env.ASSET }}.sha256
+            dist/*.msi
+            dist/*.msi.sha256

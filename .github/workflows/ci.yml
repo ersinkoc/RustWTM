@@ -44,7 +44,7 @@ jobs:
       - name: Lint PowerShell scripts
         shell: pwsh
         run: |
-          foreach ($f in Get-ChildItem scripts -Filter *.ps1) {
+          foreach ($f in Get-ChildItem scripts -Recurse -Filter *.ps1) {
             $errors = $null
             [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
             if ($errors) { $errors | ForEach-Object { Write-Error "$($f.Name): $($_.Message)" }; exit 1 }
@@ -82,3 +82,51 @@ jobs:
         with:
           name: lcov
           path: lcov.info
+
+  # The runner is an elevated, disposable VM: install for real and verify.
+  msi:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          dotnet tool restore
+          dotnet wix extension add WixToolset.Util.wixext/5.0.2
+          dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.0.1 -d BinDir=target/debug -o dist/RustWTM-test.msi
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Install, verify, uninstall
+        shell: pwsh
+        run: scripts/ci/verify-install.ps1 -Mode msi -Msi dist/RustWTM-test.msi
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: msi-logs
+          path: |
+            *.log
+            C:/ProgramData/RustWTM/logs/
+
+  install-script:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install from source, verify, uninstall
+        shell: pwsh
+        run: scripts/ci/verify-install.ps1 -Mode script

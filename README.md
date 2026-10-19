@@ -69,6 +69,19 @@ Options (download the script first to pass them):
 .\install.ps1 -DownloadOnly -InstallDir D:\Tools\RustWTM   # portable, no admin needed
 ```
 
+### MSI package
+
+Each release also ships `RustWTM-<version>-x64.msi` (with a `.sha256`). It
+installs to `C:\Program Files\RustWTM`, registers and starts the service
+(with automatic restart on failure), adds the folder to `PATH` and creates a
+Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
+history in `%ProgramData%\RustWTM` are kept.
+
+```powershell
+msiexec /i RustWTM-0.1.1-x64.msi            # interactive
+msiexec /i RustWTM-0.1.1-x64.msi /qn        # silent
+```
+
 ### Uninstall
 
 ```powershell

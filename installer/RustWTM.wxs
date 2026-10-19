@@ -1,0 +1,98 @@
+<!--
+  RustWTM MSI package (WiX Toolset 5).
+
+  Build after a release build of the workspace:
+    dotnet tool restore
+    dotnet wix extension add WixToolset.Util.wixext/5.0.2
+    dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.1.1 -d BinDir=target/release -o dist/RustWTM-0.1.1-x64.msi
+  (XML comments cannot contain two consecutive hyphens, hence no flags here.)
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="RustWTM"
+           Manufacturer="Ersin KOÇ"
+           Version="$(Version)"
+           UpgradeCode="31A0E74F-195E-4454-8EFF-60024395D197"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of RustWTM is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/ersinkoc/RustWTM" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/ersinkoc/RustWTM/issues" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="RustWTM">
+
+        <Component Id="Gui">
+          <File Id="GuiExe" Source="$(BinDir)\rustwtm.exe" KeyPath="yes" />
+        </Component>
+
+        <Component Id="Cli">
+          <File Id="CliExe" Source="$(BinDir)\wtm.exe" KeyPath="yes" />
+        </Component>
+
+        <Component Id="Service">
+          <File Id="ServiceExe" Source="$(BinDir)\wtm-service.exe" KeyPath="yes" />
+          <ServiceInstall Id="RustWTMService"
+                          Name="RustWTM"
+                          DisplayName="RustWTM Governor"
+                          Description="Keeps the system responsive by throttling processes that overload the CPU."
+                          Type="ownProcess"
+                          Start="auto"
+                          ErrorControl="normal"
+                          Account="LocalSystem"
+                          Arguments="service">
+            <!-- Restart on failure; reset the failure count after a day. -->
+            <util:ServiceConfig FirstFailureActionType="restart"
+                                SecondFailureActionType="restart"
+                                ThirdFailureActionType="restart"
+                                RestartServiceDelayInSeconds="5"
+                                ResetPeriodInDays="1" />
+          </ServiceInstall>
+          <!-- Stopping the service rolls back every limit it applied. -->
+          <ServiceControl Id="RustWTMServiceControl" Name="RustWTM" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+        </Component>
+
+        <Component Id="Readme">
+          <File Id="ReadmeFile" Source="README.md" KeyPath="yes" />
+        </Component>
+        <Component Id="License">
+          <File Id="LicenseFile" Source="LICENSE" KeyPath="yes" />
+        </Component>
+        <Component Id="Changelog">
+          <File Id="ChangelogFile" Source="CHANGELOG.md" KeyPath="yes" />
+        </Component>
+
+        <Component Id="PathEntry">
+          <Environment Id="PathAppend" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="yes" />
+          <RegistryValue Root="HKLM" Key="Software\RustWTM" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        </Component>
+
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut Id="GuiShortcut"
+                  Name="RustWTM"
+                  Description="RustWTM task manager"
+                  Target="[INSTALLFOLDER]rustwtm.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\RustWTM" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="RustWTM">
+      <ComponentRef Id="Gui" />
+      <ComponentRef Id="Cli" />
+      <ComponentRef Id="Service" />
+      <ComponentRef Id="Readme" />
+      <ComponentRef Id="License" />
+      <ComponentRef Id="Changelog" />
+      <ComponentRef Id="PathEntry" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>
