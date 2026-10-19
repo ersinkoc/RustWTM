@@ -182,3 +182,26 @@ fn job_hard_cap_throttles_busy_process() {
         "lifted {lifted}% should exceed capped {capped}%"
     );
 }
+
+#[test]
+fn memory_only_limit_and_lift() {
+    let child = spawn_cmd("ping -n 60 127.0.0.1");
+    let target = find(child.0.id());
+    let mut limiter = Limiter::new();
+    let only_memory = Limits {
+        cpu_percent: None,
+        memory_bytes: Some(512 << 20),
+    };
+    limiter.apply(&target, only_memory).unwrap();
+    // Switch to CPU only, then lift everything.
+    limiter
+        .apply(
+            &target,
+            Limits {
+                cpu_percent: Some(25.0),
+                memory_bytes: None,
+            },
+        )
+        .unwrap();
+    limiter.lift(&target).unwrap();
+}

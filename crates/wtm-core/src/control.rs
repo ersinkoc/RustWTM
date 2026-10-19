@@ -51,11 +51,19 @@ pub enum ControlError {
 }
 
 impl ControlError {
+    /// For failures of OpenProcess, which reports a missing PID as an
+    /// invalid parameter.
+    fn from_open(pid: u32, source: wtm_sys::Error) -> Self {
+        if source.is_invalid_parameter() {
+            Self::NotFound { pid }
+        } else {
+            Self::from_sys(pid, source)
+        }
+    }
+
     fn from_sys(pid: u32, source: wtm_sys::Error) -> Self {
         if source.is_access_denied() {
             Self::AccessDenied { pid }
-        } else if source.is_invalid_parameter() {
-            Self::NotFound { pid }
         } else {
             Self::Sys { pid, source }
         }
@@ -73,14 +81,15 @@ pub fn enable_debug_privilege() -> bool {
 /// responsive under load). Bypasses the self-protection rule by design.
 pub fn set_own_priority(priority: PriorityClass) -> ControlResult<()> {
     let pid = std::process::id();
-    let h = sys(pid, ProcessHandle::open(pid, Access::SET_INFORMATION))?;
+    let h = ProcessHandle::open(pid, Access::SET_INFORMATION)
+        .map_err(|e| ControlError::from_open(pid, e))?;
     sys(pid, h.set_priority(priority))
 }
 
 fn open_verified(target: &ProcessRef, access: Access) -> ControlResult<ProcessHandle> {
     let pid = target.pid;
     let handle = ProcessHandle::open(pid, access | Access::QUERY)
-        .map_err(|e| ControlError::from_sys(pid, e))?;
+        .map_err(|e| ControlError::from_open(pid, e))?;
     if target.create_time != 0 {
         let created = handle
             .create_time()
@@ -202,7 +211,8 @@ pub struct Limits {
 /// changed or lifted later. Dropping the limiter leaves limits in place.
 #[derive(Debug, Default)]
 pub struct Limiter {
-    jobs: HashMap<(u32, i64), (ProcessRef, Job)>,
+    /// Job handle and the limits currently set on it.
+    jobs: HashMap<(u32, i64), (ProcessRef, Job, Limits)>,
 }
 
 impl Limiter {
@@ -211,31 +221,45 @@ impl Limiter {
     }
 
     pub fn limited(&self) -> impl Iterator<Item = &ProcessRef> {
-        self.jobs.values().map(|(r, _)| r)
+        self.jobs.values().map(|(r, _, _)| r)
     }
 
     /// Sets exactly `limits` on the target, replacing earlier ones.
     pub fn apply(&mut self, target: &ProcessRef, limits: Limits) -> ControlResult<()> {
         let pid = target.pid;
-        let (_, job) = match self.jobs.entry((pid, target.create_time)) {
+        let (_, job, current) = match self.jobs.entry((pid, target.create_time)) {
             Entry::Occupied(e) => e.into_mut(),
             Entry::Vacant(e) => {
                 let h = open_controlled(target, Access::SET_QUOTA | Access::TERMINATE)?;
                 let job = sys(pid, Job::create())?;
                 sys(pid, job.assign(&h))?;
-                e.insert((target.clone(), job))
+                e.insert((target.clone(), job, Limits::default()))
             }
         };
-        sys(pid, job.set_cpu_cap(limits.cpu_percent))?;
-        sys(pid, job.set_process_memory_limit(limits.memory_bytes))
+        // Only touch what changed: disabling a CPU cap that was never enabled
+        // is rejected by Windows.
+        if limits.cpu_percent != current.cpu_percent {
+            sys(pid, job.set_cpu_cap(limits.cpu_percent))?;
+            current.cpu_percent = limits.cpu_percent;
+        }
+        if limits.memory_bytes != current.memory_bytes {
+            sys(pid, job.set_process_memory_limit(limits.memory_bytes))?;
+            current.memory_bytes = limits.memory_bytes;
+        }
+        Ok(())
     }
 
     pub fn lift(&mut self, target: &ProcessRef) -> ControlResult<()> {
-        let Some((_, job)) = self.jobs.remove(&(target.pid, target.create_time)) else {
+        let Some((_, job, current)) = self.jobs.remove(&(target.pid, target.create_time)) else {
             return Ok(());
         };
-        sys(target.pid, job.set_cpu_cap(None))?;
-        sys(target.pid, job.set_process_memory_limit(None))
+        if current.cpu_percent.is_some() {
+            sys(target.pid, job.set_cpu_cap(None))?;
+        }
+        if current.memory_bytes.is_some() {
+            sys(target.pid, job.set_process_memory_limit(None))?;
+        }
+        Ok(())
     }
 
     /// Drops the job handle without lifting limits (e.g. the process exited).

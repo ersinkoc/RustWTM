@@ -377,3 +377,235 @@ mod tests {
         assert_eq!(Effective::fold(&[]).summary(), "none");
     }
 }
+
+#[cfg(test)]
+mod process_tests {
+    use super::*;
+    use std::os::windows::process::CommandExt;
+    use std::process::{Child, Command, Stdio};
+    use wtm_core::Sampler;
+
+    struct Guard(Child);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn spawn() -> (Guard, ProcessRef) {
+        let child = Command::new("cmd.exe")
+            .raw_arg("/d /c ping -n 60 127.0.0.1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        for _ in 0..100 {
+            if let Some(p) = Sampler::new()
+                .sample()
+                .unwrap()
+                .processes
+                .iter()
+                .find(|p| p.pid == pid)
+            {
+                return (Guard(child), p.into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("child never appeared");
+    }
+
+    fn apply(
+        e: &mut Executor,
+        source: Source,
+        t: &ProcessRef,
+        action: Action,
+    ) -> Result<(), String> {
+        e.execute(&Decision::Apply {
+            source,
+            target: t.clone(),
+            action,
+            reason: "test".into(),
+        })
+    }
+
+    fn restore(e: &mut Executor, source: Source, t: &ProcessRef) -> Result<(), String> {
+        e.execute(&Decision::Restore {
+            source,
+            target: t.clone(),
+            reason: "test".into(),
+        })
+    }
+
+    fn priority(t: &ProcessRef) -> Option<PriorityClass> {
+        control::inspect(t).unwrap().priority
+    }
+
+    #[test]
+    fn sources_compose_and_roll_back_independently() {
+        let (_child, t) = spawn();
+        let events = EventLog::default();
+        let mut e = Executor::new(false, events.clone());
+
+        apply(
+            &mut e,
+            Source::Governor,
+            &t,
+            Action::Priority(PriorityLevel::BelowNormal),
+        )
+        .unwrap();
+        apply(
+            &mut e,
+            Source::Rule,
+            &t,
+            Action::Priority(PriorityLevel::Idle),
+        )
+        .unwrap();
+        apply(&mut e, Source::Rule, &t, Action::EcoQos).unwrap();
+        apply(&mut e, Source::Manual, &t, Action::CpuCap(50.0)).unwrap();
+        assert_eq!(priority(&t), Some(PriorityClass::Idle));
+        assert_eq!(control::inspect(&t).unwrap().eco_qos, Some(EcoQos::On));
+
+        let managed = e.managed();
+        assert_eq!(managed.len(), 1);
+        assert_eq!(
+            managed[0].sources,
+            [Source::Governor, Source::Rule, Source::Manual]
+        );
+        assert!(
+            managed[0].summary.contains("Idle"),
+            "{}",
+            managed[0].summary
+        );
+
+        // The governor rolling back keeps the rule's stricter priority.
+        restore(&mut e, Source::Governor, &t).unwrap();
+        assert_eq!(priority(&t), Some(PriorityClass::Idle));
+        // Rule gone: back to the original priority; eco reverts.
+        restore(&mut e, Source::Rule, &t).unwrap();
+        assert_eq!(priority(&t), Some(PriorityClass::Normal));
+        assert_eq!(
+            control::inspect(&t).unwrap().eco_qos,
+            Some(EcoQos::SystemManaged)
+        );
+        // Restoring a source that never acted is a no-op.
+        restore(&mut e, Source::Insight, &t).unwrap();
+
+        e.restore_all("test end");
+        assert!(e.managed().is_empty());
+        assert!(
+            events
+                .after(0)
+                .iter()
+                .any(|ev| ev.message.contains("restored"))
+        );
+    }
+
+    #[test]
+    fn suspend_memory_cap_and_kill() {
+        let (mut child, t) = spawn();
+        let mut e = Executor::new(false, EventLog::default());
+        apply(&mut e, Source::Rule, &t, Action::Suspend).unwrap();
+        apply(&mut e, Source::Rule, &t, Action::MemoryCapMb(512)).unwrap();
+        assert!(e.managed()[0].summary.contains("suspended"));
+        restore(&mut e, Source::Rule, &t).unwrap();
+        assert!(e.managed().is_empty());
+
+        apply(
+            &mut e,
+            Source::Governor,
+            &t,
+            Action::Priority(PriorityLevel::Idle),
+        )
+        .unwrap();
+        let events = e.events.clone();
+        apply(&mut e, Source::Rule, &t, Action::Kill).unwrap();
+        assert_eq!(child.0.wait().unwrap().code(), Some(1));
+        assert!(e.managed().is_empty(), "kill forgets the process");
+        assert!(
+            events.after(0).iter().any(|ev| ev.notify),
+            "kill is notable"
+        );
+    }
+
+    #[test]
+    fn dry_run_logs_only_and_switching_rolls_back() {
+        let (_child, t) = spawn();
+        let events = EventLog::default();
+        let mut e = Executor::new(true, events.clone());
+        apply(
+            &mut e,
+            Source::Governor,
+            &t,
+            Action::Priority(PriorityLevel::Idle),
+        )
+        .unwrap();
+        restore(&mut e, Source::Governor, &t).unwrap();
+        assert_eq!(priority(&t), Some(PriorityClass::Normal));
+        assert!(
+            events
+                .after(0)
+                .iter()
+                .any(|ev| ev.message.starts_with("dry-run: would apply"))
+        );
+        assert!(
+            events
+                .after(0)
+                .iter()
+                .any(|ev| ev.message.starts_with("dry-run: would restore"))
+        );
+
+        // Manual actions run even in dry-run.
+        apply(
+            &mut e,
+            Source::Manual,
+            &t,
+            Action::Priority(PriorityLevel::BelowNormal),
+        )
+        .unwrap();
+        assert_eq!(priority(&t), Some(PriorityClass::BelowNormal));
+
+        // Enforcing, then back to dry-run: automatic sources roll back, manual stays.
+        e.set_dry_run(false);
+        apply(
+            &mut e,
+            Source::Rule,
+            &t,
+            Action::Priority(PriorityLevel::Idle),
+        )
+        .unwrap();
+        assert_eq!(priority(&t), Some(PriorityClass::Idle));
+        e.set_dry_run(true);
+        assert_eq!(priority(&t), Some(PriorityClass::BelowNormal));
+        assert_eq!(e.managed()[0].sources, [Source::Manual]);
+    }
+
+    #[test]
+    fn exited_processes_are_forgotten_and_failures_reported() {
+        let (child, t) = spawn();
+        let mut e = Executor::new(false, EventLog::default());
+        apply(&mut e, Source::Manual, &t, Action::CpuCap(20.0)).unwrap();
+        drop(child);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        e.forget_exited(&Sampler::new().sample().unwrap());
+        assert!(e.managed().is_empty());
+
+        // A protected process is refused and the failure is reported.
+        let system = ProcessRef {
+            pid: 4,
+            create_time: 0,
+            name: "System".into(),
+        };
+        assert!(
+            apply(
+                &mut e,
+                Source::Manual,
+                &system,
+                Action::Priority(PriorityLevel::Idle)
+            )
+            .is_err()
+        );
+    }
+}
