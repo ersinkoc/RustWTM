@@ -516,4 +516,105 @@ mod tests {
         );
         assert!(p.tick(&[proc(1, "leaky.exe")], &cfg).is_empty());
     }
+
+    #[test]
+    fn summarize_without_trend_has_zero_slope_and_fit() {
+        // A single minute has no time variance.
+        let s = summarize("one.exe", &[row(5, 3.0, 100)], 4).unwrap();
+        assert_eq!((s.mem_growth_per_hour, s.mem_growth_fit), (0.0, 0.0));
+        assert_eq!(s.cpu_p95, 3.0);
+        // Flat memory over time: no memory variance, so no fit either.
+        let flat: Vec<MinuteRow> = (0..10).map(|m| row(m, 1.0, 100)).collect();
+        let s = summarize("flat.exe", &flat, 4).unwrap();
+        assert_eq!((s.mem_growth_per_hour, s.mem_growth_fit), (0.0, 0.0));
+    }
+
+    #[test]
+    fn validate_rejects_bad_settings() {
+        let ok = InsightsConfig::default();
+        assert!(ok.validate().is_ok());
+        let bad = [
+            InsightsConfig {
+                window_hours: 0,
+                ..ok.clone()
+            },
+            InsightsConfig {
+                evaluate_every_minutes: 0,
+                ..ok.clone()
+            },
+            InsightsConfig {
+                chronic_cpu_percent: -1.0,
+                ..ok.clone()
+            },
+            InsightsConfig {
+                chronic_gpu_percent: 100.5,
+                ..ok.clone()
+            },
+            InsightsConfig {
+                growth_actions: vec![Action::CpuCapRelative(0.5)],
+                ..ok.clone()
+            },
+            InsightsConfig {
+                chronic_gpu_actions: vec![Action::MemoryCapMb(0)],
+                ..ok.clone()
+            },
+        ];
+        let errors: Vec<String> = bad.iter().map(|c| c.validate().unwrap_err()).collect();
+        assert_eq!(
+            errors,
+            [
+                "window_hours and evaluate_every_minutes must be positive",
+                "window_hours and evaluate_every_minutes must be positive",
+                "chronic_cpu_percent must be within 0..=100",
+                "chronic_gpu_percent must be within 0..=100",
+                "cpu_cap_relative is not supported for insights; use cpu_cap",
+                "memory_cap_mb must be positive",
+            ]
+        );
+    }
+
+    #[test]
+    fn chronic_gpu_is_flagged_listed_and_acted_on() {
+        let mut gpu_hog = stats("render.exe", 300, 1.0, 0.0, 100);
+        gpu_hog.gpu_avg = 45.0;
+        gpu_hog.gpu_p95 = 80.0;
+        let cfg = InsightsConfig {
+            chronic_gpu_actions: vec![Action::Suspend],
+            ..InsightsConfig::default()
+        };
+        let found = analyze(&[gpu_hog, stats("calm.exe", 300, 1.0, 0.0, 100)], &cfg);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].kind, FindingKind::ChronicGpu);
+        assert_eq!(
+            found[0].detail,
+            "average GPU 45.0% (p95 80.0%) over 300 min"
+        );
+
+        let mut p = InsightPolicy::new();
+        assert!(p.findings().is_empty());
+        p.update(found.clone(), &cfg);
+        assert_eq!(p.findings(), found);
+        let d = p.tick(&[proc(7, "render.exe")], &cfg);
+        assert!(matches!(
+            d.as_slice(),
+            [Decision::Apply { action: Action::Suspend, reason, .. }]
+                if reason.starts_with("ChronicGpu: ")
+        ));
+    }
+
+    #[test]
+    fn findings_are_sorted_by_app() {
+        let mut p = InsightPolicy::new();
+        let f = |app: &str| Finding {
+            app: app.into(),
+            kind: FindingKind::ChronicCpu,
+            detail: String::new(),
+        };
+        p.update(
+            vec![f("b.exe"), f("a.exe"), f("c.exe")],
+            &InsightsConfig::default(),
+        );
+        let apps: Vec<String> = p.findings().into_iter().map(|f| f.app).collect();
+        assert_eq!(apps, ["a.exe", "b.exe", "c.exe"]);
+    }
 }

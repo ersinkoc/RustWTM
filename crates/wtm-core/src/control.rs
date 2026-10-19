@@ -278,3 +278,40 @@ impl Limiter {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const STATUS_ACCESS_DENIED: u32 = 0xC000_0022;
+    const STATUS_INVALID_PARAMETER: u32 = 0xC000_000D;
+    const STATUS_UNSUCCESSFUL: u32 = 0xC000_0001;
+
+    fn nt(status: u32) -> wtm_sys::Error {
+        wtm_sys::Error::Nt { call: "x", status }
+    }
+
+    #[test]
+    fn classifies_open_and_call_failures() {
+        assert!(matches!(
+            ControlError::from_open(7, nt(STATUS_INVALID_PARAMETER)),
+            ControlError::NotFound { pid: 7 }
+        ));
+        assert!(matches!(
+            ControlError::from_open(7, nt(STATUS_ACCESS_DENIED)),
+            ControlError::AccessDenied { pid: 7 }
+        ));
+        // Outside OpenProcess an invalid parameter is a plain failure.
+        let e = ControlError::from_sys(7, nt(STATUS_INVALID_PARAMETER));
+        assert!(matches!(e, ControlError::Sys { pid: 7, .. }));
+        let e = ControlError::from_open(7, nt(STATUS_UNSUCCESSFUL));
+        assert_eq!(
+            e.to_string(),
+            "process 7: x failed with NTSTATUS 0xc0000001"
+        );
+        assert_eq!(
+            ControlError::AccessDenied { pid: 7 }.to_string(),
+            "access denied to process 7 (try an elevated prompt)"
+        );
+    }
+}

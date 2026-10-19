@@ -102,36 +102,49 @@ impl GpuSampler {
             PdhCollectQueryData(self.query)
         })?;
 
-        // Sum per (pid, engine type), then take the busiest type per process.
-        let mut by_engine: HashMap<(u32, String), f64> = HashMap::new();
-        let mut totals: HashMap<String, f64> = HashMap::new();
+        let mut engine = Vec::new();
         read_array(self.engine, PDH_FMT_DOUBLE, |name, item| {
-            let Some((pid, engtype)) = parse_engine_instance(name) else {
-                return;
-            };
             // SAFETY: requested as PDH_FMT_DOUBLE.
-            let v = unsafe { item.FmtValue.Anonymous.doubleValue };
-            *by_engine.entry((pid, engtype.to_owned())).or_default() += v;
-            *totals.entry(engtype.to_owned()).or_default() += v;
+            engine.push((name, unsafe { item.FmtValue.Anonymous.doubleValue }));
         })?;
-
-        let mut out = GpuSample::default();
-        for ((pid, _), v) in by_engine {
-            let e = out.per_process.entry(pid).or_default();
-            e.percent = e.percent.max(v.min(100.0) as f32);
-        }
-        out.total_percent = totals.values().fold(0.0f64, |a, b| a.max(*b)).min(100.0) as f32;
-
+        let mut memory = Vec::new();
         read_array(self.memory, PDH_FMT_LARGE, |name, item| {
-            let Some(pid) = parse_pid(name) else {
-                return;
-            };
             // SAFETY: requested as PDH_FMT_LARGE.
-            let v = unsafe { item.FmtValue.Anonymous.largeValue }.max(0) as u64;
-            out.per_process.entry(pid).or_default().dedicated_bytes += v;
+            memory.push((name, unsafe { item.FmtValue.Anonymous.largeValue }));
         })?;
-        Ok(out)
+        Ok(aggregate(&engine, &memory))
     }
+}
+
+/// Builds a sample from raw `(instance name, value)` pairs of the engine
+/// utilization and dedicated memory counters. Instances whose names carry
+/// no PID are skipped.
+fn aggregate(engine: &[(String, f64)], memory: &[(String, i64)]) -> GpuSample {
+    // Sum per (pid, engine type), then take the busiest type per process.
+    let mut by_engine: HashMap<(u32, &str), f64> = HashMap::new();
+    let mut totals: HashMap<&str, f64> = HashMap::new();
+    for (name, v) in engine {
+        let Some((pid, engtype)) = parse_engine_instance(name) else {
+            continue;
+        };
+        *by_engine.entry((pid, engtype)).or_default() += v;
+        *totals.entry(engtype).or_default() += v;
+    }
+
+    let mut out = GpuSample::default();
+    for ((pid, _), v) in by_engine {
+        let e = out.per_process.entry(pid).or_default();
+        e.percent = e.percent.max(v.min(100.0) as f32);
+    }
+    out.total_percent = totals.values().fold(0.0f64, |a, b| a.max(*b)).min(100.0) as f32;
+
+    for (name, v) in memory {
+        let Some(pid) = parse_pid(name) else {
+            continue;
+        };
+        out.per_process.entry(pid).or_default().dedicated_bytes += (*v).max(0) as u64;
+    }
+    out
 }
 
 impl Drop for GpuSampler {
@@ -145,7 +158,7 @@ impl Drop for GpuSampler {
 fn read_array(
     counter: PDH_HCOUNTER,
     format: PDH_FMT,
-    mut f: impl FnMut(&str, &PDH_FMT_COUNTERVALUE_ITEM_W),
+    mut f: impl FnMut(String, &PDH_FMT_COUNTERVALUE_ITEM_W),
 ) -> Result<()> {
     let mut size = 0u32;
     let mut count = 0u32;
@@ -178,7 +191,7 @@ fn read_array(
         }
         // SAFETY: instance names are NUL-terminated strings inside `buf`.
         if let Ok(name) = unsafe { item.szName.to_string() } {
-            f(&name, item);
+            f(name, item);
         }
     }
     Ok(())
@@ -211,6 +224,119 @@ mod tests {
         );
         assert_eq!(parse_pid("pid_42_luid_0x0_0x1_phys_0"), Some(42));
         assert_eq!(parse_pid("_Total"), None);
+    }
+
+    #[test]
+    fn aggregates_busiest_engine_and_memory_per_process() {
+        let inst = |pid: u32, eng: u32, ty: &str| {
+            format!("pid_{pid}_luid_0x0_0x1_phys_0_eng_{eng}_engtype_{ty}")
+        };
+        let engine = [
+            // Two 3D engines of one process add up.
+            (inst(1, 0, "3D"), 30.0),
+            (inst(1, 1, "3D"), 20.0),
+            (inst(1, 2, "Copy"), 10.0),
+            (inst(2, 0, "3D"), 70.0),
+            (inst(3, 0, "VideoDecode"), 150.0),
+            ("_Total".to_owned(), 99.0),
+        ];
+        let memory = [
+            ("pid_1_luid_0x0_0x1_phys_0".to_owned(), 1024),
+            ("pid_4_luid_0x0_0x1_phys_0".to_owned(), -5),
+            ("junk".to_owned(), 7),
+        ];
+        let s = aggregate(&engine, &memory);
+        let get = |pid| s.per_process.get(&pid).copied();
+        assert_eq!(
+            get(1),
+            Some(GpuUsage {
+                percent: 50.0,
+                dedicated_bytes: 1024
+            })
+        );
+        assert_eq!(get(2).map(|u| u.percent), Some(70.0));
+        // Per-process and total values are capped at 100%.
+        assert_eq!(get(3).map(|u| u.percent), Some(100.0));
+        assert_eq!(s.total_percent, 100.0);
+        // Negative counter values clamp to zero.
+        assert_eq!(get(4), Some(GpuUsage::default()));
+        assert_eq!(s.per_process.len(), 4);
+    }
+
+    #[test]
+    fn pdh_failures_become_errors() {
+        assert!(pdh("x", 0).is_ok());
+        assert!(matches!(
+            pdh("x", 0xC000_07D2),
+            Err(Error::Nt {
+                call: "x",
+                status: 0xC000_07D2
+            })
+        ));
+        // PDH validates handles, so a null counter is rejected cleanly.
+        let mut calls = 0;
+        let r = read_array(PDH_HCOUNTER::default(), PDH_FMT_DOUBLE, |_, _| calls += 1);
+        assert!(r.is_err());
+        assert_eq!(calls, 0);
+    }
+
+    #[test]
+    fn reads_wildcard_counter_arrays() {
+        let mut query = PDH_HQUERY::default();
+        // SAFETY: real-time query; `query` receives the handle.
+        pdh("PdhOpenQueryW", unsafe {
+            PdhOpenQueryW(PCWSTR::null(), 0, &mut query)
+        })
+        .unwrap();
+        let mut counter = PDH_HCOUNTER::default();
+        // SAFETY: valid query; static, NUL-terminated counter path. Unlike
+        // the GPU counters, this one exists on every machine.
+        let added = pdh("PdhAddEnglishCounterW", unsafe {
+            PdhAddEnglishCounterW(
+                query,
+                w!(r"\Processor(*)\% Processor Time"),
+                0,
+                &mut counter,
+            )
+        });
+        let collect = || {
+            // SAFETY: valid query.
+            pdh("PdhCollectQueryData", unsafe { PdhCollectQueryData(query) })
+        };
+        // A rate counter needs two samples before it has a value.
+        let first = collect();
+        let before = read_array(counter, PDH_FMT_DOUBLE, |_, _| {});
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let second = collect();
+        let mut names = Vec::new();
+        let after = read_array(counter, PDH_FMT_DOUBLE, |name, item| {
+            // SAFETY: requested as PDH_FMT_DOUBLE.
+            let v = unsafe { item.FmtValue.Anonymous.doubleValue };
+            names.push((name, v));
+        });
+        // SAFETY: we own the query; closing it also frees its counter.
+        unsafe { PdhCloseQuery(query) };
+
+        added.unwrap();
+        first.unwrap();
+        second.unwrap();
+        // With a single sample PDH rejects the whole array.
+        assert!(before.is_err());
+        after.unwrap();
+        assert!(names.iter().any(|(n, _)| n == "_Total"), "{names:?}");
+        assert!(names.iter().all(|(_, v)| (0.0..=100.0).contains(v)));
+    }
+
+    #[test]
+    fn debug_hides_raw_handles() {
+        let s = GpuSampler {
+            query: PDH_HQUERY::default(),
+            engine: PDH_HCOUNTER::default(),
+            memory: PDH_HCOUNTER::default(),
+        };
+        assert_eq!(format!("{s:?}"), "GpuSampler");
+        // Null handles: skip Drop so no close is attempted.
+        std::mem::forget(s);
     }
 
     #[test]

@@ -80,4 +80,10 @@ mod tests {
         std::fs::write(dir.join("f.txt"), b"x").unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn rejects_malformed_sddl_before_touching_the_path() {
+        let dir = std::env::temp_dir();
+        assert!(set_dacl(&dir, "not an sddl string").is_err());
+    }
 }

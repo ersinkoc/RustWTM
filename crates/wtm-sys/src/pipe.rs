@@ -234,4 +234,61 @@ mod tests {
         conn.write_all(b"pong").unwrap();
         client.join().unwrap();
     }
+
+    const SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)";
+
+    fn open_client(name: &str) -> std::io::Result<File> {
+        OpenOptions::new().read(true).write(true).open(name)
+    }
+
+    #[test]
+    fn rejects_malformed_sddl() {
+        let name = format!(r"\\.\pipe\wtm-test-sddl-{}", std::process::id());
+        assert!(PipeListener::bind(&name, "not an sddl string").is_err());
+    }
+
+    #[test]
+    fn client_connecting_before_accept_and_server_pid() {
+        let name = format!(r"\\.\pipe\wtm-test-early-{}", std::process::id());
+        let mut listener = PipeListener::bind(&name, SDDL).unwrap();
+        // The pending instance accepts the client before accept() runs, so
+        // ConnectNamedPipe reports ERROR_PIPE_CONNECTED.
+        let mut client = open_client(&name).unwrap();
+        assert_eq!(server_pid(&client).unwrap(), std::process::id());
+        let mut conn = listener.accept().unwrap();
+
+        conn.write_all(b"hi").unwrap();
+        conn.flush().unwrap();
+        let mut buf = [0u8; 2];
+        client.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"hi");
+    }
+
+    #[test]
+    fn client_gone_before_accept_then_recovers() {
+        let name = format!(r"\\.\pipe\wtm-test-gone-{}", std::process::id());
+        let mut listener = PipeListener::bind(&name, SDDL).unwrap();
+        // Connect and disconnect before accept(): ConnectNamedPipe fails.
+        drop(open_client(&name).unwrap());
+        assert!(listener.accept().is_err());
+
+        // No pending instance is left, so the next accept() creates one; the
+        // client retries until it exists.
+        let client_name = name.clone();
+        let client = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                match open_client(&client_name) {
+                    Ok(mut c) => return c.write_all(b"ok"),
+                    Err(e) if std::time::Instant::now() >= deadline => return Err(e),
+                    Err(_) => std::thread::sleep(std::time::Duration::from_millis(10)),
+                }
+            }
+        });
+        let mut conn = listener.accept().unwrap();
+        let mut buf = [0u8; 2];
+        conn.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"ok");
+        client.join().unwrap().unwrap();
+    }
 }

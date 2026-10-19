@@ -156,6 +156,33 @@ mod tests {
         assert_eq!(pids(&v), [2, 3, 1]);
         sort_processes(&mut v, SortKey::Pid);
         assert_eq!(pids(&v), [1, 2, 3]);
+        v[0].io_read_rate = 10.0;
+        v[2].io_write_rate = 30.0;
+        sort_processes(&mut v, SortKey::Disk);
+        assert_eq!(pids(&v), [3, 1, 2]);
+        assert_eq!(v[0].io_rate(), 30.0);
+    }
+
+    #[test]
+    fn memory_used_never_underflows() {
+        let mut s = SystemStats {
+            memory_total: 100,
+            memory_available: 30,
+            ..Default::default()
+        };
+        assert_eq!(s.memory_used(), 70);
+        s.memory_available = 200;
+        assert_eq!(s.memory_used(), 0);
+    }
+
+    #[test]
+    fn formats_bytes_with_binary_units() {
+        assert_eq!(format_bytes(0.0), "0 B");
+        assert_eq!(format_bytes(1023.0), "1023 B");
+        assert_eq!(format_bytes(1536.0), "1.5 KiB");
+        assert_eq!(format_bytes(3.0 * 1024.0 * 1024.0 * 1024.0), "3.0 GiB");
+        // Beyond TiB the unit stops growing.
+        assert_eq!(format_bytes(2048.0 * 1024f64.powi(4)), "2048.0 TiB");
     }
 
     #[test]

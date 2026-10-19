@@ -159,4 +159,13 @@ mod tests {
         let b = s.snapshot().unwrap();
         assert!(!a.is_empty() && !b.is_empty());
     }
+
+    #[test]
+    fn grows_a_too_small_buffer() {
+        // Far smaller than one entry, so the kernel asks for more space.
+        let mut s = ProcessSnapshotter { buf: vec![0; 1] };
+        let procs = s.snapshot().unwrap();
+        assert!(s.buf.len() > 1, "buffer was not grown");
+        assert!(procs.iter().any(|p| p.pid == std::process::id()));
+    }
 }

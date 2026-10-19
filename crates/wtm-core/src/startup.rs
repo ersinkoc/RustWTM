@@ -121,7 +121,13 @@ fn startup_folder(scope: StartupScope) -> Option<PathBuf> {
 }
 
 fn folder_entries(scope: StartupScope) -> Vec<StartupEntry> {
-    let Some(dir) = startup_folder(scope) else {
+    folder_entries_in(startup_folder(scope), scope)
+}
+
+/// Files in `dir`; `None` (folder location unknown) or an unreadable
+/// folder yields nothing.
+fn folder_entries_in(dir: Option<PathBuf>, scope: StartupScope) -> Vec<StartupEntry> {
+    let Some(dir) = dir else {
         return Vec::new();
     };
     let Ok(read) = std::fs::read_dir(&dir) else {
@@ -235,6 +241,92 @@ mod tests {
         assert!(list()[0].enabled);
 
         hkcu.delete_subkey_all(&base).unwrap();
+    }
+
+    #[test]
+    fn approved_subkeys_per_source() {
+        assert_eq!(StartupSource::Run.approved_subkey(), "Run");
+        assert_eq!(StartupSource::Run32.approved_subkey(), "Run32");
+        assert_eq!(StartupSource::Folder.approved_subkey(), "StartupFolder");
+    }
+
+    #[test]
+    fn missing_run_key_lists_nothing() {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let missing = format!(r"Software\RustWTM-test-missing-{}", std::process::id());
+        let entries = registry_entries(
+            &hkcu,
+            &missing,
+            &missing,
+            StartupScope::CurrentUser,
+            StartupSource::Run,
+        );
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn folder_entries_skip_desktop_ini_and_subdirectories() {
+        assert!(folder_entries_in(None, StartupScope::CurrentUser).is_empty());
+
+        let dir = std::env::temp_dir().join(format!("wtm-startup-test-{}", std::process::id()));
+        // Not created yet: unreadable folders yield nothing.
+        assert!(folder_entries_in(Some(dir.clone()), StartupScope::CurrentUser).is_empty());
+
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("desktop.ini"), b"").unwrap();
+        std::fs::write(dir.join("RustWTM-test-app.lnk"), b"").unwrap();
+        let entries = folder_entries_in(Some(dir.clone()), StartupScope::CurrentUser);
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        let e = &entries[0];
+        assert_eq!(e.name, "RustWTM-test-app.lnk");
+        assert_eq!(e.source, StartupSource::Folder);
+        // No StartupApproved value exists for this name, so it is enabled.
+        assert!(e.enabled);
+        assert!(e.command.ends_with("RustWTM-test-app.lnk"));
+    }
+
+    #[test]
+    fn set_approved_fails_for_invalid_key_name() {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let entry = StartupEntry {
+            name: "demo".into(),
+            command: String::new(),
+            scope: StartupScope::CurrentUser,
+            source: StartupSource::Run,
+            enabled: true,
+        };
+        // Key name components are limited to 255 characters, so nothing is
+        // created.
+        let base = format!(r"Software\RustWTM-test-{}", "x".repeat(300));
+        assert!(set_approved(&hkcu, &base, &entry, false).is_err());
+    }
+
+    #[test]
+    fn set_startup_enabled_writes_real_approved_key() {
+        // Uses a unique value name in the real HKCU key and removes it again.
+        let entry = StartupEntry {
+            name: format!("RustWTM-test-{}", std::process::id()),
+            command: String::new(),
+            scope: StartupScope::CurrentUser,
+            source: StartupSource::Run,
+            enabled: true,
+        };
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let subkey = format!(r"{APPROVED}\Run");
+        let existed = hkcu.open_subkey(&subkey).is_ok();
+
+        let result = set_startup_enabled(&entry, false);
+        let enabled = approved(&hkcu, APPROVED, StartupSource::Run, &entry.name);
+        if let Ok(key) = hkcu.open_subkey_with_flags(&subkey, winreg::enums::KEY_SET_VALUE) {
+            let _ = key.delete_value(&entry.name);
+        }
+        // Remove the key too if this test created it.
+        let _ = (!existed).then(|| hkcu.delete_subkey(&subkey));
+
+        result.unwrap();
+        assert!(!enabled);
     }
 
     #[test]

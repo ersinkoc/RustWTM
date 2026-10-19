@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn second_sample_measures_busy_process() {
-        let mut s = Sampler::new();
+        let mut s = Sampler::default();
         let first = s.sample().unwrap();
         assert!(first.interval.is_none());
 
