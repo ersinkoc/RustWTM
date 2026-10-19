@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use wtm_sys::gpu::GpuSampler;
 use wtm_sys::process::{ProcessSnapshotter, RawProcess};
-use wtm_sys::system::{self, CpuTimes};
+use wtm_sys::system::{self, CpuTimes, NetCounters};
 
 use crate::model::{ProcessInfo, Snapshot, SystemStats};
 
@@ -21,6 +21,8 @@ pub struct Sampler {
 struct Previous {
     at: Instant,
     cpu: CpuTimes,
+    cores: Vec<CpuTimes>,
+    net: Option<NetCounters>,
     // Keyed by (pid, create_time) so a reused PID does not inherit stale counters.
     procs: HashMap<(u32, i64), Counters>,
 }
@@ -120,6 +122,8 @@ impl Sampler {
         let now = Instant::now();
         let cpu = system::cpu_times()?;
         let mem = system::memory_status()?;
+        let cores = system::per_cpu_times().unwrap_or_default();
+        let net = system::net_counters().ok();
         let gpu = self
             .gpu
             .as_mut()
@@ -145,6 +149,22 @@ impl Sampler {
             process_count: raw.len(),
             ..Default::default()
         };
+        if let Some(prev) = &self.prev {
+            if prev.cores.len() == cores.len() {
+                system.core_percent = prev
+                    .cores
+                    .iter()
+                    .zip(&cores)
+                    .map(|(&a, &b)| system_cpu_percent(a, b))
+                    .collect();
+            }
+            if let (Some(a), Some(b)) = (prev.net, net)
+                && elapsed_secs > 0.0
+            {
+                system.net_rx_rate = b.received.saturating_sub(a.received) as f64 / elapsed_secs;
+                system.net_tx_rate = b.sent.saturating_sub(a.sent) as f64 / elapsed_secs;
+            }
+        }
 
         let mut counters = HashMap::with_capacity(raw.len());
         let mut processes = Vec::with_capacity(raw.len());
@@ -167,6 +187,8 @@ impl Sampler {
 
             system.thread_count += u64::from(p.thread_count);
             system.handle_count += u64::from(p.handle_count);
+            system.io_read_rate += io_read_rate;
+            system.io_write_rate += io_write_rate;
             counters.insert((p.pid, p.create_time), now_c);
 
             let mut info = ProcessInfo::from_raw(p);
@@ -183,6 +205,8 @@ impl Sampler {
         self.prev = Some(Previous {
             at: now,
             cpu,
+            cores,
+            net,
             procs: counters,
         });
         Ok(Snapshot {
@@ -271,5 +295,10 @@ mod tests {
             .unwrap();
         assert!(me.cpu_percent > 0.0, "busy loop should register CPU usage");
         assert!(second.system.cpu_percent > 0.0);
+        assert!(first.system.core_percent.is_empty());
+        let cores = &second.system.core_percent;
+        assert!(!cores.is_empty() && cores.iter().any(|&c| c > 0.0));
+        assert!(cores.iter().all(|c| (0.0..=100.0).contains(c)));
+        assert!(second.system.net_rx_rate >= 0.0 && second.system.io_read_rate >= 0.0);
     }
 }

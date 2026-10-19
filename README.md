@@ -34,7 +34,8 @@ usage history.
   mode, uptime, I/O), open file location.
 - Actions: end task, end process tree, suspend / resume, priority, CPU
   affinity, efficiency mode (EcoQoS), hard CPU cap and memory cap (job objects).
-- Performance graphs (CPU, memory, GPU), App history, Startup apps,
+- Performance graphs (CPU with every logical processor, memory, GPU, network,
+  disk I/O), App history, Startup apps,
   Users, Services (start / stop / startup type), Network connections, Events;
   every list sorts by any column.
 - Settings: edit the service's configuration with live validation and a

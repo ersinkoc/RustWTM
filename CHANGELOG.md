@@ -13,6 +13,14 @@ All notable changes to this project are documented here. The format follows
   menu that acts on all of them (efficiency mode, free memory, suspend /
   resume, limit, end all with one confirmation).
 - Keyboard: Ctrl+F jumps to the process search, Escape clears it.
+- **Performance** tab: load of every logical processor, network receive /
+  send rate and total disk / I/O read and write rate, each with a history
+  graph.
+
+### Changed
+
+- IPC protocol version 6 (system statistics carry the new counters); update
+  the GUI, CLI and service together.
 
 ## [0.3.1] - 2026-10-20
 

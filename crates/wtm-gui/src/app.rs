@@ -595,7 +595,87 @@ fn history_plot(ui: &mut Ui, id: &str, label: &str, values: &std::collections::V
         .show(ui, |plot| plot.line(Line::new(label, points)));
 }
 
-fn performance(ui: &mut Ui, data: &Data) {
+/// Two byte rates (for example download and upload) on an auto-scaled axis.
+fn rate_plot(ui: &mut Ui, id: &str, series: [(&str, &std::collections::VecDeque<f32>); 2]) {
+    let line = |label: &str, values: &std::collections::VecDeque<f32>| {
+        let len = values.len() as f64;
+        let points: PlotPoints = values
+            .iter()
+            .enumerate()
+            .map(|(i, v)| [i as f64 - len, f64::from(*v)])
+            .collect();
+        Line::new(label.to_owned(), points)
+    };
+    Plot::new(id)
+        .height(140.0)
+        .include_y(0.0)
+        .include_y(1024.0)
+        .include_x(-(HISTORY_LEN as f64))
+        .include_x(0.0)
+        .allow_drag(false)
+        .allow_zoom(false)
+        .allow_scroll(false)
+        .x_axis_label("seconds")
+        .y_axis_formatter(|mark, _| format_bytes(mark.value.max(0.0)) + "/s")
+        .label_formatter(rate_label)
+        .legend(egui_plot::Legend::default())
+        .show(ui, |plot| {
+            for (label, values) in series {
+                plot.line(line(label, values));
+            }
+        });
+}
+
+pub(crate) fn rate_label(hover: &egui_plot::HoverPosition<'_>) -> Option<String> {
+    match hover {
+        egui_plot::HoverPosition::NearDataPoint {
+            plot_name,
+            position,
+            ..
+        } => Some(format!(
+            "{plot_name}: {}/s",
+            format_bytes(position.y.max(0.0))
+        )),
+        egui_plot::HoverPosition::Elsewhere { .. } => None,
+    }
+}
+
+/// One small box per logical processor, filled to its load.
+fn core_grid(ui: &mut Ui, cores: &[f32]) {
+    const CELL: egui::Vec2 = egui::vec2(64.0, 34.0);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        for (i, &load) in cores.iter().enumerate() {
+            let (rect, response) = ui.allocate_exact_size(CELL, egui::Sense::hover());
+            let painter = ui.painter_at(rect);
+            let visuals = ui.visuals();
+            painter.rect_filled(rect, 3.0, visuals.extreme_bg_color);
+            let color = if load >= 90.0 {
+                BAD
+            } else if load >= 60.0 {
+                WARN
+            } else {
+                GOOD
+            };
+            let mut fill = rect;
+            fill.set_top(rect.bottom() - rect.height() * load.clamp(0.0, 100.0) / 100.0);
+            painter.rect_filled(fill, 3.0, color.gamma_multiply(0.7));
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("{load:.0}%"),
+                egui::FontId::proportional(12.0),
+                visuals.strong_text_color(),
+            );
+            let text = format!("CPU {i}: {load:.1}%");
+            response
+                .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
+            response.on_hover_text(text);
+        }
+    });
+}
+
+pub(crate) fn performance(ui: &mut Ui, data: &Data) {
     let Some(snap) = &data.snapshot else {
         ui.spinner();
         return;
@@ -604,6 +684,11 @@ fn performance(ui: &mut Ui, data: &Data) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.heading(format!("CPU  {:.1}%", s.cpu_percent));
         history_plot(ui, "cpu_plot", "CPU", &data.history.cpu);
+        if !s.core_percent.is_empty() {
+            ui.add_space(4.0);
+            ui.label(format!("Per logical processor ({})", s.core_percent.len()));
+            core_grid(ui, &s.core_percent);
+        }
         ui.add_space(10.0);
         let mem_pct = if s.memory_total > 0 {
             s.memory_used() as f64 / s.memory_total as f64 * 100.0
@@ -619,6 +704,34 @@ fn performance(ui: &mut Ui, data: &Data) {
         ui.add_space(10.0);
         ui.heading(format!("GPU  {:.1}%  (busiest engine)", s.gpu_percent));
         history_plot(ui, "gpu_plot", "GPU", &data.history.gpu);
+        ui.add_space(10.0);
+        ui.heading(format!(
+            "Network  ↓ {}/s  ↑ {}/s",
+            format_bytes(s.net_rx_rate),
+            format_bytes(s.net_tx_rate)
+        ));
+        rate_plot(
+            ui,
+            "net_plot",
+            [
+                ("Receive", &data.history.net_rx),
+                ("Send", &data.history.net_tx),
+            ],
+        );
+        ui.add_space(10.0);
+        ui.heading(format!(
+            "Disk & I/O  read {}/s  write {}/s",
+            format_bytes(s.io_read_rate),
+            format_bytes(s.io_write_rate)
+        ));
+        rate_plot(
+            ui,
+            "io_plot",
+            [
+                ("Read", &data.history.io_read),
+                ("Write", &data.history.io_write),
+            ],
+        );
         ui.add_space(10.0);
         egui::Grid::new("perf_grid")
             .num_columns(2)

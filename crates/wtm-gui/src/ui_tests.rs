@@ -57,6 +57,11 @@ pub fn snapshot() -> Snapshot {
             process_count: 5,
             thread_count: 15,
             handle_count: 200,
+            core_percent: vec![95.0, 70.0, 10.0, 0.0],
+            net_rx_rate: 2048.0,
+            net_tx_rate: 512.0,
+            io_read_rate: 1000.0,
+            io_write_rate: 0.0,
         },
         processes: vec![
             proc(0, 0, "System Idle Process", 50.0),
@@ -395,6 +400,52 @@ fn read_only_views_render() {
     });
     h.run_steps(2);
     assert!(h.query_by_label("boom").is_some());
+}
+
+#[test]
+fn performance_shows_cores_network_and_io() {
+    let mut d = data();
+    for v in [0.0, 4096.0, 2048.0] {
+        d.history.net_rx.push_back(v);
+        d.history.io_read.push_back(v);
+    }
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1000.0, 1400.0])
+        .build_ui(|ui| crate::app::performance(ui, &d));
+    h.run();
+    assert!(h.query_by_label("Per logical processor (4)").is_some());
+    assert!(h.query_by_label("CPU 0: 95.0%").is_some());
+    let net = format!(
+        "Network  ↓ {}/s  ↑ {}/s",
+        wtm_core::format_bytes(2048.0),
+        wtm_core::format_bytes(512.0)
+    );
+    assert!(h.query_by_label(&net).is_some(), "{net}");
+    assert!(h.query_by_label_contains("Disk & I/O  read").is_some());
+    h.get_by_label("CPU 1: 70.0%").hover();
+    h.run();
+    assert!(
+        h.get_all_by_label("CPU 1: 70.0%").count() >= 2,
+        "hover tooltip"
+    );
+}
+
+#[test]
+fn rate_plot_labels_show_bytes_per_second() {
+    use egui_plot::{HoverPosition, PlotPoint};
+    let position = PlotPoint::new(-3.0, 2048.0);
+    let near = HoverPosition::NearDataPoint {
+        plot_name: "Receive",
+        position,
+        index: 0,
+    };
+    let text = crate::app::rate_label(&near).unwrap();
+    assert_eq!(
+        text,
+        format!("Receive: {}/s", wtm_core::format_bytes(2048.0))
+    );
+    assert!(crate::app::rate_label(&HoverPosition::Elsewhere { position }).is_none());
 }
 
 struct PickState {

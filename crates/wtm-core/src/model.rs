@@ -59,6 +59,19 @@ pub struct SystemStats {
     pub process_count: usize,
     pub thread_count: u64,
     pub handle_count: u64,
+    /// Load of each logical processor, 0..=100.
+    #[serde(default)]
+    pub core_percent: Vec<f32>,
+    /// Network adapter throughput, bytes per second.
+    #[serde(default)]
+    pub net_rx_rate: f64,
+    #[serde(default)]
+    pub net_tx_rate: f64,
+    /// I/O of all processes together, bytes per second.
+    #[serde(default)]
+    pub io_read_rate: f64,
+    #[serde(default)]
+    pub io_write_rate: f64,
 }
 
 impl SystemStats {

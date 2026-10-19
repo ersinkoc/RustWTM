@@ -45,6 +45,11 @@ pub struct History {
     pub cpu: VecDeque<f32>,
     pub memory: VecDeque<f32>,
     pub gpu: VecDeque<f32>,
+    /// Bytes per second.
+    pub net_rx: VecDeque<f32>,
+    pub net_tx: VecDeque<f32>,
+    pub io_read: VecDeque<f32>,
+    pub io_write: VecDeque<f32>,
 }
 
 #[derive(Debug, Default)]
@@ -609,12 +614,19 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     };
     // The very first local sample has no interval and reads 0% everywhere.
     if snapshot.interval.is_some() {
-        data.history.cpu.push_back(s.cpu_percent);
-        data.history.memory.push_back(mem);
-        data.history.gpu.push_back(s.gpu_percent);
-        trim(&mut data.history.cpu, HISTORY_LEN);
-        trim(&mut data.history.memory, HISTORY_LEN);
-        trim(&mut data.history.gpu, HISTORY_LEN);
+        let h = &mut data.history;
+        for (series, value) in [
+            (&mut h.cpu, s.cpu_percent),
+            (&mut h.memory, mem),
+            (&mut h.gpu, s.gpu_percent),
+            (&mut h.net_rx, s.net_rx_rate as f32),
+            (&mut h.net_tx, s.net_tx_rate as f32),
+            (&mut h.io_read, s.io_read_rate as f32),
+            (&mut h.io_write, s.io_write_rate as f32),
+        ] {
+            series.push_back(value);
+            trim(series, HISTORY_LEN);
+        }
     }
     trim(&mut data.events, EVENTS_KEPT);
     update_command_lines(&mut data.command_lines, &snapshot.processes);
