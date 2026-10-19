@@ -1,0 +1,20 @@
+[package]
+name = "wtm-ipc"
+description = "Protocol between the RustWTM service and its clients"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+wtm-core.workspace = true
+wtm-policy.workspace = true
+wtm-sys.workspace = true
+postcard.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true

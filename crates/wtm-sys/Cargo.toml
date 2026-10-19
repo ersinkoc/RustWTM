@@ -1,0 +1,36 @@
+[package]
+name = "wtm-sys"
+description = "Safe wrappers over the Win32 / NT APIs used by RustWTM"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dependencies.windows]
+workspace = true
+features = [
+    "Wdk_System_SystemInformation",
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Performance",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
+    "Win32_System_JobObjects",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+]
+
+[lints]
+workspace = true

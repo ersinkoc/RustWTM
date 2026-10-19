@@ -1,0 +1,209 @@
+use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+use crate::action::{Action, PriorityLevel};
+use crate::insights::InsightsConfig;
+use crate::rules::Rule;
+
+/// Written to disk on first start; parses to `Config::default()`.
+pub const DEFAULT_CONFIG_TOML: &str = include_str!("default_config.toml");
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+    /// Log decisions without touching any process.
+    pub dry_run: bool,
+    pub sample_interval_ms: u64,
+    pub governor: GovernorConfig,
+    /// Days of per-minute usage history kept on disk.
+    pub history_days: u32,
+    pub insights: InsightsConfig,
+    #[serde(rename = "rule")]
+    pub rules: Vec<Rule>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            dry_run: true,
+            sample_interval_ms: 1000,
+            governor: GovernorConfig::default(),
+            history_days: 30,
+            insights: InsightsConfig::default(),
+            rules: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct GovernorConfig {
+    pub enabled: bool,
+    /// System CPU at or above this level counts as overloaded.
+    pub high_cpu_percent: f32,
+    /// How long the overload must last before the governor acts.
+    pub sustain_secs: u64,
+    /// System CPU at or below this level counts as recovered.
+    pub recover_cpu_percent: f32,
+    /// How long recovery must last before limits are rolled back.
+    pub recover_secs: u64,
+    /// Ignore processes using less than this share of the machine.
+    pub offender_min_cpu_percent: f32,
+    /// Act on at most this many top consumers per tick.
+    pub max_offenders: usize,
+    /// Minimum time between two escalation steps for the same process.
+    pub step_cooldown_secs: u64,
+    /// Escalation steps, applied one at a time while overload persists.
+    pub ladder: Vec<Action>,
+    /// Image-name wildcards the governor never touches.
+    pub exempt: Vec<String>,
+}
+
+impl Default for GovernorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            high_cpu_percent: 90.0,
+            sustain_secs: 5,
+            recover_cpu_percent: 70.0,
+            recover_secs: 15,
+            offender_min_cpu_percent: 2.0,
+            max_offenders: 3,
+            step_cooldown_secs: 5,
+            ladder: vec![
+                Action::Priority(PriorityLevel::BelowNormal),
+                Action::EcoQos,
+                Action::CpuCapRelative(0.5),
+                Action::CpuCapRelative(0.25),
+            ],
+            exempt: vec!["explorer.exe".into(), "Taskmgr.exe".into()],
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("cannot read {path}: {source}")]
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("invalid config: {0}")]
+    Parse(#[from] toml::de::Error),
+    #[error("invalid config: {0}")]
+    Invalid(String),
+}
+
+impl Config {
+    pub fn from_toml(text: &str) -> Result<Self, ConfigError> {
+        let config: Config = toml::from_str(text)?;
+        config.validate().map_err(ConfigError::Invalid)?;
+        Ok(config)
+    }
+
+    pub fn load(path: &Path) -> Result<Self, ConfigError> {
+        let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Io {
+            path: path.to_owned(),
+            source,
+        })?;
+        Self::from_toml(&text)
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        if self.sample_interval_ms < 100 {
+            return Err("sample_interval_ms must be at least 100".into());
+        }
+        let g = &self.governor;
+        for (name, v) in [
+            ("high_cpu_percent", g.high_cpu_percent),
+            ("recover_cpu_percent", g.recover_cpu_percent),
+            ("offender_min_cpu_percent", g.offender_min_cpu_percent),
+        ] {
+            if !(0.0..=100.0).contains(&v) {
+                return Err(format!("governor.{name} must be within 0..=100"));
+            }
+        }
+        if g.recover_cpu_percent >= g.high_cpu_percent {
+            return Err("governor.recover_cpu_percent must be below high_cpu_percent".into());
+        }
+        for a in &g.ladder {
+            a.validate().map_err(|e| format!("governor.ladder: {e}"))?;
+        }
+        self.insights
+            .validate()
+            .map_err(|e| format!("insights: {e}"))?;
+        if self.history_days == 0 {
+            return Err("history_days must be positive".into());
+        }
+        for r in &self.rules {
+            r.validate()
+                .map_err(|e| format!("rule '{}': {e}", r.name))?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_file_matches_default_struct() {
+        assert_eq!(
+            Config::from_toml(DEFAULT_CONFIG_TOML).unwrap(),
+            Config::default()
+        );
+    }
+
+    #[test]
+    fn parses_rules_and_actions() {
+        let c = Config::from_toml(
+            r#"
+            dry_run = false
+            [governor]
+            ladder = ["eco_qos", { cpu_cap = 10 }, "suspend"]
+
+            [[rule]]
+            name = "cap renderers"
+            match = { name = "chrome.exe" }
+            when = { cpu_above = 40, for_secs = 10 }
+            actions = [{ priority = "idle" }, { cpu_cap_relative = 0.5 }]
+
+            [[rule]]
+            name = "no miners"
+            match = { path = "*\\xmrig*.exe" }
+            actions = ["kill"]
+            "#,
+        )
+        .unwrap();
+        assert!(!c.dry_run);
+        assert_eq!(
+            c.governor.ladder,
+            [Action::EcoQos, Action::CpuCap(10.0), Action::Suspend]
+        );
+        assert_eq!(c.rules.len(), 2);
+        assert_eq!(
+            c.rules[0].actions,
+            [
+                Action::Priority(PriorityLevel::Idle),
+                Action::CpuCapRelative(0.5)
+            ]
+        );
+        assert!(c.rules[1].when.is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_values() {
+        for bad in [
+            "[governor]\nhigh_cpu_percent = 50\nrecover_cpu_percent = 60",
+            "[governor]\nladder = [{ cpu_cap = 0 }]",
+            "[governor]\nladder = [{ cpu_cap_relative = 2 }]",
+            "unknown_key = 1",
+            "[[rule]]\nname = \"x\"\nmatch = {}\nactions = [\"kill\"]",
+            "[[rule]]\nname = \"x\"\nmatch = { name = \"a\" }\nactions = []",
+        ] {
+            assert!(Config::from_toml(bad).is_err(), "should reject: {bad}");
+        }
+    }
+}

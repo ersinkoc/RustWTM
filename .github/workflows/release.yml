@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  ASSET: rustwtm-x86_64-pc-windows-msvc.zip
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build
+        run: cargo build --release --workspace
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $stage = New-Item -ItemType Directory -Path dist/rustwtm -Force
+          Copy-Item target/release/rustwtm.exe, target/release/wtm.exe, target/release/wtm-service.exe $stage
+          Copy-Item scripts/install.ps1, scripts/uninstall.ps1, README.md, LICENSE, CHANGELOG.md $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/$env:ASSET" -Force
+          $hash = (Get-FileHash -Algorithm SHA256 "dist/$env:ASSET").Hash.ToLowerInvariant()
+          Set-Content -Path "dist/$env:ASSET.sha256" -Value "$hash  $env:ASSET" -NoNewline
+
+      - name: Release notes
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $text = Get-Content CHANGELOG.md -Raw
+          $match = [regex]::Match($text, "(?ms)^## \[$([regex]::Escape($version))\][^\n]*\n(.*?)(?=^## \[|\z)")
+          $notes = if ($match.Success) { $match.Groups[1].Value.Trim() } else { "Release $version" }
+          Set-Content -Path dist/notes.md -Value $notes
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: dist/notes.md
+          files: |
+            dist/${{ env.ASSET }}
+            dist/${{ env.ASSET }}.sha256

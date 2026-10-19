@@ -1,0 +1,86 @@
+# RustWTM configuration. Changes are picked up automatically.
+
+# Log what would be done without touching any process.
+# Review the log, then set to false to enforce.
+dry_run = true
+
+# How often processes are sampled.
+sample_interval_ms = 1000
+
+# Days of per-minute, per-app usage history kept on disk (App history tab
+# and long-term insights).
+history_days = 30
+
+[governor]
+enabled = true
+
+# Overload: system CPU >= high_cpu_percent for sustain_secs.
+high_cpu_percent = 90.0
+sustain_secs = 5
+
+# Recovery: system CPU <= recover_cpu_percent for recover_secs rolls limits back.
+recover_cpu_percent = 70.0
+recover_secs = 15
+
+# Only the top max_offenders processes above offender_min_cpu_percent
+# (share of the whole machine) are acted on.
+offender_min_cpu_percent = 2.0
+max_offenders = 3
+
+# One ladder step per process every step_cooldown_secs while overloaded.
+step_cooldown_secs = 5
+
+# Available steps: { priority = "idle" | "below_normal" | "normal" | "above_normal" },
+# "eco_qos", { cpu_cap = <percent of machine> },
+# { cpu_cap_relative = <fraction of usage when first throttled> },
+# { memory_cap_mb = <MiB> }, "suspend", "kill".
+ladder = [
+    { priority = "below_normal" },
+    "eco_qos",
+    { cpu_cap_relative = 0.5 },
+    { cpu_cap_relative = 0.25 },
+]
+
+# Image names (wildcards allowed) the governor never touches.
+# Core Windows processes and RustWTM itself are always protected.
+exempt = ["explorer.exe", "Taskmgr.exe"]
+
+# Long-term insights: every few minutes the service analyses the history
+# window and flags apps with sustained patterns, then applies actions to all
+# their instances until the pattern goes away. Respects dry_run.
+[insights]
+enabled = true
+window_hours = 24
+evaluate_every_minutes = 10
+# Apps seen for fewer minutes than this in the window are ignored.
+min_minutes = 60
+
+# Chronic CPU: average CPU over the window (share of the whole machine).
+chronic_cpu_percent = 10.0
+chronic_actions = [{ priority = "below_normal" }, "eco_qos"]
+
+# Memory growth (leak suspect): sustained growth rate once the app uses at
+# least growth_min_mb. Empty actions = report only (event + notification).
+growth_mb_per_hour = 200.0
+growth_min_mb = 2048
+# Required steadiness of the trend (R² of a linear fit): filters out apps whose
+# memory merely fluctuates.
+growth_min_fit = 0.7
+growth_actions = []
+
+exempt = ["explorer.exe", "Taskmgr.exe"]
+
+# Per-process rules. `match` takes `name` and/or `path` wildcards; `when` is
+# optional (without it the rule fires as soon as the process is seen).
+#
+# [[rule]]
+# name = "Keep Chrome renderers in check"
+# match = { name = "chrome.exe" }
+# when = { cpu_above = 20, for_secs = 10 }
+# actions = ["eco_qos", { cpu_cap_relative = 0.5 }]
+#
+# [[rule]]
+# name = "Cap a memory-hungry tool"
+# match = { path = "C:\\Tools\\*\\heavy.exe" }
+# when = { memory_above_mb = 4096 }
+# actions = [{ memory_cap_mb = 4096 }]

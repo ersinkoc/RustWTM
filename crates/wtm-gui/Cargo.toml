@@ -1,0 +1,29 @@
+[package]
+name = "wtm-gui"
+description = "RustWTM graphical task manager"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rustwtm"
+path = "src/main.rs"
+
+[dependencies]
+wtm-core.workspace = true
+wtm-ipc.workspace = true
+wtm-policy.workspace = true
+chrono.workspace = true
+eframe.workspace = true
+egui_extras.workspace = true
+egui_plot.workspace = true
+notify-rust.workspace = true
+tray-icon.workspace = true
+winreg.workspace = true
+
+[lints]
+workspace = true

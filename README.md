@@ -1,0 +1,189 @@
+# RustWTM
+
+A Windows task manager written in Rust, with a background governor that keeps
+the machine responsive: it throttles, caps, suspends or terminates processes
+that overload the CPU, enforces per-process rules, and learns from long-term
+usage history.
+
+[![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+> **Status:** early release (0.1). Everything works, but expect rough edges.
+> Enforcement is **off by default** (dry-run); review the event log first.
+
+## Features
+
+**Task manager (GUI `rustwtm`, CLI `wtm`)**
+
+- Processes: flat or tree view, search, sort by CPU / memory / disk / GPU,
+  details panel (path, priority, affinity, efficiency mode, uptime, I/O).
+- Actions: end task, end process tree, suspend / resume, priority, CPU
+  affinity, efficiency mode (EcoQoS), hard CPU cap and memory cap (job objects).
+- Performance graphs (CPU, memory, GPU), App history, Startup apps,
+  Users, Services (start / stop / startup type), Network connections, Events.
+- Tray icon and desktop notifications.
+
+**Governor service (`wtm-service`)**
+
+- **CPU governor**: when the whole system stays above a threshold, the top
+  consumers are escalated step by step (lower priority → efficiency mode →
+  hard CPU cap) and rolled back once the system recovers.
+- **Rules**: match processes by name or path (wildcards), optionally require a
+  sustained condition (`cpu_above`, `memory_above_mb`), then apply actions —
+  including `kill` for programs that must not run. Unconditional rules react
+  within ~250 ms of a process starting.
+- **Long-term insights**: per-minute, per-app usage is recorded to SQLite.
+  Apps with chronically high CPU or steadily growing memory (linear trend with
+  R² fit) are flagged, reported, and optionally acted on.
+- **Safe by design**: dry-run by default; core Windows processes, critical
+  processes and RustWTM itself are never touched; every source (governor,
+  rules, insights, manual) is tracked separately and everything is rolled back
+  when the service stops.
+
+## Requirements
+
+- Windows 10 1809 or later / Windows 11, 64-bit.
+- Administrator rights to install the service and to control processes of
+  other users and services.
+
+## Install
+
+### One-liner (latest release)
+
+From an **elevated** PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/ersinkoc/RustWTM/main/scripts/install.ps1 | iex
+```
+
+This downloads the latest release, verifies its SHA-256 checksum, installs to
+`C:\Program Files\RustWTM`, adds it to `PATH`, creates a Start Menu shortcut,
+and installs and starts the `RustWTM` service (in dry-run mode).
+
+Options (download the script first to pass them):
+
+```powershell
+.\install.ps1 -Version v0.1.0          # a specific release
+.\install.ps1 -NoService               # GUI and CLI only
+.\install.ps1 -FromSource .            # build this checkout instead of downloading
+.\install.ps1 -DownloadOnly -InstallDir D:\Tools\RustWTM   # portable, no admin needed
+```
+
+### Uninstall
+
+```powershell
+& "$env:ProgramFiles\RustWTM\uninstall.ps1"            # keeps config and history
+& "$env:ProgramFiles\RustWTM\uninstall.ps1" -RemoveData
+```
+
+### From source
+
+```powershell
+git clone https://github.com/ersinkoc/RustWTM
+cd RustWTM
+cargo build --release      # the toolchain is pinned in rust-toolchain.toml
+```
+
+Binaries land in `target\release\`: `rustwtm.exe` (GUI), `wtm.exe` (CLI),
+`wtm-service.exe` (service).
+
+## Usage
+
+### GUI
+
+Start **RustWTM** from the Start Menu. Right-click a process for actions.
+The badge in the top-right corner shows whether the GUI is connected to the
+service; run it as administrator to send commands through the service.
+
+### CLI
+
+```text
+wtm list --sort mem -n 20          one-shot listing
+wtm top                            live view (c/m/d/p/n to sort, q to quit)
+wtm info chrome                    details of every chrome.exe
+wtm kill 1234 --tree               end a process and its descendants
+wtm suspend notepad / wtm resume notepad
+wtm priority 1234 below-normal
+wtm affinity 1234 0-3,6
+wtm eco 1234 on
+wtm limit 1234 --cpu 10 --memory 2G   hard caps (Ctrl+C lifts them)
+wtm history --hours 24             long-term per-app usage and findings
+```
+
+Targets are PIDs or image names (`.exe` optional, case-insensitive).
+
+### Service
+
+```text
+wtm-service install | uninstall | start | stop
+wtm-service console --data-dir .\data    run the engine in the foreground
+```
+
+## Configuration
+
+The service reads `%ProgramData%\RustWTM\config.toml` (created with commented
+defaults on first start) and reloads it automatically when it changes.
+
+```toml
+dry_run = true            # log decisions only; set to false to enforce
+
+[governor]
+high_cpu_percent = 90.0   # act when the system stays above this...
+sustain_secs = 5          # ...for this long
+recover_cpu_percent = 70.0
+ladder = [{ priority = "below_normal" }, "eco_qos", { cpu_cap_relative = 0.5 }]
+
+[insights]
+window_hours = 24
+chronic_cpu_percent = 10.0
+chronic_actions = [{ priority = "below_normal" }, "eco_qos"]
+growth_mb_per_hour = 200.0
+growth_actions = []        # report only
+
+[[rule]]
+name = "Block a miner"
+match = { name = "xmrig*.exe" }
+actions = ["kill"]
+```
+
+See [docs/configuration.md](docs/configuration.md) for every option.
+
+> CPU percentages are a share of the **whole machine** (all logical
+> processors), the same scale the process list uses.
+
+## Security model
+
+- The service runs as LocalSystem. Its data directory is restricted to
+  SYSTEM and Administrators (users can read).
+- The GUI/CLI talk to it over the local named pipe `\\.\pipe\RustWTM`
+  (remote clients rejected). Anyone can read status; **control requests require
+  an elevated administrator**. Detail queries run with the caller's own rights.
+- Clients verify that the pipe is served by the installed `RustWTM` service.
+
+Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
+## Architecture
+
+| Crate | Purpose |
+|---|---|
+| `wtm-sys` | Safe wrappers over Win32 / NT APIs — the only crate with `unsafe` |
+| `wtm-core` | Process model, sampler, process tree, control actions, startup apps |
+| `wtm-policy` | Config, governor, rule engine, long-term insights (pure logic) |
+| `wtm-ipc` | Named-pipe protocol and client |
+| `wtm-service` | Windows service: engine loop, executor, history, IPC server |
+| `wtm-gui` | egui front-end (`rustwtm.exe`) |
+| `wtm-cli` | Command-line interface (`wtm.exe`) |
+
+## Development
+
+```powershell
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and the roadmap in [PLAN.md](PLAN.md).
+
+## License
+
+[MIT](LICENSE)
