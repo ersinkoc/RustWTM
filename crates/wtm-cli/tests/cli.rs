@@ -157,9 +157,79 @@ fn top_and_history_fail_gracefully_without_terminal_or_service() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert!(!status.success());
-    // History needs the service (not running in tests).
+    // History needs the service. Another test may start an engine in
+    // parallel, so only require a clean failure with a message.
     let o = wtm(&["history"]);
     if !o.status.success() {
-        assert!(stderr(&o).contains("service"), "{}", stderr(&o));
+        assert!(!stderr(&o).trim().is_empty());
     }
+}
+
+#[test]
+fn limit_holds_until_the_process_exits() {
+    let child = spawn_ping();
+    let pid = child.0.id().to_string();
+    let mut holder = Guard(
+        Command::new(env!("CARGO_BIN_EXE_wtm"))
+            .args(["limit", &pid, "--cpu", "50"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    // Let it print a status line or two, then end the limited process.
+    std::thread::sleep(Duration::from_millis(2500));
+    drop(child);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(s) = holder.0.try_wait().unwrap() {
+            break s;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "limit did not exit after the process ended"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(status.success());
+    let mut out = String::new();
+    std::io::Read::read_to_string(holder.0.stdout.as_mut().unwrap(), &mut out).unwrap();
+    assert!(out.contains("Holding limits"), "{out}");
+    assert!(out.contains("All limited processes have exited."), "{out}");
+}
+
+#[test]
+fn history_reads_from_a_running_engine() {
+    let service = std::path::Path::new(env!("CARGO_BIN_EXE_wtm")).with_file_name("wtm-service.exe");
+    if !service.exists() {
+        return; // built by `cargo test --workspace`
+    }
+    let dir = std::env::temp_dir().join(format!("wtm-cli-history-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _engine = Guard(
+        Command::new(&service)
+            .args(["console", "--data-dir"])
+            .arg(&dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let out = loop {
+        let o = wtm(&["history", "--hours", "1", "-n", "5"]);
+        if o.status.success() {
+            break stdout(&o);
+        }
+        assert!(
+            Instant::now() < deadline,
+            "history never succeeded: {}",
+            stderr(&o)
+        );
+        std::thread::sleep(Duration::from_millis(300));
+    };
+    assert!(out.contains("APP") && out.contains("GROWTH/H"), "{out}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

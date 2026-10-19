@@ -27,8 +27,30 @@ impl Drop for TerminalGuard {
     }
 }
 
-pub fn run(mut sort: SortKey, interval: Duration) -> anyhow::Result<()> {
+pub fn run(sort: SortKey, interval: Duration) -> anyhow::Result<()> {
     let _guard = TerminalGuard::enter()?;
+    event_loop(
+        sort,
+        interval,
+        |timeout| {
+            Ok(if event::poll(timeout)? {
+                Some(event::read()?)
+            } else {
+                None
+            })
+        },
+        draw,
+    )
+}
+
+/// The interactive loop, independent of the real terminal: `next_event`
+/// waits up to the given time for input, `draw` renders a frame.
+fn event_loop(
+    mut sort: SortKey,
+    interval: Duration,
+    mut next_event: impl FnMut(Duration) -> io::Result<Option<Event>>,
+    mut draw: impl FnMut(&Snapshot, SortKey) -> io::Result<()>,
+) -> anyhow::Result<()> {
     let mut sampler = Sampler::new();
     let mut snap: Option<Snapshot> = None;
     let mut next_sample = Instant::now();
@@ -43,10 +65,10 @@ pub fn run(mut sort: SortKey, interval: Duration) -> anyhow::Result<()> {
         }
 
         let timeout = next_sample.saturating_duration_since(Instant::now());
-        if !event::poll(timeout)? {
+        let Some(event) = next_event(timeout)? else {
             continue;
-        }
-        match event::read()? {
+        };
+        match event {
             Event::Key(k) if k.kind == KeyEventKind::Press => {
                 let new_sort = match k.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
@@ -128,6 +150,60 @@ fn line(out: &mut impl Write, text: &str, width: usize) -> io::Result<()> {
 mod tests {
     use super::*;
     use wtm_core::Sampler;
+
+    use crossterm::event::KeyEvent;
+
+    fn key(c: char) -> Event {
+        Event::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE))
+    }
+
+    fn run_with(events: Vec<Option<Event>>) -> Vec<SortKey> {
+        let mut events = events.into_iter();
+        let mut frames = Vec::new();
+        event_loop(
+            SortKey::Cpu,
+            Duration::from_secs(3600),
+            |_| Ok(events.next().expect("loop must stop before input runs out")),
+            |_, sort| {
+                frames.push(sort);
+                Ok(())
+            },
+        )
+        .unwrap();
+        frames
+    }
+
+    #[test]
+    fn keys_change_sort_and_quit() {
+        let frames = run_with(vec![
+            None,
+            Some(key('m')),
+            Some(key('d')),
+            Some(key('p')),
+            Some(key('n')),
+            Some(key('c')),
+            Some(key('x')), // ignored
+            Some(Event::Resize(80, 25)),
+            Some(Event::FocusGained), // ignored
+            Some(key('q')),
+        ]);
+        assert_eq!(
+            frames,
+            [
+                SortKey::Cpu,
+                SortKey::Memory,
+                SortKey::Disk,
+                SortKey::Pid,
+                SortKey::Name,
+                SortKey::Cpu,
+                SortKey::Cpu, // resize redraw
+            ]
+        );
+        let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+        assert_eq!(run_with(vec![Some(ctrl_c)]).len(), 1);
+        let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(run_with(vec![Some(esc)]).len(), 1);
+    }
 
     #[test]
     fn renders_header_rows_and_clips_to_size() {
