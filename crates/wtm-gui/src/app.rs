@@ -1826,11 +1826,17 @@ mod tests {
         let (mut h, rx) = overview_app(d);
         assert!(h.query_by_label_contains("Protection is on").is_some());
         assert!(h.query_by_label_contains("Custom").is_some());
-        assert!(h.query_by_label("Changing it needs administrator rights.").is_some());
+        assert!(
+            h.query_by_label("Changing it needs administrator rights.")
+                .is_some()
+        );
         rx.try_iter().for_each(drop);
         h.get_by_label("🛡 Restart as administrator").click();
         h.run_steps(2);
-        assert!(rx.try_iter().any(|c| matches!(c, UiCommand::RestartElevated)));
+        assert!(
+            rx.try_iter()
+                .any(|c| matches!(c, UiCommand::RestartElevated))
+        );
         h.get_all_by_label("Limit…").next().unwrap().click();
         h.run_steps(2);
         assert_eq!(h.state().state.tab, Tab::Limits);
