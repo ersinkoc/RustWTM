@@ -147,4 +147,6 @@ toast notifications.
   Startup apps tab: list Run keys / Startup folders, enable/disable via StartupApproved (like Task Manager).
 - [~] Phase 7 — done: data-dir ACL, service recovery actions, pipe server verification,
   notification AppUserModelID, install/uninstall scripts, CI and release workflows.
-  Pending: MSI package (WiX), code signing, test-coverage reporting.
+  Done: MSI package (WiX 5), coverage reporting in CI (98% lines; the rest is
+  console/window entry points and Win32 failures that need fault injection).
+  Pending: code signing (needs a certificate).

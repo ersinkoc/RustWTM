@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
   `chronic_gpu_actions`; report only by default). Existing history databases
   are upgraded in place.
 
+### Changed
+
+- Test line coverage raised to 98% (from 91%); the SCM integration test also
+  collects coverage from the installed service process.
+
 ### Fixed
 
 - Tree view: processes whose parents form a cycle (reused PIDs with identical
