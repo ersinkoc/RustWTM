@@ -269,3 +269,89 @@ fn nt_ok(call: &'static str, status: NTSTATUS) -> Result<()> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::{Child, Command, Stdio};
+
+    /// Kills the child if a test fails half-way.
+    struct ChildGuard(Child);
+
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    fn spawn_ping() -> ChildGuard {
+        let child = Command::new("ping")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn ping");
+        ChildGuard(child)
+    }
+
+    #[test]
+    fn priority_classes_round_trip() {
+        for p in [
+            PriorityClass::Idle,
+            PriorityClass::BelowNormal,
+            PriorityClass::Normal,
+            PriorityClass::AboveNormal,
+            PriorityClass::High,
+            PriorityClass::Realtime,
+        ] {
+            assert_eq!(PriorityClass::from_raw(p.to_raw().0), Some(p));
+        }
+        assert_eq!(PriorityClass::from_raw(0), None);
+    }
+
+    #[test]
+    fn controls_spawned_child_and_waits_for_exit() {
+        let child = spawn_ping();
+        let pid = child.0.id();
+        let access = Access::QUERY | Access::SET_INFORMATION | Access::SYNCHRONIZE;
+        let h = ProcessHandle::open(pid, access | Access::TERMINATE).unwrap();
+        assert_eq!(h.pid(), pid);
+
+        for p in [
+            PriorityClass::AboveNormal,
+            PriorityClass::High,
+            PriorityClass::Normal,
+        ] {
+            h.set_priority(p).unwrap();
+            assert_eq!(h.priority().unwrap(), p);
+        }
+        h.set_eco_qos(EcoQos::Off).unwrap();
+        assert_eq!(h.eco_qos().unwrap(), EcoQos::Off);
+
+        assert!(!h.wait_exit(Duration::ZERO).unwrap(), "still running");
+        h.terminate(3).unwrap();
+        assert!(h.wait_exit(Duration::from_secs(10)).unwrap());
+    }
+
+    #[test]
+    fn calls_without_the_needed_access_fail() {
+        let child = spawn_ping();
+        let pid = child.0.id();
+        // The handle carries only the requested rights, even when elevated
+        // with SeDebugPrivilege, so every call below is refused.
+        let h = ProcessHandle::open(pid, Access::SYNCHRONIZE).unwrap();
+        assert!(h.image_path().is_err());
+        assert!(h.priority().is_err());
+        assert!(h.eco_qos().is_err());
+        assert!(h.set_eco_qos(EcoQos::On).is_err());
+        let e = h.suspend().unwrap_err();
+        assert!(e.is_access_denied(), "{e}");
+        assert!(e.to_string().starts_with("NtSuspendProcess failed"), "{e}");
+
+        // Waiting needs SYNCHRONIZE.
+        let q = ProcessHandle::open(pid, Access::QUERY).unwrap();
+        assert!(q.wait_exit(Duration::ZERO).is_err());
+    }
+}

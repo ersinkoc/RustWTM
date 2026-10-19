@@ -184,6 +184,87 @@ fn job_hard_cap_throttles_busy_process() {
 }
 
 #[test]
+fn missing_pid_is_not_found() {
+    // PIDs are multiples of 4 and never get anywhere near this value.
+    let ghost = ProcessRef {
+        pid: u32::MAX - 3,
+        create_time: 0,
+        name: "ghost.exe".into(),
+    };
+    let r = control::resume(&ghost);
+    assert!(
+        matches!(r, Err(ControlError::NotFound { pid }) if pid == ghost.pid),
+        "{r:?}"
+    );
+    assert!(matches!(
+        control::image_path(&ghost),
+        Err(ControlError::NotFound { .. })
+    ));
+}
+
+#[test]
+fn image_path_without_identity_check() {
+    let child = spawn_cmd("ping -n 60 127.0.0.1");
+    let mut target = find(child.0.id());
+    // create_time 0 skips the PID-reuse check.
+    target.create_time = 0;
+    let path = control::image_path(&target).unwrap();
+    assert!(path.to_lowercase().ends_with("cmd.exe"), "{path}");
+}
+
+#[test]
+fn invalid_affinity_is_a_sys_error() {
+    let child = spawn_cmd("ping -n 60 127.0.0.1");
+    let target = find(child.0.id());
+    let r = control::set_affinity(&target, 0);
+    assert!(matches!(r, Err(ControlError::Sys { .. })), "{r:?}");
+}
+
+#[test]
+fn own_priority_and_debug_privilege() {
+    // Re-applies the current priority, so the test process is unchanged.
+    let me = ProcessRef {
+        pid: std::process::id(),
+        create_time: 0,
+        name: String::new(),
+    };
+    let current = control::inspect(&me).unwrap().priority.unwrap();
+    control::set_own_priority(current).unwrap();
+    // True only when elevated; either way it must not panic.
+    let _ = control::enable_debug_privilege();
+}
+
+#[test]
+fn limiter_tracks_lifts_and_forgets_targets() {
+    let a = spawn_cmd("ping -n 60 127.0.0.1");
+    let b = spawn_cmd("ping -n 60 127.0.0.1");
+    let (a_ref, b_ref) = (find(a.0.id()), find(b.0.id()));
+    let mut limiter = Limiter::new();
+    // Nothing applied yet: lifting is a no-op.
+    limiter.lift(&a_ref).unwrap();
+
+    let memory_only = Limits {
+        cpu_percent: None,
+        memory_bytes: Some(512 << 20),
+    };
+    let both = Limits {
+        cpu_percent: Some(50.0),
+        ..memory_only
+    };
+    limiter.apply(&a_ref, memory_only).unwrap();
+    limiter.apply(&b_ref, both).unwrap();
+    assert_eq!(limiter.limited().count(), 2);
+
+    // Forgetting keeps the limits but drops the bookkeeping.
+    limiter.forget(&b_ref);
+    let lifted = limiter.lift_all();
+    assert_eq!(lifted.len(), 1);
+    assert_eq!(lifted[0].0, a_ref);
+    assert!(lifted[0].1.is_ok(), "{lifted:?}");
+    assert_eq!(limiter.limited().count(), 0);
+}
+
+#[test]
 fn memory_only_limit_and_lift() {
     let child = spawn_cmd("ping -n 60 127.0.0.1");
     let target = find(child.0.id());

@@ -113,3 +113,76 @@ impl Decision {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn priority_levels_map_to_classes() {
+        for (level, class) in [
+            (PriorityLevel::Idle, PriorityClass::Idle),
+            (PriorityLevel::BelowNormal, PriorityClass::BelowNormal),
+            (PriorityLevel::Normal, PriorityClass::Normal),
+            (PriorityLevel::AboveNormal, PriorityClass::AboveNormal),
+        ] {
+            assert_eq!(PriorityClass::from(level), class);
+        }
+    }
+
+    #[test]
+    fn resolve_only_touches_relative_caps_and_clamps() {
+        assert_eq!(
+            Action::CpuCapRelative(0.5).resolve(40.0),
+            Action::CpuCap(20.0)
+        );
+        // A process idle at baseline still gets a tiny but valid cap.
+        assert_eq!(
+            Action::CpuCapRelative(0.5).resolve(0.0),
+            Action::CpuCap(0.01)
+        );
+        assert_eq!(Action::Kill.resolve(40.0), Action::Kill);
+    }
+
+    #[test]
+    fn validate_rejects_out_of_range_values() {
+        assert!(Action::CpuCap(100.0).validate().is_ok());
+        assert!(Action::CpuCap(f32::NAN).validate().is_err());
+        assert!(Action::CpuCap(101.0).validate().is_err());
+        assert!(Action::CpuCapRelative(1.0).validate().is_ok());
+        assert!(Action::CpuCapRelative(0.0).validate().is_err());
+        assert!(Action::MemoryCapMb(1).validate().is_ok());
+        assert_eq!(
+            Action::MemoryCapMb(0).validate().unwrap_err(),
+            "memory_cap_mb must be positive"
+        );
+    }
+
+    #[test]
+    fn display_is_human_readable() {
+        let shown: Vec<String> = [
+            Action::Priority(PriorityLevel::Idle),
+            Action::EcoQos,
+            Action::CpuCap(12.5),
+            Action::CpuCapRelative(0.25),
+            Action::MemoryCapMb(512),
+            Action::Suspend,
+            Action::Kill,
+        ]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+        assert_eq!(
+            shown,
+            [
+                "priority Idle",
+                "efficiency mode",
+                "CPU cap 12.50%",
+                "CPU cap 25% of baseline",
+                "memory cap 512 MiB",
+                "suspend",
+                "kill",
+            ]
+        );
+    }
+}

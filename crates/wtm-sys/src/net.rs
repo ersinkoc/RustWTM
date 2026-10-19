@@ -220,4 +220,86 @@ mod tests {
         assert_eq!(mine.state, Some(TcpState::Listen));
         assert!(mine.remote.is_none());
     }
+
+    /// Opens a loopback connection on `ip` and checks both ends are listed
+    /// as established with their remote address. Skips when `ip` is not
+    /// configured (e.g. IPv6 disabled).
+    fn established_loopback(ip: &str) {
+        let Ok(listener) = TcpListener::bind((ip, 0)) else {
+            return;
+        };
+        let server = listener.local_addr().unwrap();
+        let stream = std::net::TcpStream::connect(server).unwrap();
+        let client = stream.local_addr().unwrap();
+        let (_accepted, _) = listener.accept().unwrap();
+
+        let conns = connections().unwrap();
+        let outgoing = conns
+            .iter()
+            .find(|c| c.protocol == Protocol::Tcp && c.local == client)
+            .expect("client end not found");
+        assert_eq!(outgoing.state, Some(TcpState::Established));
+        assert_eq!(outgoing.remote, Some(server));
+        assert_eq!(outgoing.pid, std::process::id());
+    }
+
+    #[test]
+    fn finds_established_connections() {
+        established_loopback("127.0.0.1");
+        established_loopback("::1");
+    }
+
+    #[test]
+    fn finds_own_udp_sockets() {
+        let v4 = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let v6 = std::net::UdpSocket::bind("[::1]:0").ok();
+        let conns = connections().unwrap();
+        for addr in std::iter::once(v4.local_addr().unwrap())
+            .chain(v6.iter().map(|s| s.local_addr().unwrap()))
+        {
+            let mine = conns
+                .iter()
+                .find(|c| c.protocol == Protocol::Udp && c.local == addr)
+                .unwrap_or_else(|| panic!("{addr} not found"));
+            assert_eq!(mine.pid, std::process::id());
+            assert!(mine.remote.is_none() && mine.state.is_none());
+        }
+    }
+
+    #[test]
+    fn maps_every_tcp_state() {
+        let states: Vec<TcpState> = (1..=13).map(TcpState::from_raw).collect();
+        assert_eq!(
+            states,
+            [
+                TcpState::Closed,
+                TcpState::Listen,
+                TcpState::SynSent,
+                TcpState::SynReceived,
+                TcpState::Established,
+                TcpState::FinWait1,
+                TcpState::FinWait2,
+                TcpState::CloseWait,
+                TcpState::Closing,
+                TcpState::LastAck,
+                TcpState::TimeWait,
+                TcpState::DeleteTcb,
+                TcpState::Unknown(13),
+            ]
+        );
+    }
+
+    #[test]
+    fn fetch_reports_errors_and_empty_tables() {
+        const ERROR_INVALID_PARAMETER: u32 = 87;
+        let err = fetch(|_, _| ERROR_INVALID_PARAMETER).unwrap_err();
+        assert!(err.is_invalid_parameter(), "{err}");
+
+        // Success on the first (size-only) call leaves the buffer empty.
+        let buf = fetch(|_, _| 0).unwrap();
+        assert!(buf.is_empty());
+        // SAFETY: an empty buffer is never dereferenced.
+        let parsed = unsafe { rows::<MIB_TCPROW_OWNER_PID>(&buf, 4) };
+        assert!(parsed.is_empty());
+    }
 }

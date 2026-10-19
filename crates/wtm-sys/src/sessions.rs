@@ -109,4 +109,45 @@ mod tests {
             assert!(sessions.iter().any(|s| s.user.eq_ignore_ascii_case(&me)));
         }
     }
+
+    #[test]
+    fn maps_every_connect_state() {
+        let states: Vec<SessionState> = [
+            WTSActive,
+            WTSConnected,
+            WTSConnectQuery,
+            WTSShadow,
+            WTSDisconnected,
+            WTSIdle,
+            WTSListen,
+            WTSReset,
+            WTSDown,
+            WTSInit,
+            WTS_CONNECTSTATE_CLASS(99),
+        ]
+        .into_iter()
+        .map(SessionState::from_raw)
+        .collect();
+        assert_eq!(
+            states,
+            [
+                SessionState::Active,
+                SessionState::Connected,
+                SessionState::ConnectQuery,
+                SessionState::Shadow,
+                SessionState::Disconnected,
+                SessionState::Idle,
+                SessionState::Listen,
+                SessionState::Reset,
+                SessionState::Down,
+                SessionState::Init,
+                SessionState::Unknown,
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_session_has_empty_strings() {
+        assert_eq!(query_string(u32::MAX - 1, WTSUserName), "");
+    }
 }

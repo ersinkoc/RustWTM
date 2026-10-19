@@ -334,4 +334,50 @@ mod tests {
         assert_eq!(e.tick(now, &others, &mut no_path).len(), 2);
         assert!(e.tick(now, &others, &mut no_path).is_empty());
     }
+
+    #[test]
+    fn validate_rejects_empty_condition() {
+        let r = rule(Some("a.exe"), None, Some(Condition::default()));
+        assert_eq!(
+            r.validate().unwrap_err(),
+            "when needs `cpu_above` and/or `memory_above_mb`"
+        );
+        let mem_only = Condition {
+            memory_above_mb: Some(1),
+            ..Default::default()
+        };
+        assert!(rule(Some("a.exe"), None, Some(mem_only)).validate().is_ok());
+    }
+
+    #[test]
+    fn unresolvable_path_never_matches() {
+        let mut e = RuleEngine::new(vec![rule(None, Some("*"), None)]);
+        let procs = [proc(10, "x.exe", 0.0, 0)];
+        assert!(e.tick(Instant::now(), &procs, &mut no_path).is_empty());
+    }
+
+    #[test]
+    fn set_rules_resets_state_only_when_rules_change() {
+        let mut e = RuleEngine::new(vec![rule(Some("a.exe"), None, None)]);
+        let now = Instant::now();
+        let procs = [proc(10, "a.exe", 0.0, 0)];
+        assert_eq!(e.tick(now, &procs, &mut no_path).len(), 2);
+
+        // Same rules: the instance stays marked as fired.
+        e.set_rules(vec![rule(Some("a.exe"), None, None)]);
+        assert!(e.tick(now, &procs, &mut no_path).is_empty());
+
+        // Different rules: state is cleared and the new rule fires.
+        let mut kill = rule(Some("a.exe"), None, None);
+        kill.actions = vec![Action::Kill];
+        e.set_rules(vec![kill]);
+        let d = e.tick(now, &procs, &mut no_path);
+        assert!(matches!(
+            d.as_slice(),
+            [Decision::Apply {
+                action: Action::Kill,
+                ..
+            }]
+        ));
+    }
 }

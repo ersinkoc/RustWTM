@@ -86,3 +86,18 @@ impl Job {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn removing_a_cap_that_was_never_set_is_rejected() {
+        let job = Job::create().unwrap();
+        assert!(job.set_cpu_cap(None).is_err());
+        job.set_cpu_cap(Some(50.0)).unwrap();
+        job.set_cpu_cap(None).unwrap();
+        job.set_process_memory_limit(Some(64 << 20)).unwrap();
+        job.set_process_memory_limit(None).unwrap();
+    }
+}

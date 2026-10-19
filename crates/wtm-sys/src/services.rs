@@ -129,9 +129,14 @@ unsafe fn read_pwstr(p: PWSTR) -> Option<String> {
 /// Lists all Win32 services. Start type, binary path and account are
 /// `None` where the caller lacks `SERVICE_QUERY_CONFIG` access.
 pub fn list_services() -> Result<Vec<ServiceEntry>> {
+    list_services_with(64 * 1024)
+}
+
+/// `initial_bytes` is the first enumeration buffer size; it grows as needed.
+fn list_services_with(initial_bytes: usize) -> Result<Vec<ServiceEntry>> {
     let scm = manager(SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE)?;
     // u64 elements keep the buffer pointer-aligned.
-    let mut buf: Vec<u64> = vec![0; 64 * 1024 / 8];
+    let mut buf: Vec<u64> = vec![0; initial_bytes.div_ceil(8).max(1)];
     let mut out = Vec::new();
     let mut resume = 0u32;
     loop {
@@ -332,5 +337,103 @@ mod error_tests {
         ] {
             assert_eq!(StartType::from_raw(t.to_raw()), Some(t));
         }
+        assert_eq!(StartType::from_raw(SERVICE_START_TYPE(99)), None);
+    }
+
+    #[test]
+    fn null_strings_read_as_none() {
+        // SAFETY: a null pointer is allowed and never dereferenced.
+        assert_eq!(unsafe { read_pwstr(PWSTR::null()) }, None);
+    }
+
+    #[test]
+    fn tiny_buffer_grows_to_list_everything() {
+        // Smaller than a single entry, so the SCM reports ERROR_MORE_DATA.
+        let small = list_services_with(8).unwrap();
+        assert!(small.len() > 50, "only {} services", small.len());
+        assert!(small.iter().any(|s| s.name.eq_ignore_ascii_case("RpcSs")));
+        let mut names: Vec<&str> = small.iter().map(|s| s.name.as_str()).collect();
+        names.dedup();
+        assert_eq!(names.len(), small.len(), "duplicate entries");
+    }
+}
+
+#[cfg(test)]
+mod scratch_service_tests {
+    use super::*;
+    use windows::Win32::System::Services::{
+        CreateServiceW, DeleteService, SC_MANAGER_CREATE_SERVICE, SERVICE_ERROR_IGNORE,
+        SERVICE_WIN32_OWN_PROCESS,
+    };
+
+    /// Standard `DELETE` access right.
+    const DELETE: u32 = 0x0001_0000;
+
+    /// A throwaway service created by the test, deleted on drop (also when
+    /// the test fails). Real services are never started, stopped or changed.
+    struct ScratchService(String);
+
+    impl ScratchService {
+        /// Needs elevation. Only runs on CI so a developer workstation never
+        /// gets a service registered, not even temporarily.
+        fn create() -> Option<Self> {
+            std::env::var_os("CI")?;
+            let scm = manager(SC_MANAGER_CREATE_SERVICE).ok()?;
+            let name = format!("RustWTMTest{}", std::process::id());
+            let wname = wide(&name);
+            let path = wide(r"C:\RustWTM-test\does-not-exist.exe");
+            // SAFETY: the strings are NUL-terminated and outlive the call;
+            // the returned handle is closed by `ScHandle`.
+            let svc = unsafe {
+                CreateServiceW(
+                    scm.0,
+                    PCWSTR(wname.as_ptr()),
+                    PCWSTR(wname.as_ptr()),
+                    DELETE,
+                    SERVICE_WIN32_OWN_PROCESS,
+                    SERVICE_DEMAND_START,
+                    SERVICE_ERROR_IGNORE,
+                    PCWSTR(path.as_ptr()),
+                    PCWSTR::null(),
+                    None,
+                    PCWSTR::null(),
+                    PCWSTR::null(),
+                    PCWSTR::null(),
+                )
+            }
+            .ok()?;
+            drop(ScHandle(svc));
+            Some(Self(name))
+        }
+    }
+
+    impl Drop for ScratchService {
+        fn drop(&mut self) {
+            if let Ok(svc) = open(&self.0, DELETE) {
+                // SAFETY: valid handle opened with DELETE access.
+                let _ = unsafe { DeleteService(svc.0) };
+            }
+        }
+    }
+
+    #[test]
+    fn manages_a_scratch_service() {
+        let Some(svc) = ScratchService::create() else {
+            return;
+        };
+        let name = svc.0.as_str();
+        set_start_type(name, StartType::Disabled).unwrap();
+        assert_eq!(query_config(name).unwrap().0, Some(StartType::Disabled));
+        set_start_type(name, StartType::Manual).unwrap();
+
+        // The binary does not exist, and a stopped service cannot be stopped.
+        assert!(start_service(name).is_err());
+        assert!(stop_service(name).is_err());
+        assert_eq!(service_pid(name), None);
+
+        let listed = list_services().unwrap();
+        let entry = listed.iter().find(|s| s.name == name).unwrap();
+        assert_eq!(entry.state, ServiceState::Stopped);
+        assert_eq!(entry.start_type, Some(StartType::Manual));
     }
 }

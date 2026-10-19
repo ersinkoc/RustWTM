@@ -246,7 +246,7 @@ mod tests {
         assert!(g.tick(at(8), &snap(50.0, busy())).is_empty());
         let d = g.tick(at(13), &snap(50.0, busy()));
         assert_eq!(d.len(), 2);
-        assert!(d.iter().all(|d| matches!(d, Decision::Restore { .. })));
+        assert!(applied(&d).is_empty(), "recovery only restores");
         assert_eq!(g.throttled_count(), 0);
     }
 

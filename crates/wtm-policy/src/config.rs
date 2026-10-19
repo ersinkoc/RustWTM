@@ -202,8 +202,26 @@ mod tests {
             "unknown_key = 1",
             "[[rule]]\nname = \"x\"\nmatch = {}\nactions = [\"kill\"]",
             "[[rule]]\nname = \"x\"\nmatch = { name = \"a\" }\nactions = []",
+            "sample_interval_ms = 99",
+            "[governor]\nhigh_cpu_percent = 101",
+            "history_days = 0",
+            "[insights]\nwindow_hours = 0",
         ] {
             assert!(Config::from_toml(bad).is_err(), "should reject: {bad}");
         }
+    }
+
+    #[test]
+    fn load_reads_file_and_reports_missing_path() {
+        let path = std::env::temp_dir().join(format!("wtm-policy-cfg-{}.toml", std::process::id()));
+        std::fs::write(&path, "dry_run = false\n").unwrap();
+        let loaded = Config::load(&path);
+        std::fs::remove_file(&path).unwrap();
+        assert!(!loaded.unwrap().dry_run);
+
+        // The file is gone now.
+        let err = Config::load(&path).unwrap_err();
+        assert!(matches!(err, ConfigError::Io { .. }));
+        assert!(err.to_string().starts_with("cannot read "), "{err}");
     }
 }
