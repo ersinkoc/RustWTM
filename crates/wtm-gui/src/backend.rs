@@ -121,8 +121,10 @@ impl Backend {
             ctx,
             notifications: notifications.clone(),
             client: None,
+            pipe: wtm_ipc::PIPE_NAME.to_owned(),
             next_connect: Instant::now(),
             last_event: 0,
+            notify,
             sampler: Sampler::new(),
             limiter: Limiter::new(),
         };
@@ -144,6 +146,19 @@ impl Backend {
     pub fn send(&self, command: UiCommand) {
         let _ = self.tx.send(command);
     }
+
+    /// A backend without a worker: shows `data` and hands sent commands to
+    /// the returned receiver.
+    #[cfg(test)]
+    pub fn offline(data: Data) -> (Self, Receiver<UiCommand>) {
+        let (tx, rx) = mpsc::channel();
+        let backend = Self {
+            data: Arc::new(Mutex::new(data)),
+            tx,
+            notifications: Arc::new(AtomicBool::new(true)),
+        };
+        (backend, rx)
+    }
 }
 
 struct Worker {
@@ -151,8 +166,12 @@ struct Worker {
     ctx: egui::Context,
     notifications: Arc<AtomicBool>,
     client: Option<Client>,
+    /// Pipe of the service to connect to.
+    pipe: String,
     next_connect: Instant,
     last_event: u64,
+    /// Shows a desktop notification for an event.
+    notify: fn(&Event),
     sampler: Sampler,
     /// Job handles for limits applied in local mode.
     limiter: Limiter,
@@ -190,7 +209,7 @@ impl Worker {
 
     fn tick(&mut self) {
         if self.client.is_none() && Instant::now() >= self.next_connect {
-            match Client::connect() {
+            match Client::connect_to(&self.pipe) {
                 Ok(c) => {
                     self.client = Some(c);
                     self.last_event = 0;
@@ -206,7 +225,7 @@ impl Worker {
                 Ok((snapshot, status, events)) => {
                     // Skip the backlog fetched right after connecting.
                     if self.last_event != 0 && self.notifications.load(Ordering::Relaxed) {
-                        events.iter().filter(|e| e.notify).for_each(notify);
+                        events.iter().filter(|e| e.notify).for_each(self.notify);
                     }
                     if let Some(last) = events.last() {
                         self.last_event = last.id;
@@ -229,39 +248,16 @@ impl Worker {
             }
         }
 
-        match self.sampler.sample() {
-            Ok(s) => {
-                let mut data = self.data();
-                data.mode = Mode::Local;
-                data.status = None;
-                publish(&mut data, s);
-            }
-            Err(e) => {
-                self.data().message = Some((EventLevel::Error, format!("Sampling failed: {e}")));
-            }
-        }
+        let sample = self.sampler.sample();
+        publish_local(&mut self.data(), sample);
     }
 
     fn handle(&mut self, cmd: UiCommand) {
         match cmd {
             UiCommand::Load(panel) => self.load(panel),
             UiCommand::SetStartup { entry, enabled } => {
-                let verb = if enabled { "Enabled" } else { "Disabled" };
                 let result = wtm_core::startup::set_startup_enabled(&entry, enabled);
-                self.data().message = Some(match result {
-                    Ok(()) => (
-                        EventLevel::Info,
-                        format!("{verb} startup entry {}", entry.name),
-                    ),
-                    Err(e) if e.kind() == io::ErrorKind::PermissionDenied => (
-                        EventLevel::Warn,
-                        format!(
-                            "{}: access denied (all-users entries need administrator)",
-                            entry.name
-                        ),
-                    ),
-                    Err(e) => (EventLevel::Warn, format!("{}: {e}", entry.name)),
-                });
+                self.data().message = Some(startup_message(&entry.name, enabled, result));
                 self.load(Panel::Startup);
             }
             UiCommand::LoadHistory { hours } => {
@@ -291,14 +287,7 @@ impl Worker {
                     ServiceOp::Stop => wtm_core::stop_service(&name),
                     ServiceOp::StartType(t) => wtm_core::set_start_type(&name, t),
                 };
-                self.data().message = Some(match result {
-                    Ok(()) => (EventLevel::Info, format!("{op:?}: {name}")),
-                    Err(e) if e.is_access_denied() => (
-                        EventLevel::Warn,
-                        format!("{op:?} {name}: access denied (run RustWTM as administrator)"),
-                    ),
-                    Err(e) => (EventLevel::Warn, format!("{op:?} {name} failed: {e}")),
-                });
+                self.data().message = Some(service_message(op, &name, result));
                 self.load(Panel::Services);
             }
             UiCommand::Inspect(target) => {
@@ -432,6 +421,33 @@ impl Worker {
     }
 }
 
+fn startup_message(name: &str, enabled: bool, result: io::Result<()>) -> (EventLevel, String) {
+    let verb = if enabled { "Enabled" } else { "Disabled" };
+    match result {
+        Ok(()) => (EventLevel::Info, format!("{verb} startup entry {name}")),
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => (
+            EventLevel::Warn,
+            format!("{name}: access denied (all-users entries need administrator)"),
+        ),
+        Err(e) => (EventLevel::Warn, format!("{name}: {e}")),
+    }
+}
+
+fn service_message(
+    op: ServiceOp,
+    name: &str,
+    result: wtm_core::Result<()>,
+) -> (EventLevel, String) {
+    match result {
+        Ok(()) => (EventLevel::Info, format!("{op:?}: {name}")),
+        Err(e) if e.is_access_denied() => (
+            EventLevel::Warn,
+            format!("{op:?} {name}: access denied (run RustWTM as administrator)"),
+        ),
+        Err(e) => (EventLevel::Warn, format!("{op:?} {name} failed: {e}")),
+    }
+}
+
 fn failed(target: &ProcessRef, error: String) -> Outcome {
     Outcome {
         target: target.clone(),
@@ -489,6 +505,18 @@ fn fetch(client: &mut Client, after: u64) -> io::Result<Fetched> {
     Ok((snapshot, status, events))
 }
 
+/// Shows a local sample, or why sampling failed.
+fn publish_local(data: &mut Data, sample: wtm_core::Result<Snapshot>) {
+    match sample {
+        Ok(s) => {
+            data.mode = Mode::Local;
+            data.status = None;
+            publish(data, s);
+        }
+        Err(e) => data.message = Some((EventLevel::Error, format!("Sampling failed: {e}"))),
+    }
+}
+
 fn publish(data: &mut Data, snapshot: Snapshot) {
     let s = &snapshot.system;
     let mem = if s.memory_total > 0 {
@@ -515,17 +543,21 @@ fn trim<T>(q: &mut VecDeque<T>, max: usize) {
     }
 }
 
-fn notify(e: &Event) {
+fn notification(e: &Event) -> notify_rust::Notification {
     let title = match (&e.name, e.pid) {
         (Some(name), Some(pid)) => format!("RustWTM: {name} ({pid})"),
         _ => "RustWTM".to_owned(),
     };
-    let _ = notify_rust::Notification::new()
+    notify_rust::Notification::new()
         .app_id(APP_ID)
         .appname("RustWTM")
         .summary(&title)
         .body(&e.message)
-        .show();
+        .finalize()
+}
+
+fn notify(e: &Event) {
+    let _ = notification(e).show();
 }
 
 /// AppUserModelID used for toast notifications.
@@ -579,9 +611,12 @@ mod tests {
             ctx: egui::Context::default(),
             notifications: Arc::new(AtomicBool::new(false)),
             client: None,
+            pipe: String::new(),
             // Never try the real service pipe from tests.
             next_connect: Instant::now() + Duration::from_secs(3600),
             last_event: 0,
+            // Not called while `notifications` is off.
+            notify,
             sampler: Sampler::new(),
             limiter: Limiter::new(),
         }
@@ -651,12 +686,8 @@ mod tests {
                 target: t.clone(),
                 command,
             });
-            assert_eq!(
-                message(&w).0,
-                EventLevel::Info,
-                "{command:?}: {:?}",
-                message(&w)
-            );
+            let (level, text) = message(&w);
+            assert_eq!(level, EventLevel::Info, "{command:?}: {text}");
         }
         assert!(matches!(&w.data().details, Some((r, Ok(_))) if *r == t));
         w.handle(UiCommand::Control {
@@ -684,61 +715,99 @@ mod tests {
         assert_eq!(message(&w).0, EventLevel::Warn);
 
         // Service operations without rights or on unknown services warn.
-        w.handle(UiCommand::Service {
-            name: "NoSuchServiceForRustWTMTests".into(),
-            op: ServiceOp::Start,
+        for op in [
+            ServiceOp::Start,
+            ServiceOp::Stop,
+            ServiceOp::StartType(StartType::Manual),
+        ] {
+            w.handle(UiCommand::Service {
+                name: "NoSuchServiceForRustWTMTests".into(),
+                op,
+            });
+            assert_eq!(message(&w).0, EventLevel::Warn, "{op:?}");
+        }
+    }
+
+    /// Answers every request with `respond` until the client disconnects.
+    fn serve(
+        pipe: &str,
+        mut respond: impl FnMut(Request) -> Response + Send + 'static,
+    ) -> std::thread::JoinHandle<()> {
+        let mut listener = wtm_sys::pipe::PipeListener::bind(pipe, wtm_ipc::PIPE_SDDL).unwrap();
+        std::thread::spawn(move || {
+            let mut conn = listener.accept().unwrap();
+            while let Ok(request) = read_frame::<Request>(&mut conn) {
+                let _ = write_frame(&mut conn, &respond(request));
+            }
+        })
+    }
+
+    fn hello() -> Response {
+        Response::Hello {
+            version: PROTOCOL_VERSION,
+            admin: true,
+        }
+    }
+
+    /// Connects to a server that hangs up right after the handshake.
+    fn hang_up_after_hello(pipe: &str, admin: bool) -> Client {
+        let mut listener = wtm_sys::pipe::PipeListener::bind(pipe, wtm_ipc::PIPE_SDDL).unwrap();
+        let server = std::thread::spawn(move || {
+            let mut conn = listener.accept().unwrap();
+            let _ = read_frame::<Request>(&mut conn);
+            let _ = write_frame(
+                &mut conn,
+                &Response::Hello {
+                    version: PROTOCOL_VERSION,
+                    admin,
+                },
+            );
         });
-        assert_eq!(message(&w).0, EventLevel::Warn);
+        let client = Client::connect_to(pipe).unwrap();
+        server.join().unwrap();
+        client
+    }
+
+    fn test_pipe(name: &str) -> String {
+        format!(r"\\.\pipe\wtm-gui-test-{name}-{}", std::process::id())
     }
 
     /// Answers like the service would, until the client disconnects.
     fn fake_server(pipe: String, snapshot: Snapshot) -> std::thread::JoinHandle<()> {
-        let mut listener = wtm_sys::pipe::PipeListener::bind(&pipe, wtm_ipc::PIPE_SDDL).unwrap();
-        std::thread::spawn(move || {
-            let mut conn = listener.accept().unwrap();
-            let target = ProcessRef {
-                pid: 1,
-                create_time: 1,
-                name: "x.exe".into(),
-            };
-            while let Ok(request) = read_frame::<Request>(&mut conn) {
-                let response = match request {
-                    Request::Hello { .. } => Response::Hello {
-                        version: PROTOCOL_VERSION,
-                        admin: true,
-                    },
-                    Request::Snapshot => Response::Snapshot(snapshot.clone()),
-                    Request::Status => Response::Status(Status::default()),
-                    Request::Events { .. } => Response::Events(vec![Event {
-                        id: 7,
-                        unix_ms: 0,
-                        level: EventLevel::Info,
-                        pid: None,
-                        name: None,
-                        message: "from service".into(),
-                        notify: true,
-                    }]),
-                    Request::Inspect(_) => Response::Error("denied".into()),
-                    Request::Control { .. } => Response::Control(vec![Outcome {
-                        target: target.clone(),
-                        result: Ok(()),
-                    }]),
-                    Request::History { .. } => Response::History {
-                        stats: Vec::new(),
-                        findings: Vec::new(),
-                    },
-                    Request::AppSeries { .. } => Response::Series(Vec::new()),
-                };
-                if write_frame(&mut conn, &response).is_err() {
-                    break;
-                }
-            }
+        let target = ProcessRef {
+            pid: 1,
+            create_time: 1,
+            name: "x.exe".into(),
+        };
+        serve(&pipe, move |request| match request {
+            Request::Hello { .. } => hello(),
+            Request::Snapshot => Response::Snapshot(snapshot.clone()),
+            Request::Status => Response::Status(Status::default()),
+            Request::Events { .. } => Response::Events(vec![Event {
+                id: 7,
+                unix_ms: 0,
+                level: EventLevel::Info,
+                pid: None,
+                name: None,
+                message: "from service".into(),
+                notify: true,
+            }]),
+            Request::Inspect(_) => Response::Error("denied".into()),
+            Request::Control { .. } => Response::Control(vec![Outcome {
+                target: target.clone(),
+                result: Ok(()),
+            }]),
+            Request::History { .. } => Response::History {
+                stats: Vec::new(),
+                findings: Vec::new(),
+            },
+            Request::AppSeries { .. } => Response::Series(Vec::new()),
         })
     }
 
     #[test]
     fn service_mode_fetches_controls_and_falls_back_when_lost() {
-        let pipe = format!(r"\\.\pipe\wtm-gui-test-{}", std::process::id());
+        let pipe = test_pipe("service");
         let snapshot = Sampler::new().sample().unwrap();
         let server = fake_server(pipe.clone(), snapshot);
 
@@ -784,25 +853,248 @@ mod tests {
 
         // A server that hangs up right after the handshake: the next tick
         // must fall back to local sampling and warn.
-        let mut listener = wtm_sys::pipe::PipeListener::bind(&pipe, wtm_ipc::PIPE_SDDL).unwrap();
-        let hangup = std::thread::spawn(move || {
-            let mut conn = listener.accept().unwrap();
-            let _ = read_frame::<Request>(&mut conn);
-            let _ = write_frame(
-                &mut conn,
-                &Response::Hello {
-                    version: PROTOCOL_VERSION,
-                    admin: false,
-                },
-            );
-        });
-        w.client = Some(Client::connect_to(&pipe).unwrap());
-        hangup.join().unwrap();
+        w.client = Some(hang_up_after_hello(&pipe, false));
         w.tick();
         assert_eq!(w.data().mode, Mode::Local);
         assert!(w.client.is_none());
         let (level, text) = message(&w);
         assert_eq!(level, EventLevel::Warn);
         assert!(text.starts_with("Lost connection to service"), "{text}");
+    }
+
+    static NOTIFIED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn count_notification(_: &Event) {
+        NOTIFIED.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn x_exe() -> ProcessRef {
+        ProcessRef {
+            pid: 1,
+            create_time: 1,
+            name: "x.exe".into(),
+        }
+    }
+
+    #[test]
+    fn connects_notifies_and_handles_odd_answers() {
+        let pipe = test_pipe("odd");
+        let mut next_event = 0;
+        let server = serve(&pipe, move |request| match request {
+            Request::Hello { .. } => hello(),
+            // The service has not sampled yet.
+            Request::Snapshot => Response::Error("no sample yet".into()),
+            Request::Status => Response::Status(Status::default()),
+            Request::Events { .. } => {
+                next_event += 1;
+                Response::Events(vec![Event {
+                    id: next_event,
+                    unix_ms: 0,
+                    level: EventLevel::Warn,
+                    pid: Some(1),
+                    name: Some("x.exe".into()),
+                    message: "limited".into(),
+                    notify: true,
+                }])
+            }
+            Request::Inspect(_) => Response::Details(ProcessDetails {
+                path: None,
+                priority: None,
+                affinity: None,
+                eco_qos: None,
+                critical: None,
+                protected: None,
+            }),
+            Request::Control { .. } => Response::Error("refused".into()),
+            Request::History { .. } => Response::Series(Vec::new()),
+            Request::AppSeries { .. } => Response::Error("unknown app".into()),
+        });
+
+        let mut w = worker();
+        w.pipe = pipe;
+        w.next_connect = Instant::now();
+        w.notify = count_notification;
+        w.notifications.store(true, Ordering::Relaxed);
+        w.tick();
+        assert!(w.client.is_some(), "tick connects to the pipe");
+        assert!(w.data().snapshot.is_none());
+        // The backlog fetched right after connecting is not announced.
+        assert_eq!(NOTIFIED.load(Ordering::Relaxed), 0);
+        w.tick();
+        assert_eq!(NOTIFIED.load(Ordering::Relaxed), 1);
+        assert_eq!(w.last_event, 2);
+
+        w.handle(UiCommand::Control {
+            target: x_exe(),
+            command: Command::Resume,
+        });
+        let (level, text) = message(&w);
+        assert_eq!(level, EventLevel::Warn);
+        assert!(text.ends_with("refused"), "{text}");
+        assert!(matches!(&w.data().details, Some((_, Ok(_)))));
+        w.handle(UiCommand::LoadHistory { hours: 1 });
+        assert!(
+            matches!(&w.data().app_history, Some(Err(e)) if e.starts_with("unexpected response"))
+        );
+        w.handle(UiCommand::LoadSeries {
+            app: "x.exe".into(),
+            hours: 1,
+        });
+        assert!(w.data().series.is_none());
+
+        drop(w.client.take());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn requests_on_a_dead_connection_fail_cleanly() {
+        let mut w = worker();
+        w.client = Some(hang_up_after_hello(&test_pipe("dead"), true));
+        w.handle(UiCommand::LoadHistory { hours: 1 });
+        assert!(matches!(w.data().app_history, Some(Err(_))));
+        w.handle(UiCommand::Control {
+            target: x_exe(),
+            command: Command::Kill,
+        });
+        assert_eq!(message(&w).0, EventLevel::Warn);
+        assert!(matches!(&w.data().details, Some((_, Err(_)))));
+    }
+
+    #[test]
+    fn fetch_rejects_unexpected_answers() {
+        for stage in 0..3 {
+            let pipe = test_pipe(&format!("fetch{stage}"));
+            let server = serve(&pipe, move |request| match (request, stage) {
+                (Request::Hello { .. }, _) => hello(),
+                (Request::Snapshot, 0) | (Request::Status, 1) | (Request::Events { .. }, 2) => {
+                    Response::Series(Vec::new())
+                }
+                (Request::Snapshot, _) => Response::Error("no sample yet".into()),
+                _ => Response::Status(Status::default()),
+            });
+            let mut w = worker();
+            w.client = Some(Client::connect_to(&pipe).unwrap());
+            w.tick();
+            assert!(w.client.is_none(), "stage {stage}");
+            let (_, text) = message(&w);
+            assert!(
+                text.starts_with("Lost connection to service: unexpected response"),
+                "{text}"
+            );
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn startup_and_service_messages() {
+        let denied = io::Error::from(io::ErrorKind::PermissionDenied);
+        let missing = io::Error::from(io::ErrorKind::NotFound);
+        assert_eq!(
+            startup_message("App", true, Ok(())),
+            (EventLevel::Info, "Enabled startup entry App".into())
+        );
+        assert_eq!(
+            startup_message("App", false, Ok(())).1,
+            "Disabled startup entry App"
+        );
+        assert!(
+            startup_message("App", false, Err(denied))
+                .1
+                .contains("access denied")
+        );
+        assert_eq!(
+            startup_message("App", false, Err(missing)).0,
+            EventLevel::Warn
+        );
+
+        let nt = |status| wtm_core::Error::Nt { call: "x", status };
+        assert_eq!(
+            service_message(ServiceOp::Stop, "Fax", Ok(())),
+            (EventLevel::Info, "Stop: Fax".into())
+        );
+        let (level, text) = service_message(ServiceOp::Start, "Fax", Err(nt(0xC000_0022)));
+        assert_eq!(level, EventLevel::Warn);
+        assert!(text.contains("access denied"), "{text}");
+        let (_, text) = service_message(ServiceOp::Start, "Fax", Err(nt(0xC000_0001)));
+        assert!(text.starts_with("Start Fax failed"), "{text}");
+    }
+
+    #[test]
+    fn toggling_a_startup_entry_reports_and_reloads() {
+        use winreg::RegKey;
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
+        const APPROVED_RUN: &str =
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        // The approval flag is written even without a matching Run value;
+        // remove it again whatever happens.
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                if let Ok(key) = RegKey::predef(HKEY_CURRENT_USER)
+                    .open_subkey_with_flags(APPROVED_RUN, KEY_SET_VALUE)
+                {
+                    let _ = key.delete_value(&self.0);
+                }
+            }
+        }
+        let name = format!("RustWTM-gui-test-{}", std::process::id());
+        let _cleanup = Cleanup(name.clone());
+        let mut w = worker();
+        w.handle(UiCommand::SetStartup {
+            entry: StartupEntry {
+                name: name.clone(),
+                command: "notepad.exe".into(),
+                scope: wtm_core::startup::StartupScope::CurrentUser,
+                source: wtm_core::startup::StartupSource::Run,
+                enabled: true,
+            },
+            enabled: false,
+        });
+        assert_eq!(
+            message(&w),
+            (EventLevel::Info, format!("Disabled startup entry {name}"))
+        );
+        assert!(w.data().startup.is_some());
+    }
+
+    #[test]
+    fn local_samples_history_and_notifications() {
+        let mut d = Data::default();
+        publish_local(
+            &mut d,
+            Err(wtm_core::Error::Nt {
+                call: "x",
+                status: 1,
+            }),
+        );
+        assert_eq!(d.message.as_ref().unwrap().0, EventLevel::Error);
+
+        let mut s = crate::ui_tests::snapshot();
+        s.system.memory_total = 0;
+        publish_local(&mut d, Ok(s));
+        assert_eq!(d.mode, Mode::Local);
+        assert_eq!(d.history.memory, [0.0]);
+
+        let mut q: VecDeque<u32> = (0..5).collect();
+        trim(&mut q, 3);
+        assert_eq!(q, [2, 3, 4]);
+
+        assert_eq!(unexpected(Response::Error("e".into())).to_string(), "e");
+        let mut e = Event {
+            id: 1,
+            unix_ms: 0,
+            level: EventLevel::Info,
+            pid: Some(5),
+            name: Some("x.exe".into()),
+            message: "body".into(),
+            notify: true,
+        };
+        let n = notification(&e);
+        assert_eq!(
+            (n.summary.as_str(), n.body.as_str()),
+            ("RustWTM: x.exe (5)", "body")
+        );
+        e.pid = None;
+        assert_eq!(notification(&e).summary, "RustWTM");
     }
 }

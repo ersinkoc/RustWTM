@@ -55,18 +55,24 @@ impl App {
         Self {
             backend,
             tray,
-            state: UiState {
-                tab: Tab::Processes,
-                processes: ProcessView::default(),
-                confirm: None,
-                network_filter: String::new(),
-                services_filter: String::new(),
-                selected_startup: None,
-                history: views::HistoryView::default(),
-                history_dirty: true,
-                selected_service: None,
-                last_load: HashMap::new(),
-            },
+            state: UiState::default(),
+        }
+    }
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            tab: Tab::Processes,
+            processes: ProcessView::default(),
+            confirm: None,
+            network_filter: String::new(),
+            services_filter: String::new(),
+            selected_startup: None,
+            history: views::HistoryView::default(),
+            history_dirty: true,
+            selected_service: None,
+            last_load: HashMap::new(),
         }
     }
 }
@@ -663,6 +669,7 @@ mod tests {
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
+    use crate::backend::Backend;
     use crate::ui_tests::data;
 
     #[test]
@@ -671,17 +678,12 @@ mod tests {
             .allow_missing_glyphs()
             .with_size([1300.0, 850.0])
             .build_eframe(|cc| App::new(cc));
-        for _ in 0..100 {
-            h.step();
-            if h.state().backend.data().snapshot.is_some() {
-                break;
-            }
+        let sampled = (0..100).any(|_| {
             std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(
-            h.state().backend.data().snapshot.is_some(),
-            "no snapshot from backend"
-        );
+            h.state().backend.data().snapshot.is_some()
+        });
+        assert!(sampled, "no snapshot from backend");
+        h.step();
 
         for tab in [
             "Performance",
@@ -730,6 +732,11 @@ mod tests {
     #[test]
     fn panels_render_with_synthetic_data() {
         let mut d = data();
+        for level in [EventLevel::Info, EventLevel::Error] {
+            let mut e = d.events[0].clone();
+            e.level = level;
+            d.events.push_back(e);
+        }
         let sel = d.details.as_ref().unwrap().0.clone();
         let snap = d.snapshot.clone().unwrap();
         let mut h = Harness::builder()
@@ -784,6 +791,32 @@ mod tests {
         h.run_steps(2);
         assert!(h.query_by_label("Service not running").is_some());
         assert!(h.query_by_label("No events yet.").is_some());
+        drop(h);
+
+        // Enforcing governor without managed processes; no memory figures.
+        let mut d = data();
+        let status = d.status.as_mut().unwrap();
+        status.dry_run = false;
+        status.governor_enabled = false;
+        status.managed.clear();
+        let mut snap = crate::ui_tests::snapshot();
+        snap.system.memory_total = 0;
+        d.snapshot = Some(std::sync::Arc::new(snap));
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([900.0, 1200.0])
+            .build_ui(|ui| {
+                governor(ui, &d);
+                performance(ui, &d);
+            });
+        h.run_steps(2);
+        assert!(h.query_by_label("Enforcing").is_some());
+        assert!(h.query_by_label("disabled").is_some());
+        assert!(
+            h.query_by_label("No process is currently limited.")
+                .is_some()
+        );
+        assert!(h.query_by_label_contains("(0%)").is_some());
     }
 
     #[test]
@@ -793,5 +826,136 @@ mod tests {
         assert!(uptime(Some(start)).starts_with("2d 03h 04m"));
         let start = SystemTime::now() - Duration::from_secs(3661);
         assert!(uptime(Some(start)).starts_with("1h 01m 0"));
+    }
+
+    fn describe_command(c: UiCommand) -> String {
+        match c {
+            UiCommand::Control { target, command } => format!("control {} {command:?}", target.pid),
+            UiCommand::Inspect(t) => format!("inspect {}", t.pid),
+            UiCommand::Load(panel) => format!("load {panel:?}"),
+            UiCommand::LoadHistory { hours } => format!("history {hours}"),
+            UiCommand::SetStartup { entry, enabled } => {
+                format!("startup {} {enabled}", entry.name)
+            }
+            UiCommand::LoadSeries { app, hours } => format!("series {app} {hours}"),
+            UiCommand::Service { name, op } => format!("service {name} {op:?}"),
+        }
+    }
+
+    #[test]
+    fn app_sends_commands_for_clicks_on_synthetic_data() {
+        let (backend, rx) = Backend::offline(data());
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState::default(),
+                tray: None,
+            });
+        let mut sent = Vec::new();
+        let step = |h: &mut Harness<'_, App>, sent: &mut Vec<String>| {
+            h.run_steps(2);
+            sent.extend(rx.try_iter().map(describe_command));
+            sent.clone()
+        };
+        step(&mut h, &mut sent);
+        // The status bar shows the backend's message.
+        assert!(h.query_by_label("ready").is_some());
+
+        // Select a process, then use the buttons of its details panel.
+        h.get_by_label("alpha.exe").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Refresh").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("More actions").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Suspend").click();
+        let s = step(&mut h, &mut sent);
+        assert_eq!(s, ["inspect 100", "inspect 100", "control 100 Suspend"]);
+
+        // End task asks first; the dialog's own button sends the command.
+        h.get_by_label("End task").click();
+        step(&mut h, &mut sent);
+        assert!(h.state().state.confirm.is_some());
+        // The dialog appears on the frame after the request.
+        h.run();
+        h.get_all_by_role_and_label(egui::accesskit::Role::Button, "End task")
+            .last()
+            .unwrap()
+            .click();
+        let s = step(&mut h, &mut sent);
+        assert_eq!(s.last().map(String::as_str), Some("control 100 Kill"));
+        assert!(h.state().state.confirm.is_none());
+        // Escape dismisses the dialog.
+        let alpha = h.state().state.processes.selected.clone().unwrap();
+        h.state_mut().state.confirm = Some((alpha.clone(), Command::KillTree));
+        step(&mut h, &mut sent);
+        h.key_press(egui::Key::Escape);
+        step(&mut h, &mut sent);
+        assert!(h.state().state.confirm.is_none());
+
+        // Failed details and a process that has gone away.
+        h.state().backend.data().details = Some((alpha, Err("access denied".into())));
+        step(&mut h, &mut sent);
+        assert!(h.query_by_label("access denied").is_some());
+        h.state_mut().state.processes.selected = Some(ProcessRef {
+            pid: 999,
+            create_time: 1,
+            name: "gone.exe".into(),
+        });
+        step(&mut h, &mut sent);
+        assert!(h.query_by_label("This process has exited.").is_some());
+        // Details of another process are not shown for this one.
+        h.state_mut().state.processes.selected = Some(ProcessRef::from(&crate::ui_tests::proc(
+            200, 4, "beta.exe", 0.5,
+        )));
+        step(&mut h, &mut sent);
+        assert!(h.query_by_label("loading…").is_some());
+
+        // App history: choosing an app reloads the summary and its series.
+        sent.clear();
+        h.get_by_label("App history").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("alpha.exe").click();
+        let s = step(&mut h, &mut sent);
+        assert_eq!(s, ["history 24", "history 24", "series alpha.exe 24"]);
+
+        // Startup apps: toggle the selected entry.
+        sent.clear();
+        h.get_by_label("Startup apps").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Updater").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Disable").click();
+        let s = step(&mut h, &mut sent);
+        assert_eq!(s, ["load Startup", "startup Updater false"]);
+
+        // Services: stop a running one, change its startup type, start a
+        // stopped one.
+        sent.clear();
+        h.get_by_label("Services").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Print Spooler").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Stop").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Startup type").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Disabled").click();
+        step(&mut h, &mut sent);
+        h.get_all_by_label("Fax").next().unwrap().click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Start").click();
+        let s = step(&mut h, &mut sent);
+        assert_eq!(
+            s,
+            [
+                "load Services",
+                "service Spooler Stop",
+                "service Spooler StartType(Disabled)",
+                "service Fax Start",
+            ]
+        );
     }
 }

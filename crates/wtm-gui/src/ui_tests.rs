@@ -478,3 +478,118 @@ fn backend_describe_covers_every_command() {
         assert!(!crate::backend::describe(c).is_empty());
     }
 }
+
+#[test]
+fn processes_show_limits_and_fit_cpu_limits_to_the_machine() {
+    let d = data();
+    let managed: ManagedMap<'_> = d
+        .status
+        .iter()
+        .flat_map(|s| &s.managed)
+        .map(|m| ((m.target.pid, m.target.create_time), m))
+        .collect();
+    let mut snap = snapshot();
+    snap.system.logical_cpus = 1;
+    let mut view = ProcessView::default();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1300.0, 700.0])
+        .build_ui(|ui| {
+            view.ui(ui, &snap, &managed);
+        });
+    h.run();
+    assert!(h.query_by_label("Governor: BelowNormal").is_some());
+    h.get_by_label("beta.exe").click_secondary();
+    h.run();
+    h.get_by_label("Limit CPU").hover();
+    h.run();
+    // Only limits up to the single core are offered.
+    assert!(h.query_by_label_contains("1 core").is_some());
+    assert!(h.query_by_label_contains("2 cores").is_none());
+}
+
+#[test]
+fn views_show_alternative_states() {
+    let mut d = data();
+    d.snapshot = None;
+    if let Some(Ok(sessions)) = &mut d.sessions {
+        sessions.push(Session {
+            id: 2,
+            station: "RDP-Tcp#1".into(),
+            user: "bob".into(),
+            domain: String::new(),
+            state: SessionState::Active,
+        });
+    }
+    if let Some(Ok(conns)) = &mut d.connections {
+        conns.push(Connection {
+            protocol: Protocol::Tcp,
+            local: "192.168.1.2:50000".parse().unwrap(),
+            remote: Some("10.0.0.5:443".parse().unwrap()),
+            state: Some(TcpState::Established),
+            pid: 200,
+        });
+    }
+    if let Some(Ok(services)) = &mut d.services {
+        services[1].state = ServiceState::StartPending;
+    }
+    if let Some(entries) = &mut d.startup {
+        entries[0].enabled = false;
+    }
+    if let Some(Ok((stats, findings))) = &mut d.app_history {
+        stats[0].minutes = 45;
+        findings.clear();
+    }
+    let mut filter = "10.0.0.5".to_owned();
+    let mut services_filter = String::new();
+    let mut startup = d.startup.as_ref().map(|e| e[0].clone());
+    let mut history = views::HistoryView {
+        // The loaded series belongs to another app.
+        selected: Some("beta.exe".into()),
+        ..views::HistoryView::default()
+    };
+    let mut command = None;
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1600.0, 900.0])
+        .build_ui(|ui| {
+            ui.columns(3, |cols| {
+                views::users(&mut cols[0], &d);
+                views::network(&mut cols[0], &d, &mut filter, None);
+                let _ = views::services(&mut cols[1], &d, &mut services_filter);
+                if let Some(c) = views::startup(&mut cols[1], &d, &mut startup) {
+                    command = Some(c);
+                }
+                views::app_history(&mut cols[2], &d, &mut history);
+            });
+        });
+    h.run_steps(2);
+    assert!(h.query_by_label("bob").is_some());
+    assert!(h.query_by_label("10.0.0.5:443").is_some());
+    assert!(h.query_by_label("127.0.0.1:8080").is_none());
+    assert!(h.query_by_label("StartPending").is_some());
+    assert!(h.query_by_label("45m").is_some());
+    assert!(
+        h.query_by_label("No long-term findings in the analysis window.")
+            .is_some()
+    );
+    h.get_by_label("Enable").click();
+    // The series spinner keeps repainting.
+    h.run_steps(2);
+    drop(h);
+    assert!(matches!(
+        command,
+        Some(UiCommand::SetStartup { enabled: true, .. })
+    ));
+
+    // Errors from the backend are shown instead of the lists.
+    d.sessions = Some(Err("sessions failed".into()));
+    d.services = Some(Err("services failed".into()));
+    let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
+        views::users(ui, &d);
+        let _ = views::services(ui, &d, &mut String::new());
+    });
+    h.run_steps(2);
+    assert!(h.query_by_label("sessions failed").is_some());
+    assert!(h.query_by_label("services failed").is_some());
+}
