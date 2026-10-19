@@ -67,6 +67,12 @@ mod tests {
     }
 
     #[test]
+    fn summary_without_memory_total() {
+        let s = summary(&SystemStats::default());
+        assert!(s.contains("Memory 0 B / 0 B (0%)"), "{s}");
+    }
+
+    #[test]
     fn header_prefix_matches_row_prefix() {
         assert_eq!(header().find("NAME"), Some(PREFIX_WIDTH));
     }

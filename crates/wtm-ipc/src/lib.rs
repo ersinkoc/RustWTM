@@ -180,6 +180,12 @@ impl Client {
     }
 
     pub fn connect_to(name: &str) -> io::Result<Self> {
+        Self::connect_checked(name, wtm_sys::services::service_pid(SERVICE_NAME))
+    }
+
+    /// Connects to `name`, requiring its server to be process `service`
+    /// when the service is running.
+    fn connect_checked(name: &str, service: Option<u32>) -> io::Result<Self> {
         let mut attempts = 0;
         let pipe = loop {
             match OpenOptions::new().read(true).write(true).open(name) {
@@ -191,19 +197,7 @@ impl Client {
                 Err(e) => return Err(e),
             }
         };
-        // Make sure we talk to the installed service and not to a process
-        // that grabbed the pipe name. Without a running service (console
-        // mode during development) the server cannot be verified.
-        let verified = match wtm_sys::services::service_pid(SERVICE_NAME) {
-            Some(service) if wtm_sys::pipe::server_pid(&pipe).ok() == Some(service) => true,
-            Some(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "the pipe is not served by the RustWTM service",
-                ));
-            }
-            None => false,
-        };
+        let verified = verify_server(&pipe, service)?;
         let mut client = Self {
             pipe,
             admin: false,
@@ -236,6 +230,20 @@ impl Client {
     pub fn call(&mut self, request: &Request) -> io::Result<Response> {
         write_frame(&mut self.pipe, request)?;
         read_frame(&mut self.pipe)
+    }
+}
+
+/// Makes sure we talk to the installed service (PID `service`) and not to a
+/// process that grabbed the pipe name. Without a running service (console
+/// mode during development) the server cannot be verified: `Ok(false)`.
+fn verify_server(pipe: &File, service: Option<u32>) -> io::Result<bool> {
+    match service {
+        Some(service) if wtm_sys::pipe::server_pid(pipe).ok() == Some(service) => Ok(true),
+        Some(_) => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the pipe is not served by the RustWTM service",
+        )),
+        None => Ok(false),
     }
 }
 
@@ -281,5 +289,179 @@ mod tests {
         let mut buf = (u32::MAX).to_le_bytes().to_vec();
         buf.extend([0; 8]);
         assert!(read_frame::<Request>(&mut Cursor::new(buf)).is_err());
+
+        let huge = Request::AppSeries {
+            app: "x".repeat(MAX_FRAME + 1),
+            hours: 1,
+        };
+        let e = write_frame(&mut io::sink(), &huge).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn rejects_truncated_and_garbled_frames() {
+        // Length promises more bytes than follow.
+        let mut buf = 8u32.to_le_bytes().to_vec();
+        buf.extend([1, 2]);
+        let e = read_frame::<Request>(&mut Cursor::new(buf)).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
+
+        // A body that is not a valid `Request`.
+        let mut buf = 1u32.to_le_bytes().to_vec();
+        buf.push(0xFF);
+        let e = read_frame::<Request>(&mut Cursor::new(buf)).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+    }
+
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::thread::JoinHandle;
+    use wtm_sys::pipe::PipeListener;
+
+    /// A fresh pipe name per test so tests (and a real service) never collide.
+    fn pipe_name() -> String {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        format!(
+            r"\\.\pipe\wtm-ipc-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        )
+    }
+
+    fn listen(name: &str) -> PipeListener {
+        PipeListener::bind(
+            name,
+            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)(A;;GA;;;OW)",
+        )
+        .unwrap()
+    }
+
+    /// Serves one client: answers the handshake with `hello`, then every
+    /// further request with `reply`, until the client hangs up.
+    fn serve(name: &str, hello: Response, reply: Response) -> JoinHandle<Vec<Request>> {
+        let mut listener = listen(name);
+        std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            let mut conn = listener.accept().unwrap();
+            let mut answer = hello;
+            // Ends when the client hangs up.
+            while let Ok(request) = read_frame::<Request>(&mut conn) {
+                seen.push(request);
+                let _ = write_frame(&mut conn, &answer);
+                answer = reply.clone();
+            }
+            seen
+        })
+    }
+
+    #[test]
+    fn handshake_then_calls() {
+        let name = pipe_name();
+        let server = serve(
+            &name,
+            Response::Hello {
+                version: PROTOCOL_VERSION,
+                admin: true,
+            },
+            Response::Status(Status {
+                rules: 3,
+                ..Status::default()
+            }),
+        );
+        // Pretend the test process is the service: it serves the pipe.
+        let mut client = Client::connect_checked(&name, Some(std::process::id())).unwrap();
+        assert!(client.is_admin());
+        assert!(client.is_verified());
+        let reply = client.call(&Request::Status).unwrap();
+        assert!(
+            matches!(reply, Response::Status(Status { rules: 3, .. })),
+            "{reply:?}"
+        );
+        drop(client);
+        let seen = server.join().unwrap();
+        assert_eq!(
+            seen,
+            [
+                Request::Hello {
+                    version: PROTOCOL_VERSION
+                },
+                Request::Status
+            ]
+        );
+    }
+
+    #[test]
+    fn handshake_rejects_wrong_version_and_replies() {
+        let name = pipe_name();
+        let _server = serve(
+            &name,
+            Response::Hello {
+                version: PROTOCOL_VERSION + 1,
+                admin: false,
+            },
+            Response::Error(String::new()),
+        );
+        let e = Client::connect_checked(&name, None).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+        assert!(e.to_string().contains("protocol"), "{e}");
+
+        let name = pipe_name();
+        let _server = serve(
+            &name,
+            Response::Error("go away".into()),
+            Response::Error(String::new()),
+        );
+        let e = Client::connect_checked(&name, None).unwrap_err();
+        assert!(e.to_string().contains("unexpected handshake reply"), "{e}");
+    }
+
+    #[test]
+    fn connect_fails_without_server() {
+        let e = Client::connect_to(&pipe_name()).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn connect_gives_up_while_the_pipe_stays_busy() {
+        let name = pipe_name();
+        // The only instance is taken by a client that is never accepted.
+        let _listener = listen(&name);
+        let _holder = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&name)
+            .unwrap();
+        let e = Client::connect_checked(&name, None).unwrap_err();
+        assert_eq!(e.raw_os_error(), Some(ERROR_PIPE_BUSY));
+    }
+
+    #[test]
+    fn verifies_the_pipe_server() {
+        let name = pipe_name();
+        let _listener = listen(&name);
+        let pipe = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&name)
+            .unwrap();
+        // The test process itself serves the pipe.
+        assert!(verify_server(&pipe, Some(std::process::id())).unwrap());
+        let e = verify_server(&pipe, Some(std::process::id().wrapping_add(4))).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!verify_server(&pipe, None).unwrap());
+    }
+
+    #[test]
+    fn events_compare_and_clone() {
+        let e = Event {
+            id: 1,
+            unix_ms: 2,
+            level: EventLevel::Warn,
+            pid: Some(3),
+            name: None,
+            message: "m".into(),
+            notify: true,
+        };
+        assert_eq!(e.clone(), e);
+        assert!(format!("{e:?}").contains("Warn"));
     }
 }

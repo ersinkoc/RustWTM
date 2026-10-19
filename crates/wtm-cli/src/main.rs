@@ -190,7 +190,13 @@ fn main() -> anyhow::Result<ExitCode> {
                 .map(|()| ExitCode::SUCCESS)
         }
         Command::Info { targets } => actions::info(&targets),
-        Command::History { hours, limit } => history(hours, limit).map(|()| ExitCode::SUCCESS),
+        Command::History { hours, limit } => history(
+            wtm_ipc::Client::connect(),
+            hours,
+            limit,
+            &mut io::stdout().lock(),
+        )
+        .map(|()| ExitCode::SUCCESS),
         Command::Kill { targets, tree } => actions::kill(&targets, tree),
         Command::Suspend { targets } => actions::suspend(&targets),
         Command::Resume { targets } => actions::resume(&targets),
@@ -222,9 +228,15 @@ fn list(sort: SortKey, limit: Option<usize>, sample_ms: u64) -> anyhow::Result<(
     Ok(())
 }
 
-fn history(hours: u32, limit: usize) -> anyhow::Result<()> {
-    use wtm_ipc::{Client, Request, Response};
-    let mut client = Client::connect().map_err(|e| {
+/// Prints the service's history report; `client` is the connection attempt.
+fn history(
+    client: io::Result<wtm_ipc::Client>,
+    hours: u32,
+    limit: usize,
+    out: &mut impl Write,
+) -> anyhow::Result<()> {
+    use wtm_ipc::{Request, Response};
+    let mut client = client.map_err(|e| {
         anyhow::anyhow!("RustWTM service not reachable ({e}); history is recorded by the service")
     })?;
     let (stats, findings) = match client.call(&Request::History { hours })? {
@@ -232,12 +244,14 @@ fn history(hours: u32, limit: usize) -> anyhow::Result<()> {
         Response::Error(e) => anyhow::bail!(e),
         other => anyhow::bail!("unexpected response: {other:?}"),
     };
-    println!(
+    writeln!(
+        out,
         "{:<28} {:>8} {:>8} {:>8} {:>8} {:>10} {:>10} {:>10}",
         "APP", "SEEN", "AVG CPU", "P95 CPU", "AVG GPU", "AVG MEM", "PEAK MEM", "GROWTH/H"
-    );
+    )?;
     for s in stats.iter().take(limit) {
-        println!(
+        writeln!(
+            out,
             "{:<28} {:>7}m {:>7.2}% {:>7.2}% {:>7.1}% {:>10} {:>10} {:>+9.0}M",
             s.app,
             s.minutes,
@@ -247,15 +261,254 @@ fn history(hours: u32, limit: usize) -> anyhow::Result<()> {
             table::bytes(s.mem_avg as f64),
             table::bytes(s.mem_peak as f64),
             s.mem_growth_per_hour / (1024.0 * 1024.0)
-        );
+        )?;
     }
     if findings.is_empty() {
-        println!("\nNo long-term findings.");
+        writeln!(
+            out,
+            "
+No long-term findings."
+        )?;
     } else {
-        println!("\nFindings:");
+        writeln!(
+            out,
+            "
+Findings:"
+        )?;
         for f in findings {
-            println!("  {:<26} {:?}: {}", f.app, f.kind, f.detail);
+            writeln!(out, "  {:<26} {:?}: {}", f.app, f.kind, f.detail)?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use wtm_ipc::{Client, PROTOCOL_VERSION, Request, Response, read_frame, write_frame};
+    use wtm_policy::{AppStats, Finding, FindingKind};
+
+    #[test]
+    fn value_enums_map_to_core_types() {
+        let arg = |a: &str| SortArg::from_str(a, false).unwrap();
+        assert_eq!(SortKey::from(SortArg::default()), SortKey::Cpu);
+        assert_eq!(SortKey::from(arg("cpu")), SortKey::Cpu);
+        assert_eq!(SortKey::from(arg("mem")), SortKey::Memory);
+        assert_eq!(SortKey::from(arg("disk")), SortKey::Disk);
+        assert_eq!(SortKey::from(arg("pid")), SortKey::Pid);
+        assert_eq!(SortKey::from(arg("name")), SortKey::Name);
+
+        let class = |a: &str| PriorityClass::from(PriorityArg::from_str(a, false).unwrap());
+        assert_eq!(class("idle"), PriorityClass::Idle);
+        assert_eq!(class("below-normal"), PriorityClass::BelowNormal);
+        assert_eq!(class("normal"), PriorityClass::Normal);
+        assert_eq!(class("above-normal"), PriorityClass::AboveNormal);
+        assert_eq!(class("high"), PriorityClass::High);
+        assert_eq!(class("realtime"), PriorityClass::Realtime);
+
+        let eco = |a: &str| EcoQos::from(EcoArg::from_str(a, false).unwrap());
+        assert_eq!(eco("on"), EcoQos::On);
+        assert_eq!(eco("off"), EcoQos::Off);
+        assert_eq!(eco("auto"), EcoQos::SystemManaged);
+    }
+
+    #[test]
+    fn parses_commands() {
+        let cli = Cli::try_parse_from(["wtm", "eco", "notepad"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Eco {
+                mode: EcoArg::On,
+                ..
+            }
+        ));
+        let cli = Cli::try_parse_from(["wtm", "history"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::History {
+                hours: 24,
+                limit: 20
+            }
+        ));
+        assert!(Cli::try_parse_from(["wtm", "kill"]).is_err());
+    }
+
+    fn stats(app: &str) -> AppStats {
+        AppStats {
+            app: app.into(),
+            minutes: 90,
+            cpu_avg: 12.5,
+            cpu_p95: 40.0,
+            cpu_peak: 80.0,
+            gpu_avg: 3.0,
+            gpu_p95: 9.0,
+            mem_avg: 100 << 20,
+            mem_peak: 200 << 20,
+            mem_last: 150 << 20,
+            mem_growth_per_hour: 64.0 * 1024.0 * 1024.0,
+            mem_growth_fit: 0.9,
+            cpu_core_seconds: 600.0,
+        }
+    }
+
+    /// Runs `history` against a one-shot fake service that answers the
+    /// history request with `reply`.
+    fn history_with(reply: Response, limit: usize, out: &mut impl Write) -> anyhow::Result<()> {
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let name = format!(
+            r"\\.\pipe\wtm-cli-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let mut listener = wtm_sys::pipe::PipeListener::bind(
+            &name,
+            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)(A;;GA;;;OW)",
+        )
+        .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut conn = listener.accept().ok()?;
+            let hello: Request = read_frame(&mut conn).ok()?;
+            assert!(matches!(hello, Request::Hello { .. }));
+            let hello = Response::Hello {
+                version: PROTOCOL_VERSION,
+                admin: false,
+            };
+            write_frame(&mut conn, &hello).ok()?;
+            let request: Request = read_frame(&mut conn).ok()?;
+            write_frame(&mut conn, &reply).ok()?;
+            Some(request)
+        });
+        let result = history(Client::connect_to(&name), 6, limit, out);
+        assert_eq!(
+            server.join().unwrap(),
+            Some(Request::History { hours: 6 }),
+            "{result:?}"
+        );
+        result
+    }
+
+    fn history_text(reply: Response, limit: usize) -> anyhow::Result<String> {
+        let mut out = Vec::new();
+        history_with(reply, limit, &mut out)?;
+        Ok(String::from_utf8(out).unwrap())
+    }
+
+    fn sample_history() -> Response {
+        Response::History {
+            stats: vec![stats("busy.exe"), stats("idle.exe"), stats("hidden.exe")],
+            findings: vec![Finding {
+                app: "busy.exe".into(),
+                kind: FindingKind::ChronicCpu,
+                detail: "averages 12.5% CPU".into(),
+            }],
+        }
+    }
+
+    fn empty_history() -> Response {
+        Response::History {
+            stats: Vec::new(),
+            findings: Vec::new(),
+        }
+    }
+
+    /// Runs `test` unless the RustWTM service is installed, which makes the
+    /// client (rightly) refuse fake servers.
+    fn with_fake_service(test: impl FnOnce()) {
+        if wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_none() {
+            test();
+        }
+    }
+
+    #[test]
+    fn history_prints_stats_and_findings() {
+        with_fake_service(|| {
+            let out = history_text(sample_history(), 2).unwrap();
+            let lines: Vec<&str> = out.lines().collect();
+            assert!(
+                lines[0].starts_with("APP") && lines[0].ends_with("GROWTH/H"),
+                "{out}"
+            );
+            assert!(lines[1].starts_with("busy.exe"), "{out}");
+            assert!(lines[1].contains("90m"), "{out}");
+            assert!(
+                lines[1].contains("12.50%") && lines[1].contains("40.00%"),
+                "{out}"
+            );
+            assert!(
+                lines[1].contains("3.0%") && lines[1].ends_with("+64M"),
+                "{out}"
+            );
+            assert!(lines[2].starts_with("idle.exe"), "{out}");
+            assert!(!out.contains("hidden.exe"), "limit not applied: {out}");
+            assert!(out.contains("\nFindings:\n"), "{out}");
+            assert!(
+                out.contains("  busy.exe                   ChronicCpu: averages 12.5% CPU"),
+                "{out}"
+            );
+        });
+    }
+
+    #[test]
+    fn history_without_data_or_with_errors() {
+        with_fake_service(|| {
+            let out = history_text(empty_history(), 20).unwrap();
+            assert_eq!(out.lines().count(), 3, "{out}");
+            assert!(out.ends_with("\nNo long-term findings.\n"), "{out}");
+
+            let e = history_text(Response::Error("database locked".into()), 20).unwrap_err();
+            assert_eq!(e.to_string(), "database locked");
+
+            let e = history_text(Response::Events(Vec::new()), 20).unwrap_err();
+            assert!(e.to_string().starts_with("unexpected response"), "{e}");
+        });
+    }
+
+    /// Accepts `budget` writes, then fails every write and flush.
+    pub(crate) struct FailingWriter {
+        pub budget: usize,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.budget = self
+                .budget
+                .checked_sub(1)
+                .ok_or(io::Error::other("closed"))?;
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            match self.budget {
+                0 => Err(io::Error::other("closed")),
+                _ => Ok(()),
+            }
+        }
+    }
+
+    #[test]
+    fn history_reports_write_errors() {
+        with_fake_service(|| {
+            for reply in [sample_history, empty_history] {
+                // Fail at every possible point of the report until one fits.
+                let mut budget = 0;
+                while let Err(e) = history_with(reply(), 20, &mut FailingWriter { budget }) {
+                    assert_eq!(e.to_string(), "closed");
+                    budget += 1;
+                    assert!(budget < 1000, "history never succeeded");
+                }
+                assert!(budget > 3, "{budget}");
+            }
+        });
+    }
+
+    #[test]
+    fn history_reports_an_unreachable_service() {
+        let refused = io::Error::new(io::ErrorKind::NotFound, "no pipe");
+        let e = history(Err(refused), 1, 1, &mut Vec::new()).unwrap_err();
+        assert!(
+            e.to_string().contains("service not reachable (no pipe)"),
+            "{e}"
+        );
+    }
 }

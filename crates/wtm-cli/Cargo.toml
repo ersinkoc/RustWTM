@@ -21,5 +21,9 @@ clap.workspace = true
 crossterm.workspace = true
 ctrlc.workspace = true
 
+[dev-dependencies]
+wtm-policy.workspace = true
+wtm-sys.workspace = true
+
 [lints]
 workspace = true

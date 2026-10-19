@@ -116,6 +116,8 @@ mod tests {
         assert_eq!(size("2 GiB"), Ok(2 << 30));
         assert!(size("12X").is_err());
         assert!(size("abc").is_err());
+        assert_eq!(size("0"), Err("size must be at least 1 byte".into()));
+        assert!(size("0.5").is_err());
     }
 
     #[test]
