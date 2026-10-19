@@ -16,6 +16,9 @@ All notable changes to this project are documented here. The format follows
 - **Performance** tab: load of every logical processor, network receive /
   send rate and total disk / I/O read and write rate, each with a history
   graph.
+- The window remembers its size and position, the last tab, the navigation
+  state, the process list view, sort and columns, and the sort of every other
+  table (stored in `%APPDATA%\RustWTM\data\app.ron`).
 
 ### Changed
 

@@ -13,7 +13,7 @@ use crate::processes::{Intent, ManagedMap, ProcessView, context_menu, limit_labe
 use crate::tray::Tray;
 use crate::views;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Tab {
     Overview,
     Processes,
@@ -131,8 +131,63 @@ impl App {
         Self {
             backend,
             tray,
-            state: UiState::default(),
+            state: UiState::restored(cc.storage),
         }
+    }
+}
+
+const PREFS_KEY: &str = "prefs";
+
+/// What the window remembers between runs (eframe keeps the window size and
+/// the table sorts itself).
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+struct Prefs {
+    tab: Tab,
+    nav_collapsed: Option<bool>,
+    process_mode: crate::processes::ViewMode,
+    process_sort: crate::processes::Col,
+    process_descending: bool,
+    process_columns: std::collections::HashSet<crate::processes::Col>,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        UiState::default().prefs()
+    }
+}
+
+impl UiState {
+    fn prefs(&self) -> Prefs {
+        let p = &self.processes;
+        Prefs {
+            tab: self.tab,
+            nav_collapsed: self.nav_collapsed,
+            process_mode: p.mode,
+            process_sort: p.sort,
+            process_descending: p.descending,
+            process_columns: p.visible.clone(),
+        }
+    }
+
+    /// The default state with the preferences saved by the previous run;
+    /// unreadable ones (from an older version) are ignored.
+    fn restored(storage: Option<&dyn eframe::Storage>) -> Self {
+        let mut state = Self::default();
+        if let Some(prefs) = storage.and_then(|s| eframe::get_value::<Prefs>(s, PREFS_KEY)) {
+            state.apply(prefs);
+        }
+        state
+    }
+
+    fn apply(&mut self, prefs: Prefs) {
+        self.tab = prefs.tab;
+        self.nav_collapsed = prefs.nav_collapsed;
+        let p = &mut self.processes;
+        p.mode = prefs.process_mode;
+        p.sort = prefs.process_sort;
+        p.descending = prefs.process_descending;
+        p.visible = prefs.process_columns;
     }
 }
 
@@ -170,6 +225,10 @@ fn level_color(level: EventLevel) -> Color32 {
 }
 
 impl eframe::App for App {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, PREFS_KEY, &self.state.prefs());
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let App {
@@ -1098,6 +1157,58 @@ mod tests {
                 .is_some()
         );
         assert!(h.query_by_label_contains("(0%)").is_some());
+    }
+
+    #[derive(Default)]
+    struct MemStorage(HashMap<String, String>);
+
+    impl eframe::Storage for MemStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.0.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.0.insert(key.to_owned(), value);
+        }
+        fn remove_string(&mut self, key: &str) {
+            self.0.remove(key);
+        }
+        fn flush(&mut self) {}
+    }
+
+    #[test]
+    fn preferences_survive_a_restart() {
+        use crate::processes::{Col, ViewMode};
+        use eframe::Storage as _;
+        let mut storage = MemStorage::default();
+        assert_eq!(UiState::restored(None).tab, Tab::Overview);
+        assert_eq!(UiState::restored(Some(&storage)).tab, Tab::Overview);
+
+        let mut state = UiState {
+            tab: Tab::Performance,
+            nav_collapsed: Some(true),
+            ..UiState::default()
+        };
+        state.processes.mode = ViewMode::Apps;
+        state.processes.sort = Col::Memory;
+        state.processes.descending = false;
+        state.processes.visible.insert(Col::CommandLine);
+        eframe::set_value(&mut storage, PREFS_KEY, &state.prefs());
+
+        let restored = UiState::restored(Some(&storage));
+        assert_eq!(restored.prefs(), state.prefs());
+        assert!(
+            restored.processes.search.is_empty(),
+            "only preferences return"
+        );
+
+        // Settings from another version fall back to the defaults.
+        storage.set_string(PREFS_KEY, "(tab: Gone)".into());
+        assert_eq!(UiState::restored(Some(&storage)).prefs(), Prefs::default());
+        // Missing fields keep their defaults.
+        storage.set_string(PREFS_KEY, "(tab: About)".into());
+        let partial = UiState::restored(Some(&storage)).prefs();
+        assert_eq!(partial.tab, Tab::About);
+        assert_eq!(partial.process_sort, Prefs::default().process_sort);
     }
 
     #[test]

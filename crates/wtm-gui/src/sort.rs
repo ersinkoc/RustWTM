@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use eframe::egui::{self, Id, RichText, Ui};
 
 /// Sort column and direction of one table, remembered per table id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Sort {
     pub col: usize,
     pub desc: bool,
@@ -16,14 +16,15 @@ impl Sort {
         Self { col, desc }
     }
 
-    /// The sort the user chose for table `table`, or `default`.
+    /// The sort the user chose for table `table`, or `default`. Kept across
+    /// restarts with the rest of the egui memory.
     pub fn load(ui: &Ui, table: &str, default: Sort) -> Sort {
-        ui.data(|d| d.get_temp(Id::unique(("sort", table))))
+        ui.data_mut(|d| d.get_persisted(Id::unique(("sort", table))))
             .unwrap_or(default)
     }
 
     pub fn store(self, ui: &Ui, table: &str) {
-        ui.data_mut(|d| d.insert_temp(Id::unique(("sort", table)), self));
+        ui.data_mut(|d| d.insert_persisted(Id::unique(("sort", table)), self));
     }
 
     /// Sorts `rows` with `cmp(a, b, column)` in this direction.

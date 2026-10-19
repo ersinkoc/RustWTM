@@ -49,7 +49,7 @@ pub fn limit_labels(status: Option<&wtm_ipc::Status>) -> ManagedMap {
     out
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Col {
     Name,
     Pid,
@@ -157,7 +157,7 @@ pub enum Intent {
 }
 
 /// How the process list is arranged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ViewMode {
     List,
     Tree,

@@ -18,10 +18,11 @@ wtm-core.workspace = true
 wtm-ipc.workspace = true
 wtm-policy.workspace = true
 chrono.workspace = true
-eframe.workspace = true
+eframe = { workspace = true, features = ["persistence"] }
 egui_extras.workspace = true
 egui_plot.workspace = true
 notify-rust.workspace = true
+serde.workspace = true
 tray-icon.workspace = true
 winreg.workspace = true
 
