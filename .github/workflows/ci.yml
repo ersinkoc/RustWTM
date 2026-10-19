@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A newer push supersedes older runs of the same branch.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
