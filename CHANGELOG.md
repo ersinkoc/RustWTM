@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-20
+
 ### Fixed
 
 - App limits no longer flood the event log with `Access is denied`: processes
@@ -162,7 +164,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/ersinkoc/RustWTM/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ersinkoc/RustWTM/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ersinkoc/RustWTM/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/ersinkoc/RustWTM/compare/v0.1.0...v0.1.1
