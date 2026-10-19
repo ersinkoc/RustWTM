@@ -11,6 +11,11 @@ sample_interval_ms = 1000
 # and long-term insights).
 history_days = 30
 
+# Programs that must never run, by file name (no paths or wildcards). They are
+# blocked before they start (Image File Execution Options), not killed after.
+# Applied only when dry_run = false; removed again when the service stops.
+# block = ["xmrig.exe"]
+
 [governor]
 enabled = true
 

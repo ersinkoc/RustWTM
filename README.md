@@ -33,8 +33,10 @@ usage history.
   hard CPU cap) and rolled back once the system recovers.
 - **Rules**: match processes by name or path (wildcards), optionally require a
   sustained condition (`cpu_above`, `memory_above_mb`, `gpu_above`), then apply actions —
-  including `kill` for programs that must not run. Unconditional rules react
-  within ~250 ms of a process starting.
+  including `kill`. Unconditional rules react within ~250 ms of a process
+  starting.
+- **Blocking**: programs on the `block` list are prevented from starting at
+  all (Image File Execution Options), with a notification to the user.
 - **Long-term insights**: per-minute, per-app usage is recorded to SQLite.
   Apps with chronically high CPU or steadily growing memory (linear trend with
   R² fit) are flagged, reported, and optionally acted on.
@@ -147,6 +149,7 @@ and need an elevated client), or by hand.
 
 ```toml
 dry_run = true            # log decisions only; set to false to enforce
+block = ["xmrig.exe"]     # never starts at all
 
 [governor]
 high_cpu_percent = 90.0   # act when the system stays above this...
@@ -162,7 +165,7 @@ growth_mb_per_hour = 200.0
 growth_actions = []        # report only
 
 [[rule]]
-name = "Block a miner"
+name = "Kill miner variants"
 match = { name = "xmrig*.exe" }
 actions = ["kill"]
 ```

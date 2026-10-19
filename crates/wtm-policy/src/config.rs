@@ -19,6 +19,8 @@ pub struct Config {
     /// Days of per-minute usage history kept on disk.
     pub history_days: u32,
     pub insights: InsightsConfig,
+    /// Image names (`xmrig.exe`) that are prevented from starting at all.
+    pub block: Vec<String>,
     #[serde(rename = "rule")]
     pub rules: Vec<Rule>,
 }
@@ -31,6 +33,7 @@ impl Default for Config {
             governor: GovernorConfig::default(),
             history_days: 30,
             insights: InsightsConfig::default(),
+            block: Vec::new(),
             rules: Vec::new(),
         }
     }
@@ -136,6 +139,9 @@ impl Config {
         if self.history_days == 0 {
             return Err("history_days must be positive".into());
         }
+        for name in &self.block {
+            validate_block(name).map_err(|e| format!("block '{name}': {e}"))?;
+        }
         for r in &self.rules {
             r.validate()
                 .map_err(|e| format!("rule '{}': {e}", r.name))?;
@@ -144,9 +150,49 @@ impl Config {
     }
 }
 
+/// Windows matches blocked programs by file name only, without wildcards.
+fn validate_block(name: &str) -> Result<(), String> {
+    if name.contains(['\\', '/', '*', '?', '"']) || name.trim() != name {
+        return Err("must be a plain file name like pp.exe (no path or wildcards)".into());
+    }
+    if !name.to_ascii_lowercase().ends_with(".exe") || name.len() <= 4 {
+        return Err("must end with .exe".into());
+    }
+    const NEVER: [&str; 4] = ["explorer.exe", "rustwtm.exe", "wtm.exe", "wtm-service.exe"];
+    if NEVER.iter().any(|n| n.eq_ignore_ascii_case(name))
+        || wtm_core::protection_reason(u32::MAX, name).is_some()
+    {
+        return Err("this program cannot be blocked".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_names_must_be_plain_unprotected_executables() {
+        let config = |name: &str| Config {
+            block: vec![name.into()],
+            ..Config::default()
+        };
+        assert!(config("xmrig.exe").validate().is_ok());
+        assert!(config("Game.EXE").validate().is_ok());
+        for bad in [
+            "C:\\x.exe",
+            "x*.exe",
+            "notes.txt",
+            ".exe",
+            " x.exe",
+            "csrss.exe",
+            "explorer.exe",
+            "WTM.exe",
+        ] {
+            let e = config(bad).validate().unwrap_err();
+            assert!(e.starts_with(&format!("block '{bad}'")), "{e}");
+        }
+    }
 
     #[test]
     fn default_file_matches_default_struct() {

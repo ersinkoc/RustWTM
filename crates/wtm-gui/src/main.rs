@@ -23,7 +23,25 @@ fn options() -> eframe::NativeOptions {
     }
 }
 
+/// Windows runs `rustwtm.exe --blocked <program> [args]` instead of a program
+/// the service blocks; returns that program's file name.
+fn blocked_program(mut args: impl Iterator<Item = String>) -> Option<String> {
+    if args.next().as_deref() != Some("--blocked") {
+        return None;
+    }
+    let program = args.next().unwrap_or_default();
+    let name = std::path::Path::new(&program)
+        .file_name()
+        .map_or(program.clone(), |n| n.to_string_lossy().into_owned());
+    Some(name)
+}
+
 fn main() -> eframe::Result {
+    if let Some(name) = blocked_program(std::env::args().skip(1)) {
+        backend::register_app_id();
+        backend::notify_blocked(&name);
+        std::process::exit(1);
+    }
     eframe::run_native(
         "RustWTM",
         options(),
@@ -33,6 +51,26 @@ fn main() -> eframe::Result {
 
 #[cfg(test)]
 mod tests {
+    use super::blocked_program;
+
+    fn args(list: &[&str]) -> impl Iterator<Item = String> {
+        list.iter()
+            .map(|s| (*s).to_owned())
+            .collect::<Vec<_>>()
+            .into_iter()
+    }
+
+    #[test]
+    fn recognizes_blocked_launches() {
+        assert_eq!(blocked_program(args(&[])), None);
+        assert_eq!(blocked_program(args(&["--other"])), None);
+        assert_eq!(
+            blocked_program(args(&["--blocked", r"C:\Tools\xmrig.exe", "--donate"])).as_deref(),
+            Some("xmrig.exe")
+        );
+        assert_eq!(blocked_program(args(&["--blocked"])).as_deref(), Some(""));
+    }
+
     #[test]
     fn window_options() {
         let viewport = super::options().viewport;

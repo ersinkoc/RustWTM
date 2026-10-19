@@ -18,6 +18,8 @@ use wtm_policy::{
     analyze,
 };
 
+use crate::blocker::Blocker;
+use crate::events::EventLog;
 use crate::executor::Executor;
 use crate::history::{self, History};
 use crate::ipc_server::{self, EngineMsg, Shared};
@@ -29,6 +31,19 @@ pub struct Paths {
     pub history: PathBuf,
     /// Named pipe served for clients (overridden in tests).
     pub pipe: String,
+    /// Where blocked programs are registered.
+    pub block_root: BlockRoot,
+    /// Command run instead of a blocked program; `None` disables blocking.
+    pub block_debugger: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockRoot {
+    /// The real Image File Execution Options key (needs elevation).
+    System,
+    /// A scratch key under HKCU (tests).
+    #[cfg_attr(not(test), expect(dead_code))]
+    User(String),
 }
 
 impl Paths {
@@ -38,6 +53,8 @@ impl Paths {
             logs: data_dir.join("logs"),
             history: data_dir.join("history.sqlite"),
             pipe: wtm_ipc::PIPE_NAME.to_owned(),
+            block_root: BlockRoot::System,
+            block_debugger: block_debugger(),
         }
     }
 }
@@ -47,6 +64,64 @@ pub fn default_data_dir() -> PathBuf {
     std::env::var_os("ProgramData")
         .map_or_else(|| PathBuf::from(r"C:\ProgramData"), PathBuf::from)
         .join("RustWTM")
+}
+
+/// The command Windows runs instead of a blocked program: the GUI next to
+/// this executable, which tells the user and exits.
+fn block_debugger() -> Option<String> {
+    let gui = std::env::current_exe().ok()?.with_file_name("rustwtm.exe");
+    gui.exists()
+        .then(|| format!("\"{}\" --blocked", gui.display()))
+}
+
+fn open_blocker(root: &BlockRoot, debugger: Option<String>, events: &EventLog) -> Option<Blocker> {
+    let Some(debugger) = debugger else {
+        events.warn(
+            None,
+            "program blocking disabled: rustwtm.exe not found next to the service",
+        );
+        return None;
+    };
+    let opened = match root {
+        BlockRoot::System => Blocker::system(debugger),
+        BlockRoot::User(path) => Blocker::at(
+            winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER),
+            path,
+            debugger,
+        ),
+    };
+    opened
+        .inspect_err(|e| events.warn(None, format!("program blocking disabled: {e}")))
+        .ok()
+}
+
+/// Applies the block list (none in dry-run) and logs what changed.
+fn sync_blocks(blocker: Option<&Blocker>, config: &Config, events: &EventLog) {
+    let Some(blocker) = blocker else { return };
+    let wanted: &[String] = if config.dry_run { &[] } else { &config.block };
+    if config.dry_run && !config.block.is_empty() {
+        events.info(
+            None,
+            format!("dry-run: would block {}", config.block.join(", ")),
+        );
+    }
+    match blocker.sync(wanted) {
+        Ok(r) => {
+            for name in r.added {
+                events.info(None, format!("blocked from starting: {name}"));
+            }
+            for name in r.removed {
+                events.info(None, format!("no longer blocked: {name}"));
+            }
+            for name in r.conflicts {
+                events.warn(
+                    None,
+                    format!("cannot block {name}: another program set its debugger"),
+                );
+            }
+        }
+        Err(e) => events.warn(None, format!("updating blocked programs failed: {e}")),
+    }
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -126,6 +201,12 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             None
         }
     };
+    let blocker = open_blocker(
+        &paths.block_root,
+        paths.block_debugger.clone(),
+        &shared.events,
+    );
+    sync_blocks(blocker.as_ref(), &config, &shared.events);
     let mut insights = InsightPolicy::new();
     let mut next_insights = Instant::now() + Duration::from_secs(5);
     let mut next_prune = Instant::now();
@@ -183,6 +264,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     governor.set_config(new.governor.clone());
                     rules.set_rules(new.rules.clone());
                     executor.set_dry_run(new.dry_run);
+                    sync_blocks(blocker.as_ref(), &new, &shared.events);
                     shared.events.info(
                         None,
                         format!(
@@ -263,6 +345,11 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         .events
         .info(None, "stopping; restoring all processes");
     executor.restore_all("service stopping");
+    let unblock = Config {
+        dry_run: true,
+        ..Config::default()
+    };
+    sync_blocks(blocker.as_ref(), &unblock, &shared.events);
     if let Some(h) = history.as_mut() {
         let _ = h.flush();
     }
@@ -463,6 +550,12 @@ mod tests {
         )
     }
 
+    /// Clients (rightly) refuse unverified engines while the RustWTM service
+    /// is installed, so end-to-end engine tests only run without it.
+    fn service_installed() -> bool {
+        wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_some()
+    }
+
     fn connect(pipe: &str) -> Client {
         wait_for(pipe, || Client::connect_to(pipe).ok())
     }
@@ -480,19 +573,31 @@ mod tests {
 
     #[test]
     fn engine_serves_clients_enforces_rules_and_reloads_config() {
+        if service_installed() {
+            return;
+        }
         let dir = std::env::temp_dir().join(format!("wtm-engine-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let victim = dir.join("wtm-engine-victim.exe");
         std::fs::copy(r"C:\Windows\System32\cmd.exe", &victim).unwrap();
 
+        let block_key = format!(r"Software\RustWTM-test-engine-block-{}", std::process::id());
         let paths = Paths {
             pipe: format!(r"\\.\pipe\wtm-engine-test-{}", std::process::id()),
+            block_root: BlockRoot::User(block_key.clone()),
+            block_debugger: Some("blocked-test --blocked".into()),
             ..Paths::under(&dir)
+        };
+        let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        let blocked = || {
+            hkcu.open_subkey(&block_key)
+                .map(|k| k.enum_keys().filter_map(Result::ok).collect::<Vec<_>>())
+                .unwrap_or_default()
         };
         std::fs::write(
             &paths.config,
-            "dry_run = false\nsample_interval_ms = 200\n[governor]\nenabled = false\n\
+            "dry_run = false\nsample_interval_ms = 200\nblock = [\"wtm-blocked-test.exe\"]\n[governor]\nenabled = false\n\
              [[rule]]\nname = \"no victims\"\nmatch = { name = \"wtm-engine-victim.exe\" }\nactions = [\"kill\"]\n",
         )
         .unwrap();
@@ -519,6 +624,12 @@ mod tests {
         assert_eq!(s.rules, 1);
         let log = events(&mut client);
         assert!(log.iter().any(|e| e.message.starts_with("engine started")));
+        assert!(
+            log.iter()
+                .any(|e| e.message == "blocked from starting: wtm-blocked-test.exe"),
+            "{log:?}"
+        );
+        assert_eq!(blocked(), ["wtm-blocked-test.exe"]);
         assert!(
             log.iter().any(|e| e.notify && e.message.contains("kill")),
             "{log:?}"
@@ -596,6 +707,8 @@ mod tests {
                 .any(|e| e.message.starts_with("config reloaded"))
                 .then_some(())
         });
+        // Dry-run lifts the block.
+        assert!(blocked().is_empty());
         std::thread::sleep(Duration::from_millis(1100));
         std::fs::write(&paths.config, "dry_run = maybe\n").unwrap();
         wait_for("rejected config", || {
@@ -609,6 +722,71 @@ mod tests {
         stop.send(EngineMsg::Stop).unwrap();
         engine.join().unwrap().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+        let _ = hkcu.delete_subkey_all(&block_key);
+    }
+
+    #[test]
+    fn block_list_follows_dry_run_and_reports_problems() {
+        let key = format!(r"Software\RustWTM-test-engine-sync-{}", std::process::id());
+        let root = BlockRoot::User(key.clone());
+        let events = EventLog::default();
+        let messages = || {
+            events
+                .after(0)
+                .into_iter()
+                .map(|e| e.message)
+                .collect::<Vec<_>>()
+        };
+        assert!(open_blocker(&root, None, &events).is_none());
+        sync_blocks(None, &Config::default(), &events);
+        assert_eq!(
+            messages(),
+            ["program blocking disabled: rustwtm.exe not found next to the service"]
+        );
+
+        let b = open_blocker(&root, Some("x --blocked".into()), &events).unwrap();
+        let mut config = Config {
+            block: vec!["a.exe".into()],
+            ..Config::default()
+        };
+        sync_blocks(Some(&b), &config, &events);
+        assert_eq!(messages().last().unwrap(), "dry-run: would block a.exe");
+        assert!(b.blocked().is_empty());
+
+        config.dry_run = false;
+        sync_blocks(Some(&b), &config, &events);
+        assert_eq!(messages().last().unwrap(), "blocked from starting: a.exe");
+
+        let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        let (other, _) = hkcu.create_subkey(format!(r"{key}\b.exe")).unwrap();
+        other.set_value("Debugger", &"someone-else.exe").unwrap();
+        config.block = vec!["b.exe".into()];
+        sync_blocks(Some(&b), &config, &events);
+        let log = messages();
+        assert!(
+            log.contains(&"no longer blocked: a.exe".to_owned()),
+            "{log:?}"
+        );
+        assert_eq!(
+            log.last().unwrap(),
+            "cannot block b.exe: another program set its debugger"
+        );
+
+        // A marked entry without a debugger cannot be removed cleanly.
+        let (broken, _) = hkcu.create_subkey(format!(r"{key}\c.exe")).unwrap();
+        broken.set_value("RustWTMBlock", &1u32).unwrap();
+        sync_blocks(Some(&b), &Config::default(), &events);
+        assert!(
+            messages()
+                .last()
+                .unwrap()
+                .starts_with("updating blocked programs failed")
+        );
+        hkcu.delete_subkey_all(&key).unwrap();
+
+        // The real key needs elevation; without it blocking is disabled.
+        let system = open_blocker(&BlockRoot::System, Some("x".into()), &events);
+        assert_eq!(system.is_some(), Blocker::system("x".into()).is_ok());
     }
 
     #[test]
@@ -680,6 +858,9 @@ mod tests {
 
     #[test]
     fn engine_resolves_rule_paths_and_raises_history_insights() {
+        if service_installed() {
+            return;
+        }
         let dir = temp_dir("engine-insights");
         let victim = dir.join("wtm-engine-path-victim.exe");
         std::fs::copy(r"C:\Windows\System32\cmd.exe", &victim).unwrap();

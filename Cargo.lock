@@ -5643,6 +5643,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "windows-service",
+ "winreg",
  "wtm-core",
  "wtm-ipc",
  "wtm-policy",

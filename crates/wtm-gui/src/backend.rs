@@ -615,6 +615,20 @@ fn notify(e: &Event) {
     let _ = notification(e).show();
 }
 
+/// The toast shown when Windows starts us instead of a blocked program.
+pub fn blocked_notification(name: &str) -> notify_rust::Notification {
+    notify_rust::Notification::new()
+        .app_id(APP_ID)
+        .appname("RustWTM")
+        .summary("Program blocked")
+        .body(&format!("RustWTM prevented {name} from starting."))
+        .finalize()
+}
+
+pub fn notify_blocked(name: &str) {
+    let _ = blocked_notification(name).show();
+}
+
 /// Opens Explorer with `path` selected.
 fn open_location(path: &str) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
@@ -819,6 +833,12 @@ mod tests {
     }
 
     /// Connects to a server that hangs up right after the handshake.
+    /// Clients (rightly) refuse fake service pipes while the RustWTM service
+    /// is installed, so these tests only run without it.
+    fn service_installed() -> bool {
+        wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_some()
+    }
+
     fn hang_up_after_hello(pipe: &str, admin: bool) -> Client {
         let mut listener = wtm_sys::pipe::PipeListener::bind(pipe, wtm_ipc::PIPE_SDDL).unwrap();
         let server = std::thread::spawn(move || {
@@ -881,6 +901,9 @@ mod tests {
 
     #[test]
     fn service_mode_fetches_controls_and_falls_back_when_lost() {
+        if service_installed() {
+            return;
+        }
         let pipe = test_pipe("service");
         let snapshot = Sampler::new().sample().unwrap();
         let server = fake_server(pipe.clone(), snapshot);
@@ -957,6 +980,9 @@ mod tests {
 
     #[test]
     fn connects_notifies_and_handles_odd_answers() {
+        if service_installed() {
+            return;
+        }
         let pipe = test_pipe("odd");
         let mut next_event = 0;
         let server = serve(&pipe, move |request| match request {
@@ -1036,6 +1062,9 @@ mod tests {
 
     #[test]
     fn requests_on_a_dead_connection_fail_cleanly() {
+        if service_installed() {
+            return;
+        }
         let mut w = worker();
         w.client = Some(hang_up_after_hello(&test_pipe("dead"), true));
         w.handle(UiCommand::LoadHistory { hours: 1 });
@@ -1053,6 +1082,9 @@ mod tests {
 
     #[test]
     fn fetch_rejects_unexpected_answers() {
+        if service_installed() {
+            return;
+        }
         for stage in 0..3 {
             let pipe = test_pipe(&format!("fetch{stage}"));
             let server = serve(&pipe, move |request| match (request, stage) {
@@ -1232,5 +1264,12 @@ mod tests {
             text.starts_with("Cannot open the location of gone.exe"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn blocked_notification_names_the_program() {
+        let n = blocked_notification("xmrig.exe");
+        assert_eq!(n.summary, "Program blocked");
+        assert_eq!(n.body, "RustWTM prevented xmrig.exe from starting.");
     }
 }

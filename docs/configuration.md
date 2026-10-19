@@ -20,6 +20,28 @@ logical processor busy). On a 16-thread CPU one fully busy core is 6.25%.
 | `dry_run` | `true` | Log what would be done without touching processes. Manual commands from the GUI/CLI are always executed. |
 | `sample_interval_ms` | `1000` | Sampling period (minimum 100). |
 | `history_days` | `30` | Days of per-minute usage history kept. |
+| `block` | `[]` | Programs prevented from starting, see below. |
+
+## Blocking programs
+
+```toml
+block = ["xmrig.exe", "SomeGame.exe"]
+```
+
+Listed programs never start: the service registers them under *Image File
+Execution Options*, so Windows runs `rustwtm.exe --blocked` instead, which
+shows a notification and exits. Unlike a `kill` rule, the program never runs
+at all, not even for a moment.
+
+- Plain file names only (`app.exe`); Windows matches by name, so every copy
+  with that name is blocked, wherever it lives. Use a `path` rule with
+  `kill` to target one location.
+- Applied only when `dry_run = false`. Removed again when the service stops
+  or the entry is deleted from the list.
+- Entries another program already uses (an existing `Debugger` value) are left
+  alone and reported in the event log.
+- Core Windows processes, `explorer.exe` and RustWTM itself cannot be
+  blocked.
 
 ## `[governor]`
 

@@ -221,6 +221,10 @@ fn history_reads_from_a_running_engine() {
     if !service.exists() {
         return; // built by `cargo test --workspace`
     }
+    // The console engine needs the real pipe, which an installed service owns.
+    if wtm_sys::services::service_pid("RustWTM").is_some() {
+        return;
+    }
     let dir = std::env::temp_dir().join(format!("wtm-cli-history-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let _engine = Guard(

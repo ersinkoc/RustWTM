@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- `block = ["app.exe"]`: prevent programs from starting at all via Image File
+  Execution Options; Windows launches `rustwtm.exe --blocked` instead, which
+  notifies the user. Only RustWTM's own entries are touched, and they are
+  removed when the service stops.
+
 - Settings tab in the GUI: edit the service's configuration with live
   validation, switch between dry-run and enforcing, save (elevated).
 - `wtm config show | default | check <file> | apply <file>`.
