@@ -6,42 +6,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-19
+
 ### Added
 
-- Every list sorts by any column: click a header, click again to reverse
-  (Users, Network, Services, Startup apps, App history, Limits, managed
-  processes; the process list now also sorts by Limits).
+- **App limits** (`[[limit]]`): a CPU (in cores) and/or memory budget per app,
+  shared by all of its processes and everything they start (`scope = "group"`),
+  or per top-level instance (`scope = "each"`), enforced with job objects by
+  the service. New **Limits** tab in the GUI (with *Limit all <name>…* in the
+  process menu) and `wtm app-limit set | remove | list`; the process list's
+  Limits column shows app-limit membership.
+- **Program blocking** (`block = ["app.exe"]`): listed programs never start
+  (Image File Execution Options); Windows launches `rustwtm.exe --blocked`
+  instead, which notifies the user. Only RustWTM's own entries are touched,
+  and they are removed when the service stops.
+- **Sorting everywhere**: every list sorts by any column (click a header, click
+  again to reverse): Users, Network, Services, Startup apps, App history,
+  Limits, managed processes, and the process list (now also by Limits).
 - Process list: optional Commit, Working set, GPU memory, Session, Base
   priority and Running-for columns, chosen in the new *Columns* menu.
-
-- App limits (`[[limit]]`): a CPU (in cores) and/or memory budget per app,
-  shared by all of its processes and everything they start (`scope = "group"`),
-  or per top-level instance (`scope = "each"`). Enforced with job objects by
-  the service. New **Limits** tab in the GUI (with *Limit all <name>…* in the
-  process menu), `wtm app-limit set | remove | list`, and the process list's
-  Limits column shows app-limit membership.
-
-- `block = ["app.exe"]`: prevent programs from starting at all via Image File
-  Execution Options; Windows launches `rustwtm.exe --blocked` instead, which
-  notifies the user. Only RustWTM's own entries are touched, and they are
-  removed when the service stops.
-
-- Settings tab in the GUI: edit the service's configuration with live
-  validation, switch between dry-run and enforcing, save (elevated).
+- **Settings** tab: edit the service's configuration with live validation,
+  switch between dry-run and enforcing, save (elevated).
 - `wtm config show | default | check <file> | apply <file>`.
 - Process details show the command line and the user account (GUI details
   panel with *Copy command line*, `wtm info`); *Open file location* in the
   details panel and the context menu.
+- Long-term history records per-app GPU usage; App history (GUI and
+  `wtm history`) shows and plots it, and insights flag chronic GPU users
+  (`chronic_gpu_percent`, `chronic_gpu_actions`; report only by default).
+  Existing history databases are upgraded in place.
+- Rule condition `gpu_above`, e.g. to suspend a background GPU miner.
 - IPC protocol 4: `GetConfig` and `SetConfig` (admin only; validated, written
-  atomically).
-
-- Long-term history records per-app GPU usage (average of the busiest engine).
-  App history (GUI and `wtm history`) shows it, the per-app chart plots it,
-  and insights flag chronic GPU users (`chronic_gpu_percent`,
-  `chronic_gpu_actions`; report only by default). Existing history databases
-  are upgraded in place.
-- Rule condition `gpu_above`: fire when a process keeps its busiest GPU
-  engine above a threshold, e.g. to suspend a background GPU miner.
+  atomically). Clients and service must both be 0.2.
 
 ### Changed
 
@@ -52,7 +48,6 @@ All notable changes to this project are documented here. The format follows
 
 - Tree view: processes whose parents form a cycle (reused PIDs with identical
   start times) were missing from the list.
-
 ## [0.1.1] - 2026-10-19
 
 ### Fixed
@@ -110,6 +105,7 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ersinkoc/RustWTM/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/ersinkoc/RustWTM/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ersinkoc/RustWTM/releases/tag/v0.1.0

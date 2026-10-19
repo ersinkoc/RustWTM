@@ -5571,7 +5571,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "wtm-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5585,7 +5585,7 @@ dependencies = [
 
 [[package]]
 name = "wtm-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -5595,7 +5595,7 @@ dependencies = [
 
 [[package]]
 name = "wtm-gui"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "eframe",
@@ -5613,7 +5613,7 @@ dependencies = [
 
 [[package]]
 name = "wtm-ipc"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "postcard",
  "serde",
@@ -5624,7 +5624,7 @@ dependencies = [
 
 [[package]]
 name = "wtm-policy"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -5635,7 +5635,7 @@ dependencies = [
 
 [[package]]
 name = "wtm-service"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5654,7 +5654,7 @@ dependencies = [
 
 [[package]]
 name = "wtm-sys"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
