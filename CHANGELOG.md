@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
   foreground app; the service accepts reports only for the client's own
   session (IPC protocol 5).
 - **About** tab with credits, version and links.
+- **Logo and icons**: a gauge logo drawn in code, used for the window, the tray,
+  the executables (with version information), the MSI / Apps list and the
+  Start Menu shortcut, and the README (`assets/`).
+- App history: *Limit <app>…* opens the Limits tab with a CPU budget suggested
+  from the app's p95 usage.
 - **Memory guard** (`[memory_guard]`, on by default): when RAM stays above
   90%, the biggest background apps have their working sets trimmed (nothing
   is closed or lost); never the foreground app. Manual *Free memory* in the

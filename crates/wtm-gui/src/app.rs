@@ -187,6 +187,10 @@ impl eframe::App for App {
                 if views::app_history(ui, &data, &mut state.history) {
                     state.history_dirty = true;
                 }
+                if let Some((app, cores)) = state.history.limit_request.take() {
+                    state.limits.prefill_cores(&app, cores);
+                    state.tab = Tab::Limits;
+                }
             }
             Tab::Startup => {
                 if let Some(cmd) = views::startup(ui, &data, &mut state.selected_startup) {

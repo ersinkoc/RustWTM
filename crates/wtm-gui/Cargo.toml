@@ -25,6 +25,9 @@ notify-rust.workspace = true
 tray-icon.workspace = true
 winreg.workspace = true
 
+[build-dependencies]
+winresource.workspace = true
+
 [lints]
 workspace = true
 

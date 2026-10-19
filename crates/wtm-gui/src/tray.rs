@@ -14,31 +14,9 @@ pub struct Tray {
 
 const SIZE: u32 = 32;
 
-/// A simple generated icon: three ascending bars on a rounded blue tile.
+/// The RustWTM logo at tray size.
 fn icon() -> Option<Icon> {
-    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let corner = |cx: u32, cy: u32| {
-                let (dx, dy) = (x.abs_diff(cx), y.abs_diff(cy));
-                dx * dx + dy * dy > 36
-            };
-            let outside = (x < 6 && y < 6 && corner(6, 6))
-                || (x > 25 && y < 6 && corner(25, 6))
-                || (x < 6 && y > 25 && corner(6, 25))
-                || (x > 25 && y > 25 && corner(25, 25));
-            let bar = [(7, 18), (14, 12), (21, 6)]
-                .iter()
-                .any(|&(bx, top)| (bx..bx + 5).contains(&x) && (top..26).contains(&y));
-            let px = match (outside, bar) {
-                (true, _) => [0, 0, 0, 0],
-                (false, true) => [255, 255, 255, 255],
-                (false, false) => [30, 110, 210, 255],
-            };
-            rgba.extend(px);
-        }
-    }
-    Icon::from_rgba(rgba, SIZE, SIZE).ok()
+    Icon::from_rgba(crate::logo::rgba(SIZE), SIZE, SIZE).ok()
 }
 
 fn show_window(ctx: &egui::Context) {

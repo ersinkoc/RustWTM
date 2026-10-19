@@ -44,6 +44,12 @@ pub fn about(ui: &mut Ui) {
         .show(ui, |ui| {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
+                let logo = ui.ctx().load_texture(
+                    "rustwtm-logo",
+                    egui::ColorImage::from_rgba_unmultiplied([128, 128], &crate::logo::rgba(128)),
+                    egui::TextureOptions::LINEAR,
+                );
+                ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(128.0, 128.0)));
                 ui.label(RichText::new("RustWTM").size(44.0).strong().color(ACCENT));
                 ui.label(
                     RichText::new("The Windows task manager that keeps your PC responsive")

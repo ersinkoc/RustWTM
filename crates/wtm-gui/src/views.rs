@@ -329,6 +329,8 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
 pub struct HistoryView {
     pub hours: u32,
     pub selected: Option<String>,
+    /// Set when the user asks to limit an app: (name, suggested cores).
+    pub limit_request: Option<(String, f32)>,
 }
 
 impl Default for HistoryView {
@@ -336,6 +338,7 @@ impl Default for HistoryView {
         Self {
             hours: 24,
             selected: None,
+            limit_request: None,
         }
     }
 }
@@ -494,8 +497,24 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         });
     sort.store(ui, "history");
 
-    if let Some(app) = &view.selected {
+    if let Some(app) = view.selected.clone() {
         ui.separator();
+        if let Some(s) = stats.iter().find(|s| s.app == app) {
+            let cpus = data.snapshot.as_ref().map_or(1, |s| s.system.logical_cpus);
+            let cores = suggested_cores(s.cpu_p95, cpus);
+            ui.horizontal(|ui| {
+                if ui
+                    .button(format!("Limit {app}…"))
+                    .on_hover_text(format!(
+                        "Create an app limit; suggested from its p95 usage: {cores} cores."
+                    ))
+                    .clicked()
+                {
+                    view.limit_request = Some((app.clone(), cores));
+                }
+            });
+        }
+        let app = &app;
         match &data.series {
             Some((name, rows)) if name == app && !rows.is_empty() => series_charts(ui, app, rows),
             _ => {
@@ -504,6 +523,13 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         }
     }
     changed
+}
+
+/// A budget that covers normal use (p95, a share of the machine) with some
+/// headroom, in half cores, at least half a core.
+pub fn suggested_cores(p95_percent: f32, logical_cpus: u32) -> f32 {
+    let cores = p95_percent / 100.0 * logical_cpus.max(1) as f32 * 1.25;
+    ((cores * 2.0).ceil() / 2.0).clamp(0.5, logical_cpus.max(1) as f32)
 }
 
 fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {

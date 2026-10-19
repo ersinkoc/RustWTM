@@ -1,8 +1,18 @@
-# RustWTM
+<p align="center">
+  <img src="assets/logo.svg" width="128" height="128" alt="RustWTM logo">
+</p>
+
+<h1 align="center">RustWTM</h1>
+
+<p align="center">
+  <b>The Windows task manager that keeps your PC responsive.</b><br>
+  Built in Rust by <a href="https://github.com/ersinkoc">Ersin KOÇ</a>.
+</p>
 
 A Windows task manager written in Rust, with a background governor that keeps
 the machine responsive: it throttles, caps, suspends or terminates processes
-that overload the CPU, enforces per-process rules, and learns from long-term
+that overload the CPU, gives apps CPU and memory budgets, frees RAM under
+pressure, never slows down the app you are using, and learns from long-term
 usage history.
 
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)

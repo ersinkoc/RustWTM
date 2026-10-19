@@ -48,6 +48,12 @@ impl LimitsView {
         };
     }
 
+    /// Starts a new CPU limit for `app` with a suggested budget.
+    pub fn prefill_cores(&mut self, app: &str, cores: f32) {
+        self.prefill(app);
+        self.cores = cores;
+    }
+
     fn edit(&mut self, l: &AppLimit) {
         *self = Self {
             name: l.name.clone(),

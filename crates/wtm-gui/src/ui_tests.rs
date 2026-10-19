@@ -479,6 +479,11 @@ fn app_history_view_switches_window_sort_and_selection() {
     h.get_by_label("alpha.exe").click();
     h.run_steps(3);
     assert_eq!(h.state().1.selected.as_deref(), Some("alpha.exe"));
+    h.get_by_label("Limit alpha.exe…").click();
+    h.run();
+    let (app, cores) = h.state_mut().1.limit_request.take().expect("requested");
+    assert_eq!(app, "alpha.exe");
+    assert!(cores >= 0.5);
     assert!(h.state().2 >= 2);
 
     // Error / loading states.
@@ -773,4 +778,12 @@ fn extra(managed: &ManagedMap) -> crate::processes::Extra<'_> {
         labels: managed,
         command_lines: command_lines(),
     }
+}
+
+#[test]
+fn suggested_cores_cover_p95_with_headroom() {
+    assert_eq!(views::suggested_cores(0.0, 8), 0.5);
+    // 25% of 8 CPUs = 2 cores, +25% headroom = 2.5.
+    assert_eq!(views::suggested_cores(25.0, 8), 2.5);
+    assert_eq!(views::suggested_cores(100.0, 4), 4.0);
 }

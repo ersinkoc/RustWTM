@@ -19,6 +19,8 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of RustWTM is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <Icon Id="RustWTM.ico" SourceFile="assets\rustwtm.ico" />
+    <Property Id="ARPPRODUCTICON" Value="RustWTM.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/ersinkoc/RustWTM" />
     <Property Id="ARPHELPLINK" Value="https://github.com/ersinkoc/RustWTM/issues" />
 
@@ -79,6 +81,7 @@
                   Name="RustWTM"
                   Description="RustWTM task manager"
                   Target="[INSTALLFOLDER]rustwtm.exe"
+                  Icon="RustWTM.ico"
                   WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKLM" Key="Software\RustWTM" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>

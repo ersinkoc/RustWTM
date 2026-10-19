@@ -6,6 +6,7 @@ mod about;
 mod app;
 mod backend;
 mod limits_tab;
+mod logo;
 mod overview;
 mod processes;
 mod settings;
@@ -22,7 +23,12 @@ fn options() -> eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("RustWTM")
             .with_inner_size([1240.0, 780.0])
-            .with_min_inner_size([820.0, 500.0]),
+            .with_min_inner_size([820.0, 500.0])
+            .with_icon(std::sync::Arc::new(egui::IconData {
+                rgba: logo::rgba(64),
+                width: 64,
+                height: 64,
+            })),
         ..Default::default()
     }
 }
@@ -84,5 +90,6 @@ mod tests {
             viewport.min_inner_size,
             Some(eframe::egui::vec2(820.0, 500.0))
         );
+        assert_eq!(viewport.icon.unwrap().width, 64);
     }
 }
