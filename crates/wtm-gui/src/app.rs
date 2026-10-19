@@ -106,6 +106,8 @@ struct UiState {
     tab: Tab,
     processes: ProcessView,
     confirm: Option<(ProcessRef, Command)>,
+    /// A destructive command for every process of an app.
+    confirm_many: Option<(Vec<ProcessRef>, Command)>,
     network_filter: String,
     services_filter: String,
     selected_startup: Option<wtm_core::startup::StartupEntry>,
@@ -140,6 +142,7 @@ impl Default for UiState {
             tab: Tab::Overview,
             processes: ProcessView::default(),
             confirm: None,
+            confirm_many: None,
             network_filter: String::new(),
             services_filter: String::new(),
             selected_startup: None,
@@ -314,6 +317,34 @@ impl eframe::App for App {
             }
         }
 
+        if let Some((targets, command)) = state.confirm_many.clone() {
+            let name = targets.first().map_or("", |t| t.name.as_str()).to_owned();
+            let modal = egui::Modal::new(egui::Id::unique("confirm_many")).show(&ctx, |ui| {
+                ui.heading(format!("{} — {name}", describe(command)));
+                ui.label(format!(
+                    "{} all {} processes of \"{name}\"? Unsaved data in that program will be lost.",
+                    describe(command),
+                    targets.len()
+                ));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(RichText::new(format!("{} all", describe(command))).color(BAD))
+                        .clicked()
+                    {
+                        intents.extend(targets.iter().map(|t| Intent::Command(t.clone(), command)));
+                        state.confirm_many = None;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        state.confirm_many = None;
+                    }
+                });
+            });
+            if modal.should_close() {
+                state.confirm_many = None;
+            }
+        }
+
         if state.tab == Tab::Processes
             && state.confirm.is_none()
             && let Some(sel) = &state.processes.selected
@@ -371,6 +402,9 @@ impl eframe::App for App {
                     backend.send(UiCommand::Control { target, command });
                 }
                 Intent::Confirm(target, command) => state.confirm = Some((target, command)),
+                Intent::ConfirmMany(targets, command) => {
+                    state.confirm_many = Some((targets, command));
+                }
                 Intent::OpenLocation(target) => backend.send(UiCommand::OpenLocation(target)),
                 Intent::Reveal(target) => {
                     backend.send(UiCommand::Inspect(target.clone()));
@@ -1052,6 +1086,20 @@ mod tests {
         assert!(h.state().state.confirm.is_none());
         // Escape dismisses the dialog.
         let alpha = h.state().state.processes.selected.clone().unwrap();
+        // Ending every process of an app asks once for all of them.
+        h.state_mut().state.confirm_many =
+            Some((vec![alpha.clone(), alpha.clone()], Command::Kill));
+        h.run();
+        h.run();
+        h.get_by_label("End task all").click();
+        let s = step(&mut h, &mut sent);
+        assert_eq!(s.iter().filter(|c| *c == "control 100 Kill").count(), 3);
+        h.state_mut().state.confirm_many = Some((vec![alpha.clone()], Command::Kill));
+        h.run();
+        h.run();
+        h.get_by_label("Cancel").click();
+        h.run();
+        assert!(h.state().state.confirm_many.is_none());
         h.state_mut().state.confirm = Some((alpha.clone(), Command::KillTree));
         step(&mut h, &mut sent);
         h.key_press(egui::Key::Escape);

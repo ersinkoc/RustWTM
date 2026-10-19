@@ -28,7 +28,8 @@ usage history.
 - Overview start page: load at a glance, one-click protection on/off and
   protection levels, the busiest apps with quick actions.
 
-- Processes: flat or tree view, search, sort by any column, choose columns,
+- Processes: list, tree or Apps view (one row per app, acting on all of its
+  processes), program icons, search (Ctrl+F), sort by any column, choose columns,
   details panel (path, command line, user, priority, affinity, efficiency
   mode, uptime, I/O), open file location.
 - Actions: end task, end process tree, suspend / resume, priority, CPU

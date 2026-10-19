@@ -247,6 +247,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::OpenLocation(t) => format!("open {}", t.pid),
         Intent::LimitApp(name) => format!("limit app {name}"),
         Intent::Reveal(t) => format!("reveal {}", t.pid),
+        Intent::ConfirmMany(ts, c) => format!("confirm {} processes {c:?}", ts.len()),
     }
 }
 
@@ -285,9 +286,9 @@ fn processes_table_sorts_filters_and_shows_tree() {
     assert!(!h.state().view.descending || h.state().view.sort == crate::processes::Col::Handles);
 
     // Tree view.
-    h.get_by_label("Tree view").click();
+    h.get_by_label("Tree").click();
     h.run();
-    assert!(h.state().view.tree);
+    assert_eq!(h.state().view.mode, crate::processes::ViewMode::Tree);
 
     // Search narrows the list.
     h.state_mut().view.search = "beta".into();
@@ -812,4 +813,65 @@ fn suggested_cores_cover_p95_with_headroom() {
     // 25% of 8 CPUs = 2 cores, +25% headroom = 2.5.
     assert_eq!(views::suggested_cores(25.0, 8), 2.5);
     assert_eq!(views::suggested_cores(100.0, 4), 4.0);
+}
+
+#[test]
+fn apps_view_groups_processes_and_acts_on_all_of_them() {
+    let mut h = process_harness();
+    let mut snap = snapshot();
+    snap.processes.push(proc(300, 1, "chrome.exe", 10.0));
+    snap.processes.push(proc(301, 300, "Chrome.exe", 5.0));
+    snap.processes.push(proc(302, 300, "chrome.exe", 2.5));
+    h.state_mut().snap = snap;
+    h.run();
+    h.get_by_label("Apps").click();
+    h.run();
+    assert_eq!(h.state().view.mode, crate::processes::ViewMode::Apps);
+    // One row with the total CPU of the three instances.
+    assert!(h.query_by_label("chrome.exe (3)").is_some());
+    assert!(h.query_by_label("17.5%").is_some());
+    assert!(h.query_by_label("Chrome.exe").is_none(), "collapsed");
+
+    // Clicking expands the app; clicking again collapses it.
+    h.get_by_label("chrome.exe (3)").click();
+    h.run();
+    assert!(h.state().view.expanded.contains("chrome.exe"));
+    assert!(h.query_by_label("Chrome.exe").is_some());
+    h.get_by_label("chrome.exe (3)").click();
+    h.run();
+    assert!(h.state().view.expanded.is_empty());
+
+    for (item, expected) in [
+        ("Efficiency mode for all", "command 302 EcoQos(On)"),
+        ("Free memory of all", "command 301 TrimMemory"),
+        ("End all 3 processes", "confirm 3 processes Kill"),
+        ("Limit all chrome.exe…", "limit app chrome.exe"),
+    ] {
+        h.get_by_label("chrome.exe (3)").click_secondary();
+        h.run();
+        h.get_by_label(item).click();
+        h.run();
+        assert!(
+            h.state().intents.iter().any(|i| i == expected),
+            "{item}: {:?}",
+            h.state().intents
+        );
+    }
+}
+
+#[test]
+fn ctrl_f_focuses_the_search_and_escape_clears_it() {
+    let mut h = process_harness();
+    h.run();
+    h.key_press_modifiers(eframe::egui::Modifiers::COMMAND, eframe::egui::Key::F);
+    h.run();
+    h.get_all_by_role(eframe::egui::accesskit::Role::TextInput)
+        .next()
+        .unwrap()
+        .type_text("beta");
+    h.run();
+    assert_eq!(h.state().view.search, "beta");
+    h.key_press(eframe::egui::Key::Escape);
+    h.run();
+    assert!(h.state().view.search.is_empty());
 }

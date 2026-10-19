@@ -152,11 +152,24 @@ pub enum Intent {
     LimitApp(String),
     /// Select the process and show it in the Processes tab.
     Reveal(ProcessRef),
+    /// Destructive, for several processes (every instance of an app).
+    ConfirmMany(Vec<ProcessRef>, Command),
+}
+
+/// How the process list is arranged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewMode {
+    List,
+    Tree,
+    /// One row per app (image name), expandable to its processes.
+    Apps,
 }
 
 pub struct ProcessView {
     pub search: String,
-    pub tree: bool,
+    pub mode: ViewMode,
+    /// Apps expanded in the Apps view (lower-case names).
+    pub expanded: HashSet<String>,
     pub sort: Col,
     pub descending: bool,
     pub selected: Option<ProcessRef>,
@@ -168,7 +181,8 @@ impl Default for ProcessView {
     fn default() -> Self {
         Self {
             search: String::new(),
-            tree: false,
+            mode: ViewMode::List,
+            expanded: HashSet::new(),
             sort: Col::Cpu,
             descending: true,
             selected: None,
@@ -284,15 +298,31 @@ impl ProcessView {
 
         ui.horizontal(|ui| {
             ui.label("Search:");
-            ui.add(
+            let search = ui.add(
                 egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("name, PID or command line")
-                    .desired_width(220.0),
+                    .id(egui::Id::unique("process_search"))
+                    .hint_text("name, PID or command line (Ctrl+F)")
+                    .desired_width(260.0),
             );
+            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+                search.request_focus();
+            }
+            // TextEdit gives up focus on Escape in the same frame.
+            if (search.has_focus() || search.lost_focus())
+                && ui.input(|i| i.key_pressed(egui::Key::Escape))
+            {
+                self.search.clear();
+            }
             if !self.search.is_empty() && ui.small_button("✖").clicked() {
                 self.search.clear();
             }
-            ui.checkbox(&mut self.tree, "Tree view");
+            for (mode, label) in [
+                (ViewMode::List, "List"),
+                (ViewMode::Tree, "Tree"),
+                (ViewMode::Apps, "Apps"),
+            ] {
+                ui.selectable_value(&mut self.mode, mode, label);
+            }
             ui.menu_button("Columns", |ui| {
                 for (col, label, ..) in COLUMNS.iter().skip(1) {
                     let mut on = self.visible.contains(col);
@@ -310,26 +340,51 @@ impl ProcessView {
         ui.separator();
 
         let filter = self.search.trim().to_lowercase();
-        let rows: Vec<(&ProcessInfo, usize)> = if self.tree && filter.is_empty() {
-            tree_rows(&snap.processes, self.sort, self.descending, extra)
-        } else {
-            let mut v: Vec<&ProcessInfo> = snap
-                .processes
-                .iter()
-                .filter(|p| {
-                    filter.is_empty()
-                        || p.name.to_lowercase().contains(&filter)
-                        || p.pid.to_string().contains(&filter)
-                        || extra.command_line(p).to_lowercase().contains(&filter)
-                })
-                .collect();
-            v.sort_by(|a, b| {
-                let o = compare(a, b, self.sort, extra);
-                if self.descending { o.reverse() } else { o }
-            });
-            v.into_iter().map(|p| (p, 0)).collect()
+        let matches = |p: &ProcessInfo| {
+            filter.is_empty()
+                || p.name.to_lowercase().contains(&filter)
+                || p.pid.to_string().contains(&filter)
+                || extra.command_line(p).to_lowercase().contains(&filter)
         };
-
+        let order = |a: &ProcessInfo, b: &ProcessInfo| {
+            let o = compare(a, b, self.sort, extra);
+            if self.descending { o.reverse() } else { o }
+        };
+        // Aggregated rows of the Apps view; the table borrows them.
+        let groups: Vec<AppGroup<'_>> = if self.mode == ViewMode::Apps {
+            let mut g = app_groups(snap.processes.iter().filter(|p| matches(p)));
+            g.sort_by(|a, b| order(&a.total, &b.total));
+            g
+        } else {
+            Vec::new()
+        };
+        // (process, depth, Some(group index) for an app row)
+        let rows: Vec<(&ProcessInfo, usize, Option<usize>)> = match self.mode {
+            ViewMode::Tree if filter.is_empty() => {
+                tree_rows(&snap.processes, self.sort, self.descending, extra)
+                    .into_iter()
+                    .map(|(p, d)| (p, d, None))
+                    .collect()
+            }
+            ViewMode::Apps => {
+                let mut rows = Vec::new();
+                for (i, g) in groups.iter().enumerate() {
+                    rows.push((&g.total, 0, Some(i)));
+                    if self.expanded.contains(&g.key) {
+                        let mut members = g.members.clone();
+                        members.sort_by(|a, b| order(a, b));
+                        rows.extend(members.into_iter().map(|p| (p, 1, None)));
+                    }
+                }
+                rows
+            }
+            _ => {
+                let mut v: Vec<&ProcessInfo> =
+                    snap.processes.iter().filter(|p| matches(p)).collect();
+                v.sort_by(|a, b| order(a, b));
+                v.into_iter().map(|p| (p, 0, None)).collect()
+            }
+        };
         let row_height = ui.spacing().interact_size.y;
         let one_core = 100.0 / logical_cpus as f32;
         let selected = self.selected.as_ref().map(|r| (r.pid, r.create_time));
@@ -381,16 +436,27 @@ impl ProcessView {
             })
             .body(|body| {
                 body.rows(row_height, rows.len(), |mut row| {
-                    let (p, depth) = rows[row.index()];
+                    let (p, depth, group) = rows[row.index()];
+                    let group = group.map(|i| &groups[i]);
                     let key = (p.pid, p.create_time);
-                    row.set_selected(selected == Some(key));
+                    row.set_selected(group.is_none() && selected == Some(key));
 
                     for (col, ..) in &columns {
                         row.col(|ui| match col {
                             Col::Name => {
                                 ui.add_space(depth as f32 * 14.0);
+                                if let Some(g) = group {
+                                    let open = self.expanded.contains(&g.key);
+                                    ui.label(if open { "⏷" } else { "⏵" });
+                                }
                                 app_icon(ui, extra.icon(p));
-                                ui.label(&p.name);
+                                match group {
+                                    Some(g) => ui.label(
+                                        RichText::new(format!("{} ({})", p.name, g.members.len()))
+                                            .strong(),
+                                    ),
+                                    None => ui.label(&p.name),
+                                };
                             }
                             Col::Pid => right(ui, p.pid.to_string()),
                             Col::Cpu => {
@@ -432,14 +498,99 @@ impl ProcessView {
 
                     let response = row.response();
                     let target = ProcessRef::from(p);
-                    if response.clicked() {
-                        intents.push(Intent::Select(target.clone()));
+                    if let Some(g) = group {
+                        if response.clicked() && !self.expanded.remove(&g.key) {
+                            self.expanded.insert(g.key.clone());
+                        }
+                        response.context_menu(|ui| app_menu(ui, g, &mut intents));
+                    } else {
+                        if response.clicked() {
+                            intents.push(Intent::Select(target.clone()));
+                        }
+                        response.context_menu(|ui| {
+                            context_menu(ui, &target, logical_cpus, &mut intents)
+                        });
                     }
-                    response
-                        .context_menu(|ui| context_menu(ui, &target, logical_cpus, &mut intents));
                 });
             });
         intents
+    }
+}
+
+/// All processes sharing an image name, with their totals.
+pub struct AppGroup<'a> {
+    /// Lower-case image name.
+    pub key: String,
+    /// Sums of the members; PID and start time are the oldest member's, so
+    /// icons and labels resolve.
+    pub total: ProcessInfo,
+    pub members: Vec<&'a ProcessInfo>,
+}
+
+fn app_groups<'a>(procs: impl Iterator<Item = &'a ProcessInfo>) -> Vec<AppGroup<'a>> {
+    let mut by_name: HashMap<String, Vec<&ProcessInfo>> = HashMap::new();
+    for p in procs {
+        by_name.entry(p.name.to_lowercase()).or_default().push(p);
+    }
+    by_name
+        .into_iter()
+        .map(|(key, mut members)| {
+            members.sort_by_key(|p| (p.create_time, p.pid));
+            let mut total = members[0].clone();
+            for p in &members[1..] {
+                total.cpu_percent += p.cpu_percent;
+                total.cpu_time += p.cpu_time;
+                total.working_set += p.working_set;
+                total.private_working_set += p.private_working_set;
+                total.private_bytes += p.private_bytes;
+                total.thread_count += p.thread_count;
+                total.handle_count += p.handle_count;
+                total.gpu_percent += p.gpu_percent;
+                total.gpu_memory += p.gpu_memory;
+                total.io_read_rate += p.io_read_rate;
+                total.io_write_rate += p.io_write_rate;
+            }
+            AppGroup {
+                key,
+                total,
+                members,
+            }
+        })
+        .collect()
+}
+
+/// Actions for every process of an app.
+fn app_menu(ui: &mut Ui, g: &AppGroup<'_>, intents: &mut Vec<Intent>) {
+    let all: Vec<ProcessRef> = g.members.iter().map(|p| ProcessRef::from(*p)).collect();
+    let mut each = |ui: &mut Ui, label: &str, command: Command| {
+        if ui.button(label).clicked() {
+            intents.extend(all.iter().map(|t| Intent::Command(t.clone(), command)));
+            ui.close();
+        }
+    };
+    each(ui, "Efficiency mode for all", Command::EcoQos(EcoQos::On));
+    each(
+        ui,
+        "Normal mode for all",
+        Command::EcoQos(EcoQos::SystemManaged),
+    );
+    each(ui, "Free memory of all", Command::TrimMemory);
+    each(ui, "Suspend all", Command::Suspend);
+    each(ui, "Resume all", Command::Resume);
+    ui.separator();
+    if ui.button(format!("Limit all {}…", g.total.name)).clicked() {
+        intents.push(Intent::LimitApp(g.total.name.clone()));
+        ui.close();
+    }
+    if ui
+        .button(
+            RichText::new(format!("End all {} processes", all.len()))
+                .color(Color32::from_rgb(220, 70, 70)),
+        )
+        .clicked()
+    {
+        intents.push(Intent::ConfirmMany(all.clone(), Command::Kill));
+        ui.close();
     }
 }
 

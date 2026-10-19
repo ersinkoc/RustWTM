@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Apps view** in the process list (next to List and Tree): one row per app
+  with the totals of all its processes, expandable to the processes, with a
+  menu that acts on all of them (efficiency mode, free memory, suspend /
+  resume, limit, end all with one confirmation).
+- Keyboard: Ctrl+F jumps to the process search, Escape clears it.
+
 ## [0.3.1] - 2026-10-20
 
 ### Fixed
