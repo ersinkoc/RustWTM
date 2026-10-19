@@ -94,4 +94,27 @@ mod tests {
         assert_eq!(all[0].id, 6);
         assert_eq!(log.after(all.last().unwrap().id - 2).len(), 2);
     }
+
+    #[test]
+    fn records_level_target_and_notification_flag() {
+        let log = EventLog::default();
+        let target = ProcessRef {
+            pid: 42,
+            create_time: 7,
+            name: "app.exe".into(),
+        };
+        log.push(EventLevel::Error, Some(&target), "broken");
+        log.warn(None, "careful");
+        log.notable(Some(&target), "look");
+        let all = log.after(0);
+        assert_eq!(
+            all.iter().map(|e| e.level).collect::<Vec<_>>(),
+            [EventLevel::Error, EventLevel::Warn, EventLevel::Info]
+        );
+        assert_eq!(all[0].pid, Some(42));
+        assert_eq!(all[0].name.as_deref(), Some("app.exe"));
+        assert_eq!(all[1].pid, None);
+        assert!(!all[0].notify && all[2].notify);
+        assert!(all[0].unix_ms > 0);
+    }
 }

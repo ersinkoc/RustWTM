@@ -302,4 +302,63 @@ mod tests {
         let conn = h.conn;
         History::with(conn).unwrap();
     }
+
+    #[test]
+    fn a_read_only_old_database_cannot_be_migrated() {
+        let dir = std::env::temp_dir().join(format!("wtm-history-ro-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("old.sqlite");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "PRAGMA journal_mode = WAL;
+                CREATE TABLE app_minute (
+                    app TEXT NOT NULL, minute INTEGER NOT NULL,
+                    cpu_avg REAL NOT NULL, cpu_peak REAL NOT NULL,
+                    mem_avg INTEGER NOT NULL, mem_peak INTEGER NOT NULL,
+                    processes INTEGER NOT NULL, PRIMARY KEY (app, minute)
+                ) WITHOUT ROWID;
+                CREATE INDEX app_minute_time ON app_minute (minute);",
+            )
+            .unwrap();
+        let ro =
+            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        assert!(History::with(ro).is_err());
+        assert!(History::open(&path).is_ok(), "writable: migrated");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn query_and_write_errors_are_reported() {
+        let conn = Connection::open_in_memory().unwrap();
+        assert!(stats(&conn, 0, 1).is_err(), "no table yet");
+        assert!(series(&conn, "a.exe", 0).is_err());
+
+        let mut h = History::with(conn).unwrap();
+        h.flush().unwrap(); // nothing recorded yet
+        // Samples without an interval carry no rates and are skipped.
+        let first = Snapshot {
+            interval: None,
+            ..snap(vec![proc(1, "a.exe", 1.0, 1)])
+        };
+        h.record(&first, 60).unwrap();
+        h.flush().unwrap();
+        assert!(series(h.connection(), "a.exe", 0).unwrap().is_empty());
+
+        h.connection()
+            .execute_batch(
+                "CREATE TRIGGER refuse BEFORE INSERT ON app_minute
+                 BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
+            )
+            .unwrap();
+        h.record(&snap(vec![proc(1, "a.exe", 1.0, 1)]), 60).unwrap();
+        assert!(
+            h.record(&snap(vec![]), 120).is_err(),
+            "minute rollover flushes"
+        );
+        h.record(&snap(vec![proc(1, "a.exe", 1.0, 1)]), 180)
+            .unwrap();
+        assert!(h.flush().is_err());
+    }
 }

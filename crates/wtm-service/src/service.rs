@@ -1,7 +1,7 @@
 //! Service Control Manager integration.
 
 use std::ffi::{OsStr, OsString};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Sender};
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -69,17 +69,22 @@ fn status(state: ServiceState) -> ServiceStatus {
     }
 }
 
-fn run_service(paths: &Paths) -> anyhow::Result<()> {
-    let (tx, rx) = mpsc::channel();
-    let stop_tx = tx.clone();
-    let handler = move |control| match control {
+/// Answers a request from the SCM; stop and shutdown stop the engine.
+fn on_control(control: ServiceControl, stop: &Sender<EngineMsg>) -> ServiceControlHandlerResult {
+    match control {
         ServiceControl::Stop | ServiceControl::Shutdown => {
-            let _ = stop_tx.send(EngineMsg::Stop);
+            let _ = stop.send(EngineMsg::Stop);
             ServiceControlHandlerResult::NoError
         }
         ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
         _ => ServiceControlHandlerResult::NotImplemented,
-    };
+    }
+}
+
+fn run_service(paths: &Paths) -> anyhow::Result<()> {
+    let (tx, rx) = mpsc::channel();
+    let stop_tx = tx.clone();
+    let handler = move |control| on_control(control, &stop_tx);
     let handle = service_control_handler::register(SERVICE_NAME, handler)?;
     handle.set_service_status(status(ServiceState::Running))?;
 
@@ -199,20 +204,58 @@ mod tests {
         assert!(status(ServiceState::Stopped).controls_accepted.is_empty());
     }
 
+    #[test]
+    fn stop_and_shutdown_stop_the_engine() {
+        let (tx, rx) = mpsc::channel();
+        for control in [ServiceControl::Stop, ServiceControl::Shutdown] {
+            let r = on_control(control, &tx);
+            assert!(matches!(r, ServiceControlHandlerResult::NoError));
+            assert!(matches!(rx.try_recv(), Ok(EngineMsg::Stop)));
+        }
+        let r = on_control(ServiceControl::Interrogate, &tx);
+        assert!(matches!(r, ServiceControlHandlerResult::NoError));
+        let r = on_control(ServiceControl::Pause, &tx);
+        assert!(matches!(r, ServiceControlHandlerResult::NotImplemented));
+        assert!(
+            rx.try_recv().is_err(),
+            "only stop and shutdown reach the engine"
+        );
+
+        // An engine that is already gone is not an error for the SCM.
+        drop(rx);
+        let r = on_control(ServiceControl::Stop, &tx);
+        assert!(matches!(r, ServiceControlHandlerResult::NoError));
+    }
+
+    #[test]
+    fn running_as_a_service_needs_the_scm() {
+        let dir = std::env::temp_dir().join(format!("wtm-svc-test-{}", std::process::id()));
+        let paths = Paths {
+            pipe: format!(r"\\.\pipe\wtm-svc-test-{}", std::process::id()),
+            ..Paths::under(&dir)
+        };
+        // Registering the control handler fails outside the dispatcher;
+        // run on a thread so a surprise cannot hang the test run.
+        let (done, result) = mpsc::channel();
+        std::thread::spawn(move || done.send(run_service(&paths).is_err()));
+        assert_eq!(result.recv_timeout(Duration::from_secs(30)), Ok(true));
+        assert!(!dir.exists(), "the engine never started");
+    }
+
     /// Installs and removes the real service. Needs elevation and changes
     /// the machine, so it only runs where RUSTWTM_SCM_TESTS is set (CI).
     #[test]
     fn install_stop_and_uninstall() {
-        if std::env::var_os("RUSTWTM_SCM_TESTS").is_none() {
-            return;
+        if std::env::var_os("RUSTWTM_SCM_TESTS").is_some() {
+            install().unwrap();
+            assert!(install().is_err(), "second install must fail");
+            wtm_sys::services::set_start_type(SERVICE_NAME, wtm_sys::services::StartType::Manual)
+                .unwrap();
+            assert!(wtm_sys::services::service_pid(SERVICE_NAME).is_none());
+            stop().unwrap(); // already stopped: no-op
+            uninstall().unwrap();
+            assert!(open(ServiceAccess::QUERY_STATUS).is_err());
+            assert!(stop().is_err() && start().is_err() && uninstall().is_err());
         }
-        install().unwrap();
-        assert!(install().is_err(), "second install must fail");
-        wtm_sys::services::set_start_type(SERVICE_NAME, wtm_sys::services::StartType::Manual)
-            .unwrap();
-        assert!(wtm_sys::services::service_pid(SERVICE_NAME).is_none());
-        stop().unwrap(); // already stopped: no-op
-        uninstall().unwrap();
-        assert!(open(ServiceAccess::QUERY_STATUS).is_err());
     }
 }

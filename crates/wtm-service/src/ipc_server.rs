@@ -178,25 +178,34 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 Response::Error("administrator rights required (run the client elevated)".into())
             }
             Request::Control { target, command } => {
-                let (reply, rx) = mpsc::channel();
-                if engine
-                    .send(EngineMsg::Control {
-                        target,
-                        command,
-                        reply,
-                    })
-                    .is_err()
-                {
-                    Response::Error("service is stopping".into())
-                } else {
-                    match rx.recv_timeout(CONTROL_TIMEOUT) {
-                        Ok(outcomes) => Response::Control(outcomes),
-                        Err(_) => Response::Error("service did not answer in time".into()),
-                    }
-                }
+                forward_control(engine, target, command, CONTROL_TIMEOUT)
             }
         };
         write_frame(&mut conn, &response)?;
+    }
+}
+
+/// Hands a control request to the engine thread and waits for its outcomes.
+fn forward_control(
+    engine: &Sender<EngineMsg>,
+    target: ProcessRef,
+    command: Command,
+    timeout: Duration,
+) -> Response {
+    let (reply, rx) = mpsc::channel();
+    if engine
+        .send(EngineMsg::Control {
+            target,
+            command,
+            reply,
+        })
+        .is_err()
+    {
+        return Response::Error("service is stopping".into());
+    }
+    match rx.recv_timeout(timeout) {
+        Ok(outcomes) => Response::Control(outcomes),
+        Err(_) => Response::Error("service did not answer in time".into()),
     }
 }
 
@@ -216,4 +225,202 @@ fn history_query<T>(
         .map_or(0, |d| d.as_secs() as i64 / 60);
     let since = now_minute - i64::from(hours.clamp(1, 24 * 90)) * 60;
     f(&conn, since, cpus).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::{Read, Write};
+    use std::sync::mpsc::Receiver;
+    use wtm_core::control::PriorityClass;
+
+    use crate::test_util::wait_for;
+
+    /// A server on a pipe unique to this test; the engine end is returned.
+    fn server(test: &str) -> (Server, String, Receiver<EngineMsg>) {
+        let pipe = format!(r"\\.\pipe\wtm-ipc-{test}-{}", std::process::id());
+        let (tx, rx) = mpsc::channel();
+        let server = start(Arc::new(Shared::default()), tx, &pipe).unwrap();
+        (server, pipe, rx)
+    }
+
+    /// A raw client: the tests speak the protocol by hand.
+    fn open(pipe: &str) -> File {
+        // Busy while the server creates the next instance.
+        wait_for(pipe, || {
+            OpenOptions::new().read(true).write(true).open(pipe).ok()
+        })
+    }
+
+    fn call(f: &mut File, request: &Request) -> io::Result<Response> {
+        write_frame(f, request)?;
+        read_frame(f)
+    }
+
+    fn hello(pipe: &str) -> (File, bool) {
+        let mut f = open(pipe);
+        let hello = Request::Hello {
+            version: PROTOCOL_VERSION,
+        };
+        let r = call(&mut f, &hello).unwrap();
+        let admin = matches!(r, Response::Hello { admin: true, .. });
+        assert!(
+            matches!(r, Response::Hello { version, .. } if version == PROTOCOL_VERSION),
+            "{r:?}"
+        );
+        (f, admin)
+    }
+
+    fn error(r: Response) -> String {
+        expect_reply!(r, Response::Error)
+    }
+
+    #[test]
+    fn answers_requests_before_the_engine_has_published_anything() {
+        let (server, pipe, rx) = server("empty");
+        drop(rx); // the engine is gone
+        let (mut f, admin) = hello(&pipe);
+
+        let again = Request::Hello { version: 0 };
+        assert_eq!(error(call(&mut f, &again).unwrap()), "already connected");
+        assert_eq!(
+            error(call(&mut f, &Request::Snapshot).unwrap()),
+            "no snapshot yet"
+        );
+        let status = expect_reply!(call(&mut f, &Request::Status).unwrap(), Response::Status);
+        assert_eq!(status, Status::default());
+        let events = call(&mut f, &Request::Events { after: 0 }).unwrap();
+        assert!(expect_reply!(events, Response::Events).is_empty());
+
+        let gone = ProcessRef {
+            pid: 0xFFFF_FFF0,
+            create_time: 1,
+            name: "gone.exe".into(),
+        };
+        assert!(!error(call(&mut f, &Request::Inspect(gone.clone())).unwrap()).is_empty());
+        let history = Request::History { hours: 1 };
+        let unavailable = "usage history is not available";
+        assert_eq!(error(call(&mut f, &history).unwrap()), unavailable);
+        let series = Request::AppSeries {
+            app: "a.exe".into(),
+            hours: 1,
+        };
+        assert_eq!(error(call(&mut f, &series).unwrap()), unavailable);
+
+        let control = Request::Control {
+            target: gone,
+            command: Command::Kill,
+        };
+        let refusal = error(call(&mut f, &control).unwrap());
+        let expected = if admin { "stopping" } else { "administrator" };
+        assert!(refusal.contains(expected), "{refusal}");
+
+        // A malformed frame ends the session.
+        f.write_all(&u32::MAX.to_le_bytes()).unwrap();
+        assert!(read_frame::<Response>(&mut f).is_err());
+        server.shutdown();
+    }
+
+    #[test]
+    fn rejects_sessions_without_a_matching_handshake() {
+        let (server, pipe, _rx) = server("handshake");
+        let mut f = open(&pipe);
+        assert_eq!(
+            error(call(&mut f, &Request::Status).unwrap()),
+            "expected Hello"
+        );
+        assert!(read_frame::<Response>(&mut f).is_err(), "closed");
+
+        // A different protocol version gets the server's version, then EOF.
+        let mut f = open(&pipe);
+        let r = call(&mut f, &Request::Hello { version: 0 }).unwrap();
+        assert!(
+            matches!(r, Response::Hello { version, .. } if version == PROTOCOL_VERSION),
+            "{r:?}"
+        );
+        assert!(call(&mut f, &Request::Status).is_err(), "closed");
+
+        // A client that vanishes before the handshake reply does no harm.
+        let mut f = open(&pipe);
+        write_frame(
+            &mut f,
+            &Request::Hello {
+                version: PROTOCOL_VERSION,
+            },
+        )
+        .unwrap();
+        drop(f);
+        hello(&pipe);
+        server.shutdown();
+    }
+
+    #[test]
+    fn limits_concurrent_clients() {
+        let (server, pipe, _rx) = server("limit");
+        let idle: Vec<File> = (0..MAX_CLIENTS).map(|_| open(&pipe)).collect();
+        // One too many: dropped without a word.
+        let mut extra = open(&pipe);
+        let mut buf = [0u8; 1];
+        assert!(!matches!(extra.read(&mut buf), Ok(n) if n > 0));
+
+        // Slots free up as soon as clients leave.
+        drop(idle);
+        let hello = Request::Hello {
+            version: PROTOCOL_VERSION,
+        };
+        wait_for("a free slot", || call(&mut open(&pipe), &hello).ok());
+        server.shutdown();
+    }
+
+    #[test]
+    fn binding_a_taken_pipe_fails() {
+        let (server, pipe, _rx) = server("taken");
+        let (tx, _rx2) = mpsc::channel();
+        assert!(start(Arc::new(Shared::default()), tx, &pipe).is_err());
+        server.shutdown();
+    }
+
+    #[test]
+    fn control_requests_are_forwarded_to_the_engine() {
+        let target = ProcessRef {
+            pid: 1234,
+            create_time: 5,
+            name: "app.exe".into(),
+        };
+        let command = Command::Priority(PriorityClass::Idle);
+        let forward = |engine: &Sender<EngineMsg>, timeout| {
+            forward_control(engine, target.clone(), command, timeout)
+        };
+
+        let (tx, rx) = mpsc::channel();
+        let engine = std::thread::spawn(move || {
+            if let Ok(EngineMsg::Control {
+                target,
+                command,
+                reply,
+            }) = rx.recv()
+            {
+                assert_eq!(command, Command::Priority(PriorityClass::Idle));
+                reply
+                    .send(vec![Outcome {
+                        target,
+                        result: Ok(()),
+                    }])
+                    .unwrap();
+            }
+        });
+        let outcomes = expect_reply!(forward(&tx, CONTROL_TIMEOUT), Response::Control);
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].target, target);
+        engine.join().unwrap();
+
+        // The engine is busy and never answers.
+        let (tx, busy) = mpsc::channel();
+        let late = error(forward(&tx, Duration::from_millis(50)));
+        assert_eq!(late, "service did not answer in time");
+        drop(busy);
+        // The engine has stopped.
+        assert_eq!(error(forward(&tx, CONTROL_TIMEOUT)), "service is stopping");
+    }
 }
