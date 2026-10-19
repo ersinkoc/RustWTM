@@ -94,6 +94,11 @@ enum Command {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Per-app CPU / memory budgets enforced by the service (persistent)
+    AppLimit {
+        #[command(subcommand)]
+        action: config::LimitAction,
+    },
     /// Show, check or replace the service's configuration
     Config {
         #[command(subcommand)]
@@ -203,6 +208,9 @@ fn main() -> anyhow::Result<ExitCode> {
             &mut io::stdout().lock(),
         )
         .map(|()| ExitCode::SUCCESS),
+        Command::AppLimit { action } => {
+            config::app_limit(action, wtm_ipc::Client::connect, &mut io::stdout().lock())
+        }
         Command::Config { action } => {
             config::run(action, wtm_ipc::Client::connect, &mut io::stdout().lock())
         }
@@ -359,6 +367,15 @@ mod tests {
         reply: Response,
         f: impl FnOnce(io::Result<Client>) -> R,
     ) -> (Option<Request>, R) {
+        let (mut requests, result) = with_replies(vec![reply], f);
+        (requests.pop(), result)
+    }
+
+    /// Like `with_reply`, answering consecutive requests with `replies`.
+    pub(crate) fn with_replies<R>(
+        replies: Vec<Response>,
+        f: impl FnOnce(io::Result<Client>) -> R,
+    ) -> (Vec<Request>, R) {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let name = format!(
             r"\\.\pipe\wtm-cli-test-{}-{}",
@@ -371,17 +388,31 @@ mod tests {
         )
         .unwrap();
         let server = std::thread::spawn(move || {
-            let mut conn = listener.accept().ok()?;
-            let hello: Request = read_frame(&mut conn).ok()?;
+            let mut requests = Vec::new();
+            let Ok(mut conn) = listener.accept() else {
+                return requests;
+            };
+            let Ok(hello) = read_frame::<Request>(&mut conn) else {
+                return requests;
+            };
             assert!(matches!(hello, Request::Hello { .. }));
             let hello = Response::Hello {
                 version: PROTOCOL_VERSION,
                 admin: false,
             };
-            write_frame(&mut conn, &hello).ok()?;
-            let request: Request = read_frame(&mut conn).ok()?;
-            write_frame(&mut conn, &reply).ok()?;
-            Some(request)
+            if write_frame(&mut conn, &hello).is_err() {
+                return requests;
+            }
+            for reply in replies {
+                let Ok(request) = read_frame::<Request>(&mut conn) else {
+                    break;
+                };
+                requests.push(request);
+                if write_frame(&mut conn, &reply).is_err() {
+                    break;
+                }
+            }
+            requests
         });
         let result = f(Client::connect_to(&name));
         (server.join().unwrap(), result)

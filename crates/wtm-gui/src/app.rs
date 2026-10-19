@@ -9,7 +9,7 @@ use wtm_core::{Snapshot, format_bytes};
 use wtm_ipc::{Command, EventLevel};
 
 use crate::backend::{Backend, Data, HISTORY_LEN, Mode, Panel, ServiceOp, UiCommand, describe};
-use crate::processes::{Intent, ManagedMap, ProcessView, context_menu};
+use crate::processes::{Intent, ManagedMap, ProcessView, context_menu, limit_labels};
 use crate::tray::Tray;
 use crate::views;
 
@@ -24,6 +24,7 @@ enum Tab {
     Users,
     Services,
     Network,
+    Limits,
     Settings,
 }
 
@@ -44,6 +45,7 @@ struct UiState {
     history_dirty: bool,
     selected_service: Option<String>,
     config: crate::settings::ConfigView,
+    limits: crate::limits_tab::LimitsView,
     last_load: HashMap<Panel, Instant>,
 }
 
@@ -75,6 +77,7 @@ impl Default for UiState {
             history_dirty: true,
             selected_service: None,
             config: crate::settings::ConfigView::default(),
+            limits: crate::limits_tab::LimitsView::default(),
             last_load: HashMap::new(),
         }
     }
@@ -113,6 +116,7 @@ impl eframe::App for App {
                     (Tab::Processes, "Processes"),
                     (Tab::Performance, "Performance"),
                     (Tab::Governor, "Governor"),
+                    (Tab::Limits, "Limits"),
                     (Tab::History, "App history"),
                     (Tab::Startup, "Startup apps"),
                     (Tab::Users, "Users"),
@@ -148,12 +152,7 @@ impl eframe::App for App {
             });
         });
 
-        let managed: ManagedMap<'_> = data
-            .status
-            .iter()
-            .flat_map(|s| &s.managed)
-            .map(|m| ((m.target.pid, m.target.create_time), m))
-            .collect();
+        let managed: ManagedMap = limit_labels(data.status.as_ref());
 
         if state.tab == Tab::Processes
             && let (Some(sel), Some(snap)) = (state.processes.selected.clone(), &data.snapshot)
@@ -185,6 +184,9 @@ impl eframe::App for App {
                 }
             }
             Tab::Users => views::users(ui, &data),
+            Tab::Limits => {
+                service_cmds.extend(crate::limits_tab::limits_tab(ui, &data, &mut state.limits));
+            }
             Tab::Settings => {
                 service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
             }
@@ -263,7 +265,7 @@ impl eframe::App for App {
             Tab::Services => Some((Panel::Services, Duration::from_secs(5))),
             Tab::History => None,
             Tab::Startup => Some((Panel::Startup, Duration::from_secs(10))),
-            Tab::Settings => Some((Panel::Config, Duration::from_secs(30))),
+            Tab::Settings | Tab::Limits => Some((Panel::Config, Duration::from_secs(30))),
             _ => None,
         };
         if let Some((panel, every)) = due
@@ -286,6 +288,10 @@ impl eframe::App for App {
                 }
                 Intent::Confirm(target, command) => state.confirm = Some((target, command)),
                 Intent::OpenLocation(target) => backend.send(UiCommand::OpenLocation(target)),
+                Intent::LimitApp(name) => {
+                    state.limits.prefill(&name);
+                    state.tab = Tab::Limits;
+                }
             }
         }
     }
@@ -1074,5 +1080,106 @@ mod tests {
             rx.try_iter()
                 .any(|c| matches!(c, UiCommand::Load(Panel::Config)))
         );
+    }
+
+    #[test]
+    fn limits_tab_lists_edits_and_removes_app_limits() {
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        let text =
+            "dry_run = true\n[[limit]]\nname = \"beta.exe\"\ncpu_cores = 2.0\nmemory_gb = 8.0\n";
+        d.config = Some(Ok(("config.toml".into(), text.into())));
+        let (backend, rx) = Backend::offline(d);
+        let state = UiState {
+            tab: Tab::Limits,
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state,
+                tray: None,
+            });
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("2 cores, 8 GB").is_some());
+        assert!(h.query_by_label_contains("Dry-run mode").is_some());
+        let saved = |rx: &std::sync::mpsc::Receiver<UiCommand>| {
+            rx.try_iter().find_map(|c| match c {
+                UiCommand::SaveConfig(t) => Some(wtm_policy::Config::from_toml(&t).unwrap()),
+                _ => None,
+            })
+        };
+
+        h.get_by_label("Edit").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Change limit").is_some());
+        h.get_by_label("Each instance separately").click();
+        h.run_steps(1);
+        h.get_by_label("Save limit").click();
+        h.run_steps(2);
+        let c = saved(&rx).expect("saved");
+        assert_eq!(c.limits.len(), 1);
+        assert_eq!(c.limits[0].scope, wtm_policy::LimitScope::Each);
+
+        h.get_by_label("Remove").click();
+        h.run_steps(2);
+        assert!(saved(&rx).expect("saved").limits.is_empty());
+
+        // A new limit from the form.
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .next()
+            .unwrap()
+            .click();
+        h.run();
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .next()
+            .unwrap()
+            .type_text("node.exe");
+        h.run_steps(2);
+        h.get_by_label("Save limit").click();
+        h.run_steps(2);
+        let c = saved(&rx).expect("saved");
+        assert_eq!(c.limits.len(), 2);
+        assert_eq!(c.limits[1].name, "node.exe");
+    }
+
+    #[test]
+    fn limits_tab_handles_missing_and_invalid_configuration() {
+        for config in [
+            None,
+            Some(Err("service not running".to_owned())),
+            Some(Ok(("c".to_owned(), "dry_run = 3".to_owned()))),
+            Some(Ok(("c".to_owned(), String::new()))),
+        ] {
+            let mut d = data();
+            d.config = config;
+            let (backend, rx) = Backend::offline(d);
+            let state = UiState {
+                tab: Tab::Limits,
+                ..Default::default()
+            };
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([1400.0, 900.0])
+                .build_eframe(|_| App {
+                    backend,
+                    state,
+                    tray: None,
+                });
+            h.run_steps(2);
+            if let Some(retry) = h.query_by_label("Retry") {
+                retry.click();
+                h.run_steps(2);
+            }
+            assert!(
+                rx.try_iter()
+                    .any(|c| matches!(c, UiCommand::Load(Panel::Config)))
+            );
+        }
     }
 }

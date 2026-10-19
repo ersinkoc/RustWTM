@@ -106,6 +106,38 @@ actions = ["eco_qos", { cpu_cap_relative = 0.5 }]
   rule fires as soon as the process is seen (within ~250 ms of start).
 - A rule fires once per process instance.
 
+## `[[limit]]` — app limits
+
+```toml
+[[limit]]
+name = "node.exe"      # image-name wildcard
+cpu_cores = 2          # all node.exe processes together: at most 2 cores
+memory_gb = 8          # ...and 8 GB of committed memory
+
+[[limit]]
+name = "zen.exe"
+memory_gb = 8
+scope = "each"         # every top-level zen.exe with its child processes: 8 GB each
+```
+
+An app limit is a budget shared by every process of the app **and every
+process it starts** (helpers, renderers, child tools), whatever their names.
+It is enforced with a Windows job object: new child processes join it
+automatically.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | required | Image-name wildcard (`node.exe`, `chrome*.exe`). |
+| `cpu_cores` | none | Hard CPU cap in logical processors (`0.5`, `2`, ...). |
+| `memory_gb` | none | Cap on the committed memory of the whole budget. Allocations beyond it fail, so the app may report out-of-memory errors or exit. |
+| `scope` | `"group"` | `"group"`: one budget for all matching processes. `"each"`: one budget per top-level instance, shared with its descendants. |
+
+At least one of `cpu_cores` / `memory_gb` is required. Limits are applied
+only when `dry_run = false` (dry-run logs what would be limited), and lifted
+when an entry is removed or the service stops. Edit them in the GUI's
+**Limits** tab (right-click a process → *Limit all <name>…*) or with
+`wtm app-limit set node.exe --cores 2 --memory 8G [--each]`.
+
 ## `[insights]`
 
 Long-term analysis of the usage history.

@@ -18,6 +18,7 @@ use wtm_policy::{
     analyze,
 };
 
+use crate::app_limits::AppLimiter;
 use crate::blocker::Blocker;
 use crate::events::EventLog;
 use crate::executor::Executor;
@@ -146,7 +147,12 @@ fn load_config(path: &Path) -> anyhow::Result<Config> {
     }
 }
 
-fn status(config: &Config, paths: &Paths, executor: &Executor) -> Status {
+fn status(
+    config: &Config,
+    paths: &Paths,
+    executor: &Executor,
+    app_limits: &[wtm_policy::GroupUsage],
+) -> Status {
     Status {
         dry_run: config.dry_run,
         governor_enabled: config.governor.enabled,
@@ -155,6 +161,7 @@ fn status(config: &Config, paths: &Paths, executor: &Executor) -> Status {
         rules: config.rules.len(),
         config_path: paths.config.display().to_string(),
         managed: executor.managed(),
+        app_limits: app_limits.to_vec(),
     }
 }
 
@@ -211,6 +218,9 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut next_insights = Instant::now() + Duration::from_secs(5);
     let mut next_prune = Instant::now();
     let mut paths_cache = PathCache::new();
+    let mut app_limiter =
+        AppLimiter::new(config.limits.clone(), config.dry_run, shared.events.clone());
+    let mut app_usage = Vec::new();
     let mut last_snapshot: Option<Arc<Snapshot>> = None;
 
     shared.events.info(
@@ -249,7 +259,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                         .status
                         .write()
                         .unwrap_or_else(PoisonError::into_inner) =
-                        status(&config, paths, &executor);
+                        status(&config, paths, &executor, &app_usage);
                 }
                 Err(RecvTimeoutError::Timeout) => break,
             }
@@ -263,6 +273,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 Ok(new) => {
                     governor.set_config(new.governor.clone());
                     rules.set_rules(new.rules.clone());
+                    app_limiter.configure(new.limits.clone(), new.dry_run);
                     executor.set_dry_run(new.dry_run);
                     sync_blocks(blocker.as_ref(), &new, &shared.events);
                     shared.events.info(
@@ -289,6 +300,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             }
         };
         executor.forget_exited(&snap);
+        app_usage = app_limiter.tick(&snap.processes, snap.system.logical_cpus);
         if let Some(h) = history.as_mut() {
             let unix = unix_now();
             if let Err(e) = h.record(&snap, unix) {
@@ -337,7 +349,8 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         *shared
             .status
             .write()
-            .unwrap_or_else(PoisonError::into_inner) = status(&config, paths, &executor);
+            .unwrap_or_else(PoisonError::into_inner) =
+            status(&config, paths, &executor, &app_usage);
         last_snapshot = Some(snap);
     }
 
@@ -345,6 +358,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         .events
         .info(None, "stopping; restoring all processes");
     executor.restore_all("service stopping");
+    app_limiter.lift_all("service stopping");
     let unblock = Config {
         dry_run: true,
         ..Config::default()
@@ -1169,7 +1183,7 @@ mod unit_tests {
         let config = Config::default();
         let paths = Paths::under(Path::new(r"C:\x"));
         let executor = Executor::new(true, Default::default());
-        let s = status(&config, &paths, &executor);
+        let s = status(&config, &paths, &executor, &[]);
         assert!(s.dry_run);
         assert_eq!(s.config_path, r"C:\x\config.toml");
         assert!(s.managed.is_empty());

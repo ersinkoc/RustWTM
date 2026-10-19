@@ -98,6 +98,23 @@ pub fn data() -> Data {
                 sources: vec![Source::Governor],
                 summary: "BelowNormal".into(),
             }],
+            app_limits: vec![wtm_policy::GroupUsage {
+                group: wtm_policy::GroupId {
+                    app: "beta.exe".into(),
+                    scope: wtm_policy::LimitScope::Group,
+                    root: None,
+                },
+                limit: wtm_policy::AppLimit {
+                    name: "beta.exe".into(),
+                    cpu_cores: Some(1.5),
+                    memory_gb: Some(8.0),
+                    scope: wtm_policy::LimitScope::Group,
+                },
+                processes: 1,
+                members: vec![(200, 116_444_736_000_000_200)],
+                cpu_percent: 3.5,
+                memory_bytes: 1 << 30,
+            }],
         }),
         details: Some((
             alpha.clone(),
@@ -226,6 +243,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::Command(t, c) => format!("command {} {c:?}", t.pid),
         Intent::Confirm(t, c) => format!("confirm {} {c:?}", t.pid),
         Intent::OpenLocation(t) => format!("open {}", t.pid),
+        Intent::LimitApp(name) => format!("limit app {name}"),
     }
 }
 
@@ -235,7 +253,7 @@ fn process_harness() -> Harness<'static, ProcState> {
         .with_size([1300.0, 700.0])
         .build_ui_state(
             |ui, st: &mut ProcState| {
-                let managed: ManagedMap<'_> = HashMap::new();
+                let managed: ManagedMap = HashMap::new();
                 let snap = st.snap.clone();
                 let intents = st.view.ui(ui, &snap, &managed);
                 st.intents.extend(intents.iter().map(describe_intent));
@@ -293,6 +311,7 @@ fn processes_row_click_and_context_menu_produce_intents() {
         ("Resume", "command 200 Resume"),
         ("Remove limits", "command 200 Unlimit"),
         ("Open file location", "open 200"),
+        ("Limit all beta.exe…", "limit app beta.exe"),
         ("Properties", "select 200"),
     ] {
         h.get_by_label("beta.exe").click_secondary();
@@ -486,12 +505,7 @@ fn backend_describe_covers_every_command() {
 #[test]
 fn processes_show_limits_and_fit_cpu_limits_to_the_machine() {
     let d = data();
-    let managed: ManagedMap<'_> = d
-        .status
-        .iter()
-        .flat_map(|s| &s.managed)
-        .map(|m| ((m.target.pid, m.target.create_time), m))
-        .collect();
+    let managed: ManagedMap = crate::processes::limit_labels(d.status.as_ref());
     let mut snap = snapshot();
     snap.system.logical_cpus = 1;
     let mut view = ProcessView::default();
@@ -503,6 +517,7 @@ fn processes_show_limits_and_fit_cpu_limits_to_the_machine() {
         });
     h.run();
     assert!(h.query_by_label("Governor: BelowNormal").is_some());
+    assert!(h.query_by_label("App limit: 1.5 cores, 8 GB").is_some());
     h.get_by_label("beta.exe").click_secondary();
     h.run();
     h.get_by_label("Limit CPU").hover();

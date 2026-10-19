@@ -11,6 +11,7 @@ mod config;
 mod glob;
 mod governor;
 mod insights;
+mod limits;
 mod rules;
 
 pub use action::{Action, Decision, PriorityLevel, Source};
@@ -19,6 +20,9 @@ pub use glob::glob_match;
 pub use governor::Governor;
 pub use insights::{
     AppStats, Finding, FindingKind, InsightPolicy, InsightsConfig, MinuteRow, analyze, summarize,
+};
+pub use limits::{
+    AppLimit, GroupId, GroupUsage, LimitPlanner, LimitScope, remove_app_limit, set_app_limit,
 };
 pub use rules::{Condition, Matcher, Rule, RuleEngine};
 

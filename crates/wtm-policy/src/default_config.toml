@@ -80,6 +80,17 @@ chronic_gpu_actions = []
 
 exempt = ["explorer.exe", "Taskmgr.exe"]
 
+# App limits: every process of an app and everything it starts share a CPU
+# and/or memory budget (job object). scope = "each" gives every top-level
+# instance its own budget. Edit them in the GUI's Limits tab or with
+# `wtm app-limit`.
+#
+# [[limit]]
+# name = "node.exe"
+# cpu_cores = 2
+# memory_gb = 8
+# scope = "group"
+
 # Per-process rules. `match` takes `name` and/or `path` wildcards; `when` is
 # optional (without it the rule fires as soon as the process is seen).
 #

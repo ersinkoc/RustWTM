@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::action::{Action, PriorityLevel};
 use crate::insights::InsightsConfig;
+use crate::limits::AppLimit;
 use crate::rules::Rule;
 
 /// Written to disk on first start; parses to `Config::default()`.
@@ -23,6 +24,9 @@ pub struct Config {
     pub block: Vec<String>,
     #[serde(rename = "rule")]
     pub rules: Vec<Rule>,
+    /// Per-application CPU / memory budgets.
+    #[serde(rename = "limit")]
+    pub limits: Vec<AppLimit>,
 }
 
 impl Default for Config {
@@ -35,6 +39,7 @@ impl Default for Config {
             insights: InsightsConfig::default(),
             block: Vec::new(),
             rules: Vec::new(),
+            limits: Vec::new(),
         }
     }
 }
@@ -141,6 +146,10 @@ impl Config {
         }
         for name in &self.block {
             validate_block(name).map_err(|e| format!("block '{name}': {e}"))?;
+        }
+        for l in &self.limits {
+            l.validate()
+                .map_err(|e| format!("limit '{}': {e}", l.name))?;
         }
         for r in &self.rules {
             r.validate()

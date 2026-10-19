@@ -4,6 +4,7 @@
 
 mod app;
 mod backend;
+mod limits_tab;
 mod processes;
 mod settings;
 mod tray;

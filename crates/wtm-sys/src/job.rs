@@ -1,12 +1,12 @@
 //! Job objects: hard CPU caps and memory limits.
 
 use windows::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_CPU_RATE_CONTROL,
+    AssignProcessToJobObject, CreateJobObjectW, IsProcessInJob, JOB_OBJECT_CPU_RATE_CONTROL,
     JOB_OBJECT_CPU_RATE_CONTROL_ENABLE, JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP, JOB_OBJECT_LIMIT,
-    JOB_OBJECT_LIMIT_PROCESS_MEMORY, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION,
-    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOBOBJECTINFOCLASS, JobObjectCpuRateControlInformation, JobObjectExtendedLimitInformation,
-    SetInformationJobObject,
+    JOB_OBJECT_LIMIT_JOB_MEMORY, JOB_OBJECT_LIMIT_PROCESS_MEMORY,
+    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION, JOBOBJECT_CPU_RATE_CONTROL_INFORMATION_0,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOBOBJECTINFOCLASS, JobObjectCpuRateControlInformation,
+    JobObjectExtendedLimitInformation, SetInformationJobObject,
 };
 use windows::core::PCWSTR;
 
@@ -73,6 +73,27 @@ impl Job {
         self.set(JobObjectExtendedLimitInformation, &info)
     }
 
+    /// Limit on the committed memory of all processes in the job together.
+    /// `None` removes it.
+    pub fn set_job_memory_limit(&self, bytes: Option<u64>) -> Result<()> {
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        if let Some(bytes) = bytes {
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
+            info.JobMemoryLimit = usize::try_from(bytes).unwrap_or(usize::MAX);
+        } else {
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT(0);
+        }
+        self.set(JobObjectExtendedLimitInformation, &info)
+    }
+
+    /// Whether `process` (opened with `Access::QUERY`) is in this job.
+    pub fn contains(&self, process: &ProcessHandle) -> Result<bool> {
+        let mut result = windows::core::BOOL::default();
+        // SAFETY: both handles are valid; `result` is a writable BOOL.
+        unsafe { IsProcessInJob(process.raw(), Some(self.handle.raw()), &mut result)? };
+        Ok(result.as_bool())
+    }
+
     fn set<T>(&self, class: JOBOBJECTINFOCLASS, info: &T) -> Result<()> {
         // SAFETY: `info` is the structure matching `class`, sized by `T`.
         unsafe {
@@ -99,5 +120,35 @@ mod tests {
         job.set_cpu_cap(None).unwrap();
         job.set_process_memory_limit(Some(64 << 20)).unwrap();
         job.set_process_memory_limit(None).unwrap();
+        job.set_job_memory_limit(Some(64 << 20)).unwrap();
+        job.set_job_memory_limit(None).unwrap();
+    }
+
+    #[test]
+    fn reports_membership() {
+        use crate::control::{Access, ProcessHandle};
+        use std::process::{Command, Stdio};
+        let mut parent = Command::new("cmd.exe")
+            .args(["/c", "ping -n 3 127.0.0.1 >nul"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let job = Job::create().unwrap();
+        let h = ProcessHandle::open(
+            parent.id(),
+            Access::QUERY | Access::SET_QUOTA | Access::TERMINATE,
+        )
+        .unwrap();
+        let other = ProcessHandle::open(std::process::id(), Access::QUERY).unwrap();
+        assert!(!job.contains(&h).unwrap());
+        job.assign(&h).unwrap();
+        assert!(job.contains(&h).unwrap());
+        assert!(!job.contains(&other).unwrap());
+        job.set_job_memory_limit(Some(1 << 30)).unwrap();
+        let _ = parent.kill();
+        let _ = parent.wait();
+        // Query rights are required.
+        let bare = ProcessHandle::open(std::process::id(), Access::SYNCHRONIZE).unwrap();
+        assert!(job.contains(&bare).is_err());
     }
 }

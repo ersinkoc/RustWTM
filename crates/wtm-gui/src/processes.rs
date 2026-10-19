@@ -7,9 +7,47 @@ use eframe::egui::{self, Align, Color32, Layout, RichText, Sense, Ui};
 use egui_extras::{Column, TableBuilder};
 use wtm_core::control::{EcoQos, Limits, PriorityClass, ProcessRef};
 use wtm_core::{ProcessInfo, Snapshot, format_bytes};
-use wtm_ipc::{Command, Managed};
+use wtm_ipc::Command;
 
-pub type ManagedMap<'a> = HashMap<(u32, i64), &'a Managed>;
+/// The Limits column text per process instance.
+pub type ManagedMap = HashMap<(u32, i64), String>;
+
+/// Short form of an app limit's budgets, e.g. 2 cores, 8 GB.
+pub fn budget_label(limit: &wtm_policy::AppLimit) -> String {
+    let mut parts = Vec::new();
+    if let Some(c) = limit.cpu_cores {
+        parts.push(format!("{c} cores"));
+    }
+    if let Some(m) = limit.memory_gb {
+        parts.push(format!("{m} GB"));
+    }
+    parts.join(", ")
+}
+
+/// Labels for processes the service limits: its own actions and app limits.
+pub fn limit_labels(status: Option<&wtm_ipc::Status>) -> ManagedMap {
+    let mut out = ManagedMap::new();
+    let Some(status) = status else { return out };
+    for m in &status.managed {
+        let sources: Vec<String> = m.sources.iter().map(|s| format!("{s:?}")).collect();
+        out.insert(
+            (m.target.pid, m.target.create_time),
+            format!("{}: {}", sources.join("+"), m.summary),
+        );
+    }
+    for g in &status.app_limits {
+        let label = format!("App limit: {}", budget_label(&g.limit));
+        for key in &g.members {
+            out.entry(*key)
+                .and_modify(|l| {
+                    l.push_str("; ");
+                    l.push_str(&label);
+                })
+                .or_insert_with(|| label.clone());
+        }
+    }
+    out
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Col {
@@ -42,6 +80,8 @@ pub enum Intent {
     Confirm(ProcessRef, Command),
     /// Show the executable in Explorer.
     OpenLocation(ProcessRef),
+    /// Open the Limits tab with a new limit for this image name.
+    LimitApp(String),
 }
 
 pub struct ProcessView {
@@ -126,7 +166,7 @@ fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
 }
 
 impl ProcessView {
-    pub fn ui(&mut self, ui: &mut Ui, snap: &Snapshot, managed: &ManagedMap<'_>) -> Vec<Intent> {
+    pub fn ui(&mut self, ui: &mut Ui, snap: &Snapshot, managed: &ManagedMap) -> Vec<Intent> {
         let mut intents = Vec::new();
         let logical_cpus = snap.system.logical_cpus.max(1);
 
@@ -241,13 +281,8 @@ impl ProcessView {
                     row.col(|ui| right(ui, p.thread_count.to_string()));
                     row.col(|ui| right(ui, p.handle_count.to_string()));
                     row.col(|ui| {
-                        if let Some(m) = managed.get(&key) {
-                            let sources: Vec<String> =
-                                m.sources.iter().map(|s| format!("{s:?}")).collect();
-                            ui.label(
-                                RichText::new(format!("{}: {}", sources.join("+"), m.summary))
-                                    .color(Color32::from_rgb(230, 140, 40)),
-                            );
+                        if let Some(label) = managed.get(&key) {
+                            ui.label(RichText::new(label).color(Color32::from_rgb(230, 140, 40)));
                         }
                     });
 
@@ -345,6 +380,10 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
     ui.separator();
     if ui.button("Open file location").clicked() {
         intents.push(Intent::OpenLocation(t.clone()));
+        ui.close();
+    }
+    if ui.button(format!("Limit all {}…", t.name)).clicked() {
+        intents.push(Intent::LimitApp(t.name.clone()));
         ui.close();
     }
     ui.separator();

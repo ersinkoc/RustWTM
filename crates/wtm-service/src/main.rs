@@ -11,6 +11,7 @@ macro_rules! expect_reply {
     };
 }
 
+mod app_limits;
 mod blocker;
 mod engine;
 mod events;

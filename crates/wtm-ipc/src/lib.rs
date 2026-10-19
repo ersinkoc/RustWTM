@@ -119,6 +119,8 @@ pub struct Status {
     pub rules: usize,
     pub config_path: String,
     pub managed: Vec<Managed>,
+    /// Per-application budgets and their current usage.
+    pub app_limits: Vec<wtm_policy::GroupUsage>,
 }
 
 /// A process the service currently holds limits on.

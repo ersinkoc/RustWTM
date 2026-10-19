@@ -35,6 +35,9 @@ usage history.
   sustained condition (`cpu_above`, `memory_above_mb`, `gpu_above`), then apply actions —
   including `kill`. Unconditional rules react within ~250 ms of a process
   starting.
+- **App limits**: give an app a CPU and/or memory budget (`node.exe`: 2 cores;
+  `zen.exe`: 8 GB per instance) shared by all of its processes and their
+  children. Edit them in the **Limits** tab or with `wtm app-limit`.
 - **Blocking**: programs on the `block` list are prevented from starting at
   all (Image File Execution Options), with a notification to the user.
 - **Long-term insights**: per-minute, per-app usage is recorded to SQLite.
@@ -126,6 +129,8 @@ wtm affinity 1234 0-3,6
 wtm eco 1234 on
 wtm limit 1234 --cpu 10 --memory 2G   hard caps (Ctrl+C lifts them)
 wtm history --hours 24             long-term per-app usage and findings
+wtm app-limit set node.exe --cores 2 --memory 8G   persistent app budget
+wtm app-limit list                 configured app limits and their usage
 wtm config show                    the service's configuration
 wtm config check my.toml           validate a file
 wtm config apply my.toml           validate and apply it (elevated)

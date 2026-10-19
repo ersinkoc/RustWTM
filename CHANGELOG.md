@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- App limits (`[[limit]]`): a CPU (in cores) and/or memory budget per app,
+  shared by all of its processes and everything they start (`scope = "group"`),
+  or per top-level instance (`scope = "each"`). Enforced with job objects by
+  the service. New **Limits** tab in the GUI (with *Limit all <name>…* in the
+  process menu), `wtm app-limit set | remove | list`, and the process list's
+  Limits column shows app-limit membership.
+
 - `block = ["app.exe"]`: prevent programs from starting at all via Image File
   Execution Options; Windows launches `rustwtm.exe --blocked` instead, which
   notifies the user. Only RustWTM's own entries are touched, and they are
