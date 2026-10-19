@@ -165,6 +165,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         limit: &'a AppLimit,
         instances: usize,
         processes: usize,
+        outside: usize,
         cpu: f32,
         mem: u64,
     }
@@ -180,6 +181,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 limit: l,
                 instances: groups.len(),
                 processes: groups.iter().map(|g| g.processes).sum(),
+                outside: groups.iter().map(|g| g.outside).sum(),
                 cpu: groups.iter().map(|g| g.cpu_percent).sum(),
                 mem: groups.iter().map(|g| g.memory_bytes).sum(),
             }
@@ -229,12 +231,21 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 }
                 ui.label(budget);
                 ui.label(scope_label(l.scope));
-                ui.label(match l.scope {
+                let count = match l.scope {
                     LimitScope::Each if r.instances > 0 => {
                         format!("{} in {} instances", r.processes, r.instances)
                     }
                     _ => r.processes.to_string(),
-                });
+                };
+                if r.outside > 0 {
+                    ui.label(format!("{count} ({} outside)", r.outside)).on_hover_text(
+                        "These processes run in a job object of their own (a sandbox or a build \
+                         tool) and Windows does not let them share the budget. They join it once \
+                         the app is restarted.",
+                    );
+                } else {
+                    ui.label(count);
+                }
                 ui.label(format!("{:.2} cores", r.cpu / 100.0 * cpus as f32));
                 ui.label(format_bytes(r.mem as f64));
                 ui.horizontal(|ui| {

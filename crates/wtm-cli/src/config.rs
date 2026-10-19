@@ -346,6 +346,7 @@ mod tests {
                 limit: Config::from_toml(text).unwrap().limits[0].clone(),
                 processes: 3,
                 members: Vec::new(),
+                outside: 0,
                 cpu_percent: 4.0,
                 memory_bytes: 2 << 30,
             };

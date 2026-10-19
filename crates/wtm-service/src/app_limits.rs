@@ -55,6 +55,11 @@ pub struct AppLimiter {
     dry_run: bool,
     /// Groups already reported in dry-run.
     previewed: HashSet<GroupId>,
+    /// Members that run in a job of their own (sandboxes, build tools) and
+    /// cannot join the budget.
+    outside: HashSet<(u32, i64)>,
+    /// Apps whose outside members were already reported.
+    reported_outside: HashSet<String>,
     events: EventLog,
 }
 
@@ -65,6 +70,8 @@ impl AppLimiter {
             budgets: HashMap::new(),
             dry_run,
             previewed: HashSet::new(),
+            outside: HashSet::new(),
+            reported_outside: HashSet::new(),
             events,
         }
     }
@@ -120,16 +127,43 @@ impl AppLimiter {
                 }
             }
             let budget = self.budgets.get_mut(&group).expect("inserted above");
-            if let Err(e) = add(&budget.job, &p) {
-                self.events.warn(
+            match add(&budget.job, &p) {
+                Ok(()) => {}
+                // Already in a job of its own that cannot nest in ours.
+                Err(e) if e.is_access_denied() => {
+                    self.outside.insert((p.pid, p.create_time));
+                    if self.reported_outside.insert(group.app.clone()) {
+                        self.events.info(
+                            Some(&ProcessRef::from(&p)),
+                            format!(
+                                "some {} processes run in a job of their own (a sandbox or build \
+                                 tool) or are protected, and stay outside its budget; new ones \
+                                 join it",
+                                limit.name
+                            ),
+                        );
+                    }
+                }
+                // The process exited in the meantime.
+                Err(e) if e.is_invalid_parameter() => {}
+                Err(e) => self.events.warn(
                     Some(&ProcessRef::from(&p)),
                     format!("cannot apply the {} limit: {e}", limit.name),
-                );
+                ),
             }
         }
 
         // Budgets follow edits; groups without live members are dropped.
-        let usage = self.planner.usage(procs);
+        let live_keys: HashSet<(u32, i64)> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
+        self.outside.retain(|k| live_keys.contains(k));
+        let mut usage = self.planner.usage(procs);
+        for u in &mut usage {
+            u.outside = u
+                .members
+                .iter()
+                .filter(|m| self.outside.contains(m))
+                .count();
+        }
         let live: HashSet<&GroupId> = usage.iter().map(|u| &u.group).collect();
         self.budgets.retain(|g, _| live.contains(g));
         for u in &usage {
@@ -331,6 +365,8 @@ mod tests {
         let children: Vec<u32> = procs
             .iter()
             .filter(|p| p.parent_pid == a.0.id() || p.parent_pid == b.0.id())
+            // A console host may come and go with its parent; ping outlives it.
+            .filter(|p| p.name.eq_ignore_ascii_case("ping.exe"))
             .map(|p| p.pid)
             .collect();
         drop((a, b));
@@ -364,14 +400,14 @@ mod tests {
             false,
             events.clone(),
         );
-        // A process that does not exist cannot be opened.
+        // A process that exited before it could be added is skipped silently.
         let mut ghost = Sampler::new().sample().unwrap().processes.remove(0);
         ghost.pid = 0xFFFF_FFF0;
         ghost.parent_pid = 0;
         ghost.name = "gone.exe".into();
         limiter.tick(std::slice::from_ref(&ghost), 4);
         assert!(
-            messages(&events)
+            !messages(&events)
                 .iter()
                 .any(|m| m.starts_with("cannot apply the gone.exe limit")),
             "{:?}",
@@ -399,5 +435,42 @@ mod tests {
             describe(&limit("a", LimitScope::Group)),
             "1 cores, 1 GB (all processes together)"
         );
+    }
+
+    #[test]
+    fn processes_in_foreign_jobs_are_counted_not_reported_one_by_one() {
+        let dir = std::env::temp_dir().join(format!("wtm-applimit-foreign-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = format!("wtm-foreign-{}.exe", std::process::id());
+        let (a, b) = (spawn_app(&dir, &name), spawn_app(&dir, &name));
+        // b already runs in a job of its own, like a sandboxed helper.
+        let foreign = Job::create().unwrap();
+        let hb = ProcessHandle::open(
+            b.0.id(),
+            Access::QUERY | Access::SET_QUOTA | Access::TERMINATE,
+        )
+        .unwrap();
+        foreign.assign(&hb).unwrap();
+        let procs = sample_with(&[a.0.id(), b.0.id()]);
+
+        let events = EventLog::default();
+        let mut limiter =
+            AppLimiter::new(vec![limit(&name, LimitScope::Group)], false, events.clone());
+        let usage = limiter.tick(&procs, 8);
+        assert_eq!(usage.len(), 1);
+        assert!(usage[0].outside >= 1, "{usage:?}");
+        let log = messages(&events);
+        let notes = log
+            .iter()
+            .filter(|m| m.contains("job of their own"))
+            .count();
+        assert_eq!(notes, 1, "{log:?}");
+        assert!(
+            !log.iter().any(|m| m.starts_with("cannot apply")),
+            "{log:?}"
+        );
+        limiter.lift_all("test");
+        drop((a, b));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

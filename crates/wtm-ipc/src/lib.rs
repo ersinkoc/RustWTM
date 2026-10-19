@@ -329,6 +329,7 @@ mod tests {
                 limit,
                 processes: 1,
                 members: vec![(1, 2)],
+                outside: 0,
                 cpu_percent: 1.0,
                 memory_bytes: 3,
             }],

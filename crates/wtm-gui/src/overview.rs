@@ -313,8 +313,12 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             "{} processes limited right now",
             status.managed.len()
         )];
-        if !status.app_limits.is_empty() {
-            facts.push(format!("{} app budgets active", status.app_limits.len()));
+        if !config.limits.is_empty() {
+            let processes: usize = status.app_limits.iter().map(|g| g.processes).sum();
+            facts.push(format!(
+                "{} app limits covering {processes} processes",
+                config.limits.len()
+            ));
         }
         if config.governor.protect_foreground
             && let Some(app) = &status.foreground

@@ -30,23 +30,72 @@ enum Tab {
     About,
 }
 
-/// Navigation order; separators split monitoring, protection, system and app.
-const NAV: [(Tab, &str); 13] = [
-    (Tab::Overview, "Overview"),
-    (Tab::Processes, "Processes"),
-    (Tab::Performance, "Performance"),
-    (Tab::History, "App history"),
-    (Tab::Governor, "Governor"),
-    (Tab::Limits, "Limits"),
-    (Tab::Events, "Events"),
-    (Tab::Settings, "Settings"),
-    (Tab::Startup, "Startup apps"),
-    (Tab::Services, "Services"),
-    (Tab::Users, "Users"),
-    (Tab::Network, "Network"),
-    (Tab::About, "About"),
+/// Navigation: tab, icon, label. Separators split monitoring, protection,
+/// system and the app itself.
+const NAV: [(Tab, &str, &str); 13] = [
+    (Tab::Overview, "🏠", "Overview"),
+    (Tab::Processes, "📋", "Processes"),
+    (Tab::Performance, "📈", "Performance"),
+    (Tab::History, "🕘", "App history"),
+    (Tab::Governor, "🛡", "Governor"),
+    (Tab::Limits, "⏱", "Limits"),
+    (Tab::Events, "🔔", "Events"),
+    (Tab::Settings, "⚙", "Settings"),
+    (Tab::Startup, "🚀", "Startup apps"),
+    (Tab::Services, "🔧", "Services"),
+    (Tab::Users, "👤", "Users"),
+    (Tab::Network, "🌐", "Network"),
+    (Tab::About, "ℹ", "About"),
 ];
+const NAV_GROUP_STARTS: [usize; 3] = [4, 8, 12];
+/// Below this window width the navigation shows icons only by default.
+const NAV_AUTO_COLLAPSE: f32 = 1000.0;
 
+fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        let logo = ui.ctx().load_texture(
+            "nav-logo",
+            egui::ColorImage::from_rgba_unmultiplied([32, 32], &crate::logo::rgba(32)),
+            egui::TextureOptions::LINEAR,
+        );
+        ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(28.0, 28.0)));
+        if !collapsed {
+            ui.label(RichText::new("RustWTM").size(18.0).strong());
+        }
+    });
+    ui.add_space(6.0);
+    let (arrow, hint) = if collapsed {
+        ("»", "Show labels")
+    } else {
+        ("«", "Icons only")
+    };
+    if ui.small_button(arrow).on_hover_text(hint).clicked() {
+        state.nav_collapsed = Some(!collapsed);
+    }
+    ui.add_space(6.0);
+    for (i, (tab, icon, label)) in NAV.iter().enumerate() {
+        if NAV_GROUP_STARTS.contains(&i) {
+            ui.separator();
+        }
+        let selected = state.tab == *tab;
+        let (text, width) = if collapsed {
+            (RichText::new(*icon).size(18.0), 40.0)
+        } else {
+            (RichText::new(format!("{icon}  {label}")).size(15.0), 160.0)
+        };
+        let response =
+            ui.add(egui::Button::selectable(selected, text).min_size(egui::vec2(width, 28.0)));
+        let response = if collapsed {
+            response.on_hover_text(*label)
+        } else {
+            response
+        };
+        if response.clicked() {
+            state.tab = *tab;
+        }
+    }
+}
 pub struct App {
     backend: Backend,
     state: UiState,
@@ -65,6 +114,8 @@ struct UiState {
     selected_service: Option<String>,
     config: crate::settings::ConfigView,
     limits: crate::limits_tab::LimitsView,
+    /// `None`: collapse automatically on narrow windows.
+    nav_collapsed: Option<bool>,
     last_load: HashMap<Panel, Instant>,
 }
 
@@ -97,6 +148,7 @@ impl Default for UiState {
             selected_service: None,
             config: crate::settings::ConfigView::default(),
             limits: crate::limits_tab::LimitsView::default(),
+            nav_collapsed: None,
             last_load: HashMap::new(),
         }
     }
@@ -129,36 +181,18 @@ impl eframe::App for App {
         let mut intents = Vec::new();
         let mut service_cmds: Vec<UiCommand> = Vec::new();
 
+        // Narrow windows get the icon-only rail unless the user chose.
+        let collapsed = state
+            .nav_collapsed
+            .unwrap_or(ui.ctx().content_rect().width() < NAV_AUTO_COLLAPSE);
         egui::Panel::left("nav")
             .resizable(false)
-            .exact_size(168.0)
+            .exact_size(if collapsed { 52.0 } else { 176.0 })
             .show(ui, |ui| {
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    let logo = ui.ctx().load_texture(
-                        "nav-logo",
-                        egui::ColorImage::from_rgba_unmultiplied([32, 32], &crate::logo::rgba(32)),
-                        egui::TextureOptions::LINEAR,
-                    );
-                    ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(28.0, 28.0)));
-                    ui.label(RichText::new("RustWTM").size(18.0).strong());
-                });
-                ui.add_space(10.0);
-                for (i, (tab, label)) in NAV.iter().enumerate() {
-                    // Groups: monitoring, protection, system, app.
-                    if matches!(i, 4 | 8 | 12) {
-                        ui.separator();
-                    }
-                    let selected = state.tab == *tab;
-                    let button =
-                        egui::Button::selectable(selected, RichText::new(*label).size(15.0))
-                            .min_size(egui::vec2(150.0, 26.0));
-                    if ui.add(button).clicked() {
-                        state.tab = *tab;
-                    }
-                }
+                egui::ScrollArea::vertical()
+                    .id_salt("nav_scroll")
+                    .show(ui, |ui| nav(ui, state, collapsed));
             });
-
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 match &data.message {
@@ -796,7 +830,7 @@ mod tests {
             "Events",
             "Processes",
         ] {
-            h.get_by_label(tab).click();
+            nav_to(&mut h, tab);
             h.run_steps(2);
             // Let the backend answer the tab's load request.
             std::thread::sleep(Duration::from_millis(200));
@@ -928,6 +962,19 @@ mod tests {
         assert!(uptime(Some(start)).starts_with("1h 01m 0"));
     }
 
+    /// Clicks the navigation entry ending with `label` (entries carry an icon).
+    fn nav_to(h: &mut Harness<'_, App>, label: &str) {
+        use egui_kittest::kittest::NodeT;
+        h.get_all_by_role(egui::accesskit::Role::Button)
+            .find(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.ends_with(label))
+            })
+            .unwrap_or_else(|| panic!("no navigation entry {label}"))
+            .click();
+    }
+
     fn describe_command(c: UiCommand) -> String {
         match c {
             UiCommand::Control { target, command } => format!("control {} {command:?}", target.pid),
@@ -1031,7 +1078,7 @@ mod tests {
 
         // App history: choosing an app reloads the summary and its series.
         sent.clear();
-        h.get_by_label("App history").click();
+        nav_to(&mut h, "App history");
         step(&mut h, &mut sent);
         h.get_by_label("alpha.exe").click();
         let s = step(&mut h, &mut sent);
@@ -1039,7 +1086,7 @@ mod tests {
 
         // Startup apps: toggle the selected entry.
         sent.clear();
-        h.get_by_label("Startup apps").click();
+        nav_to(&mut h, "Startup apps");
         step(&mut h, &mut sent);
         h.get_by_label("Updater").click();
         step(&mut h, &mut sent);
@@ -1050,7 +1097,7 @@ mod tests {
         // Services: stop a running one, change its startup type, start a
         // stopped one.
         sent.clear();
-        h.get_by_label("Services").click();
+        nav_to(&mut h, "Services");
         step(&mut h, &mut sent);
         h.get_by_label("Print Spooler").click();
         step(&mut h, &mut sent);
@@ -1096,7 +1143,7 @@ mod tests {
                 tray: None,
             });
         h.run_steps(2);
-        h.get_by_label("Settings").click();
+        nav_to(&mut h, "Settings");
         h.run_steps(2);
         assert!(h.query_by_label_contains("Valid configuration").is_some());
         assert!(h.query_by_label_contains("unsaved").is_none());
@@ -1180,6 +1227,7 @@ mod tests {
             });
         h.run_steps(2);
         assert!(h.query_by_label_contains("2 cores, 8 GB").is_some());
+        assert!(h.query_by_label("1 (1 outside)").is_some());
         assert!(h.query_by_label_contains("Dry-run mode").is_some());
         let saved = |rx: &std::sync::mpsc::Receiver<UiCommand>| {
             rx.try_iter().find_map(|c| match c {
@@ -1299,7 +1347,7 @@ mod tests {
         };
         d.config = Some(Ok((
             "config.toml".into(),
-            "dry_run = true\nblock = [\"x.exe\"]\n".into(),
+            "dry_run = true\nblock = [\"x.exe\"]\n[[limit]]\nname = \"beta.exe\"\ncpu_cores = 1.5\n".into(),
         )));
         let (mut h, rx) = overview_app(d);
         assert_eq!(h.state().state.tab, Tab::Overview);
@@ -1309,6 +1357,10 @@ mod tests {
                 .is_some()
         );
         assert!(h.query_by_label_contains("1 programs blocked").is_some());
+        assert!(
+            h.query_by_label_contains("1 app limits covering 1 processes")
+                .is_some()
+        );
         assert!(
             h.query_by_label_contains("Governor: priority BelowNormal")
                 .is_some()
@@ -1414,8 +1466,44 @@ mod tests {
     #[test]
     fn about_tab_is_reachable() {
         let (mut h, _rx) = overview_app(data());
-        h.get_by_label("About").click();
+        nav_to(&mut h, "About");
         h.run_steps(2);
         assert!(h.query_by_label("Crafted by Ersin KOÇ").is_some());
+    }
+
+    #[test]
+    fn navigation_collapses_to_icons_by_choice_or_on_narrow_windows() {
+        let (mut h, _rx) = overview_app(data());
+        assert!(
+            h.query_by_label("RustWTM").is_some(),
+            "labels shown on wide windows"
+        );
+        h.get_by_label("«").click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.nav_collapsed, Some(true));
+        assert!(h.query_by_label("⚙").is_some(), "icon-only entries");
+        h.get_by_label("⚙").click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Settings);
+        h.get_by_label("»").click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.nav_collapsed, Some(false));
+        drop(h);
+
+        let (backend, _rx) = Backend::offline(data());
+        let h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([900.0, 700.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState::default(),
+                tray: None,
+            });
+        let mut h = h;
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("»").is_some(),
+            "narrow windows start collapsed"
+        );
     }
 }

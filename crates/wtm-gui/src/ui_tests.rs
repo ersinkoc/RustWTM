@@ -112,6 +112,7 @@ pub fn data() -> Data {
                 },
                 processes: 1,
                 members: vec![(200, 116_444_736_000_000_200)],
+                outside: 1,
                 cpu_percent: 3.5,
                 memory_bytes: 1 << 30,
             }],

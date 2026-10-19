@@ -95,6 +95,8 @@ pub struct GroupUsage {
     pub processes: usize,
     /// Member processes as `(pid, create_time)`.
     pub members: Vec<(u32, i64)>,
+    /// Members that could not join the budget (in a job of their own).
+    pub outside: usize,
     /// Share of the whole machine.
     pub cpu_percent: f32,
     /// Sum of private committed memory.
@@ -245,6 +247,7 @@ impl LimitPlanner {
                     limit: self.limit_of(g)?.clone(),
                     processes: members.len(),
                     members,
+                    outside: 0,
                     cpu_percent: cpu,
                     memory_bytes: mem,
                 })

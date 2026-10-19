@@ -6,7 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- App limits no longer flood the event log with `Access is denied`: processes
+  that already run in a job of their own (sandboxes, build tools such as
+  cargo/rustc/git/bun started by an IDE or agent) cannot join an app budget;
+  this is now noted once per app and shown as *N outside* in the Limits tab.
+  Exited processes are ignored silently.
+- Every RustWTM job object allows `CREATE_BREAKAWAY_FROM_JOB`, so limiting
+  browsers, IDEs and sandboxed tools never prevents them from starting child
+  processes.
+
 ### Added
+
+- Collapsible navigation with icons: an icon-only rail on narrow windows (or
+  on request), scrollable on short ones.
 
 - Program icons in the process list and on the Overview, read from each
   executable once and cached.
