@@ -378,7 +378,7 @@ fn read_only_views_render() {
         });
     h.run();
     assert!(h.query_by_label(r"PC\alice").is_some());
-    assert!(h.query_by_label("127.0.0.1:8080").is_some());
+    assert!(h.get_all_by_label("127.0.0.1:8080").next().is_some());
     drop(h);
 
     // Loading and error states.
@@ -463,11 +463,16 @@ fn app_history_view_switches_window_sort_and_selection() {
     h.get_by_label("7 days").click();
     h.run();
     assert_eq!(h.state().1.hours, 168);
-    for sort in ["CPU time", "Peak memory", "Memory growth", "Avg CPU"] {
-        // The sort buttons come before the identically named table headers.
-        h.get_all_by_label(sort).next().unwrap().click();
+    // Every column header sorts; the second click reverses.
+    for header in [
+        "App", "Seen", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time", "Avg mem", "Peak mem",
+        "Growth/h", "Finding", "Finding", "Avg CPU",
+    ] {
+        // Headers come after the findings list, which may repeat a word.
+        h.get_all_by_label_contains(header).last().unwrap().click();
         h.run();
     }
+    assert!(h.query_by_label("Avg CPU ↓").is_some());
     h.get_by_label("alpha.exe").click();
     h.run_steps(3);
     assert_eq!(h.state().1.selected.as_deref(), Some("alpha.exe"));
@@ -611,4 +616,124 @@ fn views_show_alternative_states() {
     h.run_steps(2);
     assert!(h.query_by_label("sessions failed").is_some());
     assert!(h.query_by_label("services failed").is_some());
+}
+
+#[test]
+fn every_table_sorts_by_every_column() {
+    use egui_kittest::kittest::NodeT;
+    let d = data();
+    let mut selected = None;
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1600.0, 1400.0])
+        .build_ui(|ui| {
+            ui.push_id("u", |ui| views::users(ui, &d));
+            ui.push_id("n", |ui| views::network(ui, &d, &mut String::new(), None));
+            ui.push_id("s", |ui| views::services(ui, &d, &mut String::new()));
+            ui.push_id("st", |ui| views::startup(ui, &d, &mut selected));
+        });
+    h.run();
+    for header in [
+        "User",
+        "Session",
+        "Station",
+        "State",
+        "Processes",
+        "CPU",
+        "Memory",
+        "Process",
+        "PID",
+        "Proto",
+        "Local",
+        "Remote",
+        "Name",
+        "Description",
+        "Status",
+        "Startup",
+        "Account",
+        "Scope",
+        "Source",
+        "Command",
+    ] {
+        for node in h
+            .get_all_by_role(eframe::egui::accesskit::Role::Button)
+            .collect::<Vec<_>>()
+        {
+            if node
+                .accesskit_node()
+                .label()
+                .is_some_and(|l| l.trim_end_matches([' ', '↑', '↓']) == header)
+            {
+                node.click();
+            }
+        }
+        h.run();
+    }
+}
+
+#[test]
+fn process_columns_can_be_shown_hidden_and_sorted() {
+    use egui_kittest::kittest::NodeT;
+    let snap = snapshot();
+    let managed = crate::processes::limit_labels(data().status.as_ref());
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([2400.0, 900.0])
+        .build_ui_state(
+            |ui, view: &mut ProcessView| {
+                view.ui(ui, &snap, &managed);
+            },
+            ProcessView::default(),
+        );
+    h.run();
+    for label in [
+        "Commit",
+        "Working set",
+        "GPU memory",
+        "Session",
+        "Base priority",
+        "Running for",
+    ] {
+        h.get_by_label("Columns").click();
+        h.run();
+        h.get_by_label(label).click();
+        h.run();
+        assert!(h.state().view_has(label), "{label} not shown");
+    }
+    // Every visible header sorts.
+    for header in [
+        "Name",
+        "PID",
+        "CPU",
+        "Memory",
+        "Commit",
+        "Working set",
+        "Disk",
+        "GPU",
+        "GPU memory",
+        "Threads",
+        "Handles",
+        "Session",
+        "Base priority",
+        "Running for",
+        "Limits",
+    ] {
+        let node = h
+            .get_all_by_role(eframe::egui::accesskit::Role::Button)
+            .find(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.trim_end_matches([' ', '↑', '↓']) == header)
+            });
+        node.unwrap_or_else(|| panic!("no header {header}")).click();
+        h.run();
+    }
+    assert_eq!(h.state().sort, crate::processes::Col::Limits);
+    // Turning a column off again.
+    h.get_by_label("Columns").click();
+    h.run();
+    h.get_by_role_and_label(eframe::egui::accesskit::Role::CheckBox, "Commit")
+        .click();
+    h.run();
+    assert!(!h.state().view_has("Commit"));
 }

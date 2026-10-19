@@ -12,7 +12,7 @@ use wtm_ipc::Command;
 /// The Limits column text per process instance.
 pub type ManagedMap = HashMap<(u32, i64), String>;
 
-/// Short form of an app limit's budgets, e.g. 2 cores, 8 GB.
+/// Short form of an app limit's budgets, e.g. `2 cores, 8 GB`.
 pub fn budget_label(limit: &wtm_policy::AppLimit) -> String {
     let mut parts = Vec::new();
     if let Some(c) = limit.cpu_cores {
@@ -49,27 +49,42 @@ pub fn limit_labels(status: Option<&wtm_ipc::Status>) -> ManagedMap {
     out
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Col {
     Name,
     Pid,
     Cpu,
     Memory,
+    Commit,
+    WorkingSet,
     Disk,
+    Gpu,
+    GpuMemory,
     Threads,
     Handles,
-    Gpu,
+    Session,
+    Priority,
+    Started,
+    Limits,
 }
 
-const COLUMNS: [(Col, &str); 8] = [
-    (Col::Name, "Name"),
-    (Col::Pid, "PID"),
-    (Col::Cpu, "CPU"),
-    (Col::Memory, "Memory"),
-    (Col::Disk, "Disk"),
-    (Col::Gpu, "GPU"),
-    (Col::Threads, "Threads"),
-    (Col::Handles, "Handles"),
+/// Column, header, initial width, numeric (sorts largest first), shown by default.
+const COLUMNS: [(Col, &str, f32, bool, bool); 15] = [
+    (Col::Name, "Name", 240.0, false, true),
+    (Col::Pid, "PID", 64.0, false, true),
+    (Col::Cpu, "CPU", 64.0, true, true),
+    (Col::Memory, "Memory", 92.0, true, true),
+    (Col::Commit, "Commit", 92.0, true, false),
+    (Col::WorkingSet, "Working set", 92.0, true, false),
+    (Col::Disk, "Disk", 92.0, true, true),
+    (Col::Gpu, "GPU", 60.0, true, true),
+    (Col::GpuMemory, "GPU memory", 92.0, true, false),
+    (Col::Threads, "Threads", 64.0, true, true),
+    (Col::Handles, "Handles", 70.0, true, true),
+    (Col::Session, "Session", 64.0, false, false),
+    (Col::Priority, "Base priority", 70.0, true, false),
+    (Col::Started, "Running for", 96.0, true, false),
+    (Col::Limits, "Limits", 160.0, false, true),
 ];
 
 /// What the user asked for this frame; handled by the app.
@@ -90,6 +105,8 @@ pub struct ProcessView {
     pub sort: Col,
     pub descending: bool,
     pub selected: Option<ProcessRef>,
+    /// Columns the user turned on or off (Name is always shown).
+    pub visible: HashSet<Col>,
 }
 
 impl Default for ProcessView {
@@ -100,26 +117,70 @@ impl Default for ProcessView {
             sort: Col::Cpu,
             descending: true,
             selected: None,
+            visible: COLUMNS.iter().filter(|c| c.4).map(|c| c.0).collect(),
         }
     }
 }
 
-fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col) -> Ordering {
+impl ProcessView {
+    /// Whether the column with header `label` is shown.
+    #[cfg(test)]
+    pub fn view_has(&self, label: &str) -> bool {
+        COLUMNS
+            .iter()
+            .any(|c| c.1 == label && (c.0 == Col::Name || self.visible.contains(&c.0)))
+    }
+}
+
+fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col, labels: &ManagedMap) -> Ordering {
+    let label = |p: &ProcessInfo| {
+        labels
+            .get(&(p.pid, p.create_time))
+            .map_or("", String::as_str)
+    };
     match col {
-        Col::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        Col::Name => crate::sort::text(&a.name, &b.name),
         Col::Pid => a.pid.cmp(&b.pid),
         Col::Cpu => a.cpu_percent.total_cmp(&b.cpu_percent),
         Col::Memory => a.private_working_set.cmp(&b.private_working_set),
+        Col::Commit => a.private_bytes.cmp(&b.private_bytes),
+        Col::WorkingSet => a.working_set.cmp(&b.working_set),
         Col::Disk => a.io_rate().total_cmp(&b.io_rate()),
+        Col::Gpu => a.gpu_percent.total_cmp(&b.gpu_percent),
+        Col::GpuMemory => a.gpu_memory.cmp(&b.gpu_memory),
         Col::Threads => a.thread_count.cmp(&b.thread_count),
         Col::Handles => a.handle_count.cmp(&b.handle_count),
-        Col::Gpu => a.gpu_percent.total_cmp(&b.gpu_percent),
+        Col::Session => a.session_id.cmp(&b.session_id),
+        Col::Priority => a.base_priority.cmp(&b.base_priority),
+        // Longest running first when descending.
+        Col::Started => b.create_time.cmp(&a.create_time),
+        Col::Limits => crate::sort::text(label(a), label(b)),
     }
     .then(a.pid.cmp(&b.pid))
 }
 
+/// `3d 04h`, `2h 05m`, `4m 10s`.
+fn running_for(p: &ProcessInfo) -> String {
+    let Some(secs) = p
+        .start_time()
+        .and_then(|s| std::time::SystemTime::now().duration_since(s).ok())
+        .map(|d| d.as_secs())
+    else {
+        return String::new();
+    };
+    match secs {
+        s if s >= 86_400 => format!("{}d {:02}h", s / 86_400, s % 86_400 / 3600),
+        s if s >= 3600 => format!("{}h {:02}m", s / 3600, s % 3600 / 60),
+        s => format!("{}m {:02}s", s / 60, s % 60),
+    }
+}
 /// Depth-first order with siblings sorted; orphans become roots.
-fn tree_rows(procs: &[ProcessInfo], col: Col, descending: bool) -> Vec<(&ProcessInfo, usize)> {
+fn tree_rows<'a>(
+    procs: &'a [ProcessInfo],
+    col: Col,
+    descending: bool,
+    labels: &ManagedMap,
+) -> Vec<(&'a ProcessInfo, usize)> {
     let index: HashMap<u32, usize> = procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
     let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
     let mut roots = Vec::new();
@@ -133,7 +194,7 @@ fn tree_rows(procs: &[ProcessInfo], col: Col, descending: bool) -> Vec<(&Process
     }
     let sort = |v: &mut Vec<usize>| {
         v.sort_by(|&a, &b| {
-            let o = compare(&procs[a], &procs[b], col);
+            let o = compare(&procs[a], &procs[b], col, labels);
             if descending { o.reverse() } else { o }
         });
     };
@@ -181,13 +242,25 @@ impl ProcessView {
                 self.search.clear();
             }
             ui.checkbox(&mut self.tree, "Tree view");
+            ui.menu_button("Columns", |ui| {
+                for (col, label, ..) in COLUMNS.iter().skip(1) {
+                    let mut on = self.visible.contains(col);
+                    if ui.checkbox(&mut on, *label).changed() {
+                        if on {
+                            self.visible.insert(*col);
+                        } else {
+                            self.visible.remove(col);
+                        }
+                    }
+                }
+            });
             ui.label(format!("{} processes", snap.processes.len()));
         });
         ui.separator();
 
         let filter = self.search.trim().to_lowercase();
         let rows: Vec<(&ProcessInfo, usize)> = if self.tree && filter.is_empty() {
-            tree_rows(&snap.processes, self.sort, self.descending)
+            tree_rows(&snap.processes, self.sort, self.descending, managed)
         } else {
             let mut v: Vec<&ProcessInfo> = snap
                 .processes
@@ -199,7 +272,7 @@ impl ProcessView {
                 })
                 .collect();
             v.sort_by(|a, b| {
-                let o = compare(a, b, self.sort);
+                let o = compare(a, b, self.sort, managed);
                 if self.descending { o.reverse() } else { o }
             });
             v.into_iter().map(|p| (p, 0)).collect()
@@ -209,49 +282,50 @@ impl ProcessView {
         let one_core = 100.0 / logical_cpus as f32;
         let selected = self.selected.as_ref().map(|r| (r.pid, r.create_time));
 
+        let columns: Vec<_> = COLUMNS
+            .iter()
+            .filter(|c| c.0 == Col::Name || self.visible.contains(&c.0))
+            .collect();
+
         // Selectable text would swallow clicks meant for the row.
         ui.style_mut().interaction.selectable_labels = false;
-        TableBuilder::new(ui)
+        let mut table = TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
             .sense(Sense::click())
-            .cell_layout(Layout::left_to_right(Align::Center))
-            .column(Column::initial(240.0).at_least(140.0).clip(true))
-            .column(Column::initial(64.0))
-            .column(Column::initial(64.0))
-            .column(Column::initial(92.0))
-            .column(Column::initial(92.0))
-            .column(Column::initial(60.0))
-            .column(Column::initial(64.0))
-            .column(Column::initial(70.0))
-            .column(Column::remainder().at_least(120.0).clip(true))
+            .cell_layout(Layout::left_to_right(Align::Center));
+        for (i, (col, _, width, ..)) in columns.iter().enumerate() {
+            table = table.column(match col {
+                Col::Name => Column::initial(*width).at_least(140.0).clip(true),
+                _ if i == columns.len() - 1 => Column::remainder().at_least(*width).clip(true),
+                _ => Column::initial(*width).clip(true),
+            });
+        }
+        table
             .header(row_height, |mut header| {
-                for (col, label) in COLUMNS {
+                for (col, label, _, numeric, _) in &columns {
                     header.col(|ui| {
-                        let arrow = match (self.sort == col, self.descending) {
+                        let arrow = match (self.sort == *col, self.descending) {
                             (true, true) => " ↓",
                             (true, false) => " ↑",
                             _ => "",
                         };
                         if ui
                             .selectable_label(
-                                self.sort == col,
+                                self.sort == *col,
                                 RichText::new(format!("{label}{arrow}")).strong(),
                             )
                             .clicked()
                         {
-                            if self.sort == col {
+                            if self.sort == *col {
                                 self.descending = !self.descending;
                             } else {
-                                self.sort = col;
-                                self.descending = !matches!(col, Col::Name | Col::Pid);
+                                self.sort = *col;
+                                self.descending = *numeric;
                             }
                         }
                     });
                 }
-                header.col(|ui| {
-                    ui.strong("Limits");
-                });
             })
             .body(|body| {
                 body.rows(row_height, rows.len(), |mut row| {
@@ -259,32 +333,44 @@ impl ProcessView {
                     let key = (p.pid, p.create_time);
                     row.set_selected(selected == Some(key));
 
-                    row.col(|ui| {
-                        ui.add_space(depth as f32 * 14.0);
-                        ui.label(&p.name);
-                    });
-                    row.col(|ui| right(ui, p.pid.to_string()));
-                    row.col(|ui| {
-                        let text = RichText::new(format!("{:.1}%", p.cpu_percent));
-                        right(
-                            ui,
-                            if p.pid != 0 && p.cpu_percent >= one_core {
-                                text.color(Color32::from_rgb(230, 140, 40))
-                            } else {
-                                text
-                            },
-                        );
-                    });
-                    row.col(|ui| right(ui, format_bytes(p.private_working_set as f64)));
-                    row.col(|ui| right(ui, format!("{}/s", format_bytes(p.io_rate()))));
-                    row.col(|ui| right(ui, format!("{:.1}%", p.gpu_percent)));
-                    row.col(|ui| right(ui, p.thread_count.to_string()));
-                    row.col(|ui| right(ui, p.handle_count.to_string()));
-                    row.col(|ui| {
-                        if let Some(label) = managed.get(&key) {
-                            ui.label(RichText::new(label).color(Color32::from_rgb(230, 140, 40)));
-                        }
-                    });
+                    for (col, ..) in &columns {
+                        row.col(|ui| match col {
+                            Col::Name => {
+                                ui.add_space(depth as f32 * 14.0);
+                                ui.label(&p.name);
+                            }
+                            Col::Pid => right(ui, p.pid.to_string()),
+                            Col::Cpu => {
+                                let text = RichText::new(format!("{:.1}%", p.cpu_percent));
+                                right(
+                                    ui,
+                                    if p.pid != 0 && p.cpu_percent >= one_core {
+                                        text.color(Color32::from_rgb(230, 140, 40))
+                                    } else {
+                                        text
+                                    },
+                                );
+                            }
+                            Col::Memory => right(ui, format_bytes(p.private_working_set as f64)),
+                            Col::Commit => right(ui, format_bytes(p.private_bytes as f64)),
+                            Col::WorkingSet => right(ui, format_bytes(p.working_set as f64)),
+                            Col::Disk => right(ui, format!("{}/s", format_bytes(p.io_rate()))),
+                            Col::Gpu => right(ui, format!("{:.1}%", p.gpu_percent)),
+                            Col::GpuMemory => right(ui, format_bytes(p.gpu_memory as f64)),
+                            Col::Threads => right(ui, p.thread_count.to_string()),
+                            Col::Handles => right(ui, p.handle_count.to_string()),
+                            Col::Session => right(ui, p.session_id.to_string()),
+                            Col::Priority => right(ui, p.base_priority.to_string()),
+                            Col::Started => right(ui, running_for(p)),
+                            Col::Limits => {
+                                if let Some(label) = managed.get(&key) {
+                                    ui.label(
+                                        RichText::new(label).color(Color32::from_rgb(230, 140, 40)),
+                                    );
+                                }
+                            }
+                        });
+                    }
 
                     let response = row.response();
                     let target = ProcessRef::from(p);
@@ -295,7 +381,6 @@ impl ProcessView {
                         .context_menu(|ui| context_menu(ui, &target, logical_cpus, &mut intents));
                 });
             });
-
         intents
     }
 }
@@ -431,7 +516,7 @@ mod tests {
             p(13, 99, 7.0, 13), // orphan
             p(14, 12, 0.0, 5),  // parent PID reused: not a real child
         ];
-        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true)
+        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true, &ManagedMap::new())
             .into_iter()
             .map(|(p, d)| (p.pid, d))
             .collect();
@@ -445,7 +530,7 @@ mod tests {
     fn tree_keeps_processes_in_parent_cycles() {
         // Each names the other as parent with the same create time.
         let procs = [p(20, 21, 1.0, 7), p(21, 20, 2.0, 7), p(22, 21, 0.0, 8)];
-        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true)
+        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true, &ManagedMap::new())
             .into_iter()
             .map(|(p, d)| (p.pid, d))
             .collect();

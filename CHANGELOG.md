@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Every list sorts by any column: click a header, click again to reverse
+  (Users, Network, Services, Startup apps, App history, Limits, managed
+  processes; the process list now also sorts by Limits).
+- Process list: optional Commit, Working set, GPU memory, Session, Base
+  priority and Running-for columns, chosen in the new *Columns* menu.
+
 - App limits (`[[limit]]`): a CPU (in cores) and/or memory budget per app,
   shared by all of its processes and everything they start (`scope = "group"`),
   or per top-level instance (`scope = "each"`). Enforced with job objects by

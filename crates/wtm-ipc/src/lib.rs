@@ -299,6 +299,39 @@ mod tests {
         }
     }
 
+    /// The wire format has no field names, so every field must always be
+    /// written; optional budgets of app limits once broke Status replies.
+    #[test]
+    fn status_with_partial_app_limits_round_trips() {
+        let limit = wtm_policy::AppLimit {
+            name: "zen.exe".into(),
+            cpu_cores: None,
+            memory_gb: Some(8.0),
+            scope: wtm_policy::LimitScope::Each,
+        };
+        let status = Status {
+            app_limits: vec![wtm_policy::GroupUsage {
+                group: wtm_policy::GroupId {
+                    app: "zen.exe".into(),
+                    scope: wtm_policy::LimitScope::Each,
+                    root: Some((1, 2)),
+                },
+                limit,
+                processes: 1,
+                members: vec![(1, 2)],
+                cpu_percent: 1.0,
+                memory_bytes: 3,
+            }],
+            ..Default::default()
+        };
+        let mut buf = Vec::new();
+        write_frame(&mut buf, &Response::Status(status.clone())).unwrap();
+        match read_frame::<Response>(&mut Cursor::new(buf)).unwrap() {
+            Response::Status(s) => assert_eq!(s, status),
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn rejects_oversized_frames() {
         let mut buf = (u32::MAX).to_le_bytes().to_vec();

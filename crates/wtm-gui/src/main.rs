@@ -7,6 +7,7 @@ mod backend;
 mod limits_tab;
 mod processes;
 mod settings;
+mod sort;
 mod tray;
 #[cfg(test)]
 mod ui_tests;

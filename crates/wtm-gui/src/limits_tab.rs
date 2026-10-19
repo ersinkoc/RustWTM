@@ -7,6 +7,7 @@ use wtm_policy::{AppLimit, Config, LimitScope, remove_app_limit, set_app_limit};
 
 use crate::backend::{Data, Mode, Panel, UiCommand};
 use crate::processes::budget_label;
+use crate::sort::{Sort, header, num};
 
 const WARN: Color32 = Color32::from_rgb(230, 140, 40);
 
@@ -134,32 +135,67 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
     }
     ui.add_space(6.0);
 
+    struct Row<'a> {
+        limit: &'a AppLimit,
+        instances: usize,
+        processes: usize,
+        cpu: f32,
+        mem: u64,
+    }
+    let mut rows: Vec<Row<'_>> = config
+        .limits
+        .iter()
+        .map(|l| {
+            let groups: Vec<_> = usage
+                .iter()
+                .filter(|u| u.group.app.eq_ignore_ascii_case(&l.name) && u.group.scope == l.scope)
+                .collect();
+            Row {
+                limit: l,
+                instances: groups.len(),
+                processes: groups.iter().map(|g| g.processes).sum(),
+                cpu: groups.iter().map(|g| g.cpu_percent).sum(),
+                mem: groups.iter().map(|g| g.memory_bytes).sum(),
+            }
+        })
+        .collect();
+    let mut sort = Sort::load(ui, "app_limits", Sort::new(0, false));
+    sort.apply(&mut rows, |a, b, col| match col {
+        0 => crate::sort::text(&a.limit.name, &b.limit.name),
+        1 => num(
+            a.limit.cpu_cores.unwrap_or(0.0).into(),
+            b.limit.cpu_cores.unwrap_or(0.0).into(),
+        )
+        .then(num(
+            a.limit.memory_gb.unwrap_or(0.0).into(),
+            b.limit.memory_gb.unwrap_or(0.0).into(),
+        )),
+        2 => crate::sort::text(scope_label(a.limit.scope), scope_label(b.limit.scope)),
+        3 => a.processes.cmp(&b.processes),
+        4 => num(a.cpu.into(), b.cpu.into()),
+        _ => a.mem.cmp(&b.mem),
+    });
     egui::Grid::new("app_limits_grid")
         .num_columns(7)
         .striped(true)
         .show(ui, |ui| {
-            for h in [
-                "App",
-                "Budget",
-                "Applies to",
-                "Processes",
-                "CPU now",
-                "Memory now",
-                "",
-            ] {
-                ui.strong(h);
+            for (col, (h, numeric)) in [
+                ("App", false),
+                ("Budget", true),
+                ("Applies to", false),
+                ("Processes", true),
+                ("CPU now", true),
+                ("Memory now", true),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                header(ui, h, col, numeric, &mut sort);
             }
+            ui.label("");
             ui.end_row();
-            for l in &config.limits {
-                let groups: Vec<_> = usage
-                    .iter()
-                    .filter(|u| {
-                        u.group.app.eq_ignore_ascii_case(&l.name) && u.group.scope == l.scope
-                    })
-                    .collect();
-                let processes: usize = groups.iter().map(|g| g.processes).sum();
-                let cpu: f32 = groups.iter().map(|g| g.cpu_percent).sum();
-                let mem: u64 = groups.iter().map(|g| g.memory_bytes).sum();
+            for r in &rows {
+                let l = r.limit;
                 ui.label(&l.name);
                 let mut budget = budget_label(l);
                 if let Some(p) = l.cpu_percent(cpus) {
@@ -168,13 +204,13 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 ui.label(budget);
                 ui.label(scope_label(l.scope));
                 ui.label(match l.scope {
-                    LimitScope::Each if !groups.is_empty() => {
-                        format!("{processes} in {} instances", groups.len())
+                    LimitScope::Each if r.instances > 0 => {
+                        format!("{} in {} instances", r.processes, r.instances)
                     }
-                    _ => processes.to_string(),
+                    _ => r.processes.to_string(),
                 });
-                ui.label(format!("{:.2} cores", cpu / 100.0 * cpus as f32));
-                ui.label(format_bytes(mem as f64));
+                ui.label(format!("{:.2} cores", r.cpu / 100.0 * cpus as f32));
+                ui.label(format_bytes(r.mem as f64));
                 ui.horizontal(|ui| {
                     if ui.add_enabled(admin, egui::Button::new("Edit")).clicked() {
                         view.edit(l);
@@ -189,6 +225,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 ui.end_row();
             }
         });
+    sort.store(ui, "app_limits");
     if config.limits.is_empty() {
         ui.weak("No app limits yet. Add one below, or right-click a process and choose \"Limit this app…\".");
     }

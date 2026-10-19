@@ -28,10 +28,10 @@ pub struct AppLimit {
     /// Image-name wildcard, e.g. `node.exe`.
     pub name: String,
     /// CPU budget in logical processors (`2` = two fully busy cores).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub cpu_cores: Option<f32>,
     /// Committed-memory budget in GiB.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub memory_gb: Option<f32>,
     #[serde(default)]
     pub scope: LimitScope,

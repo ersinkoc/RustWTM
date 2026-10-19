@@ -571,24 +571,39 @@ fn governor(ui: &mut Ui, data: &Data) {
         ui.weak("No process is currently limited.");
         return;
     }
+    use crate::sort::{Sort, header, text};
+    let sources = |m: &wtm_ipc::Managed| {
+        let s: Vec<String> = m.sources.iter().map(|s| format!("{s:?}")).collect();
+        s.join(", ")
+    };
+    let mut rows: Vec<_> = status.managed.iter().collect();
+    let mut sort = Sort::load(ui, "managed", Sort::new(1, false));
+    sort.apply(&mut rows, |a, b, col| match col {
+        0 => a.target.pid.cmp(&b.target.pid),
+        1 => text(&a.target.name, &b.target.name),
+        2 => text(&sources(a), &sources(b)),
+        _ => text(&a.summary, &b.summary),
+    });
     egui::Grid::new("managed_grid")
         .num_columns(4)
         .striped(true)
         .show(ui, |ui| {
-            ui.strong("PID");
-            ui.strong("Name");
-            ui.strong("Source");
-            ui.strong("Effective limits");
+            for (col, label) in ["PID", "Name", "Source", "Effective limits"]
+                .into_iter()
+                .enumerate()
+            {
+                header(ui, label, col, col == 0, &mut sort);
+            }
             ui.end_row();
-            for m in &status.managed {
+            for m in rows {
                 ui.label(m.target.pid.to_string());
                 ui.label(&m.target.name);
-                let sources: Vec<String> = m.sources.iter().map(|s| format!("{s:?}")).collect();
-                ui.label(sources.join(", "));
+                ui.label(sources(m));
                 ui.label(&m.summary);
                 ui.end_row();
             }
         });
+    sort.store(ui, "managed");
 }
 
 fn events(ui: &mut Ui, data: &Data) {

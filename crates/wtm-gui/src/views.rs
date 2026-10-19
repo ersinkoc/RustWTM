@@ -7,6 +7,7 @@ use egui_extras::{Column, TableBuilder};
 use wtm_core::format_bytes;
 
 use crate::backend::Data;
+use crate::sort::{Sort, header, num, text};
 
 fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -38,36 +39,59 @@ pub fn users(ui: &mut Ui, data: &Data) {
         }
     }
 
+    let account = |s: &wtm_core::Session| {
+        if s.domain.is_empty() {
+            s.user.clone()
+        } else {
+            format!(r"{}\{}", s.domain, s.user)
+        }
+    };
+    let mut rows: Vec<_> = sessions
+        .iter()
+        .filter(|s| !s.user.is_empty())
+        .map(|s| (s, totals.get(&s.id).copied().unwrap_or_default()))
+        .collect();
+    let mut sort = Sort::load(ui, "users", Sort::new(0, false));
+    sort.apply(&mut rows, |(a, ta), (b, tb), col| match col {
+        0 => text(&account(a), &account(b)),
+        1 => a.id.cmp(&b.id),
+        2 => text(&a.station, &b.station),
+        3 => text(&format!("{:?}", a.state), &format!("{:?}", b.state)),
+        4 => ta.0.cmp(&tb.0),
+        5 => num(f64::from(ta.1), f64::from(tb.1)),
+        _ => ta.2.cmp(&tb.2),
+    });
     egui::Grid::new("users_grid")
-        .num_columns(6)
+        .num_columns(7)
         .striped(true)
         .show(ui, |ui| {
-            for h in [
-                "User",
-                "Session",
-                "Station",
-                "State",
-                "Processes",
-                "CPU / Memory",
-            ] {
-                ui.strong(h);
+            for (col, (h, numeric)) in [
+                ("User", false),
+                ("Session", true),
+                ("Station", false),
+                ("State", false),
+                ("Processes", true),
+                ("CPU", true),
+                ("Memory", true),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                header(ui, h, col, numeric, &mut sort);
             }
             ui.end_row();
-            for s in sessions.iter().filter(|s| !s.user.is_empty()) {
-                let (count, cpu, mem) = totals.get(&s.id).copied().unwrap_or_default();
-                ui.label(if s.domain.is_empty() {
-                    s.user.clone()
-                } else {
-                    format!(r"{}\{}", s.domain, s.user)
-                });
+            for (s, (count, cpu, mem)) in rows {
+                ui.label(account(s));
                 ui.label(s.id.to_string());
                 ui.label(&s.station);
                 ui.label(format!("{:?}", s.state));
                 ui.label(count.to_string());
-                ui.label(format!("{cpu:.1}%  /  {}", format_bytes(mem as f64)));
+                ui.label(format!("{cpu:.1}%"));
+                ui.label(format_bytes(mem as f64));
                 ui.end_row();
             }
         });
+    sort.store(ui, "users");
 }
 
 pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u32>) {
@@ -102,7 +126,7 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
         .map(|p| (p.pid, p.name.as_str()))
         .collect();
     let f = filter.trim().to_lowercase();
-    let rows: Vec<_> = conns
+    let mut rows: Vec<_> = conns
         .iter()
         .filter(|c| only_pid.is_none_or(|pid| c.pid == pid))
         .map(|c| {
@@ -117,6 +141,18 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
                 || remote.contains(&f)
         })
         .collect();
+    let mut sort = Sort::load(ui, "network", Sort::new(0, false));
+    sort.apply(&mut rows, |(a, an, ar), (b, bn, br), col| match col {
+        0 => text(an, bn),
+        1 => a.pid.cmp(&b.pid),
+        2 => text(&format!("{:?}", a.protocol), &format!("{:?}", b.protocol)),
+        3 => a.local.cmp(&b.local),
+        4 => text(ar, br),
+        _ => text(
+            &a.state.map(|s| format!("{s:?}")).unwrap_or_default(),
+            &b.state.map(|s| format!("{s:?}")).unwrap_or_default(),
+        ),
+    });
 
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
@@ -132,10 +168,18 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
         .column(Column::initial(200.0).clip(true))
         .column(Column::remainder())
         .header(row_height, |mut h| {
-            for label in ["Process", "PID", "Proto", "Local", "Remote", "State"] {
-                h.col(|ui| {
-                    ui.strong(label);
-                });
+            for (col, (label, numeric)) in [
+                ("Process", false),
+                ("PID", true),
+                ("Proto", false),
+                ("Local", false),
+                ("Remote", false),
+                ("State", false),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                h.col(|ui| header(ui, label, col, numeric, &mut sort));
             }
         })
         .body(|body| {
@@ -159,6 +203,7 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
                 });
             });
         });
+    sort.store(ui, "network");
 }
 
 fn state_color(state: wtm_core::ServiceState) -> Color32 {
@@ -192,7 +237,7 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
         Some(Ok(l)) => l,
     };
     let f = filter.trim().to_lowercase();
-    let rows: Vec<_> = list
+    let mut rows: Vec<_> = list
         .iter()
         .filter(|s| {
             f.is_empty()
@@ -200,6 +245,19 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
                 || s.display_name.to_lowercase().contains(&f)
         })
         .collect();
+    let mut sort = Sort::load(ui, "services", Sort::new(0, false));
+    let debug = |v: &dyn std::fmt::Debug| format!("{v:?}");
+    sort.apply(&mut rows, |a, b, col| match col {
+        0 => text(&a.name, &b.name),
+        1 => text(&a.display_name, &b.display_name),
+        2 => a.pid.cmp(&b.pid),
+        3 => text(&debug(&a.state), &debug(&b.state)),
+        4 => text(&debug(&a.start_type), &debug(&b.start_type)),
+        _ => text(
+            a.account.as_deref().unwrap_or(""),
+            b.account.as_deref().unwrap_or(""),
+        ),
+    });
 
     let mut clicked = None;
     let row_height = ui.spacing().interact_size.y;
@@ -217,10 +275,18 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
         .column(Column::initial(90.0))
         .column(Column::remainder().clip(true))
         .header(row_height, |mut h| {
-            for label in ["Name", "Description", "PID", "Status", "Startup", "Account"] {
-                h.col(|ui| {
-                    ui.strong(label);
-                });
+            for (col, (label, numeric)) in [
+                ("Name", false),
+                ("Description", false),
+                ("PID", true),
+                ("Status", false),
+                ("Startup", false),
+                ("Account", false),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                h.col(|ui| header(ui, label, col, numeric, &mut sort));
             }
         })
         .body(|body| {
@@ -256,20 +322,12 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
                 }
             });
         });
+    sort.store(ui, "services");
     clicked
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HistorySort {
-    CpuAvg,
-    CpuTime,
-    MemPeak,
-    Growth,
 }
 
 pub struct HistoryView {
     pub hours: u32,
-    pub sort: HistorySort,
     pub selected: Option<String>,
 }
 
@@ -277,7 +335,6 @@ impl Default for HistoryView {
     fn default() -> Self {
         Self {
             hours: 24,
-            sort: HistorySort::CpuAvg,
             selected: None,
         }
     }
@@ -311,15 +368,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
             }
         }
         ui.separator();
-        ui.label("Sort by:");
-        for (label, sort) in [
-            ("Avg CPU", HistorySort::CpuAvg),
-            ("CPU time", HistorySort::CpuTime),
-            ("Peak memory", HistorySort::MemPeak),
-            ("Memory growth", HistorySort::Growth),
-        ] {
-            ui.selectable_value(&mut view.sort, sort, label);
-        }
+        ui.weak("Click a column header to sort.");
     });
     ui.separator();
 
@@ -353,16 +402,26 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         .map(|f| (f.app.to_lowercase(), format!("{:?}", f.kind)))
         .collect();
     let mut rows: Vec<_> = stats.iter().collect();
-    match view.sort {
-        HistorySort::CpuAvg => rows.sort_by(|a, b| b.cpu_avg.total_cmp(&a.cpu_avg)),
-        HistorySort::CpuTime => {
-            rows.sort_by(|a, b| b.cpu_core_seconds.total_cmp(&a.cpu_core_seconds))
-        }
-        HistorySort::MemPeak => rows.sort_by_key(|s| std::cmp::Reverse(s.mem_peak)),
-        HistorySort::Growth => {
-            rows.sort_by(|a, b| b.mem_growth_per_hour.total_cmp(&a.mem_growth_per_hour))
-        }
-    }
+    let mut sort = Sort::load(ui, "history", Sort::new(2, true));
+    let finding = |s: &wtm_policy::AppStats| {
+        flagged
+            .get(&s.app.to_lowercase())
+            .cloned()
+            .unwrap_or_default()
+    };
+    sort.apply(&mut rows, |a, b, col| match col {
+        0 => text(&a.app, &b.app),
+        1 => a.minutes.cmp(&b.minutes),
+        2 => num(a.cpu_avg.into(), b.cpu_avg.into()),
+        3 => num(a.cpu_p95.into(), b.cpu_p95.into()),
+        4 => num(a.cpu_peak.into(), b.cpu_peak.into()),
+        5 => num(a.gpu_avg.into(), b.gpu_avg.into()),
+        6 => num(a.cpu_core_seconds, b.cpu_core_seconds),
+        7 => a.mem_avg.cmp(&b.mem_avg),
+        8 => a.mem_peak.cmp(&b.mem_peak),
+        9 => num(a.mem_growth_per_hour, b.mem_growth_per_hour),
+        _ => text(&finding(a), &finding(b)),
+    });
 
     let chart_height = if view.selected.is_some() { 230.0 } else { 0.0 };
     let table_height = (ui.available_height() - chart_height).max(120.0);
@@ -383,13 +442,15 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                 .columns(Column::initial(80.0), 9)
                 .column(Column::remainder())
                 .header(row_height, |mut h| {
-                    for label in [
+                    for (col, label) in [
                         "App", "Seen", "Avg CPU", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time",
                         "Avg mem", "Peak mem", "Growth/h", "Finding",
-                    ] {
-                        h.col(|ui| {
-                            ui.strong(label);
-                        });
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        let numeric = !matches!(col, 0 | 10);
+                        h.col(|ui| header(ui, label, col, numeric, &mut sort));
                     }
                 })
                 .body(|body| {
@@ -431,6 +492,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                     });
                 });
         });
+    sort.store(ui, "history");
 
     if let Some(app) = &view.selected {
         ui.separator();
@@ -527,6 +589,15 @@ pub fn startup(
     });
     ui.separator();
 
+    let mut rows: Vec<_> = entries.iter().collect();
+    let mut sort = Sort::load(ui, "startup", Sort::new(0, false));
+    sort.apply(&mut rows, |a, b, col| match col {
+        0 => text(&a.name, &b.name),
+        1 => a.enabled.cmp(&b.enabled),
+        2 => text(&format!("{:?}", a.scope), &format!("{:?}", b.scope)),
+        3 => text(&format!("{:?}", a.source), &format!("{:?}", b.source)),
+        _ => text(&a.command, &b.command),
+    });
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
     TableBuilder::new(ui)
@@ -541,15 +612,16 @@ pub fn startup(
         .column(Column::initial(80.0))
         .column(Column::remainder().clip(true))
         .header(row_height, |mut h| {
-            for label in ["Name", "Status", "Scope", "Source", "Command"] {
-                h.col(|ui| {
-                    ui.strong(label);
-                });
+            for (col, label) in ["Name", "Status", "Scope", "Source", "Command"]
+                .into_iter()
+                .enumerate()
+            {
+                h.col(|ui| header(ui, label, col, false, &mut sort));
             }
         })
         .body(|body| {
-            body.rows(row_height, entries.len(), |mut row| {
-                let e = &entries[row.index()];
+            body.rows(row_height, rows.len(), |mut row| {
+                let e = rows[row.index()];
                 row.set_selected(selected.as_ref().is_some_and(|s| {
                     s.name == e.name && s.scope == e.scope && s.source == e.source
                 }));
@@ -577,5 +649,6 @@ pub fn startup(
                 }
             });
         });
+    sort.store(ui, "startup");
     command
 }
