@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
 ### Added
 
 - **Overview** tab, the new start page: CPU / memory / GPU at a glance,
@@ -27,12 +29,15 @@ All notable changes to this project are documented here. The format follows
   90%, the biggest background apps have their working sets trimmed (nothing
   is closed or lost); never the foreground app. Manual *Free memory* in the
   process menu and on the Overview, `wtm trim <target>`.
-
 - Limits tab: pick the program from the running apps (busiest first).
 - Process list: *Command line* column (shown by default); the search box also
   matches command lines. Command lines are read by the GUI with the user's own
   rights, never sent by the service.
 - `wtm list --cmdline` (`-c`) adds a COMMAND LINE column.
+
+### Changed
+
+- IPC protocol 5: the GUI, CLI and service must all be 0.3.
 
 ## [0.2.0] - 2026-10-19
 
@@ -133,7 +138,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ersinkoc/RustWTM/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ersinkoc/RustWTM/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/ersinkoc/RustWTM/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ersinkoc/RustWTM/releases/tag/v0.1.0
