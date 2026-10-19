@@ -77,6 +77,8 @@ pub struct Data {
     /// The service's configuration file: (path, text).
     pub config: Option<Result<(String, String), String>>,
     pub message: Option<(EventLevel, String)>,
+    /// The GUI runs with administrator rights.
+    pub elevated: bool,
     /// Why the last attempt to reach the service failed.
     pub service_error: Option<String>,
 }
@@ -108,6 +110,13 @@ pub enum UiCommand {
     SaveConfig(String),
     /// Show the process's executable in Explorer.
     OpenLocation(ProcessRef),
+    /// Start a program like the Run dialog, optionally as administrator.
+    Run {
+        line: String,
+        elevated: bool,
+    },
+    /// Start RustWTM again with administrator rights and close this window.
+    RestartElevated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -138,7 +147,10 @@ pub struct Backend {
 
 impl Backend {
     pub fn start(ctx: egui::Context) -> Self {
-        let data = Arc::new(Mutex::new(Data::default()));
+        let data = Arc::new(Mutex::new(Data {
+            elevated: wtm_core::launch::is_elevated(),
+            ..Data::default()
+        }));
         let (tx, rx) = mpsc::channel();
         let notifications = Arc::new(AtomicBool::new(true));
         let mut worker = Worker {
@@ -151,6 +163,8 @@ impl Backend {
             last_event: 0,
             notify,
             open: open_location,
+            launch: wtm_core::launch::run,
+            restart: wtm_core::launch::restart_elevated,
             foreground: wtm_core::foreground_pid,
             sampler: Sampler::new(),
             limiter: Limiter::new(),
@@ -201,6 +215,10 @@ struct Worker {
     notify: fn(&Event),
     /// Shows a file in Explorer.
     open: fn(&str) -> io::Result<()>,
+    /// Runs a command line, optionally elevated.
+    launch: fn(&str, bool) -> Result<(), String>,
+    /// Starts RustWTM elevated.
+    restart: fn() -> Result<(), String>,
     /// The process owning the foreground window.
     foreground: fn() -> Option<u32>,
     sampler: Sampler,
@@ -295,6 +313,18 @@ impl Worker {
         refresh_icons(&self.data);
     }
 
+    /// Runs `job` on its own thread (it may wait for a UAC prompt) and shows
+    /// the message it returns.
+    fn in_background(&self, job: impl FnOnce() -> Option<(EventLevel, String)> + Send + 'static) {
+        let (data, ctx) = (self.data.clone(), self.ctx.clone());
+        std::thread::spawn(move || {
+            if let Some(message) = job() {
+                data.lock().unwrap_or_else(PoisonError::into_inner).message = Some(message);
+                ctx.request_repaint();
+            }
+        });
+    }
+
     fn handle(&mut self, cmd: UiCommand) {
         match cmd {
             UiCommand::Load(panel) => self.load(panel),
@@ -343,6 +373,26 @@ impl Worker {
                         format!("Cannot open the location of {}: {e}", target.name),
                     ));
                 }
+            }
+            UiCommand::Run { line, elevated } => {
+                let launch = self.launch;
+                self.in_background(move || match launch(&line, elevated) {
+                    Ok(()) => Some((EventLevel::Info, format!("Started {line}"))),
+                    Err(e) => Some((EventLevel::Error, format!("Cannot run {line}: {e}"))),
+                });
+            }
+            UiCommand::RestartElevated => {
+                let (restart, ctx) = (self.restart, self.ctx.clone());
+                self.in_background(move || match restart() {
+                    Ok(()) => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        None
+                    }
+                    Err(e) => Some((
+                        EventLevel::Error,
+                        format!("Cannot restart as administrator: {e}"),
+                    )),
+                });
             }
             UiCommand::SaveConfig(toml) => {
                 let result = match self.client.as_mut() {
@@ -795,6 +845,8 @@ mod tests {
             // Not called while `notifications` is off.
             notify,
             open: |_| Ok(()),
+            launch: |_, _| Ok(()),
+            restart: || Ok(()),
             foreground: || None,
             sampler: Sampler::new(),
             limiter: Limiter::new(),
@@ -809,6 +861,72 @@ mod tests {
 
     fn message(w: &Worker) -> (EventLevel, String) {
         w.data().message.clone().unwrap()
+    }
+
+    /// Waits for a message from a background job.
+    fn background_message(w: &Worker) -> (EventLevel, String) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(m) = w.data().message.take() {
+                return m;
+            }
+            assert!(Instant::now() < deadline, "no message from the job");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn runs_tasks_and_restarts_elevated_in_the_background() {
+        let mut w = worker();
+        w.handle(UiCommand::Run {
+            line: "notepad a.txt".into(),
+            elevated: true,
+        });
+        assert_eq!(
+            background_message(&w),
+            (EventLevel::Info, "Started notepad a.txt".into())
+        );
+        w.launch = |_, _| Err("cancelled at the administrator prompt".into());
+        w.handle(UiCommand::Run {
+            line: "regedit".into(),
+            elevated: true,
+        });
+        assert_eq!(
+            background_message(&w).1,
+            "Cannot run regedit: cancelled at the administrator prompt"
+        );
+
+        w.restart = || Err("no".into());
+        w.handle(UiCommand::RestartElevated);
+        assert_eq!(
+            background_message(&w).1,
+            "Cannot restart as administrator: no"
+        );
+
+        // Success closes the window.
+        let ctx = egui::Context::default();
+        ctx.run_pass(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        w.ctx = ctx.clone();
+        w.restart = || Ok(());
+        w.handle(UiCommand::RestartElevated);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut output = ctx.run_pass(egui::RawInput::default(), |_| {});
+            output.textures_delta.clear();
+            let commands = output
+                .viewport_output
+                .get(&egui::ViewportId::ROOT)
+                .map(|v| v.commands.clone())
+                .unwrap_or_default();
+            if commands.contains(&egui::ViewportCommand::Close) {
+                break;
+            }
+            assert!(Instant::now() < deadline, "window not closed");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(w.data().message.is_none());
     }
 
     #[test]

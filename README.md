@@ -38,6 +38,8 @@ usage history.
   disk I/O), App history, Startup apps,
   Users, Services (start / stop / startup type), Network connections, Events;
   every list sorts by any column.
+- Run new task (optionally as administrator) and one-click restart as
+  administrator; the window remembers its size, tab, columns and sorts.
 - Settings: edit the service's configuration with live validation and a
   one-click switch between dry-run and enforcing.
 - Tray icon and desktop notifications.

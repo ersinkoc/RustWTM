@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod control;
+pub mod launch;
 mod model;
 mod protection;
 mod sampler;

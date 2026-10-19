@@ -281,7 +281,10 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             }
         }
         if !admin {
-            ui.weak("(run RustWTM as administrator to change it)");
+            ui.weak("Changing it needs administrator rights.");
+            if ui.small_button("🛡 Restart as administrator").clicked() {
+                commands.push(UiCommand::RestartElevated);
+            }
         }
     });
 

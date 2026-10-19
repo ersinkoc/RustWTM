@@ -19,6 +19,10 @@ All notable changes to this project are documented here. The format follows
 - The window remembers its size and position, the last tab, the navigation
   state, the process list view, sort and columns, and the sort of every other
   table (stored in `%APPDATA%\RustWTM\data\app.ron`).
+- **Run new task** (status bar): start a program, folder, document or website,
+  optionally with administrator rights.
+- **Restart as administrator** (status bar and Overview) when the window runs
+  without administrator rights, so every process can be controlled.
 
 ### Changed
 

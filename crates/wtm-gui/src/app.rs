@@ -118,6 +118,8 @@ struct UiState {
     limits: crate::limits_tab::LimitsView,
     /// `None`: collapse automatically on narrow windows.
     nav_collapsed: Option<bool>,
+    /// The Run new task dialog: command line and "as administrator".
+    run_task: Option<(String, bool)>,
     last_load: HashMap<Panel, Instant>,
 }
 
@@ -207,6 +209,7 @@ impl Default for UiState {
             config: crate::settings::ConfigView::default(),
             limits: crate::limits_tab::LimitsView::default(),
             nav_collapsed: None,
+            run_task: None,
             last_load: HashMap::new(),
         }
     }
@@ -267,6 +270,23 @@ impl eframe::App for App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     mode_badge(ui, data.mode);
+                    if ui
+                        .small_button("▶ Run new task")
+                        .on_hover_text("Start a program, folder, document or website")
+                        .clicked()
+                    {
+                        state.run_task = Some((String::new(), false));
+                    }
+                    if !data.elevated
+                        && ui
+                            .small_button("🛡 Restart as administrator")
+                            .on_hover_text(
+                                "Control every process, including those of other users and services",
+                            )
+                            .clicked()
+                    {
+                        service_cmds.push(UiCommand::RestartElevated);
+                    }
                     if let Some(s) = &data.snapshot {
                         ui.label(format!(
                             "CPU {:.0}%   Memory {} / {}",
@@ -373,6 +393,43 @@ impl eframe::App for App {
             });
             if modal.should_close() {
                 state.confirm = None;
+            }
+        }
+
+        if let Some((line, elevated)) = &mut state.run_task {
+            let mut run = false;
+            let mut close = false;
+            let modal = egui::Modal::new(egui::Id::unique("run_task")).show(&ctx, |ui| {
+                ui.heading("Run new task");
+                ui.label("Type the name of a program, folder, document or website.");
+                ui.add_space(4.0);
+                let edit = ui.add(
+                    egui::TextEdit::singleline(line)
+                        .hint_text(r"notepad, cmd, C:\Tools\app.exe --flag, https://…")
+                        .desired_width(380.0),
+                );
+                // Ready to type as soon as the dialog opens.
+                if ui.memory(|m| m.focused().is_none()) && !edit.lost_focus() {
+                    edit.request_focus();
+                }
+                run |= edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                ui.checkbox(elevated, "Create this task with administrator rights");
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let ready = !line.trim().is_empty();
+                    run |= ui.add_enabled(ready, egui::Button::new("Run")).clicked();
+                    close |= ui.button("Cancel").clicked();
+                });
+            });
+            if run && !line.trim().is_empty() {
+                service_cmds.push(UiCommand::Run {
+                    line: line.trim().to_owned(),
+                    elevated: *elevated,
+                });
+                close = true;
+            }
+            if close || modal.should_close() {
+                state.run_task = None;
             }
         }
 
@@ -1246,7 +1303,66 @@ mod tests {
             UiCommand::Service { name, op } => format!("service {name} {op:?}"),
             UiCommand::SaveConfig(toml) => format!("save config {}", toml.len()),
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
+            UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
+            UiCommand::RestartElevated => "restart elevated".into(),
         }
+    }
+
+    #[test]
+    fn run_new_task_and_restart_as_administrator() {
+        let (backend, rx) = Backend::offline(data());
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState::default(),
+                tray: None,
+            });
+        h.run_steps(2);
+        let sent = |h: &mut Harness<'_, App>| {
+            h.run_steps(3);
+            rx.try_iter().map(describe_command).collect::<Vec<_>>()
+        };
+        // The Overview loads the configuration first.
+        sent(&mut h);
+
+        h.get_by_label("🛡 Restart as administrator").click();
+        assert_eq!(sent(&mut h), ["restart elevated"]);
+
+        // Cancel closes the dialog without running anything.
+        h.get_by_label("▶ Run new task").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Run new task").is_some());
+        h.get_by_label("Cancel").click();
+        assert!(sent(&mut h).is_empty());
+        assert!(h.state().state.run_task.is_none());
+
+        // Typing and Enter runs it; the checkbox asks for elevation.
+        h.get_by_label("▶ Run new task").click();
+        h.run_steps(2);
+        h.get_by_label("Create this task with administrator rights")
+            .click();
+        h.run_steps(2);
+        h.get_by_role(egui::accesskit::Role::TextInput).click();
+        h.run_steps(2);
+        h.get_by_role(egui::accesskit::Role::TextInput)
+            .type_text("  notepad a.txt ");
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        assert_eq!(sent(&mut h), ["run notepad a.txt true"]);
+        assert!(h.state().state.run_task.is_none());
+
+        // The Run button works too; elevated GUIs hide the restart button.
+        h.state().backend.data().elevated = true;
+        h.get_by_label("▶ Run new task").click();
+        h.run_steps(2);
+        h.get_by_role(egui::accesskit::Role::TextInput)
+            .type_text("cmd");
+        h.run_steps(2);
+        h.get_by_label("Run").click();
+        assert_eq!(sent(&mut h), ["run cmd false"]);
+        assert!(h.query_by_label("🛡 Restart as administrator").is_none());
     }
 
     #[test]
@@ -1705,10 +1821,16 @@ mod tests {
             "c".into(),
             "dry_run = false\n[governor]\nhigh_cpu_percent = 85.0\n".into(),
         )));
-        let (mut h, _rx) = overview_app(d);
+        // The Overview button only, not the one in the status bar.
+        d.elevated = true;
+        let (mut h, rx) = overview_app(d);
         assert!(h.query_by_label_contains("Protection is on").is_some());
         assert!(h.query_by_label_contains("Custom").is_some());
-        assert!(h.query_by_label_contains("as administrator").is_some());
+        assert!(h.query_by_label("Changing it needs administrator rights.").is_some());
+        rx.try_iter().for_each(drop);
+        h.get_by_label("🛡 Restart as administrator").click();
+        h.run_steps(2);
+        assert!(rx.try_iter().any(|c| matches!(c, UiCommand::RestartElevated)));
         h.get_all_by_label("Limit…").next().unwrap().click();
         h.run_steps(2);
         assert_eq!(h.state().state.tab, Tab::Limits);

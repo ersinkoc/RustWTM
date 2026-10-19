@@ -18,6 +18,7 @@ pub mod process;
 pub mod security;
 pub mod services;
 pub mod sessions;
+pub mod shell;
 pub mod system;
 pub mod window;
 

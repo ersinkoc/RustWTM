@@ -1,5 +1,6 @@
 use windows::Win32::Foundation::{
-    E_ACCESSDENIED, ERROR_INVALID_PARAMETER, STATUS_ACCESS_DENIED, STATUS_INVALID_PARAMETER,
+    E_ACCESSDENIED, ERROR_CANCELLED, ERROR_INVALID_PARAMETER, STATUS_ACCESS_DENIED,
+    STATUS_INVALID_PARAMETER,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -17,6 +18,11 @@ impl Error {
             Error::Nt { status, .. } => *status == STATUS_ACCESS_DENIED.0 as u32,
             Error::Win32(e) => e.code() == E_ACCESSDENIED,
         }
+    }
+
+    /// The user declined a UAC prompt.
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, Error::Win32(e) if e.code() == ERROR_CANCELLED.to_hresult())
     }
 
     /// `OpenProcess` reports a nonexistent PID as an invalid parameter.
@@ -46,6 +52,8 @@ mod tests {
         };
         let w_denied = Error::Win32(E_ACCESSDENIED.into());
         let w_invalid = Error::Win32(ERROR_INVALID_PARAMETER.to_hresult().into());
+        assert!(Error::Win32(ERROR_CANCELLED.to_hresult().into()).is_cancelled());
+        assert!(!w_invalid.is_cancelled());
         assert!(nt_denied.is_access_denied() && !nt_denied.is_invalid_parameter());
         assert!(nt_invalid.is_invalid_parameter() && !nt_invalid.is_access_denied());
         assert!(w_denied.is_access_denied() && !w_denied.is_invalid_parameter());
