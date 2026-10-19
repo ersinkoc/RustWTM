@@ -1311,6 +1311,19 @@ mod tests {
                 ..
             }
         )));
+        h.get_all_by_label("Free memory").next().unwrap().click();
+        h.run_steps(2);
+        assert!(rx.try_iter().any(|c| matches!(
+            c,
+            UiCommand::Control {
+                command: Command::TrimMemory,
+                ..
+            }
+        )));
+        assert!(
+            h.query_by_label_contains("memory guard above 90% RAM")
+                .is_some()
+        );
         h.get_all_by_label("Details").next().unwrap().click();
         h.run_steps(2);
         assert_eq!(h.state().state.tab, Tab::Processes);

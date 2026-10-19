@@ -117,6 +117,7 @@ fn ladder_item(a: &Action) -> toml_edit::Value {
         Action::EcoQos => return "eco_qos".into(),
         Action::Suspend => return "suspend".into(),
         Action::Kill => return "kill".into(),
+        Action::TrimMemory => return "trim_memory".into(),
         Action::Priority(p) => {
             let name = match p {
                 PriorityLevel::Idle => "idle",
@@ -210,6 +211,7 @@ mod tests {
             Action::MemoryCapMb(512),
             Action::Suspend,
             Action::Kill,
+            Action::TrimMemory,
         ] {
             let text = format!("[governor]\nladder = [{}]\n", ladder_item(&a));
             let c = Config::from_toml(&text).unwrap();

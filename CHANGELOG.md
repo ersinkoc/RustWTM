@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format follows
   foreground app; the service accepts reports only for the client's own
   session (IPC protocol 5).
 - **About** tab with credits, version and links.
+- **Memory guard** (`[memory_guard]`, on by default): when RAM stays above
+  90%, the biggest background apps have their working sets trimmed (nothing
+  is closed or lost); never the foreground app. Manual *Free memory* in the
+  process menu and on the Overview, `wtm trim <target>`.
 
 - Limits tab: pick the program from the running apps (busiest first).
 - Process list: *Command line* column (shown by default); the search box also

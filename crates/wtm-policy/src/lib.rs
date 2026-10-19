@@ -12,6 +12,7 @@ mod glob;
 mod governor;
 mod insights;
 mod limits;
+mod memory_guard;
 mod presets;
 mod rules;
 
@@ -25,6 +26,7 @@ pub use insights::{
 pub use limits::{
     AppLimit, GroupId, GroupUsage, LimitPlanner, LimitScope, remove_app_limit, set_app_limit,
 };
+pub use memory_guard::{MemoryGuard, MemoryGuardConfig};
 pub use presets::{Preset, set_preset};
 pub use rules::{Condition, Matcher, Rule, RuleEngine};
 

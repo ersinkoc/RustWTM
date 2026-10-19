@@ -154,6 +154,17 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                         }
                     }
                     if ui
+                        .button("Free memory")
+                        .on_hover_text(
+                            "Move this app's memory to the standby list; it comes back as needed.",
+                        )
+                        .clicked()
+                    {
+                        for t in &a.instances {
+                            intents.push(Intent::Command(t.clone(), Command::TrimMemory));
+                        }
+                    }
+                    if ui
                         .button("Limit…")
                         .on_hover_text("Give this app a permanent CPU / memory budget.")
                         .clicked()
@@ -285,6 +296,12 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             && let Some(app) = &status.foreground
         {
             facts.push(format!("{app} is in use and never throttled"));
+        }
+        if config.memory_guard.enabled {
+            facts.push(format!(
+                "memory guard above {:.0}% RAM",
+                config.memory_guard.high_percent
+            ));
         }
         if !config.block.is_empty() {
             facts.push(format!("{} programs blocked", config.block.len()));

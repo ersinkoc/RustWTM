@@ -114,6 +114,10 @@ pub fn resume(specs: &[String]) -> anyhow::Result<ExitCode> {
     for_each(specs, "resume", control::resume)
 }
 
+pub fn trim(specs: &[String]) -> anyhow::Result<ExitCode> {
+    for_each(specs, "free memory", control::trim_memory)
+}
+
 pub fn priority(specs: &[String], class: PriorityClass) -> anyhow::Result<ExitCode> {
     for_each(specs, "priority", |t| control::set_priority(t, class))
 }

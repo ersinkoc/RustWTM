@@ -39,6 +39,8 @@ pub enum Action {
     MemoryCapMb(u64),
     Suspend,
     Kill,
+    /// One-shot: move the working set to the standby list.
+    TrimMemory,
 }
 
 impl Action {
@@ -74,6 +76,7 @@ impl fmt::Display for Action {
             Action::MemoryCapMb(mb) => write!(f, "memory cap {mb} MiB"),
             Action::Suspend => f.write_str("suspend"),
             Action::Kill => f.write_str("kill"),
+            Action::TrimMemory => f.write_str("trim memory"),
         }
     }
 }
@@ -87,6 +90,8 @@ pub enum Source {
     /// Long-term history analysis.
     Insight,
     Manual,
+    /// Relieves memory pressure.
+    MemoryGuard,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -97,6 +97,7 @@ fn control_commands_round_trip() {
         vec!["eco", &pid, "auto"],
         vec!["suspend", &pid],
         vec!["resume", &pid],
+        vec!["trim", &pid],
         vec!["limit", &pid, "--cpu", "50", "--memory", "1G", "--detach"],
     ] {
         let o = wtm(&args);

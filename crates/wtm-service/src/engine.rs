@@ -215,6 +215,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
 
     let mut sampler = Sampler::new();
     let mut governor = Governor::new(config.governor.clone());
+    let mut memory_guard = wtm_policy::MemoryGuard::new(config.memory_guard.clone());
     let mut rules = RuleEngine::new(config.rules.clone());
     let mut executor = Executor::new(config.dry_run, shared.events.clone());
     let mut history = match History::open(&paths.history) {
@@ -305,6 +306,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             match Config::load(&paths.config) {
                 Ok(new) => {
                     governor.set_config(new.governor.clone());
+                    memory_guard.set_config(new.memory_guard.clone());
                     rules.set_rules(new.rules.clone());
                     app_limiter.configure(new.limits.clone(), new.dry_run);
                     executor.set_dry_run(new.dry_run);
@@ -365,9 +367,11 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
 
         let now = Instant::now();
         let (keys, app) = foreground_keys(foreground, &snap.processes);
+        memory_guard.set_foreground(keys.clone());
         governor.set_foreground(keys);
         foreground_app = app;
         let mut decisions = governor.tick(now, &snap);
+        decisions.extend(memory_guard.tick(now, &snap));
         if config.insights.enabled {
             decisions.extend(insights.tick(&snap.processes, &config.insights));
         }
@@ -445,6 +449,7 @@ fn handle_control(
         Command::Priority(p) => vec![outcome(target, control::set_priority(target, p))],
         Command::Affinity(mask) => vec![outcome(target, control::set_affinity(target, mask))],
         Command::EcoQos(mode) => vec![outcome(target, control::set_eco_qos(target, mode))],
+        Command::TrimMemory => vec![outcome(target, control::trim_memory(target))],
         // Limits and unlimits go through the executor so they compose with
         // governor/rule limits and survive their rollbacks.
         Command::Limit(limits) => {
@@ -723,6 +728,7 @@ mod tests {
             Command::Suspend,
             Command::Resume,
             Command::Unlimit,
+            Command::TrimMemory,
             Command::KillTree,
         ] {
             let request = Request::Control {
@@ -1046,6 +1052,7 @@ mod unit_tests {
                 memory_bytes: None,
             }),
             Command::Unlimit,
+            Command::TrimMemory,
             Command::KillTree,
         ] {
             let outcomes = handle_control(&mut executor, &procs, &shared, &ta, command);

@@ -35,6 +35,8 @@ usage history.
 - **CPU governor**: when the whole system stays above a threshold, the top
   consumers are escalated step by step (lower priority → efficiency mode →
   hard CPU cap) and rolled back once the system recovers.
+- **Memory guard**: when RAM stays above 90%, the biggest background apps
+  release their working sets (nothing is closed or lost).
 - **The app you use stays fast**: the foreground app and its child processes
   are never throttled (`protect_foreground`).
 - **Rules**: match processes by name or path (wildcards), optionally require a
@@ -130,6 +132,7 @@ wtm top                            live view (c/m/d/p/n to sort, q to quit)
 wtm info chrome                    details of every chrome.exe
 wtm kill 1234 --tree               end a process and its descendants
 wtm suspend notepad / wtm resume notepad
+wtm trim chrome                    free RAM held by every chrome.exe
 wtm priority 1234 below-normal
 wtm affinity 1234 0-3,6
 wtm eco 1234 on

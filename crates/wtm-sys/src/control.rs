@@ -9,6 +9,9 @@ use windows::Win32::Foundation::{
 use windows::Win32::Security::{
     GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
+use windows::Win32::System::Memory::{
+    SETPROCESSWORKINGSETSIZEEX_FLAGS, SetProcessWorkingSetSizeEx,
+};
 use windows::Win32::System::Threading::{
     ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, GetPriorityClass,
     GetProcessAffinityMask, GetProcessInformation, GetProcessTimes, HIGH_PRIORITY_CLASS,
@@ -246,6 +249,21 @@ impl ProcessHandle {
         })
     }
 
+    /// Moves as much of the working set as possible to the standby list.
+    /// Pages come back on demand; nothing is lost. Requires `Access::SET_QUOTA`.
+    pub fn trim_working_set(&self) -> Result<()> {
+        // SAFETY: valid handle; (-1, -1) means "remove as many pages as possible".
+        unsafe {
+            SetProcessWorkingSetSizeEx(
+                self.raw(),
+                usize::MAX,
+                usize::MAX,
+                SETPROCESSWORKINGSETSIZEEX_FLAGS(0),
+            )?
+        };
+        Ok(())
+    }
+
     /// Whether terminating this process would bug-check the system.
     pub fn is_critical(&self) -> Result<bool> {
         let mut critical = windows::core::BOOL::default();
@@ -398,6 +416,15 @@ mod tests {
             .spawn()
             .expect("spawn ping");
         ChildGuard(child)
+    }
+
+    #[test]
+    fn trims_the_working_set_of_a_child() {
+        let child = spawn_ping();
+        let h = ProcessHandle::open(child.0.id(), Access::QUERY | Access::SET_QUOTA).unwrap();
+        h.trim_working_set().unwrap();
+        let weak = ProcessHandle::open(child.0.id(), Access::QUERY).unwrap();
+        assert!(weak.trim_working_set().unwrap_err().is_access_denied());
     }
 
     #[test]

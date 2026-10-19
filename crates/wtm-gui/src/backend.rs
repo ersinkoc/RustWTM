@@ -439,6 +439,7 @@ impl Worker {
             Command::EcoQos(mode) => one(control::set_eco_qos(t, mode)),
             Command::Limit(limits) => one(self.limiter.apply(t, limits)),
             Command::Unlimit => one(self.limiter.lift(t)),
+            Command::TrimMemory => one(control::trim_memory(t)),
         }
     }
 
@@ -550,6 +551,7 @@ pub fn describe(command: Command) -> String {
             format!("Limit {}", parts.join(", "))
         }
         Command::Unlimit => "Remove limits".into(),
+        Command::TrimMemory => "Free memory".into(),
     }
 }
 
@@ -792,6 +794,7 @@ mod tests {
                 memory_bytes: Some(1 << 30),
             }),
             Command::Unlimit,
+            Command::TrimMemory,
         ] {
             w.handle(UiCommand::Control {
                 target: t.clone(),

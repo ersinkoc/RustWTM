@@ -83,6 +83,8 @@ pub enum Command {
     /// Manual job-object limits, kept until `Unlimit` or process exit.
     Limit(Limits),
     Unlimit,
+    /// Move the working set to the standby list (frees RAM; nothing is lost).
+    TrimMemory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

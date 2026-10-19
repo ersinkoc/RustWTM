@@ -312,6 +312,7 @@ fn processes_row_click_and_context_menu_produce_intents() {
         ("Suspend", "command 200 Suspend"),
         ("Resume", "command 200 Resume"),
         ("Remove limits", "command 200 Unlimit"),
+        ("Free memory", "command 200 TrimMemory"),
         ("Open file location", "open 200"),
         ("Limit all beta.exe…", "limit app beta.exe"),
         ("Properties", "select 200"),
@@ -504,6 +505,7 @@ fn backend_describe_covers_every_command() {
             memory_bytes: Some(1 << 30),
         }),
         Command::Unlimit,
+        Command::TrimMemory,
     ] {
         assert!(!crate::backend::describe(c).is_empty());
     }

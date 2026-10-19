@@ -5,6 +5,7 @@ use serde::Deserialize;
 use crate::action::{Action, PriorityLevel};
 use crate::insights::InsightsConfig;
 use crate::limits::AppLimit;
+use crate::memory_guard::MemoryGuardConfig;
 use crate::rules::Rule;
 
 /// Written to disk on first start; parses to `Config::default()`.
@@ -20,6 +21,7 @@ pub struct Config {
     /// Days of per-minute usage history kept on disk.
     pub history_days: u32,
     pub insights: InsightsConfig,
+    pub memory_guard: MemoryGuardConfig,
     /// Image names (`xmrig.exe`) that are prevented from starting at all.
     pub block: Vec<String>,
     #[serde(rename = "rule")]
@@ -37,6 +39,7 @@ impl Default for Config {
             governor: GovernorConfig::default(),
             history_days: 30,
             insights: InsightsConfig::default(),
+            memory_guard: MemoryGuardConfig::default(),
             block: Vec::new(),
             rules: Vec::new(),
             limits: Vec::new(),
@@ -144,6 +147,9 @@ impl Config {
         self.insights
             .validate()
             .map_err(|e| format!("insights: {e}"))?;
+        self.memory_guard
+            .validate()
+            .map_err(|e| format!("memory_guard: {e}"))?;
         if self.history_days == 0 {
             return Err("history_days must be positive".into());
         }

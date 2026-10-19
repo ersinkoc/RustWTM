@@ -39,7 +39,7 @@ impl Effective {
                     e.memory_bytes = Some(e.memory_bytes.map_or(b, |d| d.min(b)));
                 }
                 Action::Suspend => e.suspended = true,
-                Action::Kill | Action::CpuCapRelative(_) => {}
+                Action::Kill | Action::TrimMemory | Action::CpuCapRelative(_) => {}
             }
         }
         e
@@ -195,9 +195,13 @@ impl Executor {
         action: Action,
         reason: &str,
     ) -> Result<(), String> {
-        // Notify on terminations and when the governor first steps in on a process.
-        let mut notable = action == Action::Kill;
-        let result = if action == Action::Kill {
+        // Notify on terminations, memory relief, and when the governor first
+        // steps in on a process.
+        let mut notable = matches!(action, Action::Kill | Action::TrimMemory);
+        let result = if action == Action::TrimMemory {
+            // One-shot: nothing to track or roll back.
+            control::trim_memory(t).map_err(|e| e.to_string())
+        } else if action == Action::Kill {
             let r = control::kill(t).map_err(|e| e.to_string());
             if let Some(entry) = self.touched.remove(&key(t)) {
                 self.limiter.forget(&entry.target);
@@ -637,5 +641,26 @@ mod process_tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn trim_memory_is_one_shot_and_announced() {
+        let (_child, t) = spawn();
+        let events = EventLog::default();
+        let mut e = Executor::new(false, events.clone());
+        apply(&mut e, Source::MemoryGuard, &t, Action::TrimMemory).unwrap();
+        assert!(e.managed().is_empty(), "nothing to roll back");
+        let log = events.after(0);
+        assert!(
+            log.iter()
+                .any(|ev| ev.notify && ev.message.contains("trim memory")),
+            "{log:?}"
+        );
+        let system = ProcessRef {
+            pid: 4,
+            create_time: 0,
+            name: "System".into(),
+        };
+        assert!(apply(&mut e, Source::MemoryGuard, &system, Action::TrimMemory).is_err());
     }
 }

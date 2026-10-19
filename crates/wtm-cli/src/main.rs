@@ -60,6 +60,11 @@ enum Command {
         #[arg(long, short)]
         tree: bool,
     },
+    /// Free RAM: move working sets to the standby list (nothing is lost)
+    Trim {
+        #[arg(required = true)]
+        targets: Vec<String>,
+    },
     /// Freeze all threads of processes
     Suspend {
         #[arg(required = true)]
@@ -220,6 +225,7 @@ fn main() -> anyhow::Result<ExitCode> {
         }
         Command::Kill { targets, tree } => actions::kill(&targets, tree),
         Command::Suspend { targets } => actions::suspend(&targets),
+        Command::Trim { targets } => actions::trim(&targets),
         Command::Resume { targets } => actions::resume(&targets),
         Command::Priority { target, class } => actions::priority(&[target], class.into()),
         Command::Affinity { target, cpus } => actions::affinity(&[target], cpus.as_deref()),

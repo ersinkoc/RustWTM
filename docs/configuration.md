@@ -106,6 +106,25 @@ actions = ["eco_qos", { cpu_cap_relative = 0.5 }]
   rule fires as soon as the process is seen (within ~250 ms of start).
 - A rule fires once per process instance.
 
+## `[memory_guard]`
+
+When physical memory stays above `high_percent`, the biggest background apps
+have their working sets trimmed: their pages move to the standby list, so the
+app in front of you gets the RAM. Nothing is closed and no data is lost; a
+trimmed app reloads pages as it needs them. The foreground app is never
+trimmed. Manual equivalent: *Free memory* in the GUI, `wtm trim <target>`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | |
+| `high_percent` | `90.0` | Memory in use that counts as pressure... |
+| `sustain_secs` | `15` | ...for this long. |
+| `max_processes` | `3` | Trim at most this many processes per round, largest first. |
+| `min_working_set_mb` | `300` | Ignore smaller processes. |
+| `cooldown_secs` | `300` | Do not trim the same process again within this time. |
+| `exempt` | `[]` | Image-name wildcards never trimmed. |
+
+Applied only when `dry_run = false`.
 ## `[[limit]]` — app limits
 
 ```toml

@@ -126,6 +126,13 @@ pub fn kill(target: &ProcessRef) -> ControlResult<()> {
     sys(target.pid, h.terminate(1))
 }
 
+/// Moves the process's working set to the standby list (frees RAM now;
+/// pages come back on demand).
+pub fn trim_memory(target: &ProcessRef) -> ControlResult<()> {
+    let h = open_controlled(target, Access::SET_QUOTA)?;
+    sys(target.pid, h.trim_working_set())
+}
+
 /// Kills `root` first (so it cannot respawn children), then its descendants.
 pub fn kill_tree(root: &ProcessRef, procs: &[ProcessInfo]) -> Vec<(ProcessRef, ControlResult<()>)> {
     let mut targets = vec![root.clone()];

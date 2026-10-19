@@ -488,6 +488,7 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
         }
     });
     cmd(ui, "Remove limits", Command::Unlimit, false);
+    cmd(ui, "Free memory", Command::TrimMemory, false);
     ui.separator();
     if ui.button("Open file location").clicked() {
         intents.push(Intent::OpenLocation(t.clone()));
