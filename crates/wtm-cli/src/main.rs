@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod actions;
+mod config;
 mod parse;
 mod table;
 mod top;
@@ -92,6 +93,11 @@ enum Command {
         /// Show only the first N apps
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
+    },
+    /// Show, check or replace the service's configuration
+    Config {
+        #[command(subcommand)]
+        action: config::Action,
     },
     /// Hard-cap CPU and/or memory using a job object
     Limit {
@@ -197,6 +203,9 @@ fn main() -> anyhow::Result<ExitCode> {
             &mut io::stdout().lock(),
         )
         .map(|()| ExitCode::SUCCESS),
+        Command::Config { action } => {
+            config::run(action, wtm_ipc::Client::connect, &mut io::stdout().lock())
+        }
         Command::Kill { targets, tree } => actions::kill(&targets, tree),
         Command::Suspend { targets } => actions::suspend(&targets),
         Command::Resume { targets } => actions::resume(&targets),
@@ -264,17 +273,9 @@ fn history(
         )?;
     }
     if findings.is_empty() {
-        writeln!(
-            out,
-            "
-No long-term findings."
-        )?;
+        writeln!(out, "\nNo long-term findings.")?;
     } else {
-        writeln!(
-            out,
-            "
-Findings:"
-        )?;
+        writeln!(out, "\nFindings:")?;
         for f in findings {
             writeln!(out, "  {:<26} {:?}: {}", f.app, f.kind, f.detail)?;
         }
@@ -352,9 +353,12 @@ mod tests {
         }
     }
 
-    /// Runs `history` against a one-shot fake service that answers the
-    /// history request with `reply`.
-    fn history_with(reply: Response, limit: usize, out: &mut impl Write) -> anyhow::Result<()> {
+    /// Runs `f` with a client of a one-shot fake service that answers one
+    /// request with `reply`; returns that request and `f`'s result.
+    pub(crate) fn with_reply<R>(
+        reply: Response,
+        f: impl FnOnce(io::Result<Client>) -> R,
+    ) -> (Option<Request>, R) {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let name = format!(
             r"\\.\pipe\wtm-cli-test-{}-{}",
@@ -379,12 +383,14 @@ mod tests {
             write_frame(&mut conn, &reply).ok()?;
             Some(request)
         });
-        let result = history(Client::connect_to(&name), 6, limit, out);
-        assert_eq!(
-            server.join().unwrap(),
-            Some(Request::History { hours: 6 }),
-            "{result:?}"
-        );
+        let result = f(Client::connect_to(&name));
+        (server.join().unwrap(), result)
+    }
+
+    /// Runs `history` against a fake service answering with `reply`.
+    fn history_with(reply: Response, limit: usize, out: &mut impl Write) -> anyhow::Result<()> {
+        let (request, result) = with_reply(reply, |c| history(c, 6, limit, out));
+        assert_eq!(request, Some(Request::History { hours: 6 }), "{result:?}");
         result
     }
 
@@ -414,7 +420,7 @@ mod tests {
 
     /// Runs `test` unless the RustWTM service is installed, which makes the
     /// client (rightly) refuse fake servers.
-    fn with_fake_service(test: impl FnOnce()) {
+    pub(crate) fn with_fake_service(test: impl FnOnce()) {
         if wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_none() {
             test();
         }

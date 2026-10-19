@@ -21,6 +21,8 @@ usage history.
   affinity, efficiency mode (EcoQoS), hard CPU cap and memory cap (job objects).
 - Performance graphs (CPU, memory, GPU), App history, Startup apps,
   Users, Services (start / stop / startup type), Network connections, Events.
+- Settings: edit the service's configuration with live validation and a
+  one-click switch between dry-run and enforcing.
 - Tray icon and desktop notifications.
 
 **Governor service (`wtm-service`)**
@@ -121,6 +123,9 @@ wtm affinity 1234 0-3,6
 wtm eco 1234 on
 wtm limit 1234 --cpu 10 --memory 2G   hard caps (Ctrl+C lifts them)
 wtm history --hours 24             long-term per-app usage and findings
+wtm config show                    the service's configuration
+wtm config check my.toml           validate a file
+wtm config apply my.toml           validate and apply it (elevated)
 ```
 
 Targets are PIDs or image names (`.exe` optional, case-insensitive).
@@ -135,7 +140,9 @@ wtm-service console --data-dir .\data    run the engine in the foreground
 ## Configuration
 
 The service reads `%ProgramData%\RustWTM\config.toml` (created with commented
-defaults on first start) and reloads it automatically when it changes.
+defaults on first start) and reloads it automatically when it changes. Edit it
+in the GUI's **Settings** tab or with `wtm config apply` (both validate first
+and need an elevated client), or by hand.
 
 ```toml
 dry_run = true            # log decisions only; set to false to enforce

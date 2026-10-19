@@ -24,6 +24,7 @@ enum Tab {
     Users,
     Services,
     Network,
+    Settings,
 }
 
 pub struct App {
@@ -42,6 +43,7 @@ struct UiState {
     history: views::HistoryView,
     history_dirty: bool,
     selected_service: Option<String>,
+    config: crate::settings::ConfigView,
     last_load: HashMap<Panel, Instant>,
 }
 
@@ -72,6 +74,7 @@ impl Default for UiState {
             history: views::HistoryView::default(),
             history_dirty: true,
             selected_service: None,
+            config: crate::settings::ConfigView::default(),
             last_load: HashMap::new(),
         }
     }
@@ -116,6 +119,7 @@ impl eframe::App for App {
                     (Tab::Services, "Services"),
                     (Tab::Network, "Network"),
                     (Tab::Events, "Events"),
+                    (Tab::Settings, "Settings"),
                 ] {
                     ui.selectable_value(&mut state.tab, tab, RichText::new(label).size(15.0));
                 }
@@ -181,6 +185,9 @@ impl eframe::App for App {
                 }
             }
             Tab::Users => views::users(ui, &data),
+            Tab::Settings => {
+                service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
+            }
             Tab::Services => {
                 if let Some(op) = service_bar(ui, &data, state.selected_service.as_deref()) {
                     service_cmds.push(op);
@@ -256,6 +263,7 @@ impl eframe::App for App {
             Tab::Services => Some((Panel::Services, Duration::from_secs(5))),
             Tab::History => None,
             Tab::Startup => Some((Panel::Startup, Duration::from_secs(10))),
+            Tab::Settings => Some((Panel::Config, Duration::from_secs(30))),
             _ => None,
         };
         if let Some((panel, every)) = due
@@ -839,6 +847,7 @@ mod tests {
             }
             UiCommand::LoadSeries { app, hours } => format!("series {app} {hours}"),
             UiCommand::Service { name, op } => format!("service {name} {op:?}"),
+            UiCommand::SaveConfig(toml) => format!("save config {}", toml.len()),
         }
     }
 
@@ -956,6 +965,86 @@ mod tests {
                 "service Spooler StartType(Disabled)",
                 "service Fax Start",
             ]
+        );
+    }
+
+    #[test]
+    fn settings_tab_validates_toggles_and_saves() {
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        d.config = Some(Ok((
+            r"C:\ProgramData\RustWTM\config.toml".into(),
+            wtm_policy::DEFAULT_CONFIG_TOML.into(),
+        )));
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState::default(),
+                tray: None,
+            });
+        h.run_steps(2);
+        h.get_by_label("Settings").click();
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("Valid configuration").is_some());
+        assert!(h.query_by_label_contains("unsaved").is_none());
+
+        h.get_by_label("Switch to enforcing").click();
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("unsaved").is_some());
+        assert!(h.query_by_label("Switch to dry-run").is_some());
+        h.get_by_label("Save").click();
+        h.run_steps(2);
+        let sent: Vec<UiCommand> = rx.try_iter().collect();
+        assert!(
+            sent.iter()
+                .any(|c| matches!(c, UiCommand::Load(Panel::Config)))
+        );
+        let saved = sent.iter().find_map(|c| match c {
+            UiCommand::SaveConfig(toml) => Some(toml.clone()),
+            _ => None,
+        });
+        let saved = saved.expect("Save sends the edited text");
+        assert!(wtm_policy::Config::from_toml(&saved).is_ok_and(|c| !c.dry_run));
+
+        // Discarding asks the service for its text again.
+        h.get_by_label("Discard changes").click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .any(|c| matches!(c, UiCommand::Load(Panel::Config)))
+        );
+    }
+
+    #[test]
+    fn settings_tab_shows_errors_and_needs_admin_to_save() {
+        let mut d = data();
+        d.config = Some(Err("service not running".into()));
+        let (backend, rx) = Backend::offline(d);
+        let state = UiState {
+            tab: Tab::Settings,
+            ..Default::default()
+        };
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state,
+                tray: None,
+            });
+        h.run_steps(2);
+        assert!(h.query_by_label("service not running").is_some());
+        h.get_by_label("Retry").click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .any(|c| matches!(c, UiCommand::Load(Panel::Config)))
         );
     }
 }

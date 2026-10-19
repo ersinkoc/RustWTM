@@ -5,6 +5,11 @@ commented defaults on first start and reloaded automatically when the file
 changes. An invalid file is rejected (the previous configuration stays
 active) and the error is written to the event log.
 
+Besides editing the file directly, an elevated client can replace it through the
+service: the GUI's **Settings** tab or `wtm config apply <file>`. Both validate
+the text first and the file is replaced atomically. `wtm config check <file>`
+validates without applying; `wtm config default` prints the commented defaults.
+
 All CPU percentages are a share of the **whole machine** (100% = every
 logical processor busy). On a 16-thread CPU one fully busy core is 6.25%.
 

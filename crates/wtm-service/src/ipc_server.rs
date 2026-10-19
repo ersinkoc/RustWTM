@@ -174,6 +174,11 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                     Err(e) => Response::Error(e),
                 }
             }
+            Request::GetConfig => get_config(shared),
+            Request::SetConfig { .. } if !admin => {
+                Response::Error("administrator rights required (run the client elevated)".into())
+            }
+            Request::SetConfig { toml } => set_config(shared, &toml),
             Request::Control { .. } if !admin => {
                 Response::Error("administrator rights required (run the client elevated)".into())
             }
@@ -209,6 +214,47 @@ fn forward_control(
     }
 }
 
+fn config_path(shared: &Shared) -> Option<std::path::PathBuf> {
+    let path = read_lock(&shared.status).config_path;
+    (!path.is_empty()).then(|| path.into())
+}
+
+fn get_config(shared: &Shared) -> Response {
+    let Some(path) = config_path(shared) else {
+        return Response::Error("configuration is not available yet".into());
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(toml) => Response::Config {
+            toml,
+            path: path.display().to_string(),
+        },
+        Err(e) => Response::Error(format!("reading {}: {e}", path.display())),
+    }
+}
+
+/// Validates `toml` and replaces the file atomically, so the engine never
+/// reads a half-written configuration.
+fn set_config(shared: &Shared, toml: &str) -> Response {
+    if let Err(e) = wtm_policy::Config::from_toml(toml) {
+        return Response::Error(format!("invalid configuration: {e}"));
+    }
+    let Some(path) = config_path(shared) else {
+        return Response::Error("configuration is not available yet".into());
+    };
+    let tmp = path.with_extension("toml.new");
+    let written = std::fs::write(&tmp, toml).and_then(|()| std::fs::rename(&tmp, &path));
+    match written {
+        Ok(()) => {
+            shared.events.info(None, "configuration replaced via IPC");
+            Response::Done
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Response::Error(format!("writing {}: {e}", path.display()))
+        }
+    }
+}
+
 /// Runs `f` on a fresh read-only connection with the window start minute.
 fn history_query<T>(
     shared: &Shared,
@@ -234,6 +280,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::sync::mpsc::Receiver;
     use wtm_core::control::PriorityClass;
+    use wtm_policy::DEFAULT_CONFIG_TOML;
 
     use crate::test_util::wait_for;
 
@@ -307,6 +354,14 @@ mod tests {
             hours: 1,
         };
         assert_eq!(error(call(&mut f, &series).unwrap()), unavailable);
+        let no_config = "configuration is not available yet";
+        assert_eq!(error(call(&mut f, &Request::GetConfig).unwrap()), no_config);
+        let set = Request::SetConfig {
+            toml: DEFAULT_CONFIG_TOML.into(),
+        };
+        let refusal = error(call(&mut f, &set).unwrap());
+        let expected = if admin { no_config } else { "administrator" };
+        assert!(refusal.contains(expected), "{refusal}");
 
         let control = Request::Control {
             target: gone,
@@ -422,5 +477,47 @@ mod tests {
         drop(busy);
         // The engine has stopped.
         assert_eq!(error(forward(&tx, CONTROL_TIMEOUT)), "service is stopping");
+    }
+
+    #[test]
+    fn config_is_read_validated_and_replaced_atomically() {
+        let dir = std::env::temp_dir().join(format!("wtm-ipc-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, DEFAULT_CONFIG_TOML).unwrap();
+        let shared = Shared::default();
+        shared.status.write().unwrap().config_path = path.display().to_string();
+
+        let (toml, shown) = match get_config(&shared) {
+            Response::Config { toml, path } => (toml, path),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(toml, DEFAULT_CONFIG_TOML);
+        assert_eq!(shown, path.display().to_string());
+
+        // Invalid text is rejected and the file is left alone.
+        let invalid = error(set_config(&shared, "dry_run = 3"));
+        assert!(invalid.starts_with("invalid configuration"), "{invalid}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_CONFIG_TOML);
+
+        let new = DEFAULT_CONFIG_TOML.replace("dry_run = true", "dry_run = false");
+        assert!(matches!(set_config(&shared, &new), Response::Done));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), new);
+        assert!(!path.with_extension("toml.new").exists());
+        assert!(
+            shared
+                .events
+                .after(0)
+                .iter()
+                .any(|e| e.message == "configuration replaced via IPC")
+        );
+
+        // A directory in place of the file: reading and writing fail cleanly.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(error(get_config(&shared)).starts_with("reading"));
+        assert!(error(set_config(&shared, DEFAULT_CONFIG_TOML)).starts_with("writing"));
+        assert!(!path.with_extension("toml.new").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

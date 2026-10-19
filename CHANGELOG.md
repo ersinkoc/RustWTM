@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- Settings tab in the GUI: edit the service's configuration with live
+  validation, switch between dry-run and enforcing, save (elevated).
+- `wtm config show | default | check <file> | apply <file>`.
+- IPC protocol 4: `GetConfig` and `SetConfig` (admin only; validated, written
+  atomically).
+
 - Long-term history records per-app GPU usage (average of the busiest engine).
   App history (GUI and `wtm history`) shows it, the per-app chart plots it,
   and insights flag chronic GPU users (`chronic_gpu_percent`,

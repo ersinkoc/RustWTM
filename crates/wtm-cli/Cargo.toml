@@ -16,13 +16,13 @@ path = "src/main.rs"
 [dependencies]
 wtm-core.workspace = true
 wtm-ipc.workspace = true
+wtm-policy.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 crossterm.workspace = true
 ctrlc.workspace = true
 
 [dev-dependencies]
-wtm-policy.workspace = true
 wtm-sys.workspace = true
 
 [lints]

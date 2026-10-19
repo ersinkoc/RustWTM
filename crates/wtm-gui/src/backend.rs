@@ -19,6 +19,7 @@ use wtm_policy::{AppStats, Finding, MinuteRow};
 pub type AppHistory = (Vec<AppStats>, Vec<Finding>);
 
 const NO_SERVICE: &str = "Usage history is recorded by the RustWTM service, which is not running.";
+const NO_CONFIG: &str = "The configuration belongs to the RustWTM service, which is not running.";
 use wtm_ipc::{Client, Command, Event, EventLevel, Outcome, Request, Response, Status};
 
 const TICK: Duration = Duration::from_secs(1);
@@ -59,6 +60,8 @@ pub struct Data {
     pub app_history: Option<Result<AppHistory, String>>,
     /// Per-minute rows for the app selected in App history.
     pub series: Option<(String, Vec<MinuteRow>)>,
+    /// The service's configuration file: (path, text).
+    pub config: Option<Result<(String, String), String>>,
     pub message: Option<(EventLevel, String)>,
 }
 
@@ -85,6 +88,8 @@ pub enum UiCommand {
         name: String,
         op: ServiceOp,
     },
+    /// Replace the service's configuration file (admin only).
+    SaveConfig(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -95,6 +100,8 @@ pub enum Panel {
     Startup,
     /// Only used for refresh timing; loaded via `LoadHistory`.
     History,
+    /// The service's configuration file.
+    Config,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,6 +297,27 @@ impl Worker {
                 self.data().message = Some(service_message(op, &name, result));
                 self.load(Panel::Services);
             }
+            UiCommand::SaveConfig(toml) => {
+                let result = match self.client.as_mut() {
+                    None => Err(NO_CONFIG.to_owned()),
+                    Some(c) => match c.call(&Request::SetConfig { toml }) {
+                        Ok(Response::Done) => Ok(()),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    },
+                };
+                self.data().message = Some(match result {
+                    Ok(()) => (
+                        EventLevel::Info,
+                        "Configuration saved; the service applies it within a second.".into(),
+                    ),
+                    Err(e) => (
+                        EventLevel::Error,
+                        format!("Saving the configuration failed: {e}"),
+                    ),
+                });
+                self.load(Panel::Config);
+            }
             UiCommand::Inspect(target) => {
                 let result = match self.client.as_mut() {
                     Some(c) => match c.call(&Request::Inspect(target.clone())) {
@@ -334,6 +362,17 @@ impl Worker {
                 self.data().sessions = Some(r);
             }
             Panel::History => {}
+            Panel::Config => {
+                let r = match self.client.as_mut() {
+                    None => Err(NO_CONFIG.to_owned()),
+                    Some(c) => match c.call(&Request::GetConfig) {
+                        Ok(Response::Config { toml, path }) => Ok((path, toml)),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    },
+                };
+                self.data().config = Some(r);
+            }
             Panel::Startup => {
                 self.data().startup = Some(wtm_core::startup::list_startup());
             }
@@ -661,6 +700,9 @@ mod tests {
         }
         w.handle(UiCommand::LoadHistory { hours: 1 });
         assert!(matches!(&w.data().app_history, Some(Err(e)) if e == NO_SERVICE));
+        w.handle(UiCommand::SaveConfig(String::new()));
+        assert!(message(&w).1.ends_with(NO_CONFIG));
+        assert!(matches!(&w.data().config, Some(Err(e)) if e == NO_CONFIG));
         w.handle(UiCommand::LoadSeries {
             app: "x".into(),
             hours: 1,
@@ -802,6 +844,11 @@ mod tests {
                 findings: Vec::new(),
             },
             Request::AppSeries { .. } => Response::Series(Vec::new()),
+            Request::GetConfig => Response::Config {
+                toml: "dry_run = true\n".into(),
+                path: r"C:\cfg.toml".into(),
+            },
+            Request::SetConfig { .. } => Response::Done,
         })
     }
 
@@ -842,6 +889,11 @@ mod tests {
         assert!(matches!(&w.data().details, Some((_, Err(e))) if e == "denied"));
         w.handle(UiCommand::LoadHistory { hours: 24 });
         assert!(matches!(w.data().app_history, Some(Ok(_))));
+        w.handle(UiCommand::SaveConfig("dry_run = true\n".into()));
+        assert_eq!(message(&w).0, EventLevel::Info);
+        assert!(
+            matches!(&w.data().config, Some(Ok((path, toml))) if path == r"C:\cfg.toml" && toml.starts_with("dry_run"))
+        );
         w.handle(UiCommand::LoadSeries {
             app: "x.exe".into(),
             hours: 24,
@@ -908,6 +960,8 @@ mod tests {
             Request::Control { .. } => Response::Error("refused".into()),
             Request::History { .. } => Response::Series(Vec::new()),
             Request::AppSeries { .. } => Response::Error("unknown app".into()),
+            Request::GetConfig => Response::Done,
+            Request::SetConfig { .. } => Response::Error("invalid configuration: x".into()),
         });
 
         let mut w = worker();
@@ -941,6 +995,11 @@ mod tests {
             hours: 1,
         });
         assert!(w.data().series.is_none());
+        w.handle(UiCommand::SaveConfig(String::new()));
+        let (level, text) = message(&w);
+        assert_eq!(level, EventLevel::Error);
+        assert!(text.ends_with("invalid configuration: x"), "{text}");
+        assert!(matches!(&w.data().config, Some(Err(e)) if e.starts_with("unexpected response")));
 
         drop(w.client.take());
         server.join().unwrap();
@@ -952,6 +1011,9 @@ mod tests {
         w.client = Some(hang_up_after_hello(&test_pipe("dead"), true));
         w.handle(UiCommand::LoadHistory { hours: 1 });
         assert!(matches!(w.data().app_history, Some(Err(_))));
+        w.handle(UiCommand::SaveConfig(String::new()));
+        assert_eq!(message(&w).0, EventLevel::Error);
+        assert!(matches!(w.data().config, Some(Err(_))));
         w.handle(UiCommand::Control {
             target: x_exe(),
             command: Command::Kill,

@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -55,6 +55,13 @@ pub enum Request {
     AppSeries {
         app: String,
         hours: u32,
+    },
+    /// The service's configuration file as text.
+    GetConfig,
+    /// Validates and replaces the configuration file (admin only). The service
+    /// reloads it within one sampling interval.
+    SetConfig {
+        toml: String,
     },
 }
 
@@ -88,6 +95,12 @@ pub enum Response {
         findings: Vec<Finding>,
     },
     Series(Vec<MinuteRow>),
+    Config {
+        toml: String,
+        path: String,
+    },
+    /// The request succeeded and has no payload.
+    Done,
     Error(String),
 }
 

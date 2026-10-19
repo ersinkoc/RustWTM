@@ -5,6 +5,7 @@
 mod app;
 mod backend;
 mod processes;
+mod settings;
 mod tray;
 #[cfg(test)]
 mod ui_tests;
