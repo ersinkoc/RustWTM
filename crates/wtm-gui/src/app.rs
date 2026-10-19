@@ -165,7 +165,13 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ui, |ui| match state.tab {
             Tab::Processes => match &data.snapshot {
-                Some(snap) => intents.extend(state.processes.ui(ui, snap, &managed)),
+                Some(snap) => {
+                    let extra = crate::processes::Extra {
+                        labels: &managed,
+                        command_lines: &data.command_lines,
+                    };
+                    intents.extend(state.processes.ui(ui, snap, &extra));
+                }
                 None => {
                     ui.spinner();
                 }

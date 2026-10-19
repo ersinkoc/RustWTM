@@ -66,10 +66,11 @@ pub enum Col {
     Priority,
     Started,
     Limits,
+    CommandLine,
 }
 
 /// Column, header, initial width, numeric (sorts largest first), shown by default.
-const COLUMNS: [(Col, &str, f32, bool, bool); 15] = [
+const COLUMNS: [(Col, &str, f32, bool, bool); 16] = [
     (Col::Name, "Name", 240.0, false, true),
     (Col::Pid, "PID", 64.0, false, true),
     (Col::Cpu, "CPU", 64.0, true, true),
@@ -85,7 +86,28 @@ const COLUMNS: [(Col, &str, f32, bool, bool); 15] = [
     (Col::Priority, "Base priority", 70.0, true, false),
     (Col::Started, "Running for", 96.0, true, false),
     (Col::Limits, "Limits", 160.0, false, true),
+    (Col::CommandLine, "Command line", 400.0, false, true),
 ];
+
+/// Text shown per process besides its own fields.
+pub struct Extra<'a> {
+    pub labels: &'a ManagedMap,
+    pub command_lines: &'a crate::backend::CommandLines,
+}
+
+impl Extra<'_> {
+    fn label(&self, p: &ProcessInfo) -> &str {
+        self.labels
+            .get(&(p.pid, p.create_time))
+            .map_or("", String::as_str)
+    }
+
+    fn command_line(&self, p: &ProcessInfo) -> &str {
+        self.command_lines
+            .get(&(p.pid, p.create_time))
+            .map_or("", String::as_str)
+    }
+}
 
 /// What the user asked for this frame; handled by the app.
 pub enum Intent {
@@ -132,12 +154,7 @@ impl ProcessView {
     }
 }
 
-fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col, labels: &ManagedMap) -> Ordering {
-    let label = |p: &ProcessInfo| {
-        labels
-            .get(&(p.pid, p.create_time))
-            .map_or("", String::as_str)
-    };
+fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col, extra: &Extra<'_>) -> Ordering {
     match col {
         Col::Name => crate::sort::text(&a.name, &b.name),
         Col::Pid => a.pid.cmp(&b.pid),
@@ -154,7 +171,8 @@ fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col, labels: &ManagedMap) -> O
         Col::Priority => a.base_priority.cmp(&b.base_priority),
         // Longest running first when descending.
         Col::Started => b.create_time.cmp(&a.create_time),
-        Col::Limits => crate::sort::text(label(a), label(b)),
+        Col::Limits => crate::sort::text(extra.label(a), extra.label(b)),
+        Col::CommandLine => crate::sort::text(extra.command_line(a), extra.command_line(b)),
     }
     .then(a.pid.cmp(&b.pid))
 }
@@ -179,7 +197,7 @@ fn tree_rows<'a>(
     procs: &'a [ProcessInfo],
     col: Col,
     descending: bool,
-    labels: &ManagedMap,
+    extra: &Extra<'_>,
 ) -> Vec<(&'a ProcessInfo, usize)> {
     let index: HashMap<u32, usize> = procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
     let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -194,7 +212,7 @@ fn tree_rows<'a>(
     }
     let sort = |v: &mut Vec<usize>| {
         v.sort_by(|&a, &b| {
-            let o = compare(&procs[a], &procs[b], col, labels);
+            let o = compare(&procs[a], &procs[b], col, extra);
             if descending { o.reverse() } else { o }
         });
     };
@@ -227,7 +245,7 @@ fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
 }
 
 impl ProcessView {
-    pub fn ui(&mut self, ui: &mut Ui, snap: &Snapshot, managed: &ManagedMap) -> Vec<Intent> {
+    pub fn ui(&mut self, ui: &mut Ui, snap: &Snapshot, extra: &Extra<'_>) -> Vec<Intent> {
         let mut intents = Vec::new();
         let logical_cpus = snap.system.logical_cpus.max(1);
 
@@ -235,7 +253,7 @@ impl ProcessView {
             ui.label("Search:");
             ui.add(
                 egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("name or PID")
+                    .hint_text("name, PID or command line")
                     .desired_width(220.0),
             );
             if !self.search.is_empty() && ui.small_button("✖").clicked() {
@@ -260,7 +278,7 @@ impl ProcessView {
 
         let filter = self.search.trim().to_lowercase();
         let rows: Vec<(&ProcessInfo, usize)> = if self.tree && filter.is_empty() {
-            tree_rows(&snap.processes, self.sort, self.descending, managed)
+            tree_rows(&snap.processes, self.sort, self.descending, extra)
         } else {
             let mut v: Vec<&ProcessInfo> = snap
                 .processes
@@ -269,10 +287,11 @@ impl ProcessView {
                     filter.is_empty()
                         || p.name.to_lowercase().contains(&filter)
                         || p.pid.to_string().contains(&filter)
+                        || extra.command_line(p).to_lowercase().contains(&filter)
                 })
                 .collect();
             v.sort_by(|a, b| {
-                let o = compare(a, b, self.sort, managed);
+                let o = compare(a, b, self.sort, extra);
                 if self.descending { o.reverse() } else { o }
             });
             v.into_iter().map(|p| (p, 0)).collect()
@@ -363,11 +382,16 @@ impl ProcessView {
                             Col::Priority => right(ui, p.base_priority.to_string()),
                             Col::Started => right(ui, running_for(p)),
                             Col::Limits => {
-                                if let Some(label) = managed.get(&key) {
+                                if let Some(label) = extra.labels.get(&key) {
                                     ui.label(
                                         RichText::new(label).color(Color32::from_rgb(230, 140, 40)),
                                     );
                                 }
+                            }
+                            Col::CommandLine => {
+                                let cmd = extra.command_line(p);
+                                ui.label(RichText::new(cmd).monospace().small())
+                                    .on_hover_text(cmd);
                             }
                         });
                     }
@@ -505,6 +529,13 @@ mod tests {
         }
     }
 
+    fn no_extra() -> Extra<'static> {
+        Extra {
+            labels: Box::leak(Box::default()),
+            command_lines: Box::leak(Box::default()),
+        }
+    }
+
     #[test]
     fn tree_orders_children_under_parents() {
         let procs = [
@@ -516,7 +547,7 @@ mod tests {
             p(13, 99, 7.0, 13), // orphan
             p(14, 12, 0.0, 5),  // parent PID reused: not a real child
         ];
-        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true, &ManagedMap::new())
+        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true, &no_extra())
             .into_iter()
             .map(|(p, d)| (p.pid, d))
             .collect();
@@ -530,7 +561,7 @@ mod tests {
     fn tree_keeps_processes_in_parent_cycles() {
         // Each names the other as parent with the same create time.
         let procs = [p(20, 21, 1.0, 7), p(21, 20, 2.0, 7), p(22, 21, 0.0, 8)];
-        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true, &ManagedMap::new())
+        let order: Vec<(u32, usize)> = tree_rows(&procs, Col::Cpu, true, &no_extra())
             .into_iter()
             .map(|(p, d)| (p.pid, d))
             .collect();

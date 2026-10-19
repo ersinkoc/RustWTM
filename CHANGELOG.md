@@ -9,6 +9,10 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - Limits tab: pick the program from the running apps (busiest first).
+- Process list: *Command line* column (shown by default); the search box also
+  matches command lines. Command lines are read by the GUI with the user's own
+  rights, never sent by the service.
+- `wtm list --cmdline` (`-c`) adds a COMMAND LINE column.
 
 ## [0.2.0] - 2026-10-19
 

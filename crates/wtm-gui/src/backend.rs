@@ -15,6 +15,8 @@ use wtm_core::{Connection, ServiceEntry, Session, StartType};
 use wtm_core::{Sampler, Snapshot};
 use wtm_policy::{AppStats, Finding, MinuteRow};
 
+pub type CommandLines = std::collections::HashMap<(u32, i64), String>;
+
 /// Per-app summaries plus the service's current long-term findings.
 pub type AppHistory = (Vec<AppStats>, Vec<Finding>);
 
@@ -60,6 +62,9 @@ pub struct Data {
     pub app_history: Option<Result<AppHistory, String>>,
     /// Per-minute rows for the app selected in App history.
     pub series: Option<(String, Vec<MinuteRow>)>,
+    /// Command lines per process instance, read with this window's own
+    /// rights (empty when not readable). The service never sends them.
+    pub command_lines: CommandLines,
     /// The service's configuration file: (path, text).
     pub config: Option<Result<(String, String), String>>,
     pub message: Option<(EventLevel, String)>,
@@ -589,7 +594,21 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
         trim(&mut data.history.gpu, HISTORY_LEN);
     }
     trim(&mut data.events, EVENTS_KEPT);
+    update_command_lines(&mut data.command_lines, &snapshot.processes);
     data.snapshot = Some(Arc::new(snapshot));
+}
+
+/// Reads the command line of every new process once; a process's command
+/// line never changes. Exited processes are forgotten.
+fn update_command_lines(cache: &mut CommandLines, procs: &[wtm_core::ProcessInfo]) {
+    let live: std::collections::HashSet<(u32, i64)> =
+        procs.iter().map(|p| (p.pid, p.create_time)).collect();
+    cache.retain(|k, _| live.contains(k));
+    for p in procs {
+        cache
+            .entry((p.pid, p.create_time))
+            .or_insert_with(|| control::command_line(&ProcessRef::from(p)).unwrap_or_default());
+    }
 }
 
 fn trim<T>(q: &mut VecDeque<T>, max: usize) {
@@ -1271,5 +1290,24 @@ mod tests {
         let n = blocked_notification("xmrig.exe");
         assert_eq!(n.summary, "Program blocked");
         assert_eq!(n.body, "RustWTM prevented xmrig.exe from starting.");
+    }
+
+    #[test]
+    fn command_lines_are_read_once_and_forgotten_on_exit() {
+        let snap = Sampler::new().sample().unwrap();
+        let mut cache = CommandLines::new();
+        update_command_lines(&mut cache, &snap.processes);
+        let me = snap
+            .processes
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap();
+        assert!(!cache[&(me.pid, me.create_time)].is_empty());
+        // Cached: an entry is not read again.
+        cache.insert((me.pid, me.create_time), "cached".into());
+        update_command_lines(&mut cache, &snap.processes);
+        assert_eq!(cache[&(me.pid, me.create_time)], "cached");
+        update_command_lines(&mut cache, &[]);
+        assert!(cache.is_empty());
     }
 }

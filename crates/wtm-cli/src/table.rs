@@ -32,6 +32,16 @@ pub fn row(p: &ProcessInfo, width: usize) -> String {
     )
 }
 
+/// Width the NAME column is padded to when a command line follows it.
+const NAME_WIDTH: usize = 28;
+
+/// `line` (a header or row ending with a name of `name_len` characters)
+/// followed by an extra column.
+pub fn then(line: String, name_len: usize, extra: &str) -> String {
+    let pad = NAME_WIDTH.saturating_sub(name_len).max(1);
+    format!("{line}{:pad$}{extra}", "")
+}
+
 pub fn summary(s: &SystemStats) -> String {
     let mem_pct = if s.memory_total > 0 {
         s.memory_used() as f64 / s.memory_total as f64 * 100.0
@@ -70,6 +80,15 @@ mod tests {
     fn summary_without_memory_total() {
         let s = summary(&SystemStats::default());
         assert!(s.contains("Memory 0 B / 0 B (0%)"), "{s}");
+    }
+
+    #[test]
+    fn extra_column_lines_up() {
+        assert_eq!(then("ab".into(), 2, "x").find('x'), Some(28));
+        assert_eq!(
+            then("a".repeat(40), 40, "x"),
+            format!("{} x", "a".repeat(40))
+        );
     }
 
     #[test]

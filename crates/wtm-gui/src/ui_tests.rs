@@ -255,7 +255,7 @@ fn process_harness() -> Harness<'static, ProcState> {
             |ui, st: &mut ProcState| {
                 let managed: ManagedMap = HashMap::new();
                 let snap = st.snap.clone();
-                let intents = st.view.ui(ui, &snap, &managed);
+                let intents = st.view.ui(ui, &snap, &extra(&managed));
                 st.intents.extend(intents.iter().map(describe_intent));
             },
             ProcState {
@@ -518,7 +518,7 @@ fn processes_show_limits_and_fit_cpu_limits_to_the_machine() {
         .allow_missing_glyphs()
         .with_size([1300.0, 700.0])
         .build_ui(|ui| {
-            view.ui(ui, &snap, &managed);
+            view.ui(ui, &snap, &extra(&managed));
         });
     h.run();
     assert!(h.query_by_label("Governor: BelowNormal").is_some());
@@ -681,7 +681,7 @@ fn process_columns_can_be_shown_hidden_and_sorted() {
         .with_size([2400.0, 900.0])
         .build_ui_state(
             |ui, view: &mut ProcessView| {
-                view.ui(ui, &snap, &managed);
+                view.ui(ui, &snap, &extra(&managed));
             },
             ProcessView::default(),
         );
@@ -717,6 +717,7 @@ fn process_columns_can_be_shown_hidden_and_sorted() {
         "Base priority",
         "Running for",
         "Limits",
+        "Command line",
     ] {
         let node = h
             .get_all_by_role(eframe::egui::accesskit::Role::Button)
@@ -728,7 +729,15 @@ fn process_columns_can_be_shown_hidden_and_sorted() {
         node.unwrap_or_else(|| panic!("no header {header}")).click();
         h.run();
     }
-    assert_eq!(h.state().sort, crate::processes::Col::Limits);
+    assert_eq!(h.state().sort, crate::processes::Col::CommandLine);
+    assert!(h.query_by_label(r#""C:\Apps\beta.exe" --id 200"#).is_some());
+    // Searching matches the command line.
+    h.state_mut().search = "--id 200".into();
+    h.run();
+    assert!(h.query_by_label("beta.exe").is_some());
+    assert!(h.query_by_label("alpha.exe").is_none());
+    h.state_mut().search.clear();
+    h.run();
     // Turning a column off again.
     h.get_by_label("Columns").click();
     h.run();
@@ -736,4 +745,28 @@ fn process_columns_can_be_shown_hidden_and_sorted() {
         .click();
     h.run();
     assert!(!h.state().view_has("Commit"));
+}
+
+/// Command lines for the synthetic processes.
+fn command_lines() -> &'static crate::backend::CommandLines {
+    static LINES: std::sync::OnceLock<crate::backend::CommandLines> = std::sync::OnceLock::new();
+    LINES.get_or_init(|| {
+        snapshot()
+            .processes
+            .iter()
+            .map(|p| {
+                (
+                    (p.pid, p.create_time),
+                    format!(r#""C:\Apps\{}" --id {}"#, p.name, p.pid),
+                )
+            })
+            .collect()
+    })
+}
+
+fn extra(managed: &ManagedMap) -> crate::processes::Extra<'_> {
+    crate::processes::Extra {
+        labels: managed,
+        command_lines: command_lines(),
+    }
 }

@@ -189,6 +189,12 @@ pub fn image_path(target: &ProcessRef) -> ControlResult<String> {
     sys(target.pid, h.image_path())
 }
 
+/// The command line a process was started with.
+pub fn command_line(target: &ProcessRef) -> ControlResult<String> {
+    let h = open_verified(target, Access::QUERY)?;
+    sys(target.pid, h.command_line())
+}
+
 /// Read-only details; individual fields are `None` when access is denied.
 pub fn inspect(target: &ProcessRef) -> ControlResult<ProcessDetails> {
     let h = open_verified(target, Access::QUERY)?;
@@ -318,5 +324,25 @@ mod tests {
             ControlError::AccessDenied { pid: 7 }.to_string(),
             "access denied to process 7 (try an elevated prompt)"
         );
+    }
+
+    #[test]
+    fn reads_the_command_line() {
+        let me = ProcessRef {
+            pid: std::process::id(),
+            create_time: 0,
+            name: "me.exe".into(),
+        };
+        let exe = std::env::current_exe().unwrap();
+        let stem = exe.file_stem().unwrap().to_string_lossy().to_lowercase();
+        assert!(command_line(&me).unwrap().to_lowercase().contains(&stem));
+        let gone = ProcessRef {
+            pid: 0xFFFF_FFF0,
+            ..me
+        };
+        assert!(matches!(
+            command_line(&gone),
+            Err(ControlError::NotFound { .. })
+        ));
     }
 }

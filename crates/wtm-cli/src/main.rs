@@ -35,6 +35,9 @@ enum Command {
         /// Sampling window used to measure CPU and disk rates
         #[arg(long, default_value_t = 1000, value_name = "MS")]
         sample_ms: u64,
+        /// Also show each process's command line
+        #[arg(long, short = 'c')]
+        cmdline: bool,
     },
     /// Live, auto-refreshing process monitor
     Top {
@@ -195,7 +198,8 @@ fn main() -> anyhow::Result<ExitCode> {
             sort,
             limit,
             sample_ms,
-        } => list(sort.into(), limit, sample_ms).map(|()| ExitCode::SUCCESS),
+            cmdline,
+        } => list(sort.into(), limit, sample_ms, cmdline).map(|()| ExitCode::SUCCESS),
         Command::Top { sort, interval_ms } => {
             top::run(sort.into(), Duration::from_millis(interval_ms.max(100)))
                 .map(|()| ExitCode::SUCCESS)
@@ -229,7 +233,7 @@ fn main() -> anyhow::Result<ExitCode> {
     }
 }
 
-fn list(sort: SortKey, limit: Option<usize>, sample_ms: u64) -> anyhow::Result<()> {
+fn list(sort: SortKey, limit: Option<usize>, sample_ms: u64, cmdline: bool) -> anyhow::Result<()> {
     let mut sampler = Sampler::new();
     sampler.sample()?;
     std::thread::sleep(Duration::from_millis(sample_ms.max(100)));
@@ -238,9 +242,20 @@ fn list(sort: SortKey, limit: Option<usize>, sample_ms: u64) -> anyhow::Result<(
 
     let mut out = io::stdout().lock();
     writeln!(out, "{}", table::summary(&snap.system))?;
-    writeln!(out, "{}", table::header())?;
+    if cmdline {
+        writeln!(out, "{}", table::then(table::header(), 4, "COMMAND LINE"))?;
+    } else {
+        writeln!(out, "{}", table::header())?;
+    }
     for p in snap.processes.iter().take(limit.unwrap_or(usize::MAX)) {
-        writeln!(out, "{}", table::row(p, usize::MAX))?;
+        let row = table::row(p, usize::MAX);
+        if cmdline {
+            // Read with the caller's own rights; empty when not readable.
+            let cmd = control::command_line(&p.into()).unwrap_or_default();
+            writeln!(out, "{}", table::then(row, p.name.chars().count(), &cmd))?;
+        } else {
+            writeln!(out, "{row}")?;
+        }
     }
     Ok(())
 }

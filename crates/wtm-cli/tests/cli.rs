@@ -56,6 +56,24 @@ fn list_prints_summary_header_and_rows() {
 }
 
 #[test]
+fn list_shows_command_lines() {
+    let o = wtm(&["list", "--sample-ms", "100", "--sort", "pid", "--cmdline"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let out = stdout(&o);
+    assert!(
+        out.lines().nth(1).unwrap().ends_with("COMMAND LINE"),
+        "{out}"
+    );
+    // wtm itself is listed with the arguments it was started with.
+    assert!(
+        out.lines()
+            .any(|l| l.contains("wtm.exe")
+                && l.contains("list --sample-ms 100 --sort pid --cmdline")),
+        "{out}"
+    );
+}
+
+#[test]
 fn info_shows_details() {
     let child = spawn_ping();
     let pid = child.0.id().to_string();
