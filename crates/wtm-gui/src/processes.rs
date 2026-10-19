@@ -89,10 +89,34 @@ const COLUMNS: [(Col, &str, f32, bool, bool); 16] = [
     (Col::CommandLine, "Command line", 400.0, false, true),
 ];
 
+/// A 16 px program icon (or the same space when there is none). Textures are
+/// kept in egui's memory per image path, so each icon is uploaded once.
+pub fn app_icon(ui: &mut Ui, icon: Option<(&str, &wtm_core::IconImage)>) {
+    let Some((path, image)) = icon else {
+        ui.add_space(20.0);
+        return;
+    };
+    let id = egui::Id::unique(("app-icon", path));
+    let texture = ui
+        .data(|d| d.get_temp::<egui::TextureHandle>(id))
+        .unwrap_or_else(|| {
+            let t = ui.ctx().load_texture(
+                path,
+                egui::ColorImage::from_rgba_unmultiplied([image.size as usize; 2], &image.rgba),
+                egui::TextureOptions::LINEAR,
+            );
+            ui.data_mut(|d| d.insert_temp(id, t.clone()));
+            t
+        });
+    ui.add(egui::Image::new(&texture).fit_to_exact_size(egui::vec2(16.0, 16.0)));
+}
+
 /// Text shown per process besides its own fields.
 pub struct Extra<'a> {
     pub labels: &'a ManagedMap,
     pub command_lines: &'a crate::backend::CommandLines,
+    pub image_paths: &'a crate::backend::CommandLines,
+    pub icons: &'a HashMap<String, Option<std::sync::Arc<wtm_core::IconImage>>>,
 }
 
 impl Extra<'_> {
@@ -100,6 +124,13 @@ impl Extra<'_> {
         self.labels
             .get(&(p.pid, p.create_time))
             .map_or("", String::as_str)
+    }
+
+    /// The image path and its icon, once both are known.
+    pub fn icon(&self, p: &ProcessInfo) -> Option<(&str, &wtm_core::IconImage)> {
+        let path = self.image_paths.get(&(p.pid, p.create_time))?;
+        let icon = self.icons.get(path)?.as_deref()?;
+        Some((path, icon))
     }
 
     fn command_line(&self, p: &ProcessInfo) -> &str {
@@ -358,6 +389,7 @@ impl ProcessView {
                         row.col(|ui| match col {
                             Col::Name => {
                                 ui.add_space(depth as f32 * 14.0);
+                                app_icon(ui, extra.icon(p));
                                 ui.label(&p.name);
                             }
                             Col::Pid => right(ui, p.pid.to_string()),
@@ -536,6 +568,8 @@ mod tests {
         Extra {
             labels: Box::leak(Box::default()),
             command_lines: Box::leak(Box::default()),
+            image_paths: Box::leak(Box::default()),
+            icons: Box::leak(Box::default()),
         }
     }
 

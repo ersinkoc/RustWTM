@@ -65,9 +65,15 @@ pub struct Data {
     /// Command lines per process instance, read with this window's own
     /// rights (empty when not readable). The service never sends them.
     pub command_lines: CommandLines,
+    /// Image path per process instance (empty when not readable).
+    pub image_paths: CommandLines,
+    /// Small icon per image path; `None` when the file has none.
+    pub icons: std::collections::HashMap<String, Option<Arc<wtm_core::IconImage>>>,
     /// The service's configuration file: (path, text).
     pub config: Option<Result<(String, String), String>>,
     pub message: Option<(EventLevel, String)>,
+    /// Why the last attempt to reach the service failed.
+    pub service_error: Option<String>,
 }
 
 pub enum UiCommand {
@@ -233,8 +239,12 @@ impl Worker {
                 Ok(c) => {
                     self.client = Some(c);
                     self.last_event = 0;
+                    self.data().service_error = None;
                 }
-                Err(_) => self.next_connect = Instant::now() + RECONNECT,
+                Err(e) => {
+                    self.next_connect = Instant::now() + RECONNECT;
+                    self.data().service_error = Some(e.to_string());
+                }
             }
         }
 
@@ -262,6 +272,8 @@ impl Worker {
                     if let Some(s) = snapshot {
                         publish(&mut data, s);
                     }
+                    drop(data);
+                    refresh_icons(&self.data);
                     return;
                 }
                 Err(e) => {
@@ -275,6 +287,7 @@ impl Worker {
 
         let sample = self.sampler.sample();
         publish_local(&mut self.data(), sample);
+        refresh_icons(&self.data);
     }
 
     fn handle(&mut self, cmd: UiCommand) {
@@ -605,7 +618,51 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     }
     trim(&mut data.events, EVENTS_KEPT);
     update_command_lines(&mut data.command_lines, &snapshot.processes);
+    update_image_paths(&mut data.image_paths, &snapshot.processes);
     data.snapshot = Some(Arc::new(snapshot));
+}
+
+/// Reads the image path of every new process once.
+fn update_image_paths(cache: &mut CommandLines, procs: &[wtm_core::ProcessInfo]) {
+    let live: std::collections::HashSet<(u32, i64)> =
+        procs.iter().map(|p| (p.pid, p.create_time)).collect();
+    cache.retain(|k, _| live.contains(k));
+    for p in procs {
+        cache
+            .entry((p.pid, p.create_time))
+            .or_insert_with(|| control::image_path(&ProcessRef::from(p)).unwrap_or_default());
+    }
+}
+
+/// Extracts the icons of image paths seen for the first time. Runs without
+/// holding the data lock: icon extraction touches the disk.
+fn refresh_icons(data: &Mutex<Data>) {
+    let missing: Vec<String> = {
+        let d = data.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut paths: Vec<String> = d
+            .image_paths
+            .values()
+            .filter(|p| !p.is_empty() && !d.icons.contains_key(*p))
+            .cloned()
+            .collect();
+        paths.sort();
+        paths.dedup();
+        paths
+    };
+    if missing.is_empty() {
+        return;
+    }
+    let found: Vec<_> = missing
+        .into_iter()
+        .map(|p| {
+            let icon = wtm_core::small_icon(&p).map(Arc::new);
+            (p, icon)
+        })
+        .collect();
+    data.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .icons
+        .extend(found);
 }
 
 /// Reads the command line of every new process once; a process's command
@@ -1325,5 +1382,27 @@ mod tests {
         assert_eq!(cache[&(me.pid, me.create_time)], "cached");
         update_command_lines(&mut cache, &[]);
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn image_paths_and_icons_are_loaded_once() {
+        let snap = Sampler::new().sample().unwrap();
+        let data = Mutex::new(Data::default());
+        update_image_paths(&mut data.lock().unwrap().image_paths, &snap.processes);
+        let me = snap
+            .processes
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap();
+        let path = data.lock().unwrap().image_paths[&(me.pid, me.create_time)].clone();
+        assert!(path.to_lowercase().ends_with(".exe"), "{path}");
+        refresh_icons(&data);
+        assert!(data.lock().unwrap().icons.contains_key(&path));
+        // Nothing new: no further work.
+        let before = data.lock().unwrap().icons.len();
+        refresh_icons(&data);
+        assert_eq!(data.lock().unwrap().icons.len(), before);
+        update_image_paths(&mut data.lock().unwrap().image_paths, &[]);
+        assert!(data.lock().unwrap().image_paths.is_empty());
     }
 }

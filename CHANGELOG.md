@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Program icons in the process list and on the Overview, read from each
+  executable once and cached.
+- Left-hand navigation grouped into monitoring, protection and system,
+  replacing the crowded tab bar; CPU / memory and the connection badge moved
+  to the status bar.
+- The Overview explains when the installed service is a different version
+  and links the latest release.
+
 ## [0.3.0] - 2026-10-20
 
 ### Added

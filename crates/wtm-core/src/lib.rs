@@ -13,6 +13,7 @@ pub use model::{ProcessInfo, Snapshot, SortKey, SystemStats, format_bytes, sort_
 pub use protection::protection_reason;
 pub use sampler::{Sampler, StartWatcher};
 pub use tree::descendants;
+pub use wtm_sys::icon::{IconImage, small_icon};
 pub use wtm_sys::net::{Connection, Protocol, TcpState, connections};
 pub use wtm_sys::services::{
     ServiceEntry, ServiceState, StartType, list_services, set_start_type, start_service,

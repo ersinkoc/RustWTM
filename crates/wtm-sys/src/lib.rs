@@ -8,6 +8,7 @@ pub mod control;
 mod error;
 pub mod gpu;
 mod handle;
+pub mod icon;
 pub mod job;
 pub mod net;
 mod ntapi;

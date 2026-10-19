@@ -773,10 +773,35 @@ fn command_lines() -> &'static crate::backend::CommandLines {
     })
 }
 
+type Icons = HashMap<String, Option<Arc<wtm_core::IconImage>>>;
+
+/// Image paths for the synthetic processes and a red icon for beta.exe only.
+fn icons() -> &'static (crate::backend::CommandLines, Icons) {
+    static ICONS: std::sync::OnceLock<(crate::backend::CommandLines, Icons)> =
+        std::sync::OnceLock::new();
+    ICONS.get_or_init(|| {
+        let paths: crate::backend::CommandLines = snapshot()
+            .processes
+            .iter()
+            .map(|p| ((p.pid, p.create_time), format!(r"C:\Apps\{}", p.name)))
+            .collect();
+        let red = wtm_core::IconImage {
+            size: 16,
+            rgba: [220, 40, 40, 255].repeat(256),
+        };
+        let mut icons = Icons::new();
+        icons.insert(r"C:\Apps\beta.exe".into(), Some(Arc::new(red)));
+        icons.insert(r"C:\Apps\alpha.exe".into(), None);
+        (paths, icons)
+    })
+}
+
 fn extra(managed: &ManagedMap) -> crate::processes::Extra<'_> {
     crate::processes::Extra {
         labels: managed,
         command_lines: command_lines(),
+        image_paths: &icons().0,
+        icons: &icons().1,
     }
 }
 

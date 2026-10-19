@@ -30,6 +30,23 @@ enum Tab {
     About,
 }
 
+/// Navigation order; separators split monitoring, protection, system and app.
+const NAV: [(Tab, &str); 13] = [
+    (Tab::Overview, "Overview"),
+    (Tab::Processes, "Processes"),
+    (Tab::Performance, "Performance"),
+    (Tab::History, "App history"),
+    (Tab::Governor, "Governor"),
+    (Tab::Limits, "Limits"),
+    (Tab::Events, "Events"),
+    (Tab::Settings, "Settings"),
+    (Tab::Startup, "Startup apps"),
+    (Tab::Services, "Services"),
+    (Tab::Users, "Users"),
+    (Tab::Network, "Network"),
+    (Tab::About, "About"),
+];
+
 pub struct App {
     backend: Backend,
     state: UiState,
@@ -112,24 +129,45 @@ impl eframe::App for App {
         let mut intents = Vec::new();
         let mut service_cmds: Vec<UiCommand> = Vec::new();
 
-        egui::Panel::top("tabs").show(ui, |ui| {
+        egui::Panel::left("nav")
+            .resizable(false)
+            .exact_size(168.0)
+            .show(ui, |ui| {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    let logo = ui.ctx().load_texture(
+                        "nav-logo",
+                        egui::ColorImage::from_rgba_unmultiplied([32, 32], &crate::logo::rgba(32)),
+                        egui::TextureOptions::LINEAR,
+                    );
+                    ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(28.0, 28.0)));
+                    ui.label(RichText::new("RustWTM").size(18.0).strong());
+                });
+                ui.add_space(10.0);
+                for (i, (tab, label)) in NAV.iter().enumerate() {
+                    // Groups: monitoring, protection, system, app.
+                    if matches!(i, 4 | 8 | 12) {
+                        ui.separator();
+                    }
+                    let selected = state.tab == *tab;
+                    let button =
+                        egui::Button::selectable(selected, RichText::new(*label).size(15.0))
+                            .min_size(egui::vec2(150.0, 26.0));
+                    if ui.add(button).clicked() {
+                        state.tab = *tab;
+                    }
+                }
+            });
+
+        egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
-                for (tab, label) in [
-                    (Tab::Overview, "Overview"),
-                    (Tab::Processes, "Processes"),
-                    (Tab::Performance, "Performance"),
-                    (Tab::Governor, "Governor"),
-                    (Tab::Limits, "Limits"),
-                    (Tab::History, "App history"),
-                    (Tab::Startup, "Startup apps"),
-                    (Tab::Users, "Users"),
-                    (Tab::Services, "Services"),
-                    (Tab::Network, "Network"),
-                    (Tab::Events, "Events"),
-                    (Tab::Settings, "Settings"),
-                    (Tab::About, "About"),
-                ] {
-                    ui.selectable_value(&mut state.tab, tab, RichText::new(label).size(15.0));
+                match &data.message {
+                    Some((level, text)) => {
+                        ui.label(RichText::new(text).color(level_color(*level)));
+                    }
+                    None => {
+                        ui.weak("Right-click a process for actions.");
+                    }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     mode_badge(ui, data.mode);
@@ -144,18 +182,6 @@ impl eframe::App for App {
                 });
             });
         });
-
-        egui::Panel::bottom("status").show(ui, |ui| {
-            ui.horizontal(|ui| match &data.message {
-                Some((level, text)) => {
-                    ui.label(RichText::new(text).color(level_color(*level)));
-                }
-                None => {
-                    ui.weak("Right-click a process for actions.");
-                }
-            });
-        });
-
         let managed: ManagedMap = limit_labels(data.status.as_ref());
 
         if state.tab == Tab::Processes
@@ -173,6 +199,8 @@ impl eframe::App for App {
                     let extra = crate::processes::Extra {
                         labels: &managed,
                         command_lines: &data.command_lines,
+                        image_paths: &data.image_paths,
+                        icons: &data.icons,
                     };
                     intents.extend(state.processes.ui(ui, snap, &extra));
                 }

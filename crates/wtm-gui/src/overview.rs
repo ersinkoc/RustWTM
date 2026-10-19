@@ -138,7 +138,15 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
             }
             ui.end_row();
             for a in &apps {
-                ui.label(a.name);
+                ui.horizontal(|ui| {
+                    let first = &a.instances[0];
+                    let icon = data
+                        .image_paths
+                        .get(&(first.pid, first.create_time))
+                        .and_then(|path| Some((path.as_str(), data.icons.get(path)?.as_deref()?)));
+                    crate::processes::app_icon(ui, icon);
+                    ui.label(a.name);
+                });
                 let cpus = data.snapshot.as_ref().map_or(1, |s| s.system.logical_cpus);
                 ui.label(RichText::new(format!("{:.1}%", a.cpu)).color(app_color(a.cpu, cpus)));
                 ui.label(format_bytes(a.memory as f64));
@@ -212,12 +220,28 @@ fn clock(unix_ms: u64) -> String {
 fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
     ui.heading("Automatic protection");
     if !matches!(data.mode, Mode::Service { .. }) {
-        ui.colored_label(
-            WARN,
-            "The RustWTM service is not running, so nothing is limited automatically.",
-        );
-        ui.label("Install and start it from an elevated prompt:");
-        ui.code("wtm-service install\nwtm-service start");
+        let error = data.service_error.as_deref().unwrap_or_default();
+        if error.contains("protocol") {
+            ui.colored_label(
+                WARN,
+                format!(
+                    "The installed RustWTM service is a different version ({error}), so nothing is \
+                     limited automatically. Update it with the installer of version {}.",
+                    env!("CARGO_PKG_VERSION")
+                ),
+            );
+            ui.hyperlink_to(
+                "Download the latest release",
+                format!("{}/releases/latest", crate::about::REPO),
+            );
+        } else {
+            ui.colored_label(
+                WARN,
+                "The RustWTM service is not running, so nothing is limited automatically.",
+            );
+            ui.label("Install and start it from an elevated prompt:");
+            ui.code("wtm-service install\nwtm-service start");
+        }
         return;
     }
     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
