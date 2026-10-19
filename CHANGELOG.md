@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Limits tab: pick the program from the running apps (busiest first).
+
 ## [0.2.0] - 2026-10-19
 
 ### Added

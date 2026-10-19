@@ -80,6 +80,26 @@ impl LimitsView {
     }
 }
 
+/// Image names of running processes with their total CPU and memory, the
+/// busiest first.
+fn running_apps(data: &Data) -> Vec<(String, f32, u64)> {
+    let mut apps: std::collections::HashMap<String, (String, f32, u64)> =
+        std::collections::HashMap::new();
+    for p in data.snapshot.iter().flat_map(|s| &s.processes) {
+        if p.pid == 0 || wtm_core::protection_reason(p.pid, &p.name).is_some() {
+            continue;
+        }
+        let e = apps
+            .entry(p.name.to_lowercase())
+            .or_insert_with(|| (p.name.clone(), 0.0, 0));
+        e.1 += p.cpu_percent;
+        e.2 += p.private_bytes;
+    }
+    let mut out: Vec<_> = apps.into_values().collect();
+    out.sort_by(|a, b| b.1.total_cmp(&a.1).then(b.2.cmp(&a.2)));
+    out
+}
+
 fn scope_label(scope: LimitScope) -> &'static str {
     match scope {
         LimitScope::Group => "all processes together",
@@ -240,10 +260,24 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         .num_columns(2)
         .show(ui, |ui| {
             ui.label("Program");
-            ui.add(
-                egui::TextEdit::singleline(&mut view.name)
-                    .hint_text("e.g. node.exe or chrome*.exe"),
-            );
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut view.name)
+                        .hint_text("e.g. node.exe or chrome*.exe"),
+                );
+                egui::ComboBox::from_label("or a running app")
+                    .selected_text("Pick…")
+                    .height(400.0)
+                    .show_ui(ui, |ui| {
+                        for (name, cpu, mem) in running_apps(data) {
+                            let label =
+                                format!("{name}  ({cpu:.1}% CPU, {})", format_bytes(mem as f64));
+                            if ui.selectable_label(view.name == name, label).clicked() {
+                                view.name = name;
+                            }
+                        }
+                    });
+            });
             ui.end_row();
 
             ui.checkbox(&mut view.cpu, "CPU");

@@ -1161,6 +1161,19 @@ mod tests {
         let c = saved(&rx).expect("saved");
         assert_eq!(c.limits.len(), 2);
         assert_eq!(c.limits[1].name, "node.exe");
+
+        // Picking a running app fills in its name; the existing entry is replaced.
+        h.get_by_role_and_label(egui::accesskit::Role::ComboBox, "or a running app")
+            .click();
+        h.run_steps(2);
+        h.get_by_label_contains("beta.exe  (").click();
+        h.run_steps(2);
+        h.get_by_label("Save limit").click();
+        h.run_steps(2);
+        let c = saved(&rx).expect("saved");
+        assert_eq!(c.limits.len(), 1);
+        assert_eq!(c.limits[0].name, "beta.exe");
+        assert_eq!(c.limits[0].memory_gb, None);
     }
 
     #[test]
