@@ -233,16 +233,17 @@ fn history(hours: u32, limit: usize) -> anyhow::Result<()> {
         other => anyhow::bail!("unexpected response: {other:?}"),
     };
     println!(
-        "{:<28} {:>8} {:>8} {:>8} {:>10} {:>10} {:>10}",
-        "APP", "SEEN", "AVG CPU", "P95 CPU", "AVG MEM", "PEAK MEM", "GROWTH/H"
+        "{:<28} {:>8} {:>8} {:>8} {:>8} {:>10} {:>10} {:>10}",
+        "APP", "SEEN", "AVG CPU", "P95 CPU", "AVG GPU", "AVG MEM", "PEAK MEM", "GROWTH/H"
     );
     for s in stats.iter().take(limit) {
         println!(
-            "{:<28} {:>7}m {:>7.2}% {:>7.2}% {:>10} {:>10} {:>+9.0}M",
+            "{:<28} {:>7}m {:>7.2}% {:>7.2}% {:>7.1}% {:>10} {:>10} {:>+9.0}M",
             s.app,
             s.minutes,
             s.cpu_avg,
             s.cpu_p95,
+            s.gpu_avg,
             table::bytes(s.mem_avg as f64),
             table::bytes(s.mem_peak as f64),
             s.mem_growth_per_hour / (1024.0 * 1024.0)

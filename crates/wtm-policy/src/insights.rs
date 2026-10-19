@@ -21,6 +21,9 @@ pub struct MinuteRow {
     /// Average total CPU (share of the machine) during the minute.
     pub cpu_avg: f32,
     pub cpu_peak: f32,
+    /// Average total GPU (busiest engine, summed over instances, capped at 100).
+    #[serde(default)]
+    pub gpu_avg: f32,
     /// Average total private working set.
     pub mem_avg: u64,
     pub mem_peak: u64,
@@ -36,6 +39,11 @@ pub struct AppStats {
     /// 95th percentile of per-minute CPU.
     pub cpu_p95: f32,
     pub cpu_peak: f32,
+    #[serde(default)]
+    pub gpu_avg: f32,
+    /// 95th percentile of per-minute GPU.
+    #[serde(default)]
+    pub gpu_p95: f32,
     pub mem_avg: u64,
     pub mem_peak: u64,
     /// Memory at the end of the window.
@@ -61,6 +69,8 @@ pub fn summarize(app: &str, rows: &[MinuteRow], logical_cpus: u32) -> Option<App
     let mut cpu: Vec<f32> = rows.iter().map(|r| r.cpu_avg).collect();
     cpu.sort_by(f32::total_cmp);
     let p95_index = ((cpu.len() as f64 * 0.95).ceil() as usize).clamp(1, cpu.len()) - 1;
+    let mut gpu: Vec<f32> = rows.iter().map(|r| r.gpu_avg).collect();
+    gpu.sort_by(f32::total_cmp);
 
     // Linear regression of memory against time (hours).
     let t0 = rows[0].minute;
@@ -84,6 +94,8 @@ pub fn summarize(app: &str, rows: &[MinuteRow], logical_cpus: u32) -> Option<App
         cpu_avg: (cpu_sum / n) as f32,
         cpu_p95: cpu[p95_index],
         cpu_peak: rows.iter().map(|r| r.cpu_peak).fold(0.0, f32::max),
+        gpu_avg: (gpu.iter().map(|g| f64::from(*g)).sum::<f64>() / n) as f32,
+        gpu_p95: gpu[p95_index],
         mem_avg: (ys.iter().sum::<f64>() / n) as u64,
         mem_peak: rows.iter().map(|r| r.mem_peak).max().unwrap_or(0),
         mem_last: rows.last().map_or(0, |r| r.mem_avg),
@@ -115,6 +127,10 @@ pub struct InsightsConfig {
     pub growth_min_fit: f64,
     /// Empty: only report (event + notification).
     pub growth_actions: Vec<Action>,
+    /// Average GPU (busiest engine) that marks an app as a chronic GPU user.
+    pub chronic_gpu_percent: f32,
+    /// Empty: only report. Priority and efficiency mode do not limit GPU work.
+    pub chronic_gpu_actions: Vec<Action>,
     /// Image-name wildcards never acted on.
     pub exempt: Vec<String>,
 }
@@ -135,6 +151,8 @@ impl Default for InsightsConfig {
             growth_min_mb: 2048,
             growth_min_fit: 0.7,
             growth_actions: Vec::new(),
+            chronic_gpu_percent: 30.0,
+            chronic_gpu_actions: Vec::new(),
             exempt: vec!["explorer.exe".into(), "Taskmgr.exe".into()],
         }
     }
@@ -145,10 +163,20 @@ impl InsightsConfig {
         if self.window_hours == 0 || self.evaluate_every_minutes == 0 {
             return Err("window_hours and evaluate_every_minutes must be positive".into());
         }
-        if !(0.0..=100.0).contains(&self.chronic_cpu_percent) {
-            return Err("chronic_cpu_percent must be within 0..=100".into());
+        for (name, v) in [
+            ("chronic_cpu_percent", self.chronic_cpu_percent),
+            ("chronic_gpu_percent", self.chronic_gpu_percent),
+        ] {
+            if !(0.0..=100.0).contains(&v) {
+                return Err(format!("{name} must be within 0..=100"));
+            }
         }
-        for a in self.chronic_actions.iter().chain(&self.growth_actions) {
+        for a in self
+            .chronic_actions
+            .iter()
+            .chain(&self.growth_actions)
+            .chain(&self.chronic_gpu_actions)
+        {
             if matches!(a, Action::CpuCapRelative(_)) {
                 return Err("cpu_cap_relative is not supported for insights; use cpu_cap".into());
             }
@@ -162,6 +190,7 @@ impl InsightsConfig {
 pub enum FindingKind {
     ChronicCpu,
     MemoryGrowth,
+    ChronicGpu,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -185,6 +214,16 @@ pub fn analyze(stats: &[AppStats], cfg: &InsightsConfig) -> Vec<Finding> {
                 detail: format!(
                     "average CPU {:.1}% (p95 {:.1}%) over {} min",
                     s.cpu_avg, s.cpu_p95, s.minutes
+                ),
+            });
+        }
+        if s.gpu_avg >= cfg.chronic_gpu_percent {
+            out.push(Finding {
+                app: s.app.clone(),
+                kind: FindingKind::ChronicGpu,
+                detail: format!(
+                    "average GPU {:.1}% (p95 {:.1}%) over {} min",
+                    s.gpu_avg, s.gpu_p95, s.minutes
                 ),
             });
         }
@@ -286,7 +325,11 @@ impl InsightPolicy {
             }
             let app = p.name.to_lowercase();
             let mut actions: Vec<(Action, &Finding)> = Vec::new();
-            for kind in [FindingKind::ChronicCpu, FindingKind::MemoryGrowth] {
+            for kind in [
+                FindingKind::ChronicCpu,
+                FindingKind::MemoryGrowth,
+                FindingKind::ChronicGpu,
+            ] {
                 if let Some(f) = self.flagged.get(&(app.clone(), kind)) {
                     actions.extend(actions_for(kind, cfg).iter().map(|a| (*a, f)));
                 }
@@ -314,6 +357,7 @@ fn actions_for(kind: FindingKind, cfg: &InsightsConfig) -> &[Action] {
     match kind {
         FindingKind::ChronicCpu => &cfg.chronic_actions,
         FindingKind::MemoryGrowth => &cfg.growth_actions,
+        FindingKind::ChronicGpu => &cfg.chronic_gpu_actions,
     }
 }
 
@@ -327,6 +371,7 @@ mod tests {
             minute,
             cpu_avg: cpu,
             cpu_peak: cpu * 2.0,
+            gpu_avg: 0.0,
             mem_avg: mem_mb << 20,
             mem_peak: (mem_mb + 10) << 20,
             processes: 1,
@@ -389,6 +434,8 @@ mod tests {
             cpu_avg: cpu,
             cpu_p95: cpu,
             cpu_peak: cpu,
+            gpu_avg: 0.0,
+            gpu_p95: 0.0,
             mem_avg: last_mib << 20,
             mem_peak: last_mib << 20,
             mem_last: last_mib << 20,

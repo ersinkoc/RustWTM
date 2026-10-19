@@ -93,6 +93,8 @@ Long-term analysis of the usage history.
 | `growth_min_mb` | `2048` | ...once the app uses at least this much... |
 | `growth_min_fit` | `0.7` | ...and the trend is steady (R² of a linear fit). |
 | `growth_actions` | `[]` | Empty = report only (event + notification). |
+| `chronic_gpu_percent` | `30.0` | Average GPU (busiest engine, all instances, capped at 100) that flags a chronic GPU user. |
+| `chronic_gpu_actions` | `[]` | Empty = report only. Priority and efficiency mode do not limit GPU work. |
 | `exempt` | `["explorer.exe", "Taskmgr.exe"]` | |
 
 `cpu_cap_relative` is not allowed in insights; use `cpu_cap`.

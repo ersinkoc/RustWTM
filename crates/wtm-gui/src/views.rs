@@ -380,12 +380,12 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                 .sense(egui::Sense::click())
                 .cell_layout(Layout::left_to_right(Align::Center))
                 .column(Column::initial(200.0).clip(true))
-                .columns(Column::initial(80.0), 8)
+                .columns(Column::initial(80.0), 9)
                 .column(Column::remainder())
                 .header(row_height, |mut h| {
                     for label in [
-                        "App", "Seen", "Avg CPU", "p95 CPU", "Peak CPU", "CPU time", "Avg mem",
-                        "Peak mem", "Growth/h", "Finding",
+                        "App", "Seen", "Avg CPU", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time",
+                        "Avg mem", "Peak mem", "Growth/h", "Finding",
                     ] {
                         h.col(|ui| {
                             ui.strong(label);
@@ -403,6 +403,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                         row.col(|ui| right(ui, format!("{:.2}%", s.cpu_avg)));
                         row.col(|ui| right(ui, format!("{:.2}%", s.cpu_p95)));
                         row.col(|ui| right(ui, format!("{:.1}%", s.cpu_peak)));
+                        row.col(|ui| right(ui, format!("{:.1}%", s.gpu_avg)));
                         row.col(|ui| {
                             right(ui, format!("{:.2} core-h", s.cpu_core_seconds / 3600.0))
                         });
@@ -455,6 +456,11 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {
         .iter()
         .map(|r| [hours_ago(r.minute), mib(r.mem_avg as f64)])
         .collect();
+    let has_gpu = rows.iter().any(|r| r.gpu_avg > 0.0);
+    let gpu: PlotPoints = rows
+        .iter()
+        .map(|r| [hours_ago(r.minute), f64::from(r.gpu_avg)])
+        .collect();
     ui.strong(format!(
         "{app} — per-minute usage (x: hours before latest sample)"
     ));
@@ -462,10 +468,15 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {
         Plot::new("hist_cpu")
             .height(190.0)
             .include_y(0.0)
-            .y_axis_label("CPU %")
+            .y_axis_label("%")
             .allow_drag(false)
             .allow_scroll(false)
-            .show(&mut cols[0], |p| p.line(Line::new("CPU", cpu)));
+            .show(&mut cols[0], |p| {
+                p.line(Line::new("CPU", cpu));
+                if has_gpu {
+                    p.line(Line::new("GPU", gpu));
+                }
+            });
         Plot::new("hist_mem")
             .height(190.0)
             .include_y(0.0)

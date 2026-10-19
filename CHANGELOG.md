@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Long-term history records per-app GPU usage (average of the busiest engine).
+  App history (GUI and `wtm history`) shows it, the per-app chart plots it,
+  and insights flag chronic GPU users (`chronic_gpu_percent`,
+  `chronic_gpu_actions`; report only by default). Existing history databases
+  are upgraded in place.
+
 ## [0.1.1] - 2026-10-19
 
 ### Fixed

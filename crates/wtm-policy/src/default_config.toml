@@ -68,6 +68,11 @@ growth_min_mb = 2048
 growth_min_fit = 0.7
 growth_actions = []
 
+# Chronic GPU: average GPU (busiest engine) over the window. Report only by
+# default: priority and efficiency mode do not limit GPU work.
+chronic_gpu_percent = 30.0
+chronic_gpu_actions = []
+
 exempt = ["explorer.exe", "Taskmgr.exe"]
 
 # Per-process rules. `match` takes `name` and/or `path` wildcards; `when` is

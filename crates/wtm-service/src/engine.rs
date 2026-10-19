@@ -755,7 +755,8 @@ mod unit_tests {
             history
                 .connection()
                 .execute(
-                    "INSERT INTO app_minute VALUES ('hog.exe', ?1, 40.0, 60.0, 1000, 2000, 1)",
+                    "INSERT INTO app_minute (app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes)
+                     VALUES ('hog.exe', ?1, 40.0, 60.0, 1000, 2000, 1)",
                     params![now_minute - m],
                 )
                 .unwrap();
