@@ -68,12 +68,14 @@ actions are removed.
 [[rule]]
 name = "Keep Chrome renderers in check"
 match = { name = "chrome.exe" }            # and/or path = "C:\\Games\\*\\*.exe"
-when = { cpu_above = 20, for_secs = 10 }   # optional; also memory_above_mb
+when = { cpu_above = 20, for_secs = 10 }   # optional; also memory_above_mb, gpu_above
 actions = ["eco_qos", { cpu_cap_relative = 0.5 }]
 ```
 
 - `match.name` / `match.path`: case-insensitive wildcards (`*`, `?`).
-- `when`: all given thresholds must hold for `for_secs`. Without `when` the
+- `when`: all given thresholds must hold for `for_secs`. `cpu_above` is a
+  share of the whole machine, `memory_above_mb` is private committed memory,
+  `gpu_above` is the utilization of the process's busiest GPU engine. Without `when` the
   rule fires as soon as the process is seen (within ~250 ms of start).
 - A rule fires once per process instance.
 

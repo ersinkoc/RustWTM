@@ -157,6 +157,19 @@ mod tests {
     }
 
     #[test]
+    fn commented_example_rules_are_valid() {
+        let start = DEFAULT_CONFIG_TOML.find("# [[rule]]").unwrap();
+        let examples: String = DEFAULT_CONFIG_TOML[start..]
+            .lines()
+            .map(|l| l.strip_prefix("# ").unwrap_or(l.trim_start_matches('#')))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let c = Config::from_toml(&examples).unwrap();
+        assert_eq!(c.rules.len(), 3);
+        assert_eq!(c.rules[2].when.as_ref().unwrap().gpu_above, Some(80.0));
+    }
+
+    #[test]
     fn parses_rules_and_actions() {
         let c = Config::from_toml(
             r#"

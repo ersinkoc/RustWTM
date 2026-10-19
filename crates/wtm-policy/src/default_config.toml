@@ -89,3 +89,9 @@ exempt = ["explorer.exe", "Taskmgr.exe"]
 # match = { path = "C:\\Tools\\*\\heavy.exe" }
 # when = { memory_above_mb = 4096 }
 # actions = [{ memory_cap_mb = 4096 }]
+#
+# [[rule]]
+# name = "Stop a background GPU miner"
+# match = { path = "C:\\Users\\*\\AppData\\*" }
+# when = { gpu_above = 80, for_secs = 60 }
+# actions = ["suspend"]

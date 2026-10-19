@@ -29,7 +29,7 @@ usage history.
   consumers are escalated step by step (lower priority → efficiency mode →
   hard CPU cap) and rolled back once the system recovers.
 - **Rules**: match processes by name or path (wildcards), optionally require a
-  sustained condition (`cpu_above`, `memory_above_mb`), then apply actions —
+  sustained condition (`cpu_above`, `memory_above_mb`, `gpu_above`), then apply actions —
   including `kill` for programs that must not run. Unconditional rules react
   within ~250 ms of a process starting.
 - **Long-term insights**: per-minute, per-app usage is recorded to SQLite.

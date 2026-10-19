@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows
   and insights flag chronic GPU users (`chronic_gpu_percent`,
   `chronic_gpu_actions`; report only by default). Existing history databases
   are upgraded in place.
+- Rule condition `gpu_above`: fire when a process keeps its busiest GPU
+  engine above a threshold, e.g. to suspend a background GPU miner.
 
 ### Changed
 

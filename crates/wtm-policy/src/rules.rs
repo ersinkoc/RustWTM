@@ -37,6 +37,8 @@ pub struct Condition {
     pub cpu_above: Option<f32>,
     /// Private committed memory.
     pub memory_above_mb: Option<u64>,
+    /// GPU utilization of the process's busiest engine.
+    pub gpu_above: Option<f32>,
     /// How long all given thresholds must hold.
     pub for_secs: u64,
 }
@@ -52,8 +54,9 @@ impl Rule {
         if let Some(c) = &self.when
             && c.cpu_above.is_none()
             && c.memory_above_mb.is_none()
+            && c.gpu_above.is_none()
         {
-            return Err("when needs `cpu_above` and/or `memory_above_mb`".into());
+            return Err("when needs `cpu_above`, `memory_above_mb` and/or `gpu_above`".into());
         }
         self.actions.iter().try_for_each(Action::validate)
     }
@@ -83,6 +86,7 @@ impl Condition {
             && self
                 .memory_above_mb
                 .is_none_or(|mb| p.private_bytes > mb.saturating_mul(1 << 20))
+            && self.gpu_above.is_none_or(|g| p.gpu_percent > g)
     }
 }
 
@@ -340,7 +344,7 @@ mod tests {
         let r = rule(Some("a.exe"), None, Some(Condition::default()));
         assert_eq!(
             r.validate().unwrap_err(),
-            "when needs `cpu_above` and/or `memory_above_mb`"
+            "when needs `cpu_above`, `memory_above_mb` and/or `gpu_above`"
         );
         let mem_only = Condition {
             memory_above_mb: Some(1),
@@ -379,5 +383,27 @@ mod tests {
                 ..
             }]
         ));
+    }
+
+    #[test]
+    fn gpu_condition() {
+        let cond = Condition {
+            gpu_above: Some(50.0),
+            for_secs: 2,
+            ..Default::default()
+        };
+        let r = rule(Some("game.exe"), None, Some(cond));
+        assert!(r.validate().is_ok());
+        let mut e = RuleEngine::new(vec![r]);
+        let t0 = Instant::now();
+        let at = |s| t0 + Duration::from_secs(s);
+        let game = |gpu| ProcessInfo {
+            gpu_percent: gpu,
+            ..proc(10, "game.exe", 1.0, 0)
+        };
+        assert!(e.tick(at(0), &[game(80.0)], &mut no_path).is_empty());
+        assert!(e.tick(at(1), &[game(10.0)], &mut no_path).is_empty());
+        assert!(e.tick(at(2), &[game(80.0)], &mut no_path).is_empty());
+        assert_eq!(e.tick(at(4), &[game(80.0)], &mut no_path).len(), 2);
     }
 }
