@@ -12,6 +12,7 @@ mod glob;
 mod governor;
 mod insights;
 mod limits;
+mod presets;
 mod rules;
 
 pub use action::{Action, Decision, PriorityLevel, Source};
@@ -24,6 +25,7 @@ pub use insights::{
 pub use limits::{
     AppLimit, GroupId, GroupUsage, LimitPlanner, LimitScope, remove_app_limit, set_app_limit,
 };
+pub use presets::{Preset, set_preset};
 pub use rules::{Condition, Matcher, Rule, RuleEngine};
 
 /// Identifies a process instance across PID reuse.

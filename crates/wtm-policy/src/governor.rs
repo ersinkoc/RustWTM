@@ -1,7 +1,7 @@
 //! System-wide CPU governor: escalates against top consumers while the
 //! machine is overloaded and rolls everything back once it recovers.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use wtm_core::control::ProcessRef;
@@ -16,6 +16,8 @@ pub struct Governor {
     high_since: Option<Instant>,
     low_since: Option<Instant>,
     throttled: HashMap<Key, Throttled>,
+    /// The app the user is working in (and its child processes).
+    foreground: HashSet<Key>,
 }
 
 #[derive(Debug)]
@@ -34,7 +36,14 @@ impl Governor {
             high_since: None,
             low_since: None,
             throttled: HashMap::new(),
+            foreground: HashSet::new(),
         }
+    }
+
+    /// The processes of the app in the foreground; with `protect_foreground`
+    /// they are never throttled and lose any throttling right away.
+    pub fn set_foreground(&mut self, keys: HashSet<Key>) {
+        self.foreground = keys;
     }
 
     /// Replaces the configuration, keeping track of already throttled processes.
@@ -53,7 +62,28 @@ impl Governor {
                 .iter()
                 .any(|p| p.pid == pid && p.create_time == created)
         });
+        let mut out = Vec::new();
+        if self.cfg.protect_foreground {
+            let in_use: Vec<Key> = self
+                .throttled
+                .keys()
+                .filter(|k| self.foreground.contains(k))
+                .copied()
+                .collect();
+            for key in in_use {
+                let t = self.throttled.remove(&key).expect("listed above");
+                out.push(Decision::Restore {
+                    source: Source::Governor,
+                    target: t.target,
+                    reason: "in use (foreground app)".into(),
+                });
+            }
+        }
+        out.extend(self.tick_load(now, snap));
+        out
+    }
 
+    fn tick_load(&mut self, now: Instant, snap: &Snapshot) -> Vec<Decision> {
         if !self.cfg.enabled {
             return self.restore_all("governor disabled");
         }
@@ -87,6 +117,9 @@ impl Governor {
             .filter(|p| p.cpu_percent >= self.cfg.offender_min_cpu_percent)
             .filter(|p| protection_reason(p.pid, &p.name).is_none())
             .filter(|p| !self.cfg.exempt.iter().any(|e| glob_match(e, &p.name)))
+            .filter(|p| {
+                !(self.cfg.protect_foreground && self.foreground.contains(&(p.pid, p.create_time)))
+            })
             .collect();
         offenders.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
         offenders.truncate(self.cfg.max_offenders);
@@ -296,5 +329,37 @@ mod tests {
         });
         let d = g.tick(t0, &snap(95.0, procs()));
         assert!(matches!(d.as_slice(), [Decision::Restore { .. }]));
+    }
+
+    #[test]
+    fn never_throttles_the_foreground_app_and_releases_it_at_once() {
+        let mut g = Governor::new(GovernorConfig {
+            sustain_secs: 0,
+            ..cfg()
+        });
+        let now = Instant::now();
+        let procs = || vec![proc(10, "game.exe", 50.0), proc(11, "miner.exe", 40.0)];
+        g.set_foreground([(10, 100)].into());
+        let d = g.tick(now, &snap(99.0, procs()));
+        assert_eq!(applied(&d).iter().map(|a| a.0).collect::<Vec<_>>(), [11]);
+
+        // The user switches to the miner window: it is released immediately.
+        g.set_foreground([(11, 110)].into());
+        let d = g.tick(now, &snap(99.0, procs()));
+        assert!(matches!(
+            &d[0],
+            Decision::Restore { target, reason, .. }
+                if target.pid == 11 && reason == "in use (foreground app)"
+        ));
+        assert_eq!(applied(&d).iter().map(|a| a.0).collect::<Vec<_>>(), [10]);
+
+        // Without protection the foreground app is treated like any other.
+        let mut g = Governor::new(GovernorConfig {
+            sustain_secs: 0,
+            protect_foreground: false,
+            ..cfg()
+        });
+        g.set_foreground([(10, 100)].into());
+        assert_eq!(applied(&g.tick(now, &snap(99.0, procs()))).len(), 2);
     }
 }

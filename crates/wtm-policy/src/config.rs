@@ -66,6 +66,8 @@ pub struct GovernorConfig {
     pub ladder: Vec<Action>,
     /// Image-name wildcards the governor never touches.
     pub exempt: Vec<String>,
+    /// Never throttle the app in the foreground (reported by the GUI).
+    pub protect_foreground: bool,
 }
 
 impl Default for GovernorConfig {
@@ -86,6 +88,7 @@ impl Default for GovernorConfig {
                 Action::CpuCapRelative(0.25),
             ],
             exempt: vec!["explorer.exe".into(), "Taskmgr.exe".into()],
+            protect_foreground: true,
         }
     }
 }

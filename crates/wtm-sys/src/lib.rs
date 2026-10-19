@@ -18,5 +18,6 @@ pub mod security;
 pub mod services;
 pub mod sessions;
 pub mod system;
+pub mod window;
 
 pub use error::{Error, Result};

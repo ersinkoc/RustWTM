@@ -45,6 +45,8 @@ pub enum EngineMsg {
         command: Command,
         reply: Sender<Vec<Outcome>>,
     },
+    /// The client's foreground process (already checked to be in its session).
+    Foreground(u32),
 }
 
 pub struct Server {
@@ -175,6 +177,9 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 }
             }
             Request::GetConfig => get_config(shared),
+            Request::Foreground { pid } => {
+                foreground(shared, engine, pid, conn.client_session_id())
+            }
             Request::SetConfig { .. } if !admin => {
                 Response::Error("administrator rights required (run the client elevated)".into())
             }
@@ -211,6 +216,30 @@ fn forward_control(
     match rx.recv_timeout(timeout) {
         Ok(outcomes) => Response::Control(outcomes),
         Err(_) => Response::Error("service did not answer in time".into()),
+    }
+}
+
+/// Forwards a foreground report if `pid` runs in the client's session, so a
+/// client cannot shield processes of other users.
+fn foreground(
+    shared: &Shared,
+    engine: &Sender<EngineMsg>,
+    pid: u32,
+    client_session: wtm_sys::Result<u32>,
+) -> Response {
+    let session = read_lock(&shared.snapshot).and_then(|s| {
+        s.processes
+            .iter()
+            .find(|p| p.pid == pid)
+            .map(|p| p.session_id)
+    });
+    match (session, client_session) {
+        (Some(s), Ok(c)) if s == c => {
+            let _ = engine.send(EngineMsg::Foreground(pid));
+            Response::Done
+        }
+        (None, _) => Response::Error(format!("process {pid} not found")),
+        _ => Response::Error("not a process of your session".into()),
     }
 }
 
@@ -519,5 +548,33 @@ mod tests {
         assert!(error(set_config(&shared, DEFAULT_CONFIG_TOML)).starts_with("writing"));
         assert!(!path.with_extension("toml.new").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn foreground_reports_are_limited_to_the_clients_session() {
+        let shared = Shared::default();
+        let snap = wtm_core::Sampler::new().sample().unwrap();
+        let me = snap
+            .processes
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap()
+            .clone();
+        *shared.snapshot.write().unwrap() = Some(Arc::new(snap));
+        let (tx, rx) = mpsc::channel();
+        assert!(matches!(
+            foreground(&shared, &tx, me.pid, Ok(me.session_id)),
+            Response::Done
+        ));
+        assert!(matches!(rx.try_recv(), Ok(EngineMsg::Foreground(pid)) if pid == me.pid));
+        let other = error(foreground(&shared, &tx, me.pid, Ok(me.session_id + 1)));
+        assert_eq!(other, "not a process of your session");
+        let failed = wtm_sys::Error::Nt {
+            call: "x",
+            status: 1,
+        };
+        assert!(error(foreground(&shared, &tx, me.pid, Err(failed))).contains("session"));
+        assert!(error(foreground(&shared, &tx, 0xFFFF_FFF0, Ok(0))).contains("not found"));
+        assert!(rx.try_recv().is_err(), "rejected reports are not forwarded");
     }
 }

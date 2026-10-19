@@ -14,9 +14,9 @@ use windows::Win32::Security::{
 };
 use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, GetNamedPipeServerProcessId,
-    ImpersonateNamedPipeClient, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE,
-    PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, GetNamedPipeClientSessionId,
+    GetNamedPipeServerProcessId, ImpersonateNamedPipeClient, PIPE_READMODE_BYTE,
+    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
 };
 use windows::core::PCWSTR;
 
@@ -143,6 +143,14 @@ impl PipeConnection {
         Ok(pid)
     }
 
+    /// The Terminal Services session of the connected client.
+    pub fn client_session_id(&self) -> Result<u32> {
+        let mut session = 0u32;
+        // SAFETY: valid pipe handle; `session` is a writable u32.
+        unsafe { GetNamedPipeClientSessionId(raw(&self.file), &mut session)? };
+        Ok(session)
+    }
+
     /// Runs `f` on this thread while impersonating the client, so access
     /// checks inside `f` happen with the client's rights.
     ///
@@ -226,6 +234,13 @@ mod tests {
         conn.read_exact(&mut buf).unwrap();
         assert_eq!(&buf, b"ping");
         assert_eq!(conn.client_pid().unwrap(), std::process::id());
+        let me = crate::process::ProcessSnapshotter::new()
+            .snapshot()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap();
+        assert_eq!(conn.client_session_id().unwrap(), me.session_id);
         // Same token on both ends, so impersonation must agree with a direct check.
         assert_eq!(
             conn.client_is_admin().unwrap(),

@@ -119,6 +119,8 @@ pub enum Intent {
     OpenLocation(ProcessRef),
     /// Open the Limits tab with a new limit for this image name.
     LimitApp(String),
+    /// Select the process and show it in the Processes tab.
+    Reveal(ProcessRef),
 }
 
 pub struct ProcessView {

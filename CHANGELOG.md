@@ -8,6 +8,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Overview** tab, the new start page: CPU / memory / GPU at a glance,
+  one-click *Turn protection on*, CPU protection levels (Off, Gentle,
+  Balanced, Strict), the busiest apps with quick actions (efficiency mode,
+  limit, details) and the latest automatic actions.
+- **Foreground protection** (`governor.protect_foreground`, on by default): the
+  app you are working in, and everything it started, is never throttled and is
+  released at once when you switch to it. The RustWTM window reports the
+  foreground app; the service accepts reports only for the client's own
+  session (IPC protocol 5).
+- **About** tab with credits, version and links.
+
 - Limits tab: pick the program from the running apps (busiest first).
 - Process list: *Command line* column (shown by default); the search box also
   matches command lines. Command lines are read by the GUI with the user's own

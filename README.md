@@ -15,6 +15,9 @@ usage history.
 
 **Task manager (GUI `rustwtm`, CLI `wtm`)**
 
+- Overview start page: load at a glance, one-click protection on/off and
+  protection levels, the busiest apps with quick actions.
+
 - Processes: flat or tree view, search, sort by any column, choose columns,
   details panel (path, command line, user, priority, affinity, efficiency
   mode, uptime, I/O), open file location.
@@ -32,6 +35,8 @@ usage history.
 - **CPU governor**: when the whole system stays above a threshold, the top
   consumers are escalated step by step (lower priority → efficiency mode →
   hard CPU cap) and rolled back once the system recovers.
+- **The app you use stays fast**: the foreground app and its child processes
+  are never throttled (`protect_foreground`).
 - **Rules**: match processes by name or path (wildcards), optionally require a
   sustained condition (`cpu_above`, `memory_above_mb`, `gpu_above`), then apply actions —
   including `kill`. Unconditional rules react within ~250 ms of a process

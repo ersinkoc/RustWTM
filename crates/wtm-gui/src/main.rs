@@ -2,9 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![forbid(unsafe_code)]
 
+mod about;
 mod app;
 mod backend;
 mod limits_tab;
+mod overview;
 mod processes;
 mod settings;
 mod sort;

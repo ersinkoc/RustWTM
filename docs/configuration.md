@@ -157,6 +157,13 @@ Long-term analysis of the usage history.
 | `chronic_gpu_percent` | `30.0` | Average GPU (busiest engine, all instances, capped at 100) that flags a chronic GPU user. |
 | `chronic_gpu_actions` | `[]` | Empty = report only. Priority and efficiency mode do not limit GPU work. |
 | `exempt` | `["explorer.exe", "Taskmgr.exe"]` | |
+| `protect_foreground` | `true` | Never throttle the app in the foreground and the processes it started (reported by the RustWTM window while it runs). |
+
+The GUI's Overview tab offers four ready-made levels that rewrite the
+thresholds and the ladder: **Off** (`enabled = false`), **Gentle** (95% for
+10 s, top 2 apps: below-normal priority, efficiency mode), **Balanced** (the
+defaults above) and **Strict** (80% for 3 s, top 5 apps: idle priority,
+efficiency mode, caps down to a tenth).
 
 `cpu_cap_relative` is not allowed in insights; use `cpu_cap`.
 

@@ -15,6 +15,7 @@ use crate::views;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
+    Overview,
     Processes,
     Performance,
     Governor,
@@ -26,6 +27,7 @@ enum Tab {
     Network,
     Limits,
     Settings,
+    About,
 }
 
 pub struct App {
@@ -67,7 +69,7 @@ impl App {
 impl Default for UiState {
     fn default() -> Self {
         Self {
-            tab: Tab::Processes,
+            tab: Tab::Overview,
             processes: ProcessView::default(),
             confirm: None,
             network_filter: String::new(),
@@ -113,6 +115,7 @@ impl eframe::App for App {
         egui::Panel::top("tabs").show(ui, |ui| {
             ui.horizontal(|ui| {
                 for (tab, label) in [
+                    (Tab::Overview, "Overview"),
                     (Tab::Processes, "Processes"),
                     (Tab::Performance, "Performance"),
                     (Tab::Governor, "Governor"),
@@ -124,6 +127,7 @@ impl eframe::App for App {
                     (Tab::Network, "Network"),
                     (Tab::Events, "Events"),
                     (Tab::Settings, "Settings"),
+                    (Tab::About, "About"),
                 ] {
                     ui.selectable_value(&mut state.tab, tab, RichText::new(label).size(15.0));
                 }
@@ -190,6 +194,12 @@ impl eframe::App for App {
                 }
             }
             Tab::Users => views::users(ui, &data),
+            Tab::Overview => {
+                let (cmds, more) = crate::overview::overview(ui, &data);
+                service_cmds.extend(cmds);
+                intents.extend(more);
+            }
+            Tab::About => crate::about::about(ui),
             Tab::Limits => {
                 service_cmds.extend(crate::limits_tab::limits_tab(ui, &data, &mut state.limits));
             }
@@ -271,7 +281,9 @@ impl eframe::App for App {
             Tab::Services => Some((Panel::Services, Duration::from_secs(5))),
             Tab::History => None,
             Tab::Startup => Some((Panel::Startup, Duration::from_secs(10))),
-            Tab::Settings | Tab::Limits => Some((Panel::Config, Duration::from_secs(30))),
+            Tab::Settings | Tab::Limits | Tab::Overview => {
+                Some((Panel::Config, Duration::from_secs(30)))
+            }
             _ => None,
         };
         if let Some((panel, every)) = due
@@ -294,6 +306,11 @@ impl eframe::App for App {
                 }
                 Intent::Confirm(target, command) => state.confirm = Some((target, command)),
                 Intent::OpenLocation(target) => backend.send(UiCommand::OpenLocation(target)),
+                Intent::Reveal(target) => {
+                    backend.send(UiCommand::Inspect(target.clone()));
+                    state.processes.selected = Some(target);
+                    state.tab = Tab::Processes;
+                }
                 Intent::LimitApp(name) => {
                     state.limits.prefill(&name);
                     state.tab = Tab::Limits;
@@ -903,7 +920,10 @@ mod tests {
             .with_size([1400.0, 900.0])
             .build_eframe(|_| App {
                 backend,
-                state: UiState::default(),
+                state: UiState {
+                    tab: Tab::Processes,
+                    ..Default::default()
+                },
                 tray: None,
             });
         let mut sent = Vec::new();
@@ -1215,5 +1235,142 @@ mod tests {
                     .any(|c| matches!(c, UiCommand::Load(Panel::Config)))
             );
         }
+    }
+
+    fn overview_app(d: Data) -> (Harness<'static, App>, std::sync::mpsc::Receiver<UiCommand>) {
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 1000.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState::default(),
+                tray: None,
+            });
+        h.run_steps(2);
+        (h, rx)
+    }
+
+    fn saved_config(rx: &std::sync::mpsc::Receiver<UiCommand>) -> Option<wtm_policy::Config> {
+        rx.try_iter().find_map(|c| match c {
+            UiCommand::SaveConfig(t) => Some(wtm_policy::Config::from_toml(&t).unwrap()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn overview_turns_protection_on_and_picks_a_level() {
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        d.config = Some(Ok((
+            "config.toml".into(),
+            "dry_run = true\nblock = [\"x.exe\"]\n".into(),
+        )));
+        let (mut h, rx) = overview_app(d);
+        assert_eq!(h.state().state.tab, Tab::Overview);
+        assert!(h.query_by_label_contains("Monitoring only").is_some());
+        assert!(
+            h.query_by_label_contains("alpha.exe is in use and never throttled")
+                .is_some()
+        );
+        assert!(h.query_by_label_contains("1 programs blocked").is_some());
+        assert!(
+            h.query_by_label_contains("Governor: priority BelowNormal")
+                .is_some()
+        );
+
+        h.get_by_label("Turn protection on").click();
+        h.run_steps(2);
+        assert!(!saved_config(&rx).expect("saved").dry_run);
+
+        h.get_by_label("Strict").click();
+        h.run_steps(2);
+        let c = saved_config(&rx).expect("saved");
+        assert_eq!(
+            wtm_policy::Preset::of(&c.governor),
+            Some(wtm_policy::Preset::Strict)
+        );
+        // The current level does nothing when clicked again.
+        h.get_by_label("Balanced").click();
+        h.run_steps(2);
+        assert!(saved_config(&rx).is_none());
+
+        // Quick actions on the busiest app.
+        h.get_all_by_label("Efficiency mode")
+            .next()
+            .unwrap()
+            .click();
+        h.run_steps(2);
+        assert!(rx.try_iter().any(|c| matches!(
+            c,
+            UiCommand::Control {
+                command: Command::EcoQos(wtm_core::control::EcoQos::On),
+                ..
+            }
+        )));
+        h.get_all_by_label("Details").next().unwrap().click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Processes);
+        assert!(h.state().state.processes.selected.is_some());
+    }
+
+    #[test]
+    fn overview_explains_missing_service_and_bad_configs() {
+        // Local mode: no service.
+        let (h, _rx) = overview_app(data());
+        assert!(
+            h.query_by_label_contains("service is not running")
+                .is_some()
+        );
+        drop(h);
+
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: false,
+            verified: true,
+        };
+        d.config = Some(Ok((
+            "c".into(),
+            "dry_run = false\n[governor]\nhigh_cpu_percent = 85.0\n".into(),
+        )));
+        let (mut h, _rx) = overview_app(d);
+        assert!(h.query_by_label_contains("Protection is on").is_some());
+        assert!(h.query_by_label_contains("Custom").is_some());
+        assert!(h.query_by_label_contains("as administrator").is_some());
+        h.get_all_by_label("Limit…").next().unwrap().click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Limits);
+        drop(h);
+
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        d.config = Some(Ok(("c".into(), "dry_run = 3".into())));
+        let (h, _rx) = overview_app(d);
+        assert!(
+            h.query_by_label_contains("configuration is invalid")
+                .is_some()
+        );
+        drop(h);
+
+        // No snapshot and no events yet.
+        let mut d = data();
+        d.snapshot = None;
+        d.events.clear();
+        let (h, _rx) = overview_app(d);
+        assert!(h.query_by_label_contains("Nothing yet").is_some());
+    }
+
+    #[test]
+    fn about_tab_is_reachable() {
+        let (mut h, _rx) = overview_app(data());
+        h.get_by_label("About").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Crafted by Ersin KOÇ").is_some());
     }
 }

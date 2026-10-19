@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -62,6 +62,12 @@ pub enum Request {
     /// reloads it within one sampling interval.
     SetConfig {
         toml: String,
+    },
+    /// The process owning the client's foreground window; the governor
+    /// leaves that app alone. Accepted only for processes in the client's
+    /// own session.
+    Foreground {
+        pid: u32,
     },
 }
 
@@ -121,6 +127,8 @@ pub struct Status {
     pub managed: Vec<Managed>,
     /// Per-application budgets and their current usage.
     pub app_limits: Vec<wtm_policy::GroupUsage>,
+    /// The foreground app protected from the governor, if any.
+    pub foreground: Option<String>,
 }
 
 /// A process the service currently holds limits on.

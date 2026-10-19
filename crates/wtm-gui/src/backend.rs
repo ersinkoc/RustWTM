@@ -140,6 +140,7 @@ impl Backend {
             last_event: 0,
             notify,
             open: open_location,
+            foreground: wtm_core::foreground_pid,
             sampler: Sampler::new(),
             limiter: Limiter::new(),
         };
@@ -189,6 +190,8 @@ struct Worker {
     notify: fn(&Event),
     /// Shows a file in Explorer.
     open: fn(&str) -> io::Result<()>,
+    /// The process owning the foreground window.
+    foreground: fn() -> Option<u32>,
     sampler: Sampler,
     /// Job handles for limits applied in local mode.
     limiter: Limiter,
@@ -238,6 +241,11 @@ impl Worker {
         if let Some(client) = self.client.as_mut() {
             let admin = client.is_admin();
             let verified = client.is_verified();
+            // Lets the governor spare the app the user is working in; a
+            // refusal (e.g. an exited process) is harmless.
+            if let Some(pid) = (self.foreground)() {
+                let _ = client.call(&Request::Foreground { pid });
+            }
             match fetch(client, self.last_event) {
                 Ok((snapshot, status, events)) => {
                     // Skip the backlog fetched right after connecting.
@@ -716,6 +724,7 @@ mod tests {
             // Not called while `notifications` is off.
             notify,
             open: |_| Ok(()),
+            foreground: || None,
             sampler: Sampler::new(),
             limiter: Limiter::new(),
         }
@@ -915,6 +924,7 @@ mod tests {
                 path: r"C:\cfg.toml".into(),
             },
             Request::SetConfig { .. } => Response::Done,
+            Request::Foreground { .. } => Response::Done,
         })
     }
 
@@ -929,6 +939,7 @@ mod tests {
 
         let mut w = worker();
         w.client = Some(Client::connect_to(&pipe).unwrap());
+        w.foreground = || Some(1);
         w.tick();
         {
             let d = w.data();
@@ -1036,12 +1047,14 @@ mod tests {
             Request::AppSeries { .. } => Response::Error("unknown app".into()),
             Request::GetConfig => Response::Done,
             Request::SetConfig { .. } => Response::Error("invalid configuration: x".into()),
+            Request::Foreground { .. } => Response::Error("not a process of your session".into()),
         });
 
         let mut w = worker();
         w.pipe = pipe;
         w.next_connect = Instant::now();
         w.notify = count_notification;
+        w.foreground = || Some(1);
         w.notifications.store(true, Ordering::Relaxed);
         w.tick();
         assert!(w.client.is_some(), "tick connects to the pipe");

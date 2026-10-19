@@ -50,6 +50,10 @@ ladder = [
 # Core Windows processes and RustWTM itself are always protected.
 exempt = ["explorer.exe", "Taskmgr.exe"]
 
+# Never throttle the app you are working in (the foreground window, reported
+# by the RustWTM window while it runs) or the processes it started.
+protect_foreground = true
+
 # Long-term insights: every few minutes the service analyses the history
 # window and flags apps with sustained patterns, then applies actions to all
 # their instances until the pattern goes away. Respects dry_run.

@@ -115,6 +115,7 @@ pub fn data() -> Data {
                 cpu_percent: 3.5,
                 memory_bytes: 1 << 30,
             }],
+            foreground: Some("alpha.exe".into()),
         }),
         details: Some((
             alpha.clone(),
@@ -244,6 +245,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::Confirm(t, c) => format!("confirm {} {c:?}", t.pid),
         Intent::OpenLocation(t) => format!("open {}", t.pid),
         Intent::LimitApp(name) => format!("limit app {name}"),
+        Intent::Reveal(t) => format!("reveal {}", t.pid),
     }
 }
 

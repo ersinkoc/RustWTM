@@ -125,6 +125,28 @@ fn sync_blocks(blocker: Option<&Blocker>, config: &Config, events: &EventLog) {
     }
 }
 
+/// Reports older than this are ignored (the GUI was closed).
+const FOREGROUND_TTL: Duration = Duration::from_secs(5);
+
+/// The foreground process and everything it started, plus its name.
+fn foreground_keys(
+    report: Option<(u32, Instant)>,
+    procs: &[ProcessInfo],
+) -> (std::collections::HashSet<(u32, i64)>, Option<String>) {
+    let Some(p) = report
+        .filter(|(_, at)| at.elapsed() < FOREGROUND_TTL)
+        .and_then(|(pid, _)| procs.iter().find(|p| p.pid == pid))
+    else {
+        return Default::default();
+    };
+    let mut keys: std::collections::HashSet<_> = wtm_core::descendants(p.pid, p.create_time, procs)
+        .iter()
+        .map(|d| (d.pid, d.create_time))
+        .collect();
+    keys.insert((p.pid, p.create_time));
+    (keys, Some(p.name.clone()))
+}
+
 fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
@@ -152,6 +174,7 @@ fn status(
     paths: &Paths,
     executor: &Executor,
     app_limits: &[wtm_policy::GroupUsage],
+    foreground: Option<&str>,
 ) -> Status {
     Status {
         dry_run: config.dry_run,
@@ -162,6 +185,7 @@ fn status(
         config_path: paths.config.display().to_string(),
         managed: executor.managed(),
         app_limits: app_limits.to_vec(),
+        foreground: foreground.map(str::to_owned),
     }
 }
 
@@ -221,6 +245,9 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut app_limiter =
         AppLimiter::new(config.limits.clone(), config.dry_run, shared.events.clone());
     let mut app_usage = Vec::new();
+    // Last foreground report from a client, and the app it names.
+    let mut foreground: Option<(u32, Instant)> = None;
+    let mut foreground_app: Option<String> = None;
     let mut last_snapshot: Option<Arc<Snapshot>> = None;
 
     shared.events.info(
@@ -258,9 +285,15 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     *shared
                         .status
                         .write()
-                        .unwrap_or_else(PoisonError::into_inner) =
-                        status(&config, paths, &executor, &app_usage);
+                        .unwrap_or_else(PoisonError::into_inner) = status(
+                        &config,
+                        paths,
+                        &executor,
+                        &app_usage,
+                        foreground_app.as_deref(),
+                    );
                 }
+                Ok(EngineMsg::Foreground(pid)) => foreground = Some((pid, Instant::now())),
                 Err(RecvTimeoutError::Timeout) => break,
             }
         }
@@ -331,6 +364,9 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         });
 
         let now = Instant::now();
+        let (keys, app) = foreground_keys(foreground, &snap.processes);
+        governor.set_foreground(keys);
+        foreground_app = app;
         let mut decisions = governor.tick(now, &snap);
         if config.insights.enabled {
             decisions.extend(insights.tick(&snap.processes, &config.insights));
@@ -349,8 +385,13 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         *shared
             .status
             .write()
-            .unwrap_or_else(PoisonError::into_inner) =
-            status(&config, paths, &executor, &app_usage);
+            .unwrap_or_else(PoisonError::into_inner) = status(
+            &config,
+            paths,
+            &executor,
+            &app_usage,
+            foreground_app.as_deref(),
+        );
         last_snapshot = Some(snap);
     }
 
@@ -1183,11 +1224,37 @@ mod unit_tests {
         let config = Config::default();
         let paths = Paths::under(Path::new(r"C:\x"));
         let executor = Executor::new(true, Default::default());
-        let s = status(&config, &paths, &executor, &[]);
+        let s = status(&config, &paths, &executor, &[], Some("game.exe"));
+        assert_eq!(s.foreground.as_deref(), Some("game.exe"));
         assert!(s.dry_run);
         assert_eq!(s.config_path, r"C:\x\config.toml");
         assert!(s.managed.is_empty());
         assert!(default_data_dir().ends_with("RustWTM"));
         assert!(unix_now() > 1_700_000_000);
+    }
+
+    #[test]
+    fn foreground_report_covers_the_app_and_its_children_until_stale() {
+        let snap = Sampler::new().sample().unwrap();
+        let me = snap
+            .processes
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap();
+        let (keys, app) = foreground_keys(Some((me.pid, Instant::now())), &snap.processes);
+        assert!(keys.contains(&(me.pid, me.create_time)));
+        assert_eq!(app.as_deref(), Some(me.name.as_str()));
+        let stale = Instant::now().checked_sub(FOREGROUND_TTL * 2).unwrap();
+        assert!(
+            foreground_keys(Some((me.pid, stale)), &snap.processes)
+                .0
+                .is_empty()
+        );
+        assert!(
+            foreground_keys(Some((0xFFFF_FFF0, Instant::now())), &snap.processes)
+                .1
+                .is_none()
+        );
+        assert!(foreground_keys(None, &snap.processes).0.is_empty());
     }
 }

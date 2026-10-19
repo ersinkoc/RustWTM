@@ -19,4 +19,5 @@ pub use wtm_sys::services::{
     stop_service,
 };
 pub use wtm_sys::sessions::{Session, SessionState, sessions};
+pub use wtm_sys::window::foreground_pid;
 pub use wtm_sys::{Error, Result};
