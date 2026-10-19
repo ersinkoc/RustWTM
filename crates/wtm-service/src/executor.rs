@@ -394,14 +394,17 @@ mod process_tests {
     }
 
     fn spawn() -> (Guard, ProcessRef) {
-        let child = Command::new("cmd.exe")
-            .raw_arg("/d /c ping -n 60 127.0.0.1")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
-        let pid = child.id();
+        // Wrapped at once so the child is reaped on every path.
+        let child = Guard(
+            Command::new("cmd.exe")
+                .raw_arg("/d /c ping -n 60 127.0.0.1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        let pid = child.0.id();
         for _ in 0..100 {
             if let Some(p) = Sampler::new()
                 .sample()
@@ -410,7 +413,7 @@ mod process_tests {
                 .iter()
                 .find(|p| p.pid == pid)
             {
-                return (Guard(child), p.into());
+                return (child, p.into());
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
