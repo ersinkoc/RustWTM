@@ -114,6 +114,16 @@ fn refusals_and_errors_fail_with_messages() {
     assert!(!o.status.success());
     assert!(stderr(&o).contains("protected"), "{}", stderr(&o));
 
+    // The System Idle Process (PID 0) can never be opened, so its details
+    // and affinity are unreadable even when elevated.
+    let o = wtm(&["info", "0"]);
+    assert!(!o.status.success());
+    assert!(stdout(&o).contains("PID          0"), "{}", stdout(&o));
+    assert!(stderr(&o).contains("Details      "), "{}", stderr(&o));
+    let o = wtm(&["affinity", "0"]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).starts_with("      0  "), "{}", stderr(&o));
+
     // Unknown targets.
     let o = wtm(&["suspend", "no-such-process-xyz"]);
     assert!(!o.status.success());
@@ -122,6 +132,12 @@ fn refusals_and_errors_fail_with_messages() {
     // Invalid arguments are rejected by the parser.
     assert!(!wtm(&["limit", "4", "--cpu", "0"]).status.success());
     assert!(!wtm(&["affinity", "4", "64"]).status.success());
+
+    // Nothing could be limited: protected processes are refused.
+    let o = wtm(&["limit", "csrss", "--cpu", "50"]);
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("FAIL  limit"), "{}", stderr(&o));
+    assert!(!stdout(&o).contains("Holding limits"), "{}", stdout(&o));
 
     // limit without any limit.
     let child = spawn_ping();

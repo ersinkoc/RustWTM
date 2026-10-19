@@ -5578,6 +5578,8 @@ dependencies = [
  "ctrlc",
  "wtm-core",
  "wtm-ipc",
+ "wtm-policy",
+ "wtm-sys",
 ]
 
 [[package]]

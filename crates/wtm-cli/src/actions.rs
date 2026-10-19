@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::bail;
-use wtm_core::control::{self, ControlResult, EcoQos, Limiter, Limits, PriorityClass, ProcessRef};
+use wtm_core::control::{
+    self, ControlResult, EcoQos, Limiter, Limits, PriorityClass, ProcessDetails, ProcessRef,
+};
 use wtm_core::{ProcessInfo, Sampler};
 
 use crate::{parse, table};
@@ -17,7 +19,18 @@ fn snapshot() -> anyhow::Result<Vec<ProcessInfo>> {
 
 /// Resolves PIDs or image names (`.exe` optional, case-insensitive).
 fn resolve(specs: &[String], procs: &[ProcessInfo]) -> anyhow::Result<Vec<ProcessRef>> {
-    let mut out: Vec<ProcessRef> = Vec::new();
+    Ok(matching(specs, procs)?
+        .into_iter()
+        .map(Into::into)
+        .collect())
+}
+
+/// The processes `specs` select, each once, in order of first mention.
+fn matching<'a>(
+    specs: &[String],
+    procs: &'a [ProcessInfo],
+) -> anyhow::Result<Vec<&'a ProcessInfo>> {
+    let mut out: Vec<&ProcessInfo> = Vec::new();
     for spec in specs {
         let matches: Vec<&ProcessInfo> = match spec.parse::<u32>() {
             Ok(pid) => procs.iter().filter(|p| p.pid == pid).collect(),
@@ -36,7 +49,7 @@ fn resolve(specs: &[String], procs: &[ProcessInfo]) -> anyhow::Result<Vec<Proces
         }
         for p in matches {
             if !out.iter().any(|r| r.pid == p.pid) {
-                out.push(p.into());
+                out.push(p);
             }
         }
     }
@@ -113,20 +126,10 @@ pub fn affinity(specs: &[String], cpus: Option<&str>) -> anyhow::Result<ExitCode
     let Some(cpus) = cpus else {
         let mut ok = true;
         for t in resolve(specs, &snapshot()?)? {
-            match control::inspect(&t).map(|d| d.affinity) {
-                Ok(Some((mask, system))) => println!(
-                    "{:>7}  {:<24} cpus {} (system {})",
-                    t.pid,
-                    t.name,
-                    parse::format_cpu_list(mask),
-                    parse::format_cpu_list(system)
-                ),
-                Ok(None) => {
-                    eprintln!("{:>7}  {}: affinity not readable", t.pid, t.name);
-                    ok = false;
-                }
-                Err(e) => {
-                    eprintln!("{:>7}  {}: {e}", t.pid, t.name);
+            match affinity_line(&t, control::inspect(&t).map(|d| d.affinity)) {
+                Ok(line) => println!("{line}"),
+                Err(line) => {
+                    eprintln!("{line}");
                     ok = false;
                 }
             }
@@ -137,13 +140,28 @@ pub fn affinity(specs: &[String], cpus: Option<&str>) -> anyhow::Result<ExitCode
     for_each(specs, "affinity", |t| control::set_affinity(t, mask))
 }
 
+/// Report line for `affinity` without a CPU list: `Ok` for stdout, `Err` for stderr.
+fn affinity_line(
+    t: &ProcessRef,
+    affinity: ControlResult<Option<(u64, u64)>>,
+) -> Result<String, String> {
+    match affinity {
+        Ok(Some((mask, system))) => Ok(format!(
+            "{:>7}  {:<24} cpus {} (system {})",
+            t.pid,
+            t.name,
+            parse::format_cpu_list(mask),
+            parse::format_cpu_list(system)
+        )),
+        Ok(None) => Err(format!("{:>7}  {}: affinity not readable", t.pid, t.name)),
+        Err(e) => Err(format!("{:>7}  {}: {e}", t.pid, t.name)),
+    }
+}
+
 pub fn info(specs: &[String]) -> anyhow::Result<ExitCode> {
     let procs = snapshot()?;
     let mut ok = true;
-    for t in resolve(specs, &procs)? {
-        let Some(p) = procs.iter().find(|p| p.pid == t.pid) else {
-            continue;
-        };
+    for p in matching(specs, &procs)? {
         println!("PID          {}", p.pid);
         println!("Name         {}", p.name);
         println!("Parent PID   {}", p.parent_pid);
@@ -162,37 +180,38 @@ pub fn info(specs: &[String]) -> anyhow::Result<ExitCode> {
         );
         println!("Threads      {}", p.thread_count);
         println!("Handles      {}", p.handle_count);
-        match control::inspect(&t) {
-            Ok(d) => {
-                let na = || "n/a".to_owned();
-                println!("Path         {}", d.path.unwrap_or_else(na));
-                println!(
-                    "Priority     {}",
-                    d.priority.map_or_else(na, |p| format!("{p:?}"))
-                );
-                println!(
-                    "Affinity     {}",
-                    d.affinity
-                        .map_or_else(na, |(m, _)| parse::format_cpu_list(m))
-                );
-                println!(
-                    "EcoQoS       {}",
-                    d.eco_qos.map_or_else(na, |e| format!("{e:?}"))
-                );
-                println!(
-                    "Critical     {}",
-                    d.critical.map_or_else(na, |c| yes_no(c).into())
-                );
-                println!("Protected    {}", d.protected.as_deref().unwrap_or("no"));
-            }
-            Err(e) => {
-                eprintln!("Details      {e}");
+        match details(control::inspect(&p.into())) {
+            Ok(text) => print!("{text}"),
+            Err(text) => {
+                eprintln!("{text}");
                 ok = false;
             }
         }
         println!();
     }
     Ok(exit_code(ok))
+}
+
+/// The `info` lines from [`control::inspect`]: `Ok` for stdout, `Err` for stderr.
+fn details(d: ControlResult<ProcessDetails>) -> Result<String, String> {
+    let d = d.map_err(|e| format!("Details      {e}"))?;
+    let na = || "n/a".to_owned();
+    let lines = [
+        ("Path", d.path.unwrap_or_else(na)),
+        ("Priority", d.priority.map_or_else(na, |p| format!("{p:?}"))),
+        (
+            "Affinity",
+            d.affinity
+                .map_or_else(na, |(m, _)| parse::format_cpu_list(m)),
+        ),
+        ("EcoQoS", d.eco_qos.map_or_else(na, |e| format!("{e:?}"))),
+        ("Critical", d.critical.map_or_else(na, |c| yes_no(c).into())),
+        ("Protected", d.protected.unwrap_or_else(|| "no".into())),
+    ];
+    Ok(lines
+        .iter()
+        .map(|(label, value)| format!("{label:<13}{value}\n"))
+        .collect())
 }
 
 fn yes_no(b: bool) -> &'static str {
@@ -240,7 +259,18 @@ pub fn limit(
     let flag = stop.clone();
     ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))?;
     println!("Holding limits. Press Ctrl+C to lift them and exit.");
+    ok &= hold(&mut limiter, &targets, cpu_percent, &stop)?;
+    Ok(exit_code(ok))
+}
 
+/// Prints the limited processes every second until they have all exited or
+/// `stop` is set; then lifts the limits. Returns whether lifting succeeded.
+fn hold(
+    limiter: &mut Limiter,
+    targets: &[ProcessRef],
+    cpu_percent: Option<f32>,
+    stop: &AtomicBool,
+) -> anyhow::Result<bool> {
     let mut sampler = Sampler::new();
     sampler.sample()?;
     let cap = cpu_percent.map_or_else(|| "none".to_owned(), |c| format!("{c:.1}%"));
@@ -251,7 +281,7 @@ pub fn limit(
         }
         let snap = sampler.sample()?;
         let mut alive = 0;
-        for t in &targets {
+        for t in targets {
             if let Some(p) = snap
                 .processes
                 .iter()
@@ -269,12 +299,171 @@ pub fn limit(
         }
         if alive == 0 {
             println!("All limited processes have exited.");
-            return Ok(exit_code(ok));
+            return Ok(true);
         }
     }
 
+    let mut ok = true;
     for (t, r) in limiter.lift_all() {
         ok &= report("unlimit", &t, r);
     }
-    Ok(exit_code(ok))
+    Ok(ok)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::{Child, Command, Stdio};
+    use wtm_core::control::ControlError;
+
+    fn procs(entries: &[(u32, &str)]) -> Vec<ProcessInfo> {
+        let base = snapshot().unwrap().swap_remove(0);
+        entries
+            .iter()
+            .map(|&(pid, name)| ProcessInfo {
+                pid,
+                name: name.into(),
+                ..base.clone()
+            })
+            .collect()
+    }
+
+    fn specs(s: &[&str]) -> Vec<String> {
+        s.iter().map(|&s| s.to_owned()).collect()
+    }
+
+    #[test]
+    fn resolves_pids_and_names_once_each() {
+        let procs = procs(&[
+            (10, "Foo.exe"),
+            (11, "bar.exe"),
+            (12, "foo.exe"),
+            (13, "baz"),
+        ]);
+        let pids = |s: &[&str]| -> Vec<u32> {
+            resolve(&specs(s), &procs)
+                .unwrap()
+                .iter()
+                .map(|r| r.pid)
+                .collect()
+        };
+        assert_eq!(pids(&["foo"]), [10, 12]);
+        assert_eq!(pids(&["BAR.EXE", "11", "baz"]), [11, 13]);
+        assert_eq!(pids(&["12", "foo"]), [12, 10]);
+        let e = resolve(&specs(&["99"]), &procs).unwrap_err();
+        assert_eq!(e.to_string(), "no process matches '99'");
+        assert!(resolve(&specs(&["foo", "nope"]), &procs).is_err());
+    }
+
+    fn target() -> ProcessRef {
+        ProcessRef {
+            pid: 42,
+            create_time: 1,
+            name: "app.exe".into(),
+        }
+    }
+
+    #[test]
+    fn affinity_lines() {
+        assert_eq!(
+            affinity_line(&target(), Ok(Some((0b101, 0xFF)))).unwrap(),
+            "     42  app.exe                  cpus 0,2 (system 0-7)"
+        );
+        assert_eq!(
+            affinity_line(&target(), Ok(None)).unwrap_err(),
+            "     42  app.exe: affinity not readable"
+        );
+        let e = affinity_line(&target(), Err(ControlError::NotFound { pid: 42 })).unwrap_err();
+        assert_eq!(e, "     42  app.exe: process 42 no longer exists");
+    }
+
+    #[test]
+    fn detail_lines() {
+        let full = ProcessDetails {
+            path: Some(r"C:\app.exe".into()),
+            priority: Some(PriorityClass::High),
+            affinity: Some((0b11, 0xF)),
+            eco_qos: Some(EcoQos::On),
+            critical: Some(true),
+            protected: Some("system process".into()),
+        };
+        assert_eq!(
+            details(Ok(full)).unwrap(),
+            "Path         C:\\app.exe\n\
+             Priority     High\n\
+             Affinity     0-1\n\
+             EcoQoS       On\n\
+             Critical     yes\n\
+             Protected    system process\n"
+        );
+        let empty = ProcessDetails {
+            path: None,
+            priority: None,
+            affinity: None,
+            eco_qos: None,
+            critical: Some(false),
+            protected: None,
+        };
+        let text = details(Ok(empty)).unwrap();
+        assert!(
+            text.starts_with("Path         n/a\nPriority     n/a\n"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("Critical     no\nProtected    no\n"),
+            "{text}"
+        );
+        assert_eq!(
+            details(Err(ControlError::AccessDenied { pid: 4 })).unwrap_err(),
+            "Details      access denied to process 4 (try an elevated prompt)"
+        );
+    }
+
+    #[test]
+    fn formats_uptime() {
+        assert_eq!(
+            uptime(Duration::from_secs(3 * 3600 + 4 * 60 + 5)),
+            "3h 04m 05s"
+        );
+        assert_eq!(
+            uptime(Duration::from_secs(2 * 86_400 + 5 * 3600 + 7 * 60 + 9)),
+            "2d 05h 07m"
+        );
+        assert_eq!(yes_no(true), "yes");
+        assert_eq!(yes_no(false), "no");
+    }
+
+    struct Guard(Child);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[test]
+    fn hold_lifts_limits_when_stopped() {
+        let child = Guard(
+            Command::new("ping")
+                .args(["-n", "60", "127.0.0.1"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        );
+        // A spawned process is listed as soon as `spawn` returns.
+        let pid = child.0.id().to_string();
+        let target = resolve(&[pid], &snapshot().unwrap()).unwrap().remove(0);
+        let mut limiter = Limiter::new();
+        let limits = Limits {
+            cpu_percent: Some(50.0),
+            memory_bytes: None,
+        };
+        limiter.apply(&target, limits).unwrap();
+        let stop = AtomicBool::new(true);
+        assert!(hold(&mut limiter, &[target], Some(50.0), &stop).unwrap());
+        assert_eq!(limiter.limited().count(), 0);
+    }
 }
