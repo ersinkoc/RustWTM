@@ -4,7 +4,7 @@
   Build after a release build of the workspace:
     dotnet tool restore
     dotnet wix extension add WixToolset.Util.wixext/5.0.2
-    dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.10.0 -d BinDir=target/release -o dist/RustWTM-0.10.0-x64.msi
+    dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.11.0 -d BinDir=target/release -o dist/RustWTM-0.11.0-x64.msi
   (XML comments cannot contain two consecutive hyphens, hence no flags here.)
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
