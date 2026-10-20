@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Heat map** in the process list: CPU, memory, disk and GPU cells are
+  shaded by how much of the machine they use (Columns → Heat map turns it off).
+- Keyboard: ↑ / ↓ move the selection in the process list, Delete asks to end
+  the selected process.
+
 ## [0.4.0] - 2026-10-20
 
 ### Added

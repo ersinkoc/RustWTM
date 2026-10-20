@@ -306,6 +306,65 @@ fn processes_table_sorts_filters_and_shows_tree() {
 }
 
 #[test]
+fn arrow_keys_move_the_selection_and_delete_ends_the_process() {
+    use eframe::egui::Key;
+    let mut h = process_harness();
+    h.run();
+    // Sorted by CPU: Idle (0), alpha (100), alpha-child (101), System, beta.
+    h.key_press(Key::ArrowDown);
+    h.run();
+    assert_eq!(h.state().intents, ["select 0"]);
+
+    h.state_mut().view.selected = Some(target(100, "alpha.exe"));
+    h.state_mut().intents.clear();
+    for key in [Key::ArrowDown, Key::ArrowUp, Key::Delete] {
+        h.key_press(key);
+        h.run();
+    }
+    assert_eq!(
+        h.state().intents,
+        ["select 101", "select 0", "confirm 100 Kill"]
+    );
+
+    // At the ends the selection stays put.
+    h.state_mut().view.selected = Some(target(200, "beta.exe"));
+    h.state_mut().intents.clear();
+    h.key_press(Key::ArrowDown);
+    h.run();
+    assert!(h.state().intents.is_empty());
+
+    // Typing in the search box keeps the keys for the text.
+    h.key_press_modifiers(eframe::egui::Modifiers::COMMAND, Key::F);
+    h.run();
+    h.key_press(Key::Delete);
+    h.key_press(Key::ArrowUp);
+    h.run();
+    assert!(h.state().intents.is_empty());
+}
+
+#[test]
+fn heat_map_shades_busy_cells_and_can_be_turned_off() {
+    use crate::processes::heat_color;
+    assert_eq!(heat_color(0.0), None);
+    assert_eq!(heat_color(f64::NAN), None);
+    let [_, low_g, _, low_a] = heat_color(0.01).unwrap().to_srgba_unmultiplied();
+    let [_, high_g, _, high_a] = heat_color(0.9).unwrap().to_srgba_unmultiplied();
+    assert!(
+        high_a > low_a && high_g < low_g,
+        "busier is stronger and redder"
+    );
+    assert_eq!(heat_color(5.0), heat_color(1.0));
+
+    let mut h = process_harness();
+    h.run();
+    h.get_by_label("Columns").click();
+    h.run();
+    h.get_by_label("Heat map").click();
+    h.run();
+    assert!(!h.state().view.heat);
+}
+
+#[test]
 fn processes_row_click_and_context_menu_produce_intents() {
     let mut h = process_harness();
     h.run();

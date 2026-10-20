@@ -175,6 +175,8 @@ pub struct ProcessView {
     pub selected: Option<ProcessRef>,
     /// Columns the user turned on or off (Name is always shown).
     pub visible: HashSet<Col>,
+    /// Shade CPU, memory, disk and GPU cells by how much they use.
+    pub heat: bool,
 }
 
 impl Default for ProcessView {
@@ -187,6 +189,7 @@ impl Default for ProcessView {
             descending: true,
             selected: None,
             visible: COLUMNS.iter().filter(|c| c.4).map(|c| c.0).collect(),
+            heat: true,
         }
     }
 }
@@ -285,6 +288,23 @@ fn tree_rows<'a>(
     out
 }
 
+/// Background of a heat-map cell for a share `load` (0..=1) of the machine;
+/// `None` for (almost) idle cells. Small loads stay visible, as in Task
+/// Manager: the square root spreads them out.
+pub fn heat_color(load: f64) -> Option<Color32> {
+    // Also rejects NaN.
+    if load.is_nan() || load < 0.002 {
+        return None;
+    }
+    let f = load.min(1.0).sqrt() as f32;
+    let green = (200.0 - 150.0 * f) as u8;
+    let alpha = (36.0 + 150.0 * f) as u8;
+    Some(Color32::from_rgba_unmultiplied(255, green, 40, alpha))
+}
+
+/// Disk I/O that counts as a fully busy cell, bytes per second.
+const DISK_HEAT_FULL: f64 = 100.0 * 1024.0 * 1024.0;
+
 fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
         ui.label(text);
@@ -292,6 +312,51 @@ fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
 }
 
 impl ProcessView {
+    /// Up / Down move the selection, Delete asks to end the selected process.
+    /// Ignored while a text field (the search), a menu or a dialog has the
+    /// keyboard.
+    fn keyboard(
+        &self,
+        ui: &Ui,
+        rows: &[(&ProcessInfo, usize, Option<usize>)],
+        intents: &mut Vec<Intent>,
+    ) {
+        let ctx = ui.ctx();
+        if ctx.text_edit_focused()
+            || egui::Popup::is_any_open(ctx)
+            || ctx.memory(|m| m.top_modal_layer().is_some())
+        {
+            return;
+        }
+        let (up, down, delete) = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowUp),
+                i.key_pressed(egui::Key::ArrowDown),
+                i.key_pressed(egui::Key::Delete),
+            )
+        });
+        let procs: Vec<&ProcessInfo> = rows.iter().filter(|r| r.2.is_none()).map(|r| r.0).collect();
+        let current = self.selected.as_ref().and_then(|s| {
+            procs
+                .iter()
+                .position(|p| p.pid == s.pid && p.create_time == s.create_time)
+        });
+        let next = match (current, up, down) {
+            (Some(i), true, _) => Some(i.saturating_sub(1)),
+            (Some(i), _, true) => Some((i + 1).min(procs.len().saturating_sub(1))),
+            (None, true, _) | (None, _, true) => (!procs.is_empty()).then_some(0),
+            _ => None,
+        };
+        if let Some(i) = next
+            && current != Some(i)
+        {
+            intents.push(Intent::Select(ProcessRef::from(procs[i])));
+        }
+        if delete && let Some(i) = current {
+            intents.push(Intent::Confirm(ProcessRef::from(procs[i]), Command::Kill));
+        }
+    }
+
     pub fn ui(&mut self, ui: &mut Ui, snap: &Snapshot, extra: &Extra<'_>) -> Vec<Intent> {
         let mut intents = Vec::new();
         let logical_cpus = snap.system.logical_cpus.max(1);
@@ -324,6 +389,9 @@ impl ProcessView {
                 ui.selectable_value(&mut self.mode, mode, label);
             }
             ui.menu_button("Columns", |ui| {
+                ui.checkbox(&mut self.heat, "Heat map")
+                    .on_hover_text("Shade busy CPU, memory, disk and GPU cells");
+                ui.separator();
                 for (col, label, ..) in COLUMNS.iter().skip(1) {
                     let mut on = self.visible.contains(col);
                     if ui.checkbox(&mut on, *label).changed() {
@@ -386,7 +454,8 @@ impl ProcessView {
             }
         };
         let row_height = ui.spacing().interact_size.y;
-        let one_core = 100.0 / logical_cpus as f32;
+        let memory_total = snap.system.memory_total.max(1) as f64;
+        self.keyboard(ui, &rows, &mut intents);
         let selected = self.selected.as_ref().map(|r| (r.pid, r.create_time));
 
         let columns: Vec<_> = COLUMNS
@@ -442,56 +511,68 @@ impl ProcessView {
                     row.set_selected(group.is_none() && selected == Some(key));
 
                     for (col, ..) in &columns {
-                        row.col(|ui| match col {
-                            Col::Name => {
-                                ui.add_space(depth as f32 * 14.0);
-                                if let Some(g) = group {
-                                    let open = self.expanded.contains(&g.key);
-                                    ui.label(if open { "⏷" } else { "⏵" });
-                                }
-                                app_icon(ui, extra.icon(p));
-                                match group {
-                                    Some(g) => ui.label(
-                                        RichText::new(format!("{} ({})", p.name, g.members.len()))
+                        row.col(|ui| {
+                            let load = match col {
+                                Col::Cpu if p.pid != 0 => f64::from(p.cpu_percent) / 100.0,
+                                Col::Memory => p.private_working_set as f64 / memory_total,
+                                Col::Disk => p.io_rate() / DISK_HEAT_FULL,
+                                Col::Gpu => f64::from(p.gpu_percent) / 100.0,
+                                _ => 0.0,
+                            };
+                            if self.heat
+                                && let Some(color) = heat_color(load)
+                            {
+                                ui.painter()
+                                    .rect_filled(ui.max_rect().expand(2.0), 0.0, color);
+                            }
+                            match col {
+                                Col::Name => {
+                                    ui.add_space(depth as f32 * 14.0);
+                                    if let Some(g) = group {
+                                        let open = self.expanded.contains(&g.key);
+                                        ui.label(if open { "⏷" } else { "⏵" });
+                                    }
+                                    app_icon(ui, extra.icon(p));
+                                    match group {
+                                        Some(g) => ui.label(
+                                            RichText::new(format!(
+                                                "{} ({})",
+                                                p.name,
+                                                g.members.len()
+                                            ))
                                             .strong(),
-                                    ),
-                                    None => ui.label(&p.name),
-                                };
-                            }
-                            Col::Pid => right(ui, p.pid.to_string()),
-                            Col::Cpu => {
-                                let text = RichText::new(format!("{:.1}%", p.cpu_percent));
-                                right(
-                                    ui,
-                                    if p.pid != 0 && p.cpu_percent >= one_core {
-                                        text.color(Color32::from_rgb(230, 140, 40))
-                                    } else {
-                                        text
-                                    },
-                                );
-                            }
-                            Col::Memory => right(ui, format_bytes(p.private_working_set as f64)),
-                            Col::Commit => right(ui, format_bytes(p.private_bytes as f64)),
-                            Col::WorkingSet => right(ui, format_bytes(p.working_set as f64)),
-                            Col::Disk => right(ui, format!("{}/s", format_bytes(p.io_rate()))),
-                            Col::Gpu => right(ui, format!("{:.1}%", p.gpu_percent)),
-                            Col::GpuMemory => right(ui, format_bytes(p.gpu_memory as f64)),
-                            Col::Threads => right(ui, p.thread_count.to_string()),
-                            Col::Handles => right(ui, p.handle_count.to_string()),
-                            Col::Session => right(ui, p.session_id.to_string()),
-                            Col::Priority => right(ui, p.base_priority.to_string()),
-                            Col::Started => right(ui, running_for(p)),
-                            Col::Limits => {
-                                if let Some(label) = extra.labels.get(&key) {
-                                    ui.label(
-                                        RichText::new(label).color(Color32::from_rgb(230, 140, 40)),
-                                    );
+                                        ),
+                                        None => ui.label(&p.name),
+                                    };
                                 }
-                            }
-                            Col::CommandLine => {
-                                let cmd = extra.command_line(p);
-                                ui.label(RichText::new(cmd).monospace().small())
-                                    .on_hover_text(cmd);
+                                Col::Pid => right(ui, p.pid.to_string()),
+                                Col::Cpu => right(ui, format!("{:.1}%", p.cpu_percent)),
+                                Col::Memory => {
+                                    right(ui, format_bytes(p.private_working_set as f64))
+                                }
+                                Col::Commit => right(ui, format_bytes(p.private_bytes as f64)),
+                                Col::WorkingSet => right(ui, format_bytes(p.working_set as f64)),
+                                Col::Disk => right(ui, format!("{}/s", format_bytes(p.io_rate()))),
+                                Col::Gpu => right(ui, format!("{:.1}%", p.gpu_percent)),
+                                Col::GpuMemory => right(ui, format_bytes(p.gpu_memory as f64)),
+                                Col::Threads => right(ui, p.thread_count.to_string()),
+                                Col::Handles => right(ui, p.handle_count.to_string()),
+                                Col::Session => right(ui, p.session_id.to_string()),
+                                Col::Priority => right(ui, p.base_priority.to_string()),
+                                Col::Started => right(ui, running_for(p)),
+                                Col::Limits => {
+                                    if let Some(label) = extra.labels.get(&key) {
+                                        ui.label(
+                                            RichText::new(label)
+                                                .color(Color32::from_rgb(230, 140, 40)),
+                                        );
+                                    }
+                                }
+                                Col::CommandLine => {
+                                    let cmd = extra.command_line(p);
+                                    ui.label(RichText::new(cmd).monospace().small())
+                                        .on_hover_text(cmd);
+                                }
                             }
                         });
                     }

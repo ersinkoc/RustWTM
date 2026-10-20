@@ -151,6 +151,7 @@ struct Prefs {
     process_sort: crate::processes::Col,
     process_descending: bool,
     process_columns: std::collections::HashSet<crate::processes::Col>,
+    process_heat: bool,
 }
 
 impl Default for Prefs {
@@ -169,6 +170,7 @@ impl UiState {
             process_sort: p.sort,
             process_descending: p.descending,
             process_columns: p.visible.clone(),
+            process_heat: p.heat,
         }
     }
 
@@ -190,6 +192,7 @@ impl UiState {
         p.sort = prefs.process_sort;
         p.descending = prefs.process_descending;
         p.visible = prefs.process_columns;
+        p.heat = prefs.process_heat;
     }
 }
 
@@ -1249,6 +1252,7 @@ mod tests {
         state.processes.sort = Col::Memory;
         state.processes.descending = false;
         state.processes.visible.insert(Col::CommandLine);
+        state.processes.heat = false;
         eframe::set_value(&mut storage, PREFS_KEY, &state.prefs());
 
         let restored = UiState::restored(Some(&storage));
