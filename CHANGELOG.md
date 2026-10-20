@@ -20,6 +20,8 @@ All notable changes to this project are documented here. The format follows
   load of every GPU engine (3D, Copy, Video decode, ...).
 - The Overview says in one sentence how the machine is doing and which app
   is behind a busy CPU or a full memory.
+- `wtm list` and `wtm top` add a line with GPU, network and disk rates and
+  the busiest disk's activity.
 - App limits warn (event and desktop notification) when a budget uses 95% of
   its memory, since its processes then fail to allocate memory; once more
   only after it dropped below 85%.

@@ -248,6 +248,7 @@ fn list(sort: SortKey, limit: Option<usize>, sample_ms: u64, cmdline: bool) -> a
 
     let mut out = io::stdout().lock();
     writeln!(out, "{}", table::summary(&snap.system))?;
+    writeln!(out, "{}", table::io_summary(&snap.system))?;
     if cmdline {
         writeln!(out, "{}", table::then(table::header(), 4, "COMMAND LINE"))?;
     } else {

@@ -117,6 +117,7 @@ fn render(
 ) -> io::Result<()> {
     queue!(out, cursor::MoveTo(0, 0))?;
     line(out, &table::summary(&snap.system), width)?;
+    line(out, &table::io_summary(&snap.system), width)?;
     line(
         out,
         &format!("Sort: {sort:?}   [c]pu [m]emory [d]isk [p]id [n]ame   [q]uit"),
@@ -126,7 +127,7 @@ fn render(
     line(out, &format!("{:<width$}", table::header()), width)?;
     queue!(out, SetAttribute(Attribute::Reset))?;
 
-    let body_rows = rows.saturating_sub(3);
+    let body_rows = rows.saturating_sub(4);
     for p in snap.processes.iter().take(body_rows) {
         line(out, &table::row(p, width), width)?;
     }
@@ -289,7 +290,7 @@ mod tests {
         let text = String::from_utf8_lossy(&buf);
         assert!(text.contains("Sort: Memory"));
         assert!(text.contains("PID"));
-        // 3 header lines + 7 body lines, each ends with a line move.
+        // 4 header lines + 6 body lines, each ends with a line move.
         assert_eq!(text.matches("\u{1b}[1E").count(), 10, "{text:?}");
         // Nothing wider than the terminal.
         for chunk in text.split('\u{1b}') {

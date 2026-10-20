@@ -51,8 +51,12 @@ fn list_prints_summary_header_and_rows() {
     let out = stdout(&o);
     let lines: Vec<&str> = out.lines().collect();
     assert!(lines[0].starts_with("CPU"), "{out}");
-    assert!(lines[1].contains("PID") && lines[1].contains("NAME"));
-    assert_eq!(lines.len(), 7, "{out}");
+    assert!(
+        lines[1].starts_with("GPU") && lines[1].contains("Network"),
+        "{out}"
+    );
+    assert!(lines[2].contains("PID") && lines[2].contains("NAME"));
+    assert_eq!(lines.len(), 8, "{out}");
 }
 
 #[test]
@@ -61,7 +65,7 @@ fn list_shows_command_lines() {
     assert!(o.status.success(), "{}", stderr(&o));
     let out = stdout(&o);
     assert!(
-        out.lines().nth(1).unwrap().ends_with("COMMAND LINE"),
+        out.lines().nth(2).unwrap().ends_with("COMMAND LINE"),
         "{out}"
     );
     // wtm itself is listed with the arguments it was started with.

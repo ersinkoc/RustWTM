@@ -61,6 +61,24 @@ pub fn summary(s: &SystemStats) -> String {
     )
 }
 
+/// GPU, network and disk on one line.
+pub fn io_summary(s: &SystemStats) -> String {
+    let busiest_disk = s
+        .disks
+        .iter()
+        .map(|d| d.active_percent)
+        .fold(0.0f32, f32::max);
+    format!(
+        "GPU {:5.1}%   Network down {}/s up {}/s   Disk read {}/s write {}/s (busiest {:.0}% active)",
+        s.gpu_percent,
+        bytes(s.net_rx_rate),
+        bytes(s.net_tx_rate),
+        bytes(s.io_read_rate),
+        bytes(s.io_write_rate),
+        busiest_disk
+    )
+}
+
 pub fn bytes(n: f64) -> String {
     wtm_core::format_bytes(n)
 }
@@ -80,6 +98,31 @@ mod tests {
     fn summary_without_memory_total() {
         let s = summary(&SystemStats::default());
         assert!(s.contains("Memory 0 B / 0 B (0%)"), "{s}");
+    }
+
+    #[test]
+    fn io_summary_shows_rates_and_the_busiest_disk() {
+        let s = SystemStats {
+            net_rx_rate: 2048.0,
+            io_write_rate: 1024.0,
+            disks: vec![
+                wtm_core::DiskUsage {
+                    active_percent: 12.0,
+                    ..Default::default()
+                },
+                wtm_core::DiskUsage {
+                    active_percent: 64.0,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let line = io_summary(&s);
+        assert!(line.contains("Network down 2.0 KiB/s up 0 B/s"), "{line}");
+        assert!(
+            line.contains("write 1.0 KiB/s (busiest 64% active)"),
+            "{line}"
+        );
     }
 
     #[test]
