@@ -20,6 +20,7 @@ mod history;
 mod ipc_server;
 mod logging;
 mod service;
+mod telegram;
 
 #[cfg(test)]
 mod test_util {

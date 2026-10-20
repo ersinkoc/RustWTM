@@ -119,6 +119,7 @@ struct UiState {
     history_dirty: bool,
     selected_service: Option<String>,
     config: crate::settings::ConfigView,
+    telegram: crate::telegram_settings::TelegramView,
     limits: crate::limits_tab::LimitsView,
     kill: crate::kill_tab::KillView,
     ports: crate::ports_tab::PortsView,
@@ -273,6 +274,7 @@ impl Default for UiState {
             history_dirty: true,
             selected_service: None,
             config: crate::settings::ConfigView::default(),
+            telegram: crate::telegram_settings::TelegramView::default(),
             limits: crate::limits_tab::LimitsView::default(),
             kill: crate::kill_tab::KillView::default(),
             ports: crate::ports_tab::PortsView::default(),
@@ -488,6 +490,13 @@ impl eframe::App for App {
             Tab::Settings => {
                 window_settings(ui, state);
                 ui.separator();
+                service_cmds.extend(crate::telegram_settings::telegram(
+                    ui,
+                    &data,
+                    &mut state.telegram,
+                ));
+                ui.add_space(8.0);
+                ui.heading("Service configuration");
                 service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
             }
             Tab::Services => {
@@ -1949,6 +1958,8 @@ mod tests {
             UiCommand::LoadSeries { app, hours } => format!("series {app} {hours}"),
             UiCommand::Service { name, op } => format!("service {name} {op:?}"),
             UiCommand::SaveConfig(toml) => format!("save config {}", toml.len()),
+            UiCommand::SaveTelegram(c) => format!("save telegram {}", c.enabled),
+            UiCommand::TestTelegram => "test telegram".into(),
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
             UiCommand::RestartElevated => "restart elevated".into(),

@@ -83,6 +83,10 @@ usage history.
   starting `powershell.exe` and never waits for it) are reported with who
   started them; Overview ends them all, or only the orphaned ones, in one
   click.
+- **Telegram bot**: status, busiest processes, ports, services and alerts on
+  your phone; end (after a confirming tap), suspend and resume processes,
+  free a port or press the panic button from anywhere. Only the chat IDs you
+  allow can use it; set it up in Settings → Telegram.
 - **Blocking**: programs on the `block` list are prevented from starting at
   all (Image File Execution Options), with a notification to the user.
 - **Long-term insights**: per-minute, per-app usage is recorded to SQLite.
@@ -236,6 +240,10 @@ See [docs/configuration.md](docs/configuration.md) for every option.
   (remote clients rejected). Anyone can read status; **control requests require
   an elevated administrator**. Detail queries run with the caller's own rights.
 - Clients verify that the pipe is served by the installed `RustWTM` service.
+- The Telegram bot token lives in `telegram.toml`, readable only by SYSTEM and
+  Administrators. The bot answers only the chat IDs on its list (Telegram
+  vouches for the sender), asks before ending anything, never ends protected
+  processes, and can be limited to reports.
 
 Report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 

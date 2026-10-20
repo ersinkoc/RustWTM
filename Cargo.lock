@@ -5724,6 +5724,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "rusqlite",
+ "serde_json",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

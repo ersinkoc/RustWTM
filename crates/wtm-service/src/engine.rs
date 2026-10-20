@@ -30,6 +30,8 @@ pub struct Paths {
     pub config: PathBuf,
     pub logs: PathBuf,
     pub history: PathBuf,
+    /// Telegram bot settings (holds the bot token).
+    pub telegram: PathBuf,
     /// Named pipe served for clients (overridden in tests).
     pub pipe: String,
     /// Where blocked programs are registered.
@@ -53,6 +55,7 @@ impl Paths {
             config: data_dir.join("config.toml"),
             logs: data_dir.join("logs"),
             history: data_dir.join("history.sqlite"),
+            telegram: data_dir.join("telegram.toml"),
             pipe: wtm_ipc::PIPE_NAME.to_owned(),
             block_root: BlockRoot::System,
             block_debugger: block_debugger(),
@@ -203,9 +206,13 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     }
 
     let shared = Arc::new(Shared::default());
+    *shared
+        .config
+        .write()
+        .unwrap_or_else(PoisonError::into_inner) = config.clone();
     let watcher_stop = Arc::new(AtomicBool::new(false));
     let watcher = spawn_watcher(tx.clone(), watcher_stop.clone());
-    let server = match ipc_server::start(shared.clone(), tx, &paths.pipe) {
+    let server = match ipc_server::start(shared.clone(), tx.clone(), &paths.pipe) {
         Ok(s) => Some(s),
         Err(e) => {
             error!(error = %e, "IPC disabled");
@@ -213,6 +220,17 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         }
     };
 
+    let telegram_stop = Arc::new(AtomicBool::new(false));
+    if let Err(e) = crate::telegram::spawn(
+        paths.telegram.clone(),
+        shared.clone(),
+        tx.clone(),
+        telegram_stop.clone(),
+    ) {
+        shared
+            .events
+            .warn(None, format!("Telegram bot unavailable: {e}"));
+    }
     let mut sampler = Sampler::new();
     let mut governor = Governor::new(config.governor.clone());
     let mut memory_guard = wtm_policy::MemoryGuard::new(config.memory_guard.clone());
@@ -325,6 +343,10 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                             new.kill.len()
                         ),
                     );
+                    *shared
+                        .config
+                        .write()
+                        .unwrap_or_else(PoisonError::into_inner) = new.clone();
                     config = new;
                 }
                 Err(e) => shared
@@ -399,7 +421,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             shared.events.alert(
                 None,
                 format!(
-                    "{count} copies of {name} are running (started by {parents});                      end them from RustWTM's Overview"
+                    "{count} copies of {name} are running (started by {parents}); end them from RustWTM's Overview"
                 ),
             );
         }
@@ -435,6 +457,8 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         let _ = h.flush();
     }
     watcher_stop.store(true, Ordering::SeqCst);
+    // Not joined: it may be waiting on Telegram for a few seconds.
+    telegram_stop.store(true, Ordering::SeqCst);
     let _ = watcher.join();
     if let Some(s) = server {
         s.shutdown();

@@ -17,6 +17,7 @@ mod memory_guard;
 mod presets;
 mod rules;
 mod swarm;
+mod telegram;
 
 pub use action::{Action, Decision, PriorityLevel, Source};
 pub use config::{Config, ConfigError, DEFAULT_CONFIG_TOML, GovernorConfig};
@@ -36,6 +37,7 @@ pub use memory_guard::{MemoryGuard, MemoryGuardConfig};
 pub use presets::{Preset, set_preset};
 pub use rules::{Condition, Detail, Matcher, Rule, RuleEngine};
 pub use swarm::{Swarm, SwarmConfig, SwarmWatch, find_swarms, live_parent};
+pub use telegram::{TELEGRAM_SDDL, TelegramConfig, parse_chats, token_looks_valid};
 
 /// Identifies a process instance across PID reuse.
 pub(crate) type Key = (u32, i64);

@@ -32,6 +32,8 @@ pub struct Shared {
     pub events: EventLog,
     /// Current long-term findings.
     pub findings: RwLock<Vec<wtm_policy::Finding>>,
+    /// The configuration in force.
+    pub config: RwLock<wtm_policy::Config>,
     /// History database, opened read-only per request.
     pub history_path: RwLock<Option<std::path::PathBuf>>,
 }
@@ -184,6 +186,25 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 Response::Error("administrator rights required (run the client elevated)".into())
             }
             Request::SetConfig { toml } => set_config(shared, &toml),
+            Request::GetTelegram | Request::SetTelegram(_) | Request::TestTelegram if !admin => {
+                Response::Error("administrator rights required (run the client elevated)".into())
+            }
+            Request::GetTelegram => match telegram_path(shared) {
+                Some(path) => match wtm_policy::TelegramConfig::load(&path) {
+                    Ok(c) => Response::Telegram(c),
+                    Err(e) => Response::Error(e),
+                },
+                None => Response::Error("configuration is not available yet".into()),
+            },
+            Request::SetTelegram(cfg) => set_telegram(shared, &cfg),
+            Request::TestTelegram => match telegram_path(shared)
+                .ok_or_else(|| "configuration is not available yet".to_owned())
+                .and_then(|p| wtm_policy::TelegramConfig::load(&p))
+                .and_then(|c| crate::telegram::test(&c))
+            {
+                Ok(text) => Response::Text(text),
+                Err(e) => Response::Error(e),
+            },
             Request::Control { .. } if !admin => {
                 Response::Error("administrator rights required (run the client elevated)".into())
             }
@@ -275,6 +296,41 @@ fn set_config(shared: &Shared, toml: &str) -> Response {
     match written {
         Ok(()) => {
             shared.events.info(None, "configuration replaced via IPC");
+            Response::Done
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Response::Error(format!("writing {}: {e}", path.display()))
+        }
+    }
+}
+
+/// `telegram.toml` next to the configuration file.
+fn telegram_path(shared: &Shared) -> Option<std::path::PathBuf> {
+    config_path(shared).map(|p| p.with_file_name("telegram.toml"))
+}
+
+/// Validates `cfg` and replaces `telegram.toml`, readable only by SYSTEM
+/// and administrators before it gets its name.
+fn set_telegram(shared: &Shared, cfg: &wtm_policy::TelegramConfig) -> Response {
+    if let Err(e) = cfg.validate() {
+        return Response::Error(e);
+    }
+    let Some(path) = telegram_path(shared) else {
+        return Response::Error("configuration is not available yet".into());
+    };
+    let tmp = path.with_extension("toml.new");
+    let written = std::fs::write(&tmp, cfg.to_toml())
+        .and_then(|()| {
+            wtm_sys::security::set_dacl(&tmp, wtm_policy::TELEGRAM_SDDL)
+                .map_err(|e| io::Error::other(e.to_string()))
+        })
+        .and_then(|()| std::fs::rename(&tmp, &path));
+    match written {
+        Ok(()) => {
+            shared
+                .events
+                .info(None, "Telegram settings replaced via IPC");
             Response::Done
         }
         Err(e) => {
@@ -399,6 +455,12 @@ mod tests {
         let refusal = error(call(&mut f, &control).unwrap());
         let expected = if admin { "stopping" } else { "administrator" };
         assert!(refusal.contains(expected), "{refusal}");
+        let expected = if admin { no_config } else { "administrator" };
+        let set = Request::SetTelegram(wtm_policy::TelegramConfig::default());
+        for request in [Request::GetTelegram, set, Request::TestTelegram] {
+            let refusal = error(call(&mut f, &request).unwrap());
+            assert!(refusal.contains(expected), "{request:?}: {refusal}");
+        }
 
         // A malformed frame ends the session.
         f.write_all(&u32::MAX.to_le_bytes()).unwrap();

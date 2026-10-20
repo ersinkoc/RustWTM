@@ -186,10 +186,31 @@ efficiency mode, caps down to a tenth).
 
 `cpu_cap_relative` is not allowed in insights; use `cpu_cap`.
 
+## Telegram bot
+
+The bot has its own file, `telegram.toml` next to `config.toml`, because it
+holds the bot token: the service limits it to SYSTEM and Administrators.
+Edit it in Settings → Telegram (elevated); the service follows changes
+within seconds.
+
+```toml
+enabled = true
+token = "123456789:AA…"     # from @BotFather
+chats = [123456789]          # chat IDs allowed to use the bot
+notify = true                # forward alerts (CPU overload, swarms, kill list)
+control = true               # allow ending, suspending and resuming
+```
+
+Messages from other chats are answered once with their chat ID and
+otherwise ignored. Ending anything asks for a tap on *End* first; protected
+Windows processes and service hosts are never ended. Send `/help` to the bot
+for every command.
+
 ## Files
 
 | Path | Content |
 |---|---|
 | `%ProgramData%\RustWTM\config.toml` | Configuration |
+| `%ProgramData%\RustWTM\telegram.toml` | Telegram bot settings (administrators only) |
 | `%ProgramData%\RustWTM\history.sqlite` | Per-minute usage history |
 | `%ProgramData%\RustWTM\logs\` | Daily rolling service logs |

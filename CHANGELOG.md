@@ -8,6 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
+- **Telegram bot**: watch and control the PC from your phone. Set it up in
+  Settings → Telegram (a token from @BotFather and the chat IDs allowed to
+  use it; the bot tells strangers their ID). `/status`, `/top`, `/mem`,
+  `/find`, `/info`, `/ports`, `/services`, `/swarms` and `/events` report;
+  `/kill` (by PID or name), `/tree`, `/suspend`, `/resume`, `/free PORT`,
+  `/panic`, `/startsvc` and `/stopsvc` act, ending only after a tap on
+  *End*, with *End* buttons under every list. Alerts (CPU overload, swarms,
+  the kill list) arrive as messages; `/mute` pauses them. The bot runs in
+  the service, so it works with no window open; the token is kept in
+  `%ProgramData%\RustWTM\telegram.toml`, readable only by administrators,
+  and control can be switched off for a report-only bot. Protected Windows
+  processes and service hosts are never ended.
 - Processes: the details panel lists the ports the selected process listens
   on, with the tool they belong to and who can reach them, and opens the
   Ports tab.

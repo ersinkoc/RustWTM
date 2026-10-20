@@ -1,5 +1,6 @@
-//! Minimal HTTPS / HTTP GET through WinHTTP (system proxy, redirects
-//! followed), and SHA-256 through CNG, for update checks and downloads.
+//! Minimal HTTPS / HTTP GET and POST through WinHTTP (system proxy,
+//! redirects followed), and SHA-256 through CNG, for update checks,
+//! downloads and the Telegram bot.
 
 use core::ffi::c_void;
 
@@ -11,7 +12,7 @@ use windows::Win32::Networking::WinHttp::{
     WinHttpSetTimeouts,
 };
 use windows::Win32::Security::Cryptography::{BCRYPT_SHA256_ALG_HANDLE, BCryptHash};
-use windows::core::{PCWSTR, w};
+use windows::core::PCWSTR;
 
 use crate::{Error, Result};
 
@@ -45,6 +46,34 @@ fn wide_z(units: &[u16]) -> Vec<u16> {
 
 /// Downloads `url`; returns the HTTP status and the body.
 pub fn get(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
+    request("GET", url, None, user_agent, 30_000)
+}
+
+/// Sends `body` (of `content_type`) to `url`, waiting up to `timeout_ms`
+/// for the answer; returns the HTTP status and the body.
+pub fn post(
+    url: &str,
+    content_type: &str,
+    body: &[u8],
+    user_agent: &str,
+    timeout_ms: i32,
+) -> Result<(u16, Vec<u8>)> {
+    request(
+        "POST",
+        url,
+        Some((content_type, body)),
+        user_agent,
+        timeout_ms,
+    )
+}
+
+fn request(
+    method: &str,
+    url: &str,
+    body: Option<(&str, &[u8])>,
+    user_agent: &str,
+    timeout_ms: i32,
+) -> Result<(u16, Vec<u8>)> {
     let url_w: Vec<u16> = url.encode_utf16().collect();
     // Null pointers with non-zero lengths: WinHTTP points into `url_w`.
     let mut parts = URL_COMPONENTS {
@@ -71,6 +100,13 @@ pub fn get(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
     }
     let object = wide_z(&object);
     let agent: Vec<u16> = user_agent.encode_utf16().chain([0]).collect();
+    let verb: Vec<u16> = method.encode_utf16().chain([0]).collect();
+    let headers: Vec<u16> = body
+        .map(|(t, _)| format!("Content-Type: {t}\r\n"))
+        .unwrap_or_default()
+        .encode_utf16()
+        .collect();
+    let payload = body.map_or(&[][..], |(_, b)| b);
     let flags = if parts.nScheme.0 == SCHEME_HTTPS {
         WINHTTP_FLAG_SECURE
     } else {
@@ -87,7 +123,7 @@ pub fn get(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
             PCWSTR::null(),
             0,
         ))?;
-        WinHttpSetTimeouts(session.0, 10_000, 10_000, 30_000, 60_000)?;
+        WinHttpSetTimeouts(session.0, 10_000, 10_000, 30_000, timeout_ms)?;
         let connection = Handle::new(WinHttpConnect(
             session.0,
             PCWSTR(host.as_ptr()),
@@ -96,14 +132,21 @@ pub fn get(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
         ))?;
         let request = Handle::new(WinHttpOpenRequest(
             connection.0,
-            w!("GET"),
+            PCWSTR(verb.as_ptr()),
             PCWSTR(object.as_ptr()),
             PCWSTR::null(),
             PCWSTR::null(),
             std::ptr::null(),
             flags,
         ))?;
-        WinHttpSendRequest(request.0, None, None, 0, 0, 0)?;
+        WinHttpSendRequest(
+            request.0,
+            (!headers.is_empty()).then_some(headers.as_slice()),
+            (!payload.is_empty()).then_some(payload.as_ptr().cast()),
+            payload.len() as u32,
+            payload.len() as u32,
+            0,
+        )?;
         WinHttpReceiveResponse(request.0, std::ptr::null_mut())?;
         let mut status = 0u32;
         let mut len = size_of::<u32>() as u32;
@@ -162,9 +205,25 @@ mod tests {
             let mut requests = Vec::new();
             for reply in replies {
                 let (mut s, _) = listener.accept().unwrap();
+                // Headers, then as much body as they announce.
+                let mut req = Vec::new();
                 let mut buf = [0u8; 4096];
-                let n = s.read(&mut buf).unwrap();
-                requests.push(String::from_utf8_lossy(&buf[..n]).into_owned());
+                loop {
+                    let n = s.read(&mut buf).unwrap();
+                    req.extend_from_slice(&buf[..n]);
+                    let text = String::from_utf8_lossy(&req);
+                    let Some(end) = text.find("\r\n\r\n") else {
+                        continue;
+                    };
+                    let len = text
+                        .lines()
+                        .find_map(|l| l.strip_prefix("Content-Length: "))
+                        .map_or(0, |v| v.trim().parse::<usize>().unwrap());
+                    if n == 0 || req.len() >= end + 4 + len {
+                        break;
+                    }
+                }
+                requests.push(String::from_utf8_lossy(&req).into_owned());
                 s.write_all(reply.as_bytes()).unwrap();
             }
             requests
@@ -197,6 +256,29 @@ mod tests {
         );
         assert!(requests[1].starts_with("GET /final "), "{}", requests[1]);
         assert!(requests[2].starts_with("GET / "), "{}", requests[2]);
+    }
+
+    #[test]
+    fn posts_a_body_with_its_content_type() {
+        let (port, server) = serve(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+        ]);
+        let (status, body) = post(
+            &format!("http://127.0.0.1:{port}/bot/send"),
+            "application/json",
+            br#"{"a":1}"#,
+            "wtm-test",
+            5_000,
+        )
+        .unwrap();
+        assert_eq!((status, body.as_slice()), (200, &b"ok"[..]));
+        let request = &server.join().unwrap()[0];
+        assert!(request.starts_with("POST /bot/send HTTP/1.1"), "{request}");
+        assert!(
+            request.contains("Content-Type: application/json"),
+            "{request}"
+        );
+        assert!(request.ends_with(r#"{"a":1}"#), "{request}");
     }
 
     #[test]

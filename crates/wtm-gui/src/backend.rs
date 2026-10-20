@@ -22,6 +22,7 @@ pub type AppHistory = (Vec<AppStats>, Vec<Finding>);
 
 const NO_SERVICE: &str = "Usage history is recorded by the RustWTM service";
 const NO_CONFIG: &str = "The configuration belongs to the RustWTM service";
+const NO_TELEGRAM: &str = "The Telegram bot runs in the RustWTM service";
 
 /// Why `what` (one of the constants above) is unavailable: the service is not
 /// running, or it is another version that this window cannot talk to.
@@ -108,6 +109,8 @@ pub struct Data {
     pub icons: std::collections::HashMap<String, Option<Arc<wtm_core::IconImage>>>,
     /// The service's configuration file: (path, text).
     pub config: Option<Result<(String, String), String>>,
+    /// The service's Telegram bot settings (admins only).
+    pub telegram: Option<Result<wtm_policy::TelegramConfig, String>>,
     pub message: Option<(EventLevel, String)>,
     /// The GUI runs with administrator rights.
     pub elevated: bool,
@@ -150,6 +153,10 @@ pub enum UiCommand {
     },
     /// Replace the service's configuration file (admin only).
     SaveConfig(String),
+    /// Replace the Telegram bot settings (admin only).
+    SaveTelegram(wtm_policy::TelegramConfig),
+    /// Have the service send a test message to the allowed chats.
+    TestTelegram,
     /// Show the process's executable in Explorer.
     OpenLocation(ProcessRef),
     /// Start a program like the Run dialog, optionally as administrator.
@@ -209,6 +216,8 @@ pub enum Panel {
     History,
     /// The service's configuration file.
     Config,
+    /// The Telegram bot settings.
+    Telegram,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -570,6 +579,41 @@ impl Worker {
                 });
                 self.load(Panel::Config);
             }
+            UiCommand::SaveTelegram(cfg) => {
+                let result = match self.client.as_mut() {
+                    None => Err(without_service(&self.data, NO_TELEGRAM)),
+                    Some(c) => match c.call(&Request::SetTelegram(cfg)) {
+                        Ok(Response::Done) => Ok(()),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    },
+                };
+                self.data().message = Some(match result {
+                    Ok(()) => (
+                        EventLevel::Info,
+                        "Telegram settings saved; the bot follows them within seconds.".into(),
+                    ),
+                    Err(e) => (
+                        EventLevel::Error,
+                        format!("Saving the Telegram settings failed: {e}"),
+                    ),
+                });
+                self.load(Panel::Telegram);
+            }
+            UiCommand::TestTelegram => {
+                let result = match self.client.as_mut() {
+                    None => Err(without_service(&self.data, NO_TELEGRAM)),
+                    Some(c) => match c.call(&Request::TestTelegram) {
+                        Ok(Response::Text(t)) => Ok(t),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    },
+                };
+                self.data().message = Some(match result {
+                    Ok(t) => (EventLevel::Info, t),
+                    Err(e) => (EventLevel::Error, format!("Telegram test failed: {e}")),
+                });
+            }
             UiCommand::Inspect(target) => {
                 let result = match self.client.as_mut() {
                     Some(c) => match c.call(&Request::Inspect(target.clone())) {
@@ -632,6 +676,17 @@ impl Worker {
                 data.kill_list = parsed.as_ref().map(|c| c.kill.clone()).unwrap_or_default();
                 data.swarm = parsed.map(|c| c.swarm).unwrap_or_default();
                 data.config = Some(r);
+            }
+            Panel::Telegram => {
+                let r = match self.client.as_mut() {
+                    None => Err(without_service(&self.data, NO_TELEGRAM)),
+                    Some(c) => match c.call(&Request::GetTelegram) {
+                        Ok(Response::Telegram(cfg)) => Ok(cfg),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    },
+                };
+                self.data().telegram = Some(r);
             }
             Panel::Startup => {
                 self.data().startup = Some(wtm_core::startup::list_startup());
@@ -1362,6 +1417,10 @@ mod tests {
         assert!(matches!(&w.data().app_history, Some(Err(e)) if *e == no_history));
         w.handle(UiCommand::SaveConfig(String::new()));
         assert!(message(&w).1.ends_with(&no_config));
+        w.handle(UiCommand::TestTelegram);
+        assert!(message(&w).1.contains(NO_TELEGRAM));
+        w.handle(UiCommand::Load(Panel::Telegram));
+        assert!(matches!(&w.data().telegram, Some(Err(e)) if e.starts_with(NO_TELEGRAM)));
         assert!(matches!(&w.data().config, Some(Err(e)) if *e == no_config));
         // Another version of the service is named as the reason.
         w.data().service_error = Some("service speaks protocol 6, client 7".into());
@@ -1531,6 +1590,9 @@ mod tests {
                 path: r"C:\cfg.toml".into(),
             },
             Request::SetConfig { .. } => Response::Done,
+            Request::GetTelegram => Response::Telegram(wtm_policy::TelegramConfig::default()),
+            Request::SetTelegram(_) => Response::Done,
+            Request::TestTelegram => Response::Text("sent".into()),
             Request::Foreground { .. } => Response::Done,
         })
     }
@@ -1586,6 +1648,13 @@ mod tests {
             hours: 24,
         });
         assert!(w.data().series.is_some());
+        w.handle(UiCommand::SaveTelegram(
+            wtm_policy::TelegramConfig::default(),
+        ));
+        assert_eq!(message(&w).0, EventLevel::Info);
+        assert!(matches!(w.data().telegram, Some(Ok(_))));
+        w.handle(UiCommand::TestTelegram);
+        assert_eq!(message(&w), (EventLevel::Info, "sent".to_owned()));
 
         drop(w.client.take());
         server.join().unwrap();
@@ -1654,6 +1723,8 @@ mod tests {
             Request::AppSeries { .. } => Response::Error("unknown app".into()),
             Request::GetConfig => Response::Done,
             Request::SetConfig { .. } => Response::Error("invalid configuration: x".into()),
+            Request::GetTelegram | Request::SetTelegram(_) => Response::Done,
+            Request::TestTelegram => Response::Error("chat 1: chat not found".into()),
             Request::Foreground { .. } => Response::Error("not a process of your session".into()),
         });
 
@@ -1694,6 +1765,10 @@ mod tests {
         assert_eq!(level, EventLevel::Error);
         assert!(text.ends_with("invalid configuration: x"), "{text}");
         assert!(matches!(&w.data().config, Some(Err(e)) if e.starts_with("unexpected response")));
+        w.handle(UiCommand::TestTelegram);
+        assert!(message(&w).1.ends_with("chat not found"));
+        w.handle(UiCommand::Load(Panel::Telegram));
+        assert!(matches!(&w.data().telegram, Some(Err(e)) if e.starts_with("unexpected response")));
 
         drop(w.client.take());
         server.join().unwrap();

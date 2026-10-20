@@ -14,6 +14,7 @@ mod ports_tab;
 mod processes;
 mod settings;
 mod sort;
+mod telegram_settings;
 mod theme;
 mod tray;
 #[cfg(test)]
