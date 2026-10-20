@@ -38,7 +38,10 @@ const HIGHLIGHTS: [(&str, &str); 6] = [
     ),
 ];
 
-pub fn about(ui: &mut Ui) {
+/// Returns whether the user asked to check for updates.
+pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
+    use crate::backend::UpdateState;
+    let mut check = false;
     egui::ScrollArea::vertical()
         .id_salt("about")
         .show(ui, |ui| {
@@ -59,6 +62,34 @@ pub fn about(ui: &mut Ui) {
                     "Version {}  ·  MIT license  ·  written in Rust",
                     env!("CARGO_PKG_VERSION")
                 ));
+                ui.horizontal(|ui| {
+                    let status = match update {
+                        UpdateState::Unknown => String::new(),
+                        UpdateState::Checking => "Checking for updates…".into(),
+                        UpdateState::UpToDate => "You have the latest version.".into(),
+                        UpdateState::Available(r) => {
+                            format!(
+                                "Version {} is available (see the bar at the top).",
+                                r.version_text()
+                            )
+                        }
+                        UpdateState::Installing(r) => format!("Installing {}…", r.version_text()),
+                        UpdateState::Failed(e) => format!("Update check failed: {e}"),
+                    };
+                    // Centre the button and the status.
+                    let width = 360.0_f32.min(ui.available_width());
+                    ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
+                    if ui
+                        .add_enabled(
+                            !matches!(update, UpdateState::Checking | UpdateState::Installing(_)),
+                            egui::Button::new("Check for updates"),
+                        )
+                        .clicked()
+                    {
+                        check = true;
+                    }
+                    ui.weak(status);
+                });
                 ui.add_space(14.0);
 
                 ui.label(
@@ -125,6 +156,7 @@ pub fn about(ui: &mut Ui) {
                  GitHub is the best way to say thanks."
             ));
         });
+    check
 }
 
 #[cfg(test)]
@@ -137,7 +169,9 @@ mod tests {
         let mut h = egui_kittest::Harness::builder()
             .allow_missing_glyphs()
             .with_size([1100.0, 900.0])
-            .build_ui(about);
+            .build_ui(|ui| {
+                about(ui, &crate::backend::UpdateState::UpToDate);
+            });
         h.run();
         assert!(h.query_by_label("Crafted by Ersin KOÇ").is_some());
         assert!(h.query_by_label("★ Star RustWTM on GitHub").is_some());
@@ -145,6 +179,35 @@ mod tests {
             h.query_by_label_contains(env!("CARGO_PKG_VERSION"))
                 .is_some()
         );
-        assert!(h.query_by_label("Budgets per app").is_some());
+        assert!(h.query_by_label_contains("Budgets per app").is_some());
+        assert!(h.query_by_label("You have the latest version.").is_some());
+    }
+
+    #[test]
+    fn about_shows_where_the_update_check_stands() {
+        use crate::backend::UpdateState;
+        for (state, text) in [
+            (
+                UpdateState::Failed("offline".into()),
+                "Update check failed: offline",
+            ),
+            (UpdateState::Checking, "Checking for updates…"),
+        ] {
+            let mut h = egui_kittest::Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([1100.0, 900.0])
+                .build_ui(|ui| {
+                    about(ui, &state);
+                });
+            h.run();
+            assert!(h.query_by_label(text).is_some(), "{text}");
+        }
+        let mut h = egui_kittest::Harness::builder()
+            .allow_missing_glyphs()
+            .build_ui(|ui| {
+                about(ui, &UpdateState::Unknown);
+            });
+        h.run();
+        assert!(h.query_by_label("Check for updates").is_some());
     }
 }

@@ -133,6 +133,13 @@ struct UiState {
     autostart: Option<bool>,
     /// Frames left in which the window is hidden (started in the tray).
     hide_frames: u8,
+    check_updates: bool,
+    skip_version: Option<String>,
+    /// "Later" on the update bar: hidden until the next start.
+    update_later: bool,
+    /// "Update now" was clicked (its failure is shown).
+    update_started: bool,
+    last_update_check: Option<Instant>,
     last_load: HashMap<Panel, Instant>,
 }
 
@@ -189,6 +196,9 @@ struct Prefs {
     process_heat: bool,
     alerts: crate::alert::AlertSettings,
     tray_on_close: bool,
+    check_updates: bool,
+    /// A release the user chose to skip.
+    skip_version: Option<String>,
 }
 
 impl Default for Prefs {
@@ -210,6 +220,8 @@ impl UiState {
             process_heat: p.heat,
             alerts: self.alerts,
             tray_on_close: self.tray_on_close,
+            check_updates: self.check_updates,
+            skip_version: self.skip_version.clone(),
         }
     }
 
@@ -234,6 +246,8 @@ impl UiState {
         p.heat = prefs.process_heat;
         self.alerts = prefs.alerts;
         self.tray_on_close = prefs.tray_on_close;
+        self.check_updates = prefs.check_updates;
+        self.skip_version = prefs.skip_version;
     }
 }
 
@@ -260,6 +274,11 @@ impl Default for UiState {
             tray_on_close: true,
             autostart: None,
             hide_frames: 0,
+            check_updates: true,
+            skip_version: None,
+            update_later: false,
+            update_started: false,
+            last_update_check: None,
             last_load: HashMap::new(),
         }
     }
@@ -320,6 +339,16 @@ impl eframe::App for App {
         }
         let mut intents = Vec::new();
         let mut service_cmds: Vec<UiCommand> = Vec::new();
+
+        if state.check_updates
+            && state
+                .last_update_check
+                .is_none_or(|t| t.elapsed() >= UPDATE_CHECK_EVERY)
+        {
+            state.last_update_check = Some(Instant::now());
+            service_cmds.push(UiCommand::CheckUpdate);
+        }
+        update_bar(ui, &data, state, &mut service_cmds);
 
         // Narrow windows get the icon-only rail unless the user chose.
         let collapsed = state
@@ -430,7 +459,12 @@ impl eframe::App for App {
                 service_cmds.extend(cmds);
                 intents.extend(more);
             }
-            Tab::About => crate::about::about(ui),
+            Tab::About => {
+                if crate::about::about(ui, &data.update) {
+                    state.last_update_check = Some(Instant::now());
+                    service_cmds.push(UiCommand::CheckUpdate);
+                }
+            }
             Tab::Limits => {
                 service_cmds.extend(crate::limits_tab::limits_tab(ui, &data, &mut state.limits));
             }
@@ -648,6 +682,80 @@ impl eframe::App for App {
     }
 }
 
+/// How often RustWTM asks GitHub for a newer release.
+const UPDATE_CHECK_EVERY: Duration = Duration::from_secs(12 * 3600);
+
+/// A bar above everything when a newer release is out (or being installed).
+fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<UiCommand>) {
+    use crate::backend::UpdateState;
+    let release = match &data.update {
+        UpdateState::Available(r)
+            if !state.update_later && state.skip_version.as_deref() != Some(&r.tag) =>
+        {
+            r
+        }
+        UpdateState::Installing(r) => r,
+        // Only the failure of an install the user started is worth a bar.
+        UpdateState::Failed(e) if state.update_started => {
+            egui::Panel::top("update_bar").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.colored_label(BAD, format!("The update failed: {e}"));
+                    ui.hyperlink_to("Release page", wtm_core::update::RELEASES_PAGE);
+                    if ui.button("Dismiss").clicked() {
+                        state.update_started = false;
+                    }
+                });
+            });
+            return;
+        }
+        _ => return,
+    };
+    egui::Panel::top("update_bar").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            if matches!(data.update, UpdateState::Installing(_)) {
+                ui.spinner();
+                ui.label(format!(
+                    "Downloading and verifying RustWTM {}; the installer starts next and RustWTM restarts by itself.",
+                    release.version_text()
+                ));
+                return;
+            }
+            ui.label(
+                RichText::new(format!(
+                    "⬆ RustWTM {} is available (you have {}).",
+                    release.version_text(),
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .strong()
+                .color(GOOD),
+            );
+            if data.installable && release.msi.is_some() {
+                if ui
+                    .button(RichText::new("Update now").strong())
+                    .on_hover_text(
+                        "Downloads the installer, checks it against its published SHA-256, \
+                         installs it (Windows asks for administrator rights) and restarts RustWTM",
+                    )
+                    .clicked()
+                {
+                    commands.push(UiCommand::InstallUpdate(release.clone()));
+                    state.update_started = true;
+                }
+            } else {
+                ui.hyperlink_to("Download", &release.page)
+                    .on_hover_text("This copy was not installed with the installer");
+            }
+            ui.hyperlink_to("What's new", &release.page);
+            if ui.button("Later").clicked() {
+                state.update_later = true;
+            }
+            if ui.button("Skip this version").clicked() {
+                state.skip_version = Some(release.tag.clone());
+            }
+        });
+    });
+}
+
 /// Preferences of this window (the service's settings follow below them).
 fn window_settings(ui: &mut Ui, state: &mut UiState) {
     ui.heading("This window");
@@ -674,6 +782,8 @@ fn window_settings(ui: &mut Ui, state: &mut UiState) {
         &mut state.tray_on_close,
         "Keep running in the tray when the window is closed",
     );
+    ui.checkbox(&mut state.check_updates, "Check for updates automatically")
+        .on_hover_text("Asks GitHub for a newer release at start and twice a day");
     let mut on = *state
         .autostart
         .get_or_insert_with(crate::backend::autostart_enabled);
@@ -1621,6 +1731,8 @@ mod tests {
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
             UiCommand::RestartElevated => "restart elevated".into(),
             UiCommand::CloseAlert(quiet) => format!("close alert {}", quiet.as_secs()),
+            UiCommand::CheckUpdate => "check update".into(),
+            UiCommand::InstallUpdate(r) => format!("install update {}", r.tag),
         }
     }
 
@@ -1921,6 +2033,90 @@ mod tests {
     }
 
     #[test]
+    fn update_bar_offers_the_new_version() {
+        use crate::backend::UpdateState;
+        let release = |tag: &str, msi: bool| wtm_core::update::Release {
+            version: (99, 1, 0),
+            tag: tag.into(),
+            page: "https://example.invalid/r".into(),
+            msi: msi.then(|| ("https://x/a.msi".into(), "https://x/a.sha256".into())),
+        };
+        let mut d = data();
+        d.update = UpdateState::Available(release("v99.1.0", true));
+        d.installable = true;
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState::default(),
+                tray: None,
+            });
+        let sent = |h: &mut Harness<'_, App>| {
+            h.run_steps(2);
+            rx.try_iter().map(describe_command).collect::<Vec<_>>()
+        };
+        let s = sent(&mut h);
+        assert!(
+            s.contains(&"check update".to_owned()),
+            "checked at start: {s:?}"
+        );
+        assert!(
+            h.query_by_label_contains("RustWTM 99.1.0 is available (you have")
+                .is_some()
+        );
+        h.get_by_label("Update now").click();
+        assert_eq!(sent(&mut h), ["install update v99.1.0"]);
+        assert!(h.state().state.update_started);
+
+        // Installing shows progress, a failure says why.
+        h.state().backend.data().update = UpdateState::Installing(release("v99.1.0", true));
+        h.run_steps(2);
+        assert!(
+            h.query_by_label_contains("Downloading and verifying RustWTM 99.1.0")
+                .is_some()
+        );
+        h.state().backend.data().update = UpdateState::Failed("checksum mismatch".into());
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("The update failed: checksum mismatch")
+                .is_some()
+        );
+        h.get_by_label("Dismiss").click();
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("The update failed").is_none());
+
+        // Not installed with the installer: a download link instead.
+        h.state().backend.data().installable = false;
+        h.state().backend.data().update = UpdateState::Available(release("v99.1.0", true));
+        h.run_steps(2);
+        assert!(h.query_by_label("Update now").is_none());
+        assert!(h.query_by_label("Download").is_some());
+        // Skip remembers the version; Later hides it for this run.
+        h.get_by_label("Skip this version").click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.skip_version.as_deref(), Some("v99.1.0"));
+        assert!(h.query_by_label_contains("is available").is_none());
+        h.state().backend.data().update = UpdateState::Available(release("v99.2.0", false));
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("is available").is_some());
+        h.get_by_label("Later").click();
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("is available").is_none());
+
+        // About checks on request.
+        h.state_mut().state.tab = Tab::About;
+        h.run_steps(2);
+        sent(&mut h);
+        h.get_by_label("Check for updates").click();
+        assert_eq!(sent(&mut h), ["check update"]);
+        h.state().backend.data().update = UpdateState::Checking;
+        h.run_steps(2);
+        assert!(h.query_by_label("Checking for updates…").is_some());
+    }
+
+    #[test]
     fn closing_the_window_hides_it_to_the_tray_setting() {
         let (backend, _rx) = Backend::offline(data());
         let mut h = Harness::builder()
@@ -2016,6 +2212,8 @@ mod tests {
                 backend,
                 state: UiState {
                     tab: Tab::Processes,
+                    // Its command list is compared exactly.
+                    check_updates: false,
                     ..Default::default()
                 },
                 tray: None,

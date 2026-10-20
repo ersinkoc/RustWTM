@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Updates inside the app**: RustWTM checks GitHub for a newer release at
+  start and twice a day and shows a bar with *Update now*, which downloads
+  the installer, verifies it against the SHA-256 published with the release
+  (nothing is installed on a mismatch), runs it (Windows asks for
+  administrator rights) and starts the new version. *What's new*, *Later*
+  and *Skip this version* are on the bar; *Check for updates* is in About,
+  and automatic checks can be turned off in Settings → This window. Copies
+  not installed with the MSI get a download link instead.
+
 ### Fixed
 
 - The taskbar and Alt+Tab show the RustWTM logo instead of the default

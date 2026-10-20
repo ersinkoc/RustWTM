@@ -38,6 +38,9 @@ usage history.
   disk I/O), App history, Startup apps,
   Users, Services (start / stop / startup type), Network connections, Events;
   every list sorts by any column.
+- Update notice with one-click update: the new installer is downloaded,
+  checked against its published SHA-256 and installed; RustWTM restarts
+  by itself.
 - Run new task (optionally as administrator) and one-click restart as
   administrator; the window remembers its size, tab, columns and sorts.
 - Settings: edit the service's configuration with live validation and a

@@ -9,6 +9,7 @@ mod protection;
 mod sampler;
 pub mod startup;
 mod tree;
+pub mod update;
 
 pub use model::{ProcessInfo, Snapshot, SortKey, SystemStats, format_bytes, sort_processes};
 pub use protection::protection_reason;

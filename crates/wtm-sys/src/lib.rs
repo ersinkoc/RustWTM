@@ -9,6 +9,7 @@ pub mod disk;
 mod error;
 pub mod gpu;
 mod handle;
+pub mod http;
 pub mod icon;
 pub mod job;
 pub mod net;

@@ -111,6 +111,9 @@ pub struct Data {
     pub alert_watch: crate::alert::AlertWatch,
     /// The service's kill list, from the last configuration loaded.
     pub kill_list: Vec<wtm_policy::KillEntry>,
+    pub update: UpdateState,
+    /// This copy was installed by the MSI, so an installer can update it.
+    pub installable: bool,
     /// Why the last attempt to reach the service failed.
     pub service_error: Option<String>,
 }
@@ -151,6 +154,42 @@ pub enum UiCommand {
     RestartElevated,
     /// The user closed the CPU alert; stay quiet for this long.
     CloseAlert(Duration),
+    /// Ask GitHub for the latest release.
+    CheckUpdate,
+    /// Download, verify and install this release, then restart.
+    InstallUpdate(wtm_core::update::Release),
+}
+
+/// Where the update check stands.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum UpdateState {
+    #[default]
+    Unknown,
+    Checking,
+    UpToDate,
+    Available(wtm_core::update::Release),
+    /// Downloading and verifying, then the installer takes over.
+    Installing(wtm_core::update::Release),
+    Failed(String),
+}
+
+/// The steps of an update, replaceable in tests.
+#[derive(Clone, Copy)]
+pub struct Updater {
+    pub latest: fn() -> Result<wtm_core::update::Release, String>,
+    pub download:
+        fn(&wtm_core::update::Release, &std::path::Path) -> Result<std::path::PathBuf, String>,
+    pub install: fn(&std::path::Path, &std::path::Path) -> Result<(), String>,
+}
+
+impl Default for Updater {
+    fn default() -> Self {
+        Self {
+            latest: wtm_core::update::latest,
+            download: wtm_core::update::download,
+            install: wtm_core::update::install,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -186,6 +225,8 @@ impl Backend {
     pub fn start(ctx: egui::Context) -> Self {
         let data = Arc::new(Mutex::new(Data {
             elevated: wtm_core::launch::is_elevated(),
+            installable: std::env::current_exe()
+                .is_ok_and(|exe| wtm_core::update::installed_by_msi(&exe)),
             ..Data::default()
         }));
         let (tx, rx) = mpsc::channel();
@@ -198,6 +239,7 @@ impl Backend {
             window: window.clone(),
             raise: raise_window,
             calm: calm_window,
+            updater: Updater::default(),
             client: None,
             pipe: wtm_ipc::PIPE_NAME.to_owned(),
             next_connect: Instant::now(),
@@ -254,6 +296,7 @@ struct Worker {
     raise: fn(isize),
     /// Undoes `raise` once the alert is closed.
     calm: fn(isize),
+    updater: Updater,
     client: Option<Client>,
     /// Pipe of the service to connect to.
     pipe: String,
@@ -458,6 +501,41 @@ impl Worker {
                         EventLevel::Error,
                         format!("Cannot restart as administrator: {e}"),
                     )),
+                });
+            }
+            UiCommand::CheckUpdate => {
+                let (data, ctx, latest) =
+                    (self.data.clone(), self.ctx.clone(), self.updater.latest);
+                set_update(&data, UpdateState::Checking);
+                std::thread::spawn(move || {
+                    let state = match latest() {
+                        Ok(r) if r.is_newer_than(wtm_core::update::current()) => {
+                            UpdateState::Available(r)
+                        }
+                        Ok(_) => UpdateState::UpToDate,
+                        Err(e) => UpdateState::Failed(e),
+                    };
+                    set_update(&data, state);
+                    ctx.request_repaint();
+                });
+            }
+            UiCommand::InstallUpdate(release) => {
+                let (data, ctx, updater) = (self.data.clone(), self.ctx.clone(), self.updater);
+                set_update(&data, UpdateState::Installing(release.clone()));
+                std::thread::spawn(move || {
+                    let dir = std::env::temp_dir().join("RustWTM-update");
+                    let result = (updater.download)(&release, &dir).and_then(|msi| {
+                        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                        (updater.install)(&msi, &exe)
+                    });
+                    match result {
+                        // The installer replaces our files and starts us again.
+                        Ok(()) => crate::tray::request_exit(&ctx),
+                        Err(e) => {
+                            set_update(&data, UpdateState::Failed(e));
+                            ctx.request_repaint();
+                        }
+                    }
                 });
             }
             UiCommand::CloseAlert(quiet) => {
@@ -763,6 +841,10 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     data.snapshot = Some(Arc::new(snapshot));
 }
 
+fn set_update(data: &Mutex<Data>, state: UpdateState) {
+    data.lock().unwrap_or_else(PoisonError::into_inner).update = state;
+}
+
 /// Shows the window above everything and keeps RustWTM responsive while
 /// the machine is overloaded.
 fn raise_window(window: isize) {
@@ -992,6 +1074,11 @@ mod tests {
             window: Arc::new(AtomicIsize::new(0)),
             raise: |_| {},
             calm: |_| {},
+            updater: Updater {
+                latest: || Err("offline".into()),
+                download: |_, _| Err("offline".into()),
+                install: |_, _| Err("offline".into()),
+            },
             client: None,
             pipe: String::new(),
             // Never try the real service pipe from tests.
@@ -1072,6 +1159,69 @@ mod tests {
         // The real helpers: our own priority goes up and back; no window.
         raise_window(0);
         calm_window(0);
+    }
+
+    fn release(major: u32) -> wtm_core::update::Release {
+        wtm_core::update::Release {
+            version: (major, 0, 0),
+            tag: format!("v{major}.0.0"),
+            page: "https://example.invalid/r".into(),
+            msi: Some((
+                "https://example.invalid/a.msi".into(),
+                "https://example.invalid/a.sha256".into(),
+            )),
+        }
+    }
+
+    /// Waits until the update state leaves `Checking` / `Installing`.
+    fn settled(w: &Worker) -> UpdateState {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let s = w.data().update.clone();
+            if !matches!(s, UpdateState::Checking | UpdateState::Installing(_)) {
+                return s;
+            }
+            assert!(Instant::now() < deadline, "update never settled");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn checks_for_and_installs_updates_in_the_background() {
+        let mut w = worker();
+        w.updater.latest = || Ok(release(99));
+        w.handle(UiCommand::CheckUpdate);
+        assert_eq!(settled(&w), UpdateState::Available(release(99)));
+        w.updater.latest = || Ok(release(0));
+        w.handle(UiCommand::CheckUpdate);
+        assert_eq!(settled(&w), UpdateState::UpToDate);
+        w.handle(UiCommand::CheckUpdate);
+        w.updater.latest = || Err("offline".into());
+        w.handle(UiCommand::CheckUpdate);
+        assert_eq!(settled(&w), UpdateState::Failed("offline".into()));
+
+        // A failed download is shown and nothing is installed.
+        w.updater.download = |_, _| Err("checksum mismatch".into());
+        w.updater.install = |_, _| panic!("must not install");
+        w.handle(UiCommand::InstallUpdate(release(99)));
+        assert_eq!(settled(&w), UpdateState::Failed("checksum mismatch".into()));
+
+        // Success hands over to the installer and exits.
+        let ctx = egui::Context::default();
+        w.ctx = ctx.clone();
+        w.updater.download = |_, dir| Ok(dir.join("a.msi"));
+        w.updater.install = |msi, exe| {
+            assert!(msi.ends_with("RustWTM-update\\a.msi"));
+            assert_eq!(exe, std::env::current_exe().unwrap());
+            Ok(())
+        };
+        w.handle(UiCommand::InstallUpdate(release(99)));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !crate::tray::exit_requested(&ctx) {
+            assert!(Instant::now() < deadline, "did not exit for the installer");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(Updater::default().latest as usize != 0);
     }
 
     #[test]
