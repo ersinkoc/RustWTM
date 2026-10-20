@@ -16,6 +16,13 @@ All notable changes to this project are documented here. The format follows
   last two minutes (recorded for every process, so it shows at once).
 - The tray icon shows the CPU load as a bar (green, orange from 60%, red from
   90%); its tooltip adds memory use.
+- Performance: activity, read and write rate of every physical disk, and the
+  load of every GPU engine (3D, Copy, Video decode, ...).
+
+### Changed
+
+- IPC protocol version 7 (system statistics carry disks and GPU engines);
+  update the GUI, CLI and service together.
 
 ## [0.4.0] - 2026-10-20
 

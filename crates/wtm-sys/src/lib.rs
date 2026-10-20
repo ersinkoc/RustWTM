@@ -5,6 +5,7 @@
 #![cfg(windows)]
 
 pub mod control;
+pub mod disk;
 mod error;
 pub mod gpu;
 mod handle;

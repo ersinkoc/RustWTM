@@ -62,6 +62,13 @@ pub fn snapshot() -> Snapshot {
             net_tx_rate: 512.0,
             io_read_rate: 1000.0,
             io_write_rate: 0.0,
+            disks: vec![wtm_core::DiskUsage {
+                name: "0 C:".into(),
+                active_percent: 37.0,
+                read_rate: 2048.0,
+                write_rate: 0.0,
+            }],
+            gpu_engines: vec![("3D".into(), 12.0), ("Copy".into(), 0.0)],
         },
         processes: vec![
             proc(0, 0, "System Idle Process", 50.0),
@@ -482,6 +489,9 @@ fn performance_shows_cores_network_and_io() {
     );
     assert!(h.query_by_label(&net).is_some(), "{net}");
     assert!(h.query_by_label_contains("Disk & I/O  read").is_some());
+    assert!(h.query_by_label("Disk 0 C:").is_some());
+    assert!(h.query_by_label_contains("37% active").is_some());
+    assert!(h.query_by_label("3D").is_some() && h.query_by_label("Copy").is_some());
     h.get_by_label("CPU 1: 70.0%").hover();
     h.run();
     assert!(

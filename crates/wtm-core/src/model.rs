@@ -72,6 +72,12 @@ pub struct SystemStats {
     pub io_read_rate: f64,
     #[serde(default)]
     pub io_write_rate: f64,
+    /// Every physical disk; empty without disk performance counters.
+    #[serde(default)]
+    pub disks: Vec<wtm_sys::disk::DiskUsage>,
+    /// Load of every GPU engine type, by name, 0..=100.
+    #[serde(default)]
+    pub gpu_engines: Vec<(String, f32)>,
 }
 
 impl SystemStats {

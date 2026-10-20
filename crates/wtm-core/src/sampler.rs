@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use wtm_sys::disk::DiskSampler;
 use wtm_sys::gpu::GpuSampler;
 use wtm_sys::process::{ProcessSnapshotter, RawProcess};
 use wtm_sys::system::{self, CpuTimes, NetCounters};
@@ -13,6 +14,8 @@ pub struct Sampler {
     snapshotter: ProcessSnapshotter,
     /// None on systems without GPU performance counters.
     gpu: Option<GpuSampler>,
+    /// None on systems without disk performance counters.
+    disks: Option<DiskSampler>,
     logical_cpus: u32,
     prev: Option<Previous>,
 }
@@ -112,6 +115,7 @@ impl Sampler {
         Self {
             snapshotter: ProcessSnapshotter::new(),
             gpu: GpuSampler::new().ok(),
+            disks: DiskSampler::new().ok(),
             logical_cpus: system::logical_cpu_count(),
             prev: None,
         }
@@ -146,6 +150,12 @@ impl Sampler {
             commit_limit: mem.commit_limit,
             commit_available: mem.commit_avail,
             gpu_percent: gpu.total_percent,
+            gpu_engines: gpu.engines.clone(),
+            disks: self
+                .disks
+                .as_mut()
+                .and_then(|d| d.sample().ok())
+                .unwrap_or_default(),
             process_count: raw.len(),
             ..Default::default()
         };
@@ -300,5 +310,6 @@ mod tests {
         assert!(!cores.is_empty() && cores.iter().any(|&c| c > 0.0));
         assert!(cores.iter().all(|c| (0.0..=100.0).contains(c)));
         assert!(second.system.net_rx_rate >= 0.0 && second.system.io_read_rate >= 0.0);
+        assert!(!second.system.disks.is_empty(), "this machine has a disk");
     }
 }

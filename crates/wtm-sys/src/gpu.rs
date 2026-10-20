@@ -28,6 +28,8 @@ pub struct GpuSample {
     pub per_process: HashMap<u32, GpuUsage>,
     /// Busiest engine type across all processes, 0..=100.
     pub total_percent: f32,
+    /// Load of every engine type (3D, Copy, VideoDecode, ...), by name.
+    pub engines: Vec<(String, f32)>,
 }
 
 pub struct GpuSampler {
@@ -46,7 +48,7 @@ impl std::fmt::Debug for GpuSampler {
 // goes through `&mut self`, so they are never used concurrently.
 unsafe impl Send for GpuSampler {}
 
-fn pdh(call: &'static str, status: u32) -> Result<()> {
+pub(crate) fn pdh(call: &'static str, status: u32) -> Result<()> {
     if status == 0 {
         Ok(())
     } else {
@@ -137,6 +139,11 @@ fn aggregate(engine: &[(String, f64)], memory: &[(String, i64)]) -> GpuSample {
         e.percent = e.percent.max(v.min(100.0) as f32);
     }
     out.total_percent = totals.values().fold(0.0f64, |a, b| a.max(*b)).min(100.0) as f32;
+    out.engines = totals
+        .iter()
+        .map(|(name, v)| ((*name).to_owned(), v.min(100.0) as f32))
+        .collect();
+    out.engines.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (name, v) in memory {
         let Some(pid) = parse_pid(name) else {
@@ -155,7 +162,7 @@ impl Drop for GpuSampler {
 }
 
 /// Calls `f` for every valid instance value of a wildcard counter.
-fn read_array(
+pub(crate) fn read_array(
     counter: PDH_HCOUNTER,
     format: PDH_FMT,
     mut f: impl FnMut(String, &PDH_FMT_COUNTERVALUE_ITEM_W),
@@ -261,6 +268,14 @@ mod tests {
         // Negative counter values clamp to zero.
         assert_eq!(get(4), Some(GpuUsage::default()));
         assert_eq!(s.per_process.len(), 4);
+        assert_eq!(
+            s.engines,
+            [
+                ("3D".to_owned(), 100.0),
+                ("Copy".to_owned(), 10.0),
+                ("VideoDecode".to_owned(), 100.0)
+            ]
+        );
     }
 
     #[test]

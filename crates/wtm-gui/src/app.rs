@@ -814,6 +814,24 @@ pub(crate) fn rate_label(hover: &egui_plot::HoverPosition<'_>) -> Option<String>
     }
 }
 
+/// Rows of name, a bar filled to `load` (0..=100) and its caption.
+fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, String)>) {
+    egui::Grid::new(id)
+        .num_columns(2)
+        .spacing([12.0, 4.0])
+        .show(ui, |ui| {
+            for (name, load, caption) in rows {
+                ui.label(name);
+                ui.add(
+                    egui::ProgressBar::new(load.clamp(0.0, 100.0) / 100.0)
+                        .desired_width(320.0)
+                        .text(caption),
+                );
+                ui.end_row();
+            }
+        });
+}
+
 /// One small box per logical processor, filled to its load.
 fn core_grid(ui: &mut Ui, cores: &[f32]) {
     const CELL: egui::Vec2 = egui::vec2(64.0, 34.0);
@@ -878,6 +896,16 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
         ui.add_space(10.0);
         ui.heading(format!("GPU  {:.1}%  (busiest engine)", s.gpu_percent));
         history_plot(ui, "gpu_plot", "GPU", &data.history.gpu);
+        if !s.gpu_engines.is_empty() {
+            ui.add_space(4.0);
+            load_bars(
+                ui,
+                "gpu_engines",
+                s.gpu_engines
+                    .iter()
+                    .map(|(name, load)| (name.clone(), *load, format!("{load:.0}%"))),
+            );
+        }
         ui.add_space(10.0);
         ui.heading(format!(
             "Network  ↓ {}/s  ↑ {}/s",
@@ -906,6 +934,25 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
                 ("Write", &data.history.io_write),
             ],
         );
+        if !s.disks.is_empty() {
+            ui.add_space(4.0);
+            load_bars(
+                ui,
+                "disks",
+                s.disks.iter().map(|d| {
+                    (
+                        format!("Disk {}", d.name),
+                        d.active_percent,
+                        format!(
+                            "{:.0}% active   read {}/s   write {}/s",
+                            d.active_percent,
+                            format_bytes(d.read_rate),
+                            format_bytes(d.write_rate)
+                        ),
+                    )
+                }),
+            );
+        }
         ui.add_space(10.0);
         egui::Grid::new("perf_grid")
             .num_columns(2)
