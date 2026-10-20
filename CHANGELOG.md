@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Swarm warning**: when one program runs in 150 copies or more (a tool
+  that keeps starting helpers and never waits for them, such as a status
+  probe launching `powershell.exe` every few seconds), the service sends a
+  desktop notification and Overview shows who started them, how much memory
+  they hold, and buttons to end them all, only those whose parent exited, or
+  to add the program to the kill list. `svchost.exe` and other normal crowds
+  are ignored; set `[swarm] min_count` and `exempt` in the configuration.
+
 ## [0.9.0] - 2026-10-20
 
 ### Added

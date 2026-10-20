@@ -218,6 +218,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut memory_guard = wtm_policy::MemoryGuard::new(config.memory_guard.clone());
     let mut rules = RuleEngine::new(config.rules.clone());
     let mut kill_watch = wtm_policy::KillWatch::new(config.kill.clone());
+    let mut swarm_watch = wtm_policy::SwarmWatch::new();
     let mut executor = Executor::new(config.dry_run, shared.events.clone());
     let mut history = match History::open(&paths.history) {
         Ok(h) => {
@@ -393,6 +394,14 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         ));
         for d in &decisions {
             let _ = executor.execute(d);
+        }
+        for (name, count, parents) in swarm_watch.tick(&snap.processes, &config.swarm) {
+            shared.events.alert(
+                None,
+                format!(
+                    "{count} copies of {name} are running (started by {parents});                      end them from RustWTM's Overview"
+                ),
+            );
         }
 
         *shared
@@ -676,6 +685,8 @@ mod tests {
         std::fs::copy(r"C:\Windows\System32\cmd.exe", &victim).unwrap();
         let hog = dir.join("wtm-engine-hog.exe");
         std::fs::copy(r"C:\Windows\System32\cmd.exe", &hog).unwrap();
+        let swarm = dir.join("wtm-engine-swarm.exe");
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &swarm).unwrap();
 
         let block_key = format!(r"Software\RustWTM-test-engine-block-{}", std::process::id());
         let paths = Paths {
@@ -694,7 +705,8 @@ mod tests {
             &paths.config,
             "dry_run = false\nsample_interval_ms = 200\nblock = [\"wtm-blocked-test.exe\"]\n[governor]\nenabled = false\n\
              [[rule]]\nname = \"no victims\"\nmatch = { name = \"wtm-engine-victim.exe\" }\nactions = [\"kill\"]\n\
-             [[kill]]\nname = \"wtm-engine-hog.exe\"\ncmdline = \"burn\"\ncpu_above = 1\nfor_secs = 1\n",
+             [[kill]]\nname = \"wtm-engine-hog.exe\"\ncmdline = \"burn\"\ncpu_above = 1\nfor_secs = 1\n\
+             [swarm]\nmin_count = 10\n",
         )
         .unwrap();
 
@@ -736,6 +748,35 @@ mod tests {
             "other command line kept"
         );
         drop(spared);
+
+        // A swarm of idle copies is reported once, with who started them.
+        let copies: Vec<Guard> = (0..12)
+            .map(|_| {
+                Guard(
+                    Proc::new(&swarm)
+                        .args(["/d", "/k"])
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                        .unwrap(),
+                )
+            })
+            .collect();
+        let alert = wait_for("swarm reported", || {
+            events(&mut client)
+                .into_iter()
+                .find(|e| e.message.contains("copies of wtm-engine-swarm.exe"))
+        });
+        assert!(alert.notify, "{alert:?}");
+        // Reported as soon as at least 10 copies run, with their parent.
+        let count: usize = alert.message.split(' ').next().unwrap().parse().unwrap();
+        assert!((10..=12).contains(&count), "{alert:?}");
+        assert!(
+            alert.message.contains("started by wtm_service"),
+            "{alert:?}"
+        );
+        drop(copies);
 
         // Read-only requests.
         let snap = wait_for("snapshot", || snapshot(&mut client));

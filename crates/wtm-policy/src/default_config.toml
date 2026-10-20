@@ -96,6 +96,14 @@ min_working_set_mb = 300
 cooldown_secs = 300
 exempt = []
 
+# Swarms: a warning (desktop notification) when one program runs in at least
+# min_count copies, typically a tool that keeps starting helpers and never
+# waits for them. Nothing is ended; RustWTM's Overview offers to end them.
+[swarm]
+enabled = true
+min_count = 150
+exempt = []
+
 # App limits: every process of an app and everything it starts share a CPU
 # and/or memory budget (job object). scope = "each" gives every top-level
 # instance its own budget. Edit them in the GUI's Limits tab or with

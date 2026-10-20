@@ -79,6 +79,10 @@ usage history.
   *Free a port* ends whatever keeps it busy (`wtm ports`,
   `wtm free-port 3000 --yes`). Windows' own ports and service hosts are left
   alone, and Docker / WSL relays come with a warning.
+- **Swarm warning**: hundreds of copies of one program (a script that keeps
+  starting `powershell.exe` and never waits for it) are reported with who
+  started them; Overview ends them all, or only the orphaned ones, in one
+  click.
 - **Blocking**: programs on the `block` list are prevented from starting at
   all (Image File Execution Options), with a notification to the user.
 - **Long-term insights**: per-minute, per-app usage is recorded to SQLite.

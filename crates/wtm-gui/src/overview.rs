@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, RichText, Ui};
 use wtm_core::control::{EcoQos, ProcessRef};
-use wtm_core::format_bytes;
+use wtm_core::{ProcessInfo, format_bytes};
 use wtm_ipc::Command;
 use wtm_policy::{Config, Preset, set_preset};
 
@@ -128,6 +128,72 @@ fn verdict(data: &Data) -> Option<(Color32, String)> {
     })
 }
 
+/// Hundreds of copies of one program: who started them and one click to end
+/// them all, or only those nothing waits for any more.
+fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Intent>) {
+    let swarms = wtm_policy::find_swarms(procs, &data.swarm);
+    if swarms.is_empty() {
+        return;
+    }
+    let by_pid: HashMap<u32, &ProcessInfo> = procs.iter().map(|p| (p.pid, p)).collect();
+    for s in &swarms {
+        ui.add_space(6.0);
+        crate::theme::card(
+            ui,
+            RichText::new(format!(
+                "⚠ {} copies of {} are running",
+                s.members.len(),
+                s.name
+            ))
+            .size(16.0)
+            .strong()
+            .color(WARN),
+            |ui| {
+                ui.label(format!(
+                    "Started by {}. Together {} of memory and {:.1}% CPU. Usually a tool that keeps                      starting helpers and never waits for them.",
+                    s.parents_text(),
+                    format_bytes(s.memory as f64),
+                    s.cpu_percent
+                ));
+                ui.horizontal_wrapped(|ui| {
+                    let all: Vec<ProcessRef> =
+                        s.members.iter().map(|p| ProcessRef::from(*p)).collect();
+                    if ui
+                        .button(RichText::new(format!("End all {}", all.len())).color(BAD))
+                        .clicked()
+                    {
+                        intents.push(Intent::ConfirmMany(all, Command::Kill));
+                    }
+                    let orphans: Vec<ProcessRef> = s
+                        .members
+                        .iter()
+                        .filter(|p| wtm_policy::live_parent(p, &by_pid).is_none())
+                        .map(|p| ProcessRef::from(*p))
+                        .collect();
+                    if !orphans.is_empty()
+                        && ui
+                            .button(format!("End the {} whose parent exited", orphans.len()))
+                            .on_hover_text("Nothing waits for these any more")
+                            .clicked()
+                    {
+                        intents.push(Intent::ConfirmMany(orphans, Command::Kill));
+                    }
+                    if ui
+                        .button("Add to kill list…")
+                        .on_hover_text("End them automatically or with the panic button")
+                        .clicked()
+                    {
+                        intents.push(Intent::AddToKillList(s.name.clone()));
+                    }
+                    if ui.button("Show").clicked() {
+                        intents.push(Intent::Reveal(ProcessRef::from(s.members[0])));
+                    }
+                });
+            },
+        );
+    }
+}
+
 /// Returns commands for the backend and intents for the app.
 pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     let mut commands = Vec::new();
@@ -174,6 +240,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
             ui.add_space(6.0);
             ui.label(RichText::new(text).size(17.0).color(color));
         }
+        swarms(ui, data, &snap.processes, &mut intents);
     } else {
         ui.spinner();
     }
@@ -401,6 +468,60 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_swarm_is_shown_with_ways_to_end_it() {
+        use egui_kittest::kittest::Queryable;
+        let mut d = crate::ui_tests::data();
+        {
+            let s = std::sync::Arc::make_mut(d.snapshot.as_mut().unwrap());
+            // 160 probes: 100 started by alpha.exe (100), 60 whose parent exited.
+            for i in 0..160 {
+                let parent = if i < 100 { 100 } else { 9999 };
+                let mut p = crate::ui_tests::proc(10_000 + i, parent, "powershell.exe", 0.1);
+                p.create_time = i64::MAX - 1;
+                s.processes.push(p);
+            }
+        }
+        let mut h = egui_kittest::Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1100.0, 1200.0])
+            .build_ui_state(
+                |ui, (d, out): &mut (Data, Vec<Intent>)| out.extend(overview(ui, d).1),
+                (d, Vec::new()),
+            );
+        h.run();
+        assert!(
+            h.query_by_label("⚠ 160 copies of powershell.exe are running")
+                .is_some()
+        );
+        assert!(
+            h.query_by_label_contains("Started by alpha.exe (100), exited parent (60)")
+                .is_some()
+        );
+        h.get_by_label("End the 60 whose parent exited").click();
+        h.run();
+        h.get_by_label("End all 160").click();
+        h.run();
+        let counts: Vec<usize> = h
+            .state()
+            .1
+            .iter()
+            .filter_map(|i| match i {
+                Intent::ConfirmMany(t, Command::Kill) => Some(t.len()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(counts, [60, 160]);
+
+        // Below the threshold nothing is shown.
+        h.state_mut().0.swarm.min_count = 500;
+        h.run();
+        assert!(
+            h.query_by_label_contains("copies of powershell.exe")
+                .is_none()
+        );
+    }
 
     #[test]
     fn colors_and_times() {

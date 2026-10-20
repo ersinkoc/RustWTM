@@ -115,6 +115,9 @@ pub struct Data {
     pub alert_watch: crate::alert::AlertWatch,
     /// The service's kill list, from the last configuration loaded.
     pub kill_list: Vec<wtm_policy::KillEntry>,
+    /// When many copies of one program count as a swarm (the service's
+    /// setting once its configuration is loaded).
+    pub swarm: wtm_policy::SwarmConfig,
     pub update: UpdateState,
     /// This copy was installed by the MSI, so an installer can update it.
     pub installable: bool,
@@ -622,12 +625,12 @@ impl Worker {
                 };
                 let mut data = self.data();
                 // Kept parsed for the panic button, which every tab offers.
-                data.kill_list = r
+                let parsed = r
                     .as_ref()
                     .ok()
-                    .and_then(|(_, text)| wtm_policy::Config::from_toml(text).ok())
-                    .map(|c| c.kill)
-                    .unwrap_or_default();
+                    .and_then(|(_, text)| wtm_policy::Config::from_toml(text).ok());
+                data.kill_list = parsed.as_ref().map(|c| c.kill.clone()).unwrap_or_default();
+                data.swarm = parsed.map(|c| c.swarm).unwrap_or_default();
                 data.config = Some(r);
             }
             Panel::Startup => {

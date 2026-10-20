@@ -8,6 +8,7 @@ use crate::kill::KillEntry;
 use crate::limits::AppLimit;
 use crate::memory_guard::MemoryGuardConfig;
 use crate::rules::Rule;
+use crate::swarm::SwarmConfig;
 
 /// Written to disk on first start; parses to `Config::default()`.
 pub const DEFAULT_CONFIG_TOML: &str = include_str!("default_config.toml");
@@ -23,6 +24,8 @@ pub struct Config {
     pub history_days: u32,
     pub insights: InsightsConfig,
     pub memory_guard: MemoryGuardConfig,
+    /// Warns about hundreds of copies of one program.
+    pub swarm: SwarmConfig,
     /// Image names (`xmrig.exe`) that are prevented from starting at all.
     pub block: Vec<String>,
     #[serde(rename = "rule")]
@@ -44,6 +47,7 @@ impl Default for Config {
             history_days: 30,
             insights: InsightsConfig::default(),
             memory_guard: MemoryGuardConfig::default(),
+            swarm: SwarmConfig::default(),
             block: Vec::new(),
             rules: Vec::new(),
             limits: Vec::new(),
@@ -155,6 +159,7 @@ impl Config {
         self.memory_guard
             .validate()
             .map_err(|e| format!("memory_guard: {e}"))?;
+        self.swarm.validate().map_err(|e| format!("swarm: {e}"))?;
         if self.history_days == 0 {
             return Err("history_days must be positive".into());
         }
