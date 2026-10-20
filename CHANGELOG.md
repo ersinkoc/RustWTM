@@ -18,6 +18,8 @@ All notable changes to this project are documented here. The format follows
   90%); its tooltip adds memory use.
 - Performance: activity, read and write rate of every physical disk, and the
   load of every GPU engine (3D, Copy, Video decode, ...).
+- The Overview says in one sentence how the machine is doing and which app
+  is behind a busy CPU or a full memory.
 - App limits warn (event and desktop notification) when a budget uses 95% of
   its memory, since its processes then fail to allocate memory; once more
   only after it dropped below 85%.

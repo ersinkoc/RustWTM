@@ -83,6 +83,36 @@ fn busiest_apps(data: &Data, n: usize) -> Vec<App<'_>> {
     out
 }
 
+/// One sentence on how the machine is doing and who is responsible.
+fn verdict(data: &Data) -> Option<(Color32, String)> {
+    let s = &data.snapshot.as_ref()?.system;
+    let mem = s.memory_used() as f32 / s.memory_total.max(1) as f32 * 100.0;
+    let apps = busiest_apps(data, usize::MAX);
+    let top_cpu = apps.first();
+    let top_mem = apps.iter().max_by_key(|a| a.memory);
+    let cpu_blame = || {
+        top_cpu.map_or(String::new(), |a| {
+            format!(": {} uses {:.0}% of it", a.name, a.cpu)
+        })
+    };
+    let mem_blame = || {
+        top_mem.map_or(String::new(), |a| {
+            format!(": {} uses {} of it", a.name, format_bytes(a.memory as f64))
+        })
+    };
+    Some(if s.cpu_percent >= 90.0 {
+        (BAD, format!("CPU is maxed out{}", cpu_blame()))
+    } else if mem >= 90.0 {
+        (BAD, format!("Memory is almost full{}", mem_blame()))
+    } else if s.cpu_percent >= 70.0 {
+        (WARN, format!("CPU is busy{}", cpu_blame()))
+    } else if mem >= 80.0 {
+        (WARN, format!("Memory is getting full{}", mem_blame()))
+    } else {
+        (GOOD, "Everything runs smoothly.".to_owned())
+    })
+}
+
 /// Returns commands for the backend and intents for the app.
 pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     let mut commands = Vec::new();
@@ -117,6 +147,10 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
             );
             gauge(ui, "GPU", s.gpu_percent, "busiest engine".into());
         });
+        if let Some((color, text)) = verdict(data) {
+            ui.add_space(6.0);
+            ui.label(RichText::new(text).size(17.0).color(color));
+        }
     } else {
         ui.spinner();
     }
@@ -354,5 +388,37 @@ mod tests {
         assert_eq!(app_color(60.0, 8), BAD);
         assert_eq!(app_color(20.0, 8), WARN);
         assert_eq!(app_color(5.0, 8), Color32::GRAY);
+    }
+
+    #[test]
+    fn the_verdict_names_the_resource_and_the_app_behind_it() {
+        let mut d = crate::ui_tests::data();
+        let set = |d: &mut Data, cpu: f32, available: u64| {
+            let s = std::sync::Arc::make_mut(d.snapshot.as_mut().unwrap());
+            s.system.cpu_percent = cpu;
+            s.system.memory_available = available;
+        };
+        let gb = 1u64 << 30;
+        // 16 GB in total.
+        let cases = [
+            (42.0, 8 * gb, GOOD, "Everything runs smoothly."),
+            (
+                95.0,
+                8 * gb,
+                BAD,
+                "CPU is maxed out: alpha.exe uses 20% of it",
+            ),
+            (75.0, 8 * gb, WARN, "CPU is busy: alpha.exe uses 20% of it"),
+            (10.0, gb, BAD, "Memory is almost full: "),
+            (10.0, 3 * gb, WARN, "Memory is getting full: "),
+        ];
+        for (cpu, available, color, text) in cases {
+            set(&mut d, cpu, available);
+            let (c, t) = verdict(&d).unwrap();
+            assert_eq!(c, color, "{t}");
+            assert!(t.starts_with(text), "{t}");
+        }
+        d.snapshot = None;
+        assert!(verdict(&d).is_none());
     }
 }
