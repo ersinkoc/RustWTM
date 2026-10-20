@@ -27,6 +27,8 @@ use wtm_ipc::{Client, Command, Event, EventLevel, Outcome, Request, Response, St
 const TICK: Duration = Duration::from_secs(1);
 const RECONNECT: Duration = Duration::from_secs(5);
 pub const HISTORY_LEN: usize = 300;
+/// Seconds of CPU and memory kept for every running process.
+pub const PROCESS_HISTORY_LEN: usize = 120;
 const EVENTS_KEPT: usize = 2000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -52,6 +54,16 @@ pub struct History {
     pub io_write: VecDeque<f32>,
 }
 
+/// Recent samples of one process, oldest first.
+#[derive(Debug, Default)]
+pub struct ProcessHistory {
+    pub cpu: VecDeque<f32>,
+    /// Private working set, bytes.
+    pub memory: VecDeque<f32>,
+}
+
+pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory>;
+
 #[derive(Debug, Default)]
 pub struct Data {
     pub mode: Mode,
@@ -59,6 +71,8 @@ pub struct Data {
     pub status: Option<Status>,
     pub events: VecDeque<Event>,
     pub history: History,
+    /// Per process, so a selected process shows its recent past at once.
+    pub process_history: ProcessHistories,
     pub details: Option<(ProcessRef, Result<ProcessDetails, String>)>,
     pub services: Option<Result<Vec<ServiceEntry>, String>>,
     pub sessions: Option<Result<Vec<Session>, String>>,
@@ -677,11 +691,26 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
             series.push_back(value);
             trim(series, HISTORY_LEN);
         }
+        update_process_history(&mut data.process_history, &snapshot.processes);
     }
     trim(&mut data.events, EVENTS_KEPT);
     update_command_lines(&mut data.command_lines, &snapshot.processes);
     update_image_paths(&mut data.image_paths, &snapshot.processes);
     data.snapshot = Some(Arc::new(snapshot));
+}
+
+/// Appends the latest sample of every process and forgets exited ones.
+fn update_process_history(histories: &mut ProcessHistories, procs: &[wtm_core::ProcessInfo]) {
+    let live: std::collections::HashSet<(u32, i64)> =
+        procs.iter().map(|p| (p.pid, p.create_time)).collect();
+    histories.retain(|k, _| live.contains(k));
+    for p in procs {
+        let h = histories.entry((p.pid, p.create_time)).or_default();
+        h.cpu.push_back(p.cpu_percent);
+        h.memory.push_back(p.private_working_set as f32);
+        trim(&mut h.cpu, PROCESS_HISTORY_LEN);
+        trim(&mut h.memory, PROCESS_HISTORY_LEN);
+    }
 }
 
 /// Reads the image path of every new process once.
@@ -861,6 +890,24 @@ mod tests {
 
     fn message(w: &Worker) -> (EventLevel, String) {
         w.data().message.clone().unwrap()
+    }
+
+    #[test]
+    fn process_history_follows_running_processes() {
+        let mut h = ProcessHistories::new();
+        let mut a = crate::ui_tests::proc(10, 0, "a.exe", 5.0);
+        let b = crate::ui_tests::proc(11, 0, "b.exe", 1.0);
+        for i in 0..PROCESS_HISTORY_LEN + 5 {
+            a.cpu_percent = i as f32;
+            update_process_history(&mut h, &[a.clone(), b.clone()]);
+        }
+        let ha = &h[&(10, a.create_time)];
+        assert_eq!(ha.cpu.len(), PROCESS_HISTORY_LEN);
+        assert_eq!(ha.cpu.back(), Some(&((PROCESS_HISTORY_LEN + 4) as f32)));
+        assert_eq!(ha.memory.len(), PROCESS_HISTORY_LEN);
+        // b exits.
+        update_process_history(&mut h, &[a.clone()]);
+        assert_eq!(h.len(), 1);
     }
 
     /// Waits for a message from a background job.

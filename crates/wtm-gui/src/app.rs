@@ -676,6 +676,15 @@ fn details_panel(
         }
     }
 
+    if let Some(h) = data.process_history.get(&(p.pid, p.create_time))
+        && h.cpu.len() > 1
+    {
+        ui.add_space(8.0);
+        ui.label(RichText::new("Last two minutes").strong());
+        process_plot(ui, "proc_cpu", "CPU", &h.cpu, false);
+        process_plot(ui, "proc_mem", "Memory", &h.memory, true);
+    }
+
     ui.add_space(8.0);
     ui.horizontal_wrapped(|ui| {
         if ui.button(RichText::new("End task").color(BAD)).clicked() {
@@ -691,6 +700,46 @@ fn details_panel(
             intents.push(Intent::Select(sel.clone()));
         }
     });
+}
+
+/// A small graph in the details panel: CPU in percent or memory in bytes.
+fn process_plot(
+    ui: &mut Ui,
+    id: &str,
+    label: &str,
+    values: &std::collections::VecDeque<f32>,
+    bytes: bool,
+) {
+    let len = values.len() as f64;
+    let points: PlotPoints = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| [i as f64 - len, f64::from(*v)])
+        .collect();
+    let unit = move |v: f64| {
+        if bytes {
+            format_bytes(v.max(0.0))
+        } else {
+            format!("{v:.0}%")
+        }
+    };
+    let latest = values.back().map_or(0.0, |v| f64::from(*v));
+    Plot::new(id)
+        .height(80.0)
+        .include_y(0.0)
+        .include_y(if bytes { 1024.0 * 1024.0 } else { 5.0 })
+        .include_x(-(crate::backend::PROCESS_HISTORY_LEN as f64))
+        .include_x(0.0)
+        .allow_drag(false)
+        .allow_zoom(false)
+        .allow_scroll(false)
+        .show_x(false)
+        .show_axes([false, true])
+        .y_axis_formatter(move |mark, _| unit(mark.value))
+        .legend(egui_plot::Legend::default())
+        .show(ui, |plot| {
+            plot.line(Line::new(format!("{label} {}", unit(latest)), points));
+        });
 }
 
 fn history_plot(ui: &mut Ui, id: &str, label: &str, values: &std::collections::VecDeque<f32>) {
@@ -1139,6 +1188,12 @@ mod tests {
         }
         let sel = d.details.as_ref().unwrap().0.clone();
         let snap = d.snapshot.clone().unwrap();
+        let history = d
+            .process_history
+            .entry((sel.pid, sel.create_time))
+            .or_default();
+        history.cpu.extend([1.0, 30.0, 12.0]);
+        history.memory.extend([1e6, 2e6, 3e6]);
         let mut h = Harness::builder()
             .allow_missing_glyphs()
             .with_size([1400.0, 1600.0])
@@ -1176,6 +1231,7 @@ mod tests {
             h.query_by_label("Dry-run (decisions are only logged)")
                 .is_some()
         );
+        assert!(h.query_by_label("Last two minutes").is_some());
         assert!(h.query_by_label(r"C:\Apps\alpha.exe").is_some());
         drop(h);
 

@@ -12,6 +12,8 @@ All notable changes to this project are documented here. The format follows
   shaded by how much of the machine they use (Columns → Heat map turns it off).
 - Keyboard: ↑ / ↓ move the selection in the process list, Delete asks to end
   the selected process.
+- The details panel graphs the selected process's CPU and memory over the
+  last two minutes (recorded for every process, so it shows at once).
 
 ## [0.4.0] - 2026-10-20
 
