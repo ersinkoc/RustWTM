@@ -10,6 +10,7 @@ mod kill_tab;
 mod limits_tab;
 mod logo;
 mod overview;
+mod ports_tab;
 mod processes;
 mod settings;
 mod sort;

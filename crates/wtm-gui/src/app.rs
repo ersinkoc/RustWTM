@@ -25,6 +25,7 @@ enum Tab {
     Users,
     Services,
     Network,
+    Ports,
     Limits,
     KillList,
     Settings,
@@ -33,7 +34,7 @@ enum Tab {
 
 /// Navigation: tab, icon, label. Separators split monitoring, protection,
 /// system and the app itself.
-const NAV: [(Tab, &str, &str); 14] = [
+const NAV: [(Tab, &str, &str); 15] = [
     (Tab::Overview, "🏠", "Overview"),
     (Tab::Processes, "📋", "Processes"),
     (Tab::Performance, "📈", "Performance"),
@@ -47,9 +48,10 @@ const NAV: [(Tab, &str, &str); 14] = [
     (Tab::Services, "🔧", "Services"),
     (Tab::Users, "👤", "Users"),
     (Tab::Network, "🌐", "Network"),
+    (Tab::Ports, "🔌", "Ports"),
     (Tab::About, "ℹ", "About"),
 ];
-const NAV_GROUP_STARTS: [usize; 3] = [4, 9, 13];
+const NAV_GROUP_STARTS: [usize; 3] = [4, 9, 14];
 /// Below this window width the navigation shows icons only by default.
 const NAV_AUTO_COLLAPSE: f32 = 1000.0;
 
@@ -119,6 +121,7 @@ struct UiState {
     config: crate::settings::ConfigView,
     limits: crate::limits_tab::LimitsView,
     kill: crate::kill_tab::KillView,
+    ports: crate::ports_tab::PortsView,
     /// The panic confirmation is open.
     panic: bool,
     /// `None`: collapse automatically on narrow windows.
@@ -200,6 +203,8 @@ struct Prefs {
     check_updates: bool,
     /// A release the user chose to skip.
     skip_version: Option<String>,
+    /// Ports always listed in the Ports tab.
+    watched_ports: Vec<u16>,
 }
 
 impl Default for Prefs {
@@ -223,6 +228,7 @@ impl UiState {
             tray_on_close: self.tray_on_close,
             check_updates: self.check_updates,
             skip_version: self.skip_version.clone(),
+            watched_ports: self.ports.watched.clone(),
         }
     }
 
@@ -249,6 +255,7 @@ impl UiState {
         self.tray_on_close = prefs.tray_on_close;
         self.check_updates = prefs.check_updates;
         self.skip_version = prefs.skip_version;
+        self.ports.watched = prefs.watched_ports;
     }
 }
 
@@ -268,6 +275,7 @@ impl Default for UiState {
             config: crate::settings::ConfigView::default(),
             limits: crate::limits_tab::LimitsView::default(),
             kill: crate::kill_tab::KillView::default(),
+            ports: crate::ports_tab::PortsView::default(),
             panic: false,
             nav_collapsed: None,
             run_task: None,
@@ -494,6 +502,9 @@ impl eframe::App for App {
                 let only = state.processes.selected.as_ref().map(|r| r.pid);
                 views::network(ui, &data, &mut state.network_filter, only);
             }
+            Tab::Ports => {
+                crate::ports_tab::ports_tab(ui, &data, &mut state.ports, &mut intents);
+            }
         });
 
         if let Some((target, command)) = state.confirm.clone() {
@@ -576,13 +587,27 @@ impl eframe::App for App {
 
         if let Some((targets, command)) = state.confirm_many.clone() {
             let name = targets.first().map_or("", |t| t.name.as_str()).to_owned();
+            // One app's instances, or different programs (e.g. on one port).
+            let same = targets.iter().all(|t| t.name == name);
             let modal = egui::Modal::new(egui::Id::unique("confirm_many")).show(&ctx, |ui| {
-                ui.heading(format!("{} — {name}", describe(command)));
-                ui.label(format!(
-                    "{} all {} processes of \"{name}\"? Unsaved data in that program will be lost.",
-                    describe(command),
-                    targets.len()
-                ));
+                if same {
+                    ui.heading(format!("{} — {name}", describe(command)));
+                    ui.label(format!(
+                        "{} all {} processes of \"{name}\"? Unsaved data in that program will be lost.",
+                        describe(command),
+                        targets.len()
+                    ));
+                } else {
+                    let list: Vec<String> =
+                        targets.iter().map(|t| format!("{} ({})", t.name, t.pid)).collect();
+                    ui.heading(describe(command));
+                    ui.label(format!(
+                        "{} these {} processes: {}? Unsaved data in them will be lost.",
+                        describe(command),
+                        targets.len(),
+                        list.join(", ")
+                    ));
+                }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
@@ -631,7 +656,7 @@ impl eframe::App for App {
         }
         let due = match state.tab {
             Tab::Users => Some((Panel::Users, Duration::from_secs(5))),
-            Tab::Network => Some((Panel::Network, Duration::from_secs(2))),
+            Tab::Network | Tab::Ports => Some((Panel::Network, Duration::from_secs(2))),
             Tab::Services => Some((Panel::Services, Duration::from_secs(5))),
             Tab::History => None,
             Tab::Startup => Some((Panel::Startup, Duration::from_secs(10))),

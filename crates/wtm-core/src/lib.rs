@@ -5,6 +5,7 @@
 pub mod control;
 pub mod launch;
 mod model;
+pub mod ports;
 mod protection;
 mod sampler;
 pub mod startup;

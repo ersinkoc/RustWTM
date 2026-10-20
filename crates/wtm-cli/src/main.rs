@@ -4,6 +4,7 @@ mod actions;
 mod config;
 mod kill;
 mod parse;
+mod ports;
 mod table;
 mod top;
 
@@ -118,6 +119,26 @@ enum Command {
     Panic {
         #[arg(long, short)]
         yes: bool,
+    },
+    /// Listening ports and the programs behind them
+    Ports {
+        /// Include bound UDP ports
+        #[arg(long, short)]
+        udp: bool,
+        /// Only ports of well-known developer tools and servers
+        #[arg(long, short)]
+        known: bool,
+    },
+    /// End whatever keeps a port busy, e.g. `wtm free-port 3000` (preview
+    /// without --yes)
+    FreePort {
+        #[arg(value_parser = parse_port)]
+        port: u16,
+        #[arg(long, short)]
+        yes: bool,
+        /// Also end the processes it started
+        #[arg(long, short)]
+        tree: bool,
     },
     /// Show, check or replace the service's configuration
     Config {
@@ -243,6 +264,19 @@ fn run_panic(yes: bool) -> anyhow::Result<ExitCode> {
     )
 }
 
+fn parse_port(s: &str) -> Result<u16, String> {
+    wtm_core::ports::parse_port(s).ok_or_else(|| format!("not a port number: {s}"))
+}
+
+/// The ports in use and the processes, for the names behind them.
+fn port_uses() -> anyhow::Result<(Vec<wtm_core::ports::PortUse>, Vec<wtm_core::ProcessInfo>)> {
+    let uses = wtm_core::ports::port_uses(&wtm_core::connections()?);
+    let mut sampler = Sampler::new();
+    sampler.sample()?;
+    std::thread::sleep(Duration::from_millis(200));
+    Ok((uses, sampler.sample()?.processes))
+}
+
 fn main() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
     // Lets an elevated prompt control services and other users' processes.
@@ -277,6 +311,25 @@ fn main() -> anyhow::Result<ExitCode> {
             kill::kill_list(action, wtm_ipc::Client::connect, &mut io::stdout().lock())
         }
         Command::Panic { yes } => run_panic(yes),
+        Command::Ports { udp, known } => {
+            let (uses, procs) = port_uses()?;
+            ports::render(&uses, &procs, udp, known, &mut io::stdout().lock())?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::FreePort { port, yes, tree } => {
+            let (uses, procs) = port_uses()?;
+            let mut end = |t: &control::ProcessRef| {
+                if tree {
+                    control::kill_tree(t, &procs)
+                        .into_iter()
+                        .try_for_each(|(_, r)| r)
+                        .map_err(|e| e.to_string())
+                } else {
+                    control::kill(t).map_err(|e| e.to_string())
+                }
+            };
+            ports::free_port(port, yes, &uses, &procs, &mut end, &mut io::stdout().lock())
+        }
         Command::Kill { targets, tree } => actions::kill(&targets, tree),
         Command::Suspend { targets } => actions::suspend(&targets),
         Command::Trim { targets } => actions::trim(&targets),
@@ -419,6 +472,24 @@ mod tests {
         assert!(Cli::try_parse_from(["wtm", "kill"]).is_err());
         let cli = Cli::try_parse_from(["wtm", "panic", "--yes"]).unwrap();
         assert!(matches!(cli.command, Command::Panic { yes: true }));
+        let cli = Cli::try_parse_from(["wtm", "free-port", ":3000", "--yes"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::FreePort {
+                port: 3000,
+                yes: true,
+                tree: false
+            }
+        ));
+        assert!(Cli::try_parse_from(["wtm", "free-port", "0"]).is_err());
+        let cli = Cli::try_parse_from(["wtm", "ports", "-uk"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Ports {
+                udp: true,
+                known: true
+            }
+        ));
         let cli = Cli::try_parse_from([
             "wtm",
             "kill-list",

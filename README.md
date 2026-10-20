@@ -72,6 +72,13 @@ usage history.
   name and command line (`node.exe` running `vitest` only). The service ends
   one that keeps eating CPU and does not recover; the panic button
   (Ctrl+Shift+K, `wtm panic --yes`) ends the whole list at once.
+- **Ports**: every listening port with the program behind it, who can reach
+  it (this PC only / all networks) and how many clients are connected; the
+  usual ports of ~75 developer tools and servers (Vite, Next.js, PostgreSQL,
+  Redis, Docker, Ollama, …) with their state; watched ports of your own;
+  *Free a port* ends whatever keeps it busy (`wtm ports`,
+  `wtm free-port 3000 --yes`). Windows' own ports and service hosts are left
+  alone, and Docker / WSL relays come with a warning.
 - **Blocking**: programs on the `block` list are prevented from starting at
   all (Image File Execution Options), with a notification to the user.
 - **Long-term insights**: per-minute, per-app usage is recorded to SQLite.
@@ -120,8 +127,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.8.0-x64.msi            # interactive
-msiexec /i RustWTM-0.8.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.9.0-x64.msi            # interactive
+msiexec /i RustWTM-0.9.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
@@ -166,6 +173,8 @@ wtm limit 1234 --cpu 10 --memory 2G   hard caps (Ctrl+C lifts them)
 wtm history --hours 24             long-term per-app usage and findings
 wtm app-limit set node.exe --cores 2 --memory 8G   persistent app budget
 wtm app-limit list                 configured app limits and their usage
+wtm ports --known                  listening ports of dev tools and servers
+wtm free-port 3000 --yes           end whatever keeps port 3000 busy
 wtm config show                    the service's configuration
 wtm config check my.toml           validate a file
 wtm config apply my.toml           validate and apply it (elevated)

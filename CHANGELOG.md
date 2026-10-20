@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-20
+
+### Added
+
+- **Ports tab**: every listening TCP port (and bound UDP port, on request)
+  with its program, PID, CPU and memory, the addresses it listens on, who can
+  reach it (*This PC only*, *One network*, *All networks*) and how many
+  clients are connected. Sort by any column, search, right-click to end the
+  program or its tree, show it in Processes, open `http://localhost:<port>`,
+  copy the address or add it to the kill list.
+- **Developer tools & servers**: the usual ports of about 75 dev servers,
+  databases, caches, queues, search engines, container tools, monitoring and
+  AI tools, with whether they are in use and by whom; *Open* and *End* per
+  row, *Show free ports too* for the whole catalog, and ports of your own to
+  watch (remembered between runs).
+- **Free a port**: type a port and end what keeps it busy, every program
+  holding it at once. Windows' own ports (System, service hosts) are refused
+  with the reason; programs that only relay a port for Docker or WSL carry a
+  warning.
+- `wtm ports [--udp] [--known]` and `wtm free-port <port> [--yes] [--tree]`.
+
 ## [0.8.0] - 2026-10-20
 
 ### Added
@@ -286,7 +307,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/ersinkoc/RustWTM/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ersinkoc/RustWTM/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ersinkoc/RustWTM/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ersinkoc/RustWTM/compare/v0.5.0...v0.6.0
