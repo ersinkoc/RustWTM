@@ -14,6 +14,8 @@ All notable changes to this project are documented here. The format follows
   the selected process.
 - The details panel graphs the selected process's CPU and memory over the
   last two minutes (recorded for every process, so it shows at once).
+- The tray icon shows the CPU load as a bar (green, orange from 60%, red from
+  90%); its tooltip adds memory use.
 
 ## [0.4.0] - 2026-10-20
 

@@ -244,7 +244,13 @@ impl eframe::App for App {
         } = self;
         let data = backend.data();
         if let (Some(tray), Some(s)) = (tray.as_mut(), &data.snapshot) {
-            tray.set_tooltip(format!("RustWTM - CPU {:.0}%", s.system.cpu_percent));
+            let s = &s.system;
+            let memory = s.memory_used() as f64 / s.memory_total.max(1) as f64 * 100.0;
+            tray.set_tooltip(format!(
+                "RustWTM - CPU {:.0}%, memory {memory:.0}%",
+                s.cpu_percent
+            ));
+            tray.set_load(s.cpu_percent);
         }
         let mut intents = Vec::new();
         let mut service_cmds: Vec<UiCommand> = Vec::new();

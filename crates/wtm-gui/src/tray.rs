@@ -10,6 +10,8 @@ use tray_icon::{Icon, MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 pub struct Tray {
     icon: TrayIcon,
     tooltip: String,
+    /// CPU load shown by the icon, in steps of 10%.
+    load_step: Option<u8>,
 }
 
 const SIZE: u32 = 32;
@@ -17,6 +19,44 @@ const SIZE: u32 = 32;
 /// The RustWTM logo at tray size.
 fn icon() -> Option<Icon> {
     Icon::from_rgba(crate::logo::rgba(SIZE), SIZE, SIZE).ok()
+}
+
+/// Width of the load bar on the right edge of the icon.
+const BAR: u32 = 7;
+
+/// The logo with a CPU load bar (`step` tenths, 0..=10) on its right edge:
+/// green, orange from 60%, red from 90%.
+pub fn load_rgba(step: u8) -> Vec<u8> {
+    // The logo, shrunk to the space left of the bar and centred vertically.
+    let side = SIZE - BAR;
+    let logo = crate::logo::rgba(side);
+    let top = (SIZE - side) / 2;
+    let mut rgba = vec![0u8; (SIZE * SIZE * 4) as usize];
+    for y in 0..side {
+        let src = (y * side * 4) as usize;
+        let dst = (((y + top) * SIZE) * 4) as usize;
+        rgba[dst..dst + (side * 4) as usize].copy_from_slice(&logo[src..src + (side * 4) as usize]);
+    }
+    let filled = SIZE * u32::from(step.min(10)) / 10;
+    let color = match step {
+        9.. => [220, 70, 70],
+        6..=8 => [230, 140, 40],
+        _ => [80, 180, 100],
+    };
+    for y in 0..SIZE {
+        for x in SIZE - BAR..SIZE {
+            let i = ((y * SIZE + x) * 4) as usize;
+            let [r, g, b] = if SIZE - y <= filled.max(2) && step > 0 {
+                color
+            } else {
+                [40, 40, 40]
+            };
+            // A one-pixel transparent gap separates the bar from the logo.
+            let a = if x == SIZE - BAR { 0 } else { 255 };
+            rgba[i..i + 4].copy_from_slice(&[r, g, b, a]);
+        }
+    }
+    rgba
 }
 
 fn show_window(ctx: &egui::Context) {
@@ -86,7 +126,19 @@ impl Tray {
         Some(Self {
             icon,
             tooltip: "RustWTM".into(),
+            load_step: None,
         })
+    }
+
+    /// Shows the CPU load in the icon; redraws only when it changes by a step.
+    pub fn set_load(&mut self, cpu_percent: f32) {
+        let step = (cpu_percent / 10.0).round().clamp(0.0, 10.0) as u8;
+        if self.load_step != Some(step)
+            && let Ok(icon) = Icon::from_rgba(load_rgba(step), SIZE, SIZE)
+        {
+            let _ = self.icon.set_icon(Some(icon));
+            self.load_step = Some(step);
+        }
     }
 
     pub fn set_tooltip(&mut self, text: String) {
@@ -119,6 +171,33 @@ mod tests {
         let ctx = egui::Context::default();
         commands(&ctx);
         ctx
+    }
+
+    #[test]
+    fn the_load_bar_fills_from_the_bottom_with_the_load_colour() {
+        let pixel = |rgba: &[u8], x: u32, y: u32| {
+            let i = ((y * SIZE + x) * 4) as usize;
+            [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+        };
+        let x = SIZE - 2;
+        let idle = load_rgba(0);
+        assert_eq!(pixel(&idle, x, SIZE - 1), [40, 40, 40, 255]);
+        let half = load_rgba(5);
+        assert_eq!(pixel(&half, x, SIZE - 1), [80, 180, 100, 255]);
+        assert_eq!(pixel(&half, x, 0), [40, 40, 40, 255]);
+        assert_eq!(pixel(&load_rgba(7), x, SIZE - 1), [230, 140, 40, 255]);
+        let full = load_rgba(10);
+        assert_eq!(pixel(&full, x, 0), [220, 70, 70, 255]);
+        assert_eq!(pixel(&full, SIZE - BAR, 0)[3], 0, "gap");
+        // The logo sits left of the bar, centred vertically.
+        let side = SIZE - BAR;
+        let top = (SIZE - side) / 2;
+        let logo = crate::logo::rgba(side);
+        let row = |rgba: &[u8], y: u32, w: u32| {
+            rgba[(y * w * 4) as usize..][..(side * 4) as usize].to_vec()
+        };
+        assert_eq!(row(&full, top + side / 2, SIZE), row(&logo, side / 2, side));
+        assert_eq!(pixel(&full, 0, 0)[3], 0, "transparent above the logo");
     }
 
     #[test]
