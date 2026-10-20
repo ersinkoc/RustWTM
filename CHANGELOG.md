@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Kill list** (new tab, `[[kill]]` in the configuration, `wtm kill-list`):
+  programs that may be ended, matched by name and optionally by command line
+  (`node.exe` running `vitest`, but no other Node program). With a CPU
+  threshold the service ends one that keeps using that much for a while and
+  does not recover, optionally only while the whole PC is busy, together with
+  the processes it started.
+- **Panic button** (status bar, Ctrl+Shift+K, the overload alert,
+  `wtm panic --yes`): ends everything on the kill list at once after showing
+  what will be ended.
+- Rules match on the command line too: `match = { name = "node.exe",
+  cmdline = "vitest" }`.
+- Right-click a process → *Add to kill list…*.
+
 ## [0.6.0] - 2026-10-20
 
 ### Added

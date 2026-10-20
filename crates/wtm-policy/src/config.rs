@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::action::{Action, PriorityLevel};
 use crate::insights::InsightsConfig;
+use crate::kill::KillEntry;
 use crate::limits::AppLimit;
 use crate::memory_guard::MemoryGuardConfig;
 use crate::rules::Rule;
@@ -29,6 +30,9 @@ pub struct Config {
     /// Per-application CPU / memory budgets.
     #[serde(rename = "limit")]
     pub limits: Vec<AppLimit>,
+    /// Processes that may be ended: automatically when they misbehave, or
+    /// all at once with the panic button.
+    pub kill: Vec<KillEntry>,
 }
 
 impl Default for Config {
@@ -43,6 +47,7 @@ impl Default for Config {
             block: Vec::new(),
             rules: Vec::new(),
             limits: Vec::new(),
+            kill: Vec::new(),
         }
     }
 }
@@ -159,6 +164,10 @@ impl Config {
         for l in &self.limits {
             l.validate()
                 .map_err(|e| format!("limit '{}': {e}", l.name))?;
+        }
+        for k in &self.kill {
+            k.validate()
+                .map_err(|e| format!("kill '{}': {e}", k.label()))?;
         }
         for r in &self.rules {
             r.validate()

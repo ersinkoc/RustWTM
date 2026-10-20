@@ -28,6 +28,15 @@ pub struct Matcher {
     pub name: Option<String>,
     /// Full image-path wildcard, e.g. `C:\Games\*\*.exe`.
     pub path: Option<String>,
+    /// Text the command line contains, or a wildcard for all of it.
+    pub cmdline: Option<String>,
+}
+
+/// What a rule may need to know about a process beyond its snapshot entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Detail {
+    Path,
+    CommandLine,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -66,17 +75,21 @@ impl Matcher {
     fn matches(
         &self,
         p: &ProcessInfo,
-        path_of: &mut dyn FnMut(&ProcessInfo) -> Option<String>,
+        lookup: &mut dyn FnMut(&ProcessInfo, Detail) -> Option<String>,
     ) -> bool {
         if let Some(name) = &self.name
             && !glob_match(name, &p.name)
         {
             return false;
         }
-        match &self.path {
-            Some(pattern) => path_of(p).is_some_and(|path| glob_match(pattern, &path)),
-            None => true,
+        if let Some(pattern) = &self.path
+            && !lookup(p, Detail::Path).is_some_and(|path| glob_match(pattern, &path))
+        {
+            return false;
         }
+        self.cmdline.as_deref().is_none_or(|pattern| {
+            lookup(p, Detail::CommandLine).is_some_and(|line| crate::text_matches(pattern, &line))
+        })
     }
 }
 
@@ -118,15 +131,16 @@ impl RuleEngine {
         }
     }
 
-    /// `path_of` resolves a process's image path; it is only called for rules
-    /// that match on path, so callers can resolve lazily and cache.
+    /// `lookup` resolves a process's image path or command line; it is only
+    /// called for rules that match on them, so callers can resolve lazily
+    /// and cache.
     pub fn tick(
         &mut self,
         now: Instant,
         procs: &[ProcessInfo],
-        path_of: &mut dyn FnMut(&ProcessInfo) -> Option<String>,
+        lookup: &mut dyn FnMut(&ProcessInfo, Detail) -> Option<String>,
     ) -> Vec<Decision> {
-        let out = self.evaluate(now, procs, path_of, false);
+        let out = self.evaluate(now, procs, lookup, false);
         let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
         self.state.retain(|(_, key), _| live.contains(key));
         out
@@ -140,16 +154,16 @@ impl RuleEngine {
         &mut self,
         now: Instant,
         procs: &[ProcessInfo],
-        path_of: &mut dyn FnMut(&ProcessInfo) -> Option<String>,
+        lookup: &mut dyn FnMut(&ProcessInfo, Detail) -> Option<String>,
     ) -> Vec<Decision> {
-        self.evaluate(now, procs, path_of, true)
+        self.evaluate(now, procs, lookup, true)
     }
 
     fn evaluate(
         &mut self,
         now: Instant,
         procs: &[ProcessInfo],
-        path_of: &mut dyn FnMut(&ProcessInfo) -> Option<String>,
+        lookup: &mut dyn FnMut(&ProcessInfo, Detail) -> Option<String>,
         unconditional_only: bool,
     ) -> Vec<Decision> {
         let mut out = Vec::new();
@@ -162,7 +176,7 @@ impl RuleEngine {
                     continue;
                 }
                 let state = self.state.entry((idx, (p.pid, p.create_time))).or_default();
-                if state.fired || !rule.matcher.matches(p, path_of) {
+                if state.fired || !rule.matcher.matches(p, lookup) {
                     continue;
                 }
                 let ready = match &rule.when {
@@ -225,14 +239,38 @@ mod tests {
             matcher: Matcher {
                 name: name.map(Into::into),
                 path: path.map(Into::into),
+                cmdline: None,
             },
             when,
             actions: vec![Action::EcoQos, Action::CpuCapRelative(0.5)],
         }
     }
 
-    fn no_path(_: &ProcessInfo) -> Option<String> {
+    fn no_path(_: &ProcessInfo, _: Detail) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn matches_on_the_command_line() {
+        let mut r = rule(Some("node.exe"), None, None);
+        r.matcher.cmdline = Some("vitest".into());
+        let mut e = RuleEngine::new(vec![r]);
+        let procs = [proc(10, "node.exe", 1.0, 0), proc(11, "node.exe", 1.0, 0)];
+        let mut asked = Vec::new();
+        let mut lookup = |p: &ProcessInfo, d: Detail| {
+            asked.push((p.pid, d));
+            (p.pid == 10).then(|| "node node_modules/vitest/vitest.mjs".to_owned())
+        };
+        let d = e.tick(Instant::now(), &procs, &mut lookup);
+        assert!(d.iter().all(|d| d.target().pid == 10) && d.len() == 2);
+        assert_eq!(
+            asked,
+            [(10, Detail::CommandLine), (11, Detail::CommandLine)]
+        );
+        // A command line alone is not enough to pick processes.
+        let mut only = rule(None, None, None);
+        only.matcher.cmdline = Some("x".into());
+        assert!(only.validate().is_err());
     }
 
     #[test]
@@ -292,7 +330,7 @@ mod tests {
     fn path_rules_resolve_lazily_and_skip_protected() {
         let mut e = RuleEngine::new(vec![rule(None, Some("c:\\bad\\*"), None)]);
         let mut calls = 0;
-        let mut path_of = |p: &ProcessInfo| {
+        let mut path_of = |p: &ProcessInfo, _: Detail| {
             calls += 1;
             Some(format!("C:\\bad\\{}", p.name))
         };

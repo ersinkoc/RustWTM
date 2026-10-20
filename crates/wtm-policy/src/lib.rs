@@ -11,6 +11,7 @@ mod config;
 mod glob;
 mod governor;
 mod insights;
+mod kill;
 mod limits;
 mod memory_guard;
 mod presets;
@@ -23,12 +24,16 @@ pub use governor::Governor;
 pub use insights::{
     AppStats, Finding, FindingKind, InsightPolicy, InsightsConfig, MinuteRow, analyze, summarize,
 };
+pub use kill::{
+    KillEntry, KillWatch, PanicTarget, panic_targets, remove_kill_entry, set_kill_entry,
+    text_matches,
+};
 pub use limits::{
     AppLimit, GroupId, GroupUsage, LimitPlanner, LimitScope, remove_app_limit, set_app_limit,
 };
 pub use memory_guard::{MemoryGuard, MemoryGuardConfig};
 pub use presets::{Preset, set_preset};
-pub use rules::{Condition, Matcher, Rule, RuleEngine};
+pub use rules::{Condition, Detail, Matcher, Rule, RuleEngine};
 
 /// Identifies a process instance across PID reuse.
 pub(crate) type Key = (u32, i64);

@@ -26,19 +26,21 @@ enum Tab {
     Services,
     Network,
     Limits,
+    KillList,
     Settings,
     About,
 }
 
 /// Navigation: tab, icon, label. Separators split monitoring, protection,
 /// system and the app itself.
-const NAV: [(Tab, &str, &str); 13] = [
+const NAV: [(Tab, &str, &str); 14] = [
     (Tab::Overview, "🏠", "Overview"),
     (Tab::Processes, "📋", "Processes"),
     (Tab::Performance, "📈", "Performance"),
     (Tab::History, "🕘", "App history"),
     (Tab::Governor, "🛡", "Governor"),
     (Tab::Limits, "⏱", "Limits"),
+    (Tab::KillList, "💀", "Kill list"),
     (Tab::Events, "🔔", "Events"),
     (Tab::Settings, "⚙", "Settings"),
     (Tab::Startup, "🚀", "Startup apps"),
@@ -47,7 +49,7 @@ const NAV: [(Tab, &str, &str); 13] = [
     (Tab::Network, "🌐", "Network"),
     (Tab::About, "ℹ", "About"),
 ];
-const NAV_GROUP_STARTS: [usize; 3] = [4, 8, 12];
+const NAV_GROUP_STARTS: [usize; 3] = [4, 9, 13];
 /// Below this window width the navigation shows icons only by default.
 const NAV_AUTO_COLLAPSE: f32 = 1000.0;
 
@@ -116,6 +118,9 @@ struct UiState {
     selected_service: Option<String>,
     config: crate::settings::ConfigView,
     limits: crate::limits_tab::LimitsView,
+    kill: crate::kill_tab::KillView,
+    /// The panic confirmation is open.
+    panic: bool,
     /// `None`: collapse automatically on narrow windows.
     nav_collapsed: Option<bool>,
     /// The Run new task dialog: command line and "as administrator".
@@ -247,6 +252,8 @@ impl Default for UiState {
             selected_service: None,
             config: crate::settings::ConfigView::default(),
             limits: crate::limits_tab::LimitsView::default(),
+            kill: crate::kill_tab::KillView::default(),
+            panic: false,
             nav_collapsed: None,
             run_task: None,
             alerts: crate::alert::AlertSettings::default(),
@@ -283,6 +290,7 @@ impl eframe::App for App {
             tray,
         } = self;
         let mut data = backend.data();
+        let service_mode = matches!(data.mode, Mode::Service { .. });
         data.alert_watch.settings = state.alerts;
         if state.hide_frames > 0 && data.alert_watch.active.is_none() {
             state.hide_frames -= 1;
@@ -337,6 +345,14 @@ impl eframe::App for App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     mode_badge(ui, data.mode);
+                    if !data.kill_list.is_empty()
+                        && ui
+                            .small_button(RichText::new("🚨 Panic").strong().color(BAD))
+                            .on_hover_text("End everything on the kill list (Ctrl+Shift+K)")
+                            .clicked()
+                    {
+                        state.panic = true;
+                    }
                     if ui
                         .small_button("▶ Run new task")
                         .on_hover_text("Start a program, folder, document or website")
@@ -418,6 +434,14 @@ impl eframe::App for App {
             Tab::Limits => {
                 service_cmds.extend(crate::limits_tab::limits_tab(ui, &data, &mut state.limits));
             }
+            Tab::KillList => {
+                service_cmds.extend(crate::kill_tab::kill_tab(
+                    ui,
+                    &data,
+                    &mut state.kill,
+                    &mut state.panic,
+                ));
+            }
             Tab::Settings => {
                 window_settings(ui, state);
                 ui.separator();
@@ -465,13 +489,18 @@ impl eframe::App for App {
             }
         }
 
+        if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::K)) {
+            state.panic = true;
+        }
         crate::alert::dialog(
             &ctx,
             &data,
             &mut state.alerts,
+            &mut state.panic,
             &mut service_cmds,
             &mut intents,
         );
+        crate::kill_tab::panic_dialog(&ctx, &data, &mut state.panic, &mut intents);
 
         if let Some((line, elevated)) = &mut state.run_task {
             let mut run = false;
@@ -571,9 +600,11 @@ impl eframe::App for App {
             Tab::Services => Some((Panel::Services, Duration::from_secs(5))),
             Tab::History => None,
             Tab::Startup => Some((Panel::Startup, Duration::from_secs(10))),
-            Tab::Settings | Tab::Limits | Tab::Overview => {
+            Tab::Settings | Tab::Limits | Tab::Overview | Tab::KillList => {
                 Some((Panel::Config, Duration::from_secs(30)))
             }
+            // The panic button needs the kill list on every tab.
+            _ if service_mode => Some((Panel::Config, Duration::from_secs(30))),
             _ => None,
         };
         if let Some((panel, every)) = due
@@ -603,6 +634,10 @@ impl eframe::App for App {
                     backend.send(UiCommand::Inspect(target.clone()));
                     state.processes.selected = Some(target);
                     state.tab = Tab::Processes;
+                }
+                Intent::AddToKillList(name) => {
+                    state.kill.prefill(&name, "");
+                    state.tab = Tab::KillList;
                 }
                 Intent::LimitApp(name) => {
                     state.limits.prefill(&name);
@@ -1587,6 +1622,212 @@ mod tests {
             UiCommand::RestartElevated => "restart elevated".into(),
             UiCommand::CloseAlert(quiet) => format!("close alert {}", quiet.as_secs()),
         }
+    }
+
+    const KILL_CONFIG: &str = "dry_run = false\n\
+        [[kill]]\nname = \"alpha.exe\"\ncmdline = \"vitest\"\ncpu_above = 50.0\nfor_secs = 60\n\
+        [[kill]]\nname = \"beta.exe\"\ncmdline = \"never\"\n";
+
+    fn kill_app(tab: Tab) -> (Harness<'static, App>, std::sync::mpsc::Receiver<UiCommand>) {
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        d.config = Some(Ok(("config.toml".into(), KILL_CONFIG.into())));
+        d.kill_list = wtm_policy::Config::from_toml(KILL_CONFIG).unwrap().kill;
+        let snap = d.snapshot.clone().unwrap();
+        for p in &snap.processes {
+            let line = match p.pid {
+                100 => "node node_modules/vitest/vitest.mjs run",
+                _ => "something else",
+            };
+            d.command_lines.insert((p.pid, p.create_time), line.into());
+        }
+        let (backend, rx) = Backend::offline(d);
+        let h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(move |_| App {
+                backend,
+                state: UiState {
+                    tab,
+                    ..Default::default()
+                },
+                tray: None,
+            });
+        (h, rx)
+    }
+
+    #[test]
+    fn panic_button_ends_the_kill_list_after_one_confirmation() {
+        let (mut h, rx) = kill_app(Tab::Processes);
+        let sent = |h: &mut Harness<'_, App>| {
+            h.run_steps(2);
+            rx.try_iter().map(describe_command).collect::<Vec<_>>()
+        };
+        sent(&mut h);
+        h.get_by_label("🚨 Panic").click();
+        h.run_steps(2);
+        // alpha.exe runs vitest and alpha-child.exe was started by it.
+        assert!(h.query_by_label("  └ alpha-child.exe").is_some());
+        h.get_by_label("End 2 processes now").click();
+        let s = sent(&mut h);
+        assert_eq!(s, ["control 100 Kill", "control 101 Kill"]);
+        assert!(!h.state().state.panic);
+
+        // The shortcut opens it too; Cancel ends nothing.
+        h.key_press_modifiers(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::K,
+        );
+        h.run_steps(2);
+        assert!(h.state().state.panic);
+        h.get_by_label("Cancel").click();
+        assert!(sent(&mut h).iter().all(|c| !c.contains("Kill")));
+        assert!(!h.state().state.panic);
+
+        // Nothing running: it says so.
+        h.state().backend.data().command_lines.clear();
+        h.state_mut().state.panic = true;
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("Nothing on the kill list is running right now.")
+                .is_some()
+        );
+        h.get_by_label("Close").click();
+        h.run_steps(2);
+        assert!(!h.state().state.panic);
+    }
+
+    #[test]
+    fn kill_list_tab_lists_adds_edits_and_removes_entries() {
+        let (mut h, rx) = kill_app(Tab::KillList);
+        let saved = |h: &mut Harness<'_, App>| {
+            h.run_steps(2);
+            rx.try_iter().find_map(|c| match c {
+                UiCommand::SaveConfig(t) => Some(wtm_policy::Config::from_toml(&t).unwrap()),
+                _ => None,
+            })
+        };
+        h.run_steps(2);
+        assert!(h.query_by_label("alpha.exe running \"vitest\"").is_some());
+        assert!(
+            h.query_by_label("automatically after 60 s at 50% CPU or more")
+                .is_some()
+        );
+        assert!(h.query_by_label("only with the panic button").is_some());
+        h.get_by_label("🚨 Panic: end 2 processes now").click();
+        h.run_steps(2);
+        assert!(h.state().state.panic);
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+
+        // A new entry; the preview shows what it matches.
+        let inputs =
+            |h: &Harness<'_, App>| h.get_all_by_role(egui::accesskit::Role::TextInput).count();
+        assert_eq!(inputs(&h), 2);
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .next()
+            .unwrap()
+            .click();
+        h.run_steps(1);
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .next()
+            .unwrap()
+            .type_text("beta.exe");
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("Matches 1 running now: beta.exe (200)")
+                .is_some()
+        );
+        h.get_by_label("only while the PC is above").click();
+        h.get_by_label("Also end the processes it started").click();
+        h.run_steps(1);
+        h.get_by_label("Add entry").click();
+        let c = saved(&mut h).expect("saved");
+        assert_eq!(c.kill.len(), 3);
+        let added = &c.kill[2];
+        assert_eq!(added.name, "beta.exe");
+        assert_eq!(added.cpu_above, Some(50.0));
+        assert_eq!(added.system_cpu_above, Some(85.0));
+        assert!(!added.tree && added.cmdline.is_none());
+
+        // Edit the first entry in place.
+        h.get_all_by_label("Edit").next().unwrap().click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Change entry").is_some());
+        h.get_by_label("End it automatically at").click();
+        h.run_steps(1);
+        h.get_by_label("Save entry").click();
+        let c = saved(&mut h).expect("saved");
+        assert_eq!(c.kill.len(), 2);
+        assert_eq!(c.kill[0].name, "alpha.exe");
+        assert_eq!(c.kill[0].cpu_above, None, "now panic button only");
+
+        // Cancel an edit, then remove the second entry.
+        h.get_all_by_label("Edit").nth(1).unwrap().click();
+        h.run_steps(2);
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Add to the kill list").is_some());
+        h.get_all_by_label("Remove").nth(1).unwrap().click();
+        let c = saved(&mut h).expect("saved");
+        assert_eq!(c.kill.len(), 1);
+        assert_eq!(c.kill[0].name, "alpha.exe");
+
+        // Invalid input is explained, not saved.
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .nth(1)
+            .unwrap()
+            .click();
+        h.run_steps(1);
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .nth(1)
+            .unwrap()
+            .type_text("vitest");
+        h.run_steps(1);
+        h.get_by_label("Add entry").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("name must not be empty").is_some());
+    }
+
+    #[test]
+    fn add_to_kill_list_from_a_process_and_states_without_a_config() {
+        let (mut h, _rx) = kill_app(Tab::Processes);
+        h.run_steps(2);
+        h.get_by_label("beta.exe").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Add to kill list…").click();
+        h.run_steps(3);
+        assert_eq!(h.state().state.tab, Tab::KillList);
+        assert!(
+            h.query_by_label("Matches 1 running now: beta.exe (200)")
+                .is_some()
+        );
+
+        // Read-only, loading and broken configuration.
+        h.state().backend.data().mode = Mode::Service {
+            admin: false,
+            verified: true,
+        };
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("Run RustWTM as administrator to change the kill list.")
+                .is_some()
+        );
+        h.state().backend.data().config = Some(Err("no service".into()));
+        h.run_steps(2);
+        assert!(h.query_by_label("no service").is_some());
+        h.get_by_label("Retry").click();
+        h.run_steps(2);
+        h.state().backend.data().config = None;
+        h.state().backend.data().kill_list.clear();
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("🚨 Panic").is_none(),
+            "no kill list, no button"
+        );
     }
 
     #[test]

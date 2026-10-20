@@ -107,8 +107,28 @@ exempt = []
 # memory_gb = 8
 # scope = "group"
 
-# Per-process rules. `match` takes `name` and/or `path` wildcards; `when` is
-# optional (without it the rule fires as soon as the process is seen).
+# Kill list: programs that may be ended. `cmdline` narrows a name to the
+# processes whose command line contains that text (or matches it, with * or
+# ?). With `cpu_above` (a share of the whole machine; one busy core on 8
+# logical processors is 12.5%) the service ends it once it keeps that up for
+# `for_secs`, optionally only while the whole PC is above `system_cpu_above`.
+# The panic button (GUI, Ctrl+Shift+K) and `wtm panic --yes` end every entry
+# at once. `tree` (default true) also ends what it started.
+#
+# [[kill]]
+# name = "node.exe"
+# cmdline = "vitest"
+# cpu_above = 25
+# for_secs = 120
+# system_cpu_above = 85
+#
+# [[kill]]
+# name = "python.exe"
+# cmdline = "*train.py*"
+
+# Per-process rules. `match` takes `name`, `path` and `cmdline` (text the
+# command line contains); `when` is optional (without it the rule fires as
+# soon as the process is seen).
 #
 # [[rule]]
 # name = "Keep Chrome renderers in check"

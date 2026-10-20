@@ -65,6 +65,10 @@ usage history.
 - **App limits**: give an app a CPU and/or memory budget (`node.exe`: 2 cores;
   `zen.exe`: 8 GB per instance) shared by all of its processes and their
   children. Edit them in the **Limits** tab or with `wtm app-limit`.
+- **Kill list and panic button**: programs that may be ended, matched by
+  name and command line (`node.exe` running `vitest` only). The service ends
+  one that keeps eating CPU and does not recover; the panic button
+  (Ctrl+Shift+K, `wtm panic --yes`) ends the whole list at once.
 - **Blocking**: programs on the `block` list are prevented from starting at
   all (Image File Execution Options), with a notification to the user.
 - **Long-term insights**: per-minute, per-app usage is recorded to SQLite.

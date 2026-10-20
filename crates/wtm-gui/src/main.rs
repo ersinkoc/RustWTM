@@ -6,6 +6,7 @@ mod about;
 mod alert;
 mod app;
 mod backend;
+mod kill_tab;
 mod limits_tab;
 mod logo;
 mod overview;

@@ -109,6 +109,8 @@ pub struct Data {
     pub elevated: bool,
     /// Pops the window up when the CPU stays overloaded.
     pub alert_watch: crate::alert::AlertWatch,
+    /// The service's kill list, from the last configuration loaded.
+    pub kill_list: Vec<wtm_policy::KillEntry>,
     /// Why the last attempt to reach the service failed.
     pub service_error: Option<String>,
 }
@@ -536,7 +538,15 @@ impl Worker {
                         Err(e) => Err(e.to_string()),
                     },
                 };
-                self.data().config = Some(r);
+                let mut data = self.data();
+                // Kept parsed for the panic button, which every tab offers.
+                data.kill_list = r
+                    .as_ref()
+                    .ok()
+                    .and_then(|(_, text)| wtm_policy::Config::from_toml(text).ok())
+                    .map(|c| c.kill)
+                    .unwrap_or_default();
+                data.config = Some(r);
             }
             Panel::Startup => {
                 self.data().startup = Some(wtm_core::startup::list_startup());

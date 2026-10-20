@@ -152,6 +152,8 @@ pub enum Intent {
     LimitApp(String),
     /// Select the process and show it in the Processes tab.
     Reveal(ProcessRef),
+    /// Open the Kill list tab with a new entry for this image name.
+    AddToKillList(String),
     /// Destructive, for several processes (every instance of an app).
     ConfirmMany(Vec<ProcessRef>, Command),
 }
@@ -663,6 +665,10 @@ fn app_menu(ui: &mut Ui, g: &AppGroup<'_>, intents: &mut Vec<Intent>) {
         intents.push(Intent::LimitApp(g.total.name.clone()));
         ui.close();
     }
+    if ui.button("Add to kill list…").clicked() {
+        intents.push(Intent::AddToKillList(g.total.name.clone()));
+        ui.close();
+    }
     if ui
         .button(
             RichText::new(format!("End all {} processes", all.len()))
@@ -760,6 +766,10 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
     }
     if ui.button(format!("Limit all {}…", t.name)).clicked() {
         intents.push(Intent::LimitApp(t.name.clone()));
+        ui.close();
+    }
+    if ui.button("Add to kill list…").clicked() {
+        intents.push(Intent::AddToKillList(t.name.clone()));
         ui.close();
     }
     ui.separator();

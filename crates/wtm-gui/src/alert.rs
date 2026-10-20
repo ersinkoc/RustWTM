@@ -103,6 +103,7 @@ pub fn dialog(
     ctx: &egui::Context,
     data: &Data,
     settings: &mut AlertSettings,
+    panic: &mut bool,
     commands: &mut Vec<UiCommand>,
     intents: &mut Vec<Intent>,
 ) {
@@ -224,6 +225,21 @@ pub fn dialog(
             });
         if apps.is_empty() {
             ui.weak("No single app stands out; many small ones add up.");
+        }
+        let doomed = crate::kill_tab::targets(data).len();
+        if doomed > 0 {
+            ui.add_space(6.0);
+            if ui
+                .button(
+                    RichText::new(format!("🚨 End the kill list ({doomed} processes)"))
+                        .strong()
+                        .color(BAD),
+                )
+                .on_hover_text("Shows them first")
+                .clicked()
+            {
+                *panic = true;
+            }
         }
 
         ui.add_space(8.0);

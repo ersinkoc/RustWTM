@@ -217,6 +217,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut governor = Governor::new(config.governor.clone());
     let mut memory_guard = wtm_policy::MemoryGuard::new(config.memory_guard.clone());
     let mut rules = RuleEngine::new(config.rules.clone());
+    let mut kill_watch = wtm_policy::KillWatch::new(config.kill.clone());
     let mut executor = Executor::new(config.dry_run, shared.events.clone());
     let mut history = match History::open(&paths.history) {
         Ok(h) => {
@@ -243,6 +244,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut next_insights = Instant::now() + Duration::from_secs(5);
     let mut next_prune = Instant::now();
     let mut paths_cache = PathCache::new();
+    let mut cmdline_cache = PathCache::new();
     let mut app_limiter =
         AppLimiter::new(config.limits.clone(), config.dry_run, shared.events.clone());
     let mut app_usage = Vec::new();
@@ -254,10 +256,11 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     shared.events.info(
         None,
         format!(
-            "engine started (dry_run={}, governor={}, rules={})",
+            "engine started (dry_run={}, governor={}, rules={}, kill list={})",
             config.dry_run,
             config.governor.enabled,
-            config.rules.len()
+            config.rules.len(),
+            config.kill.len()
         ),
     );
 
@@ -268,8 +271,8 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             match rx.recv_timeout(next_tick.saturating_duration_since(Instant::now())) {
                 Ok(EngineMsg::Stop) | Err(RecvTimeoutError::Disconnected) => break 'run,
                 Ok(EngineMsg::Started(started)) => {
-                    let decisions = rules.on_started(Instant::now(), &started, &mut |p| {
-                        cached_path(&mut paths_cache, p)
+                    let decisions = rules.on_started(Instant::now(), &started, &mut |p, d| {
+                        lookup(&mut paths_cache, &mut cmdline_cache, p, d)
                     });
                     for d in &decisions {
                         let _ = executor.execute(d);
@@ -308,15 +311,17 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     governor.set_config(new.governor.clone());
                     memory_guard.set_config(new.memory_guard.clone());
                     rules.set_rules(new.rules.clone());
+                    kill_watch.set_entries(new.kill.clone());
                     app_limiter.configure(new.limits.clone(), new.dry_run);
                     executor.set_dry_run(new.dry_run);
                     sync_blocks(blocker.as_ref(), &new, &shared.events);
                     shared.events.info(
                         None,
                         format!(
-                            "config reloaded (dry_run={}, rules={})",
+                            "config reloaded (dry_run={}, rules={}, kill list={})",
                             new.dry_run,
-                            new.rules.len()
+                            new.rules.len(),
+                            new.kill.len()
                         ),
                     );
                     config = new;
@@ -359,11 +364,13 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 );
             }
         }
-        paths_cache.retain(|&(pid, created), _| {
-            snap.processes
-                .iter()
-                .any(|p| p.pid == pid && p.create_time == created)
-        });
+        let live: std::collections::HashSet<(u32, i64)> = snap
+            .processes
+            .iter()
+            .map(|p| (p.pid, p.create_time))
+            .collect();
+        paths_cache.retain(|k, _| live.contains(k));
+        cmdline_cache.retain(|k, _| live.contains(k));
 
         let now = Instant::now();
         let (keys, app) = foreground_keys(foreground, &snap.processes);
@@ -375,9 +382,15 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         if config.insights.enabled {
             decisions.extend(insights.tick(&snap.processes, &config.insights));
         }
-        decisions.extend(rules.tick(now, &snap.processes, &mut |p| {
-            cached_path(&mut paths_cache, p)
+        decisions.extend(rules.tick(now, &snap.processes, &mut |p, d| {
+            lookup(&mut paths_cache, &mut cmdline_cache, p, d)
         }));
+        decisions.extend(kill_watch.tick(
+            now,
+            &snap.processes,
+            snap.system.cpu_percent,
+            &mut |p| cached_command_line(&mut cmdline_cache, p),
+        ));
         for d in &decisions {
             let _ = executor.execute(d);
         }
@@ -502,6 +515,26 @@ fn cached_path(cache: &mut PathCache, p: &ProcessInfo) -> Option<String> {
         .entry((p.pid, p.create_time))
         .or_insert_with(|| control::image_path(&ProcessRef::from(p)).ok())
         .clone()
+}
+
+fn cached_command_line(cache: &mut PathCache, p: &ProcessInfo) -> Option<String> {
+    cache
+        .entry((p.pid, p.create_time))
+        .or_insert_with(|| control::command_line(&ProcessRef::from(p)).ok())
+        .clone()
+}
+
+/// What rules ask about a process, read once per process.
+fn lookup(
+    paths: &mut PathCache,
+    cmdlines: &mut PathCache,
+    p: &ProcessInfo,
+    detail: wtm_policy::Detail,
+) -> Option<String> {
+    match detail {
+        wtm_policy::Detail::Path => cached_path(paths, p),
+        wtm_policy::Detail::CommandLine => cached_command_line(cmdlines, p),
+    }
 }
 
 const WATCH_INTERVAL: Duration = Duration::from_millis(250);
@@ -641,6 +674,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let victim = dir.join("wtm-engine-victim.exe");
         std::fs::copy(r"C:\Windows\System32\cmd.exe", &victim).unwrap();
+        let hog = dir.join("wtm-engine-hog.exe");
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &hog).unwrap();
 
         let block_key = format!(r"Software\RustWTM-test-engine-block-{}", std::process::id());
         let paths = Paths {
@@ -658,7 +693,8 @@ mod tests {
         std::fs::write(
             &paths.config,
             "dry_run = false\nsample_interval_ms = 200\nblock = [\"wtm-blocked-test.exe\"]\n[governor]\nenabled = false\n\
-             [[rule]]\nname = \"no victims\"\nmatch = { name = \"wtm-engine-victim.exe\" }\nactions = [\"kill\"]\n",
+             [[rule]]\nname = \"no victims\"\nmatch = { name = \"wtm-engine-victim.exe\" }\nactions = [\"kill\"]\n\
+             [[kill]]\nname = \"wtm-engine-hog.exe\"\ncmdline = \"burn\"\ncpu_above = 1\nfor_secs = 1\n",
         )
         .unwrap();
 
@@ -675,6 +711,31 @@ mod tests {
         let mut v = spawn(&victim);
         let status = wait_for("victim killed", || v.0.try_wait().unwrap());
         assert_eq!(status.code(), Some(1));
+
+        // Kill list: of two CPU-burning copies only the one whose command
+        // line names "burn" is ended.
+        let busy = |tag: &str| {
+            Guard(
+                Proc::new(&hog)
+                    .raw_arg(format!("/d /c for /l %i in (0,0,1) do rem {tag}"))
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .unwrap(),
+            )
+        };
+        let mut burner = busy("burn");
+        let mut spared = busy("spare");
+        let status = wait_for("kill list ended the burner", || {
+            burner.0.try_wait().unwrap()
+        });
+        assert_eq!(status.code(), Some(1));
+        assert!(
+            spared.0.try_wait().unwrap().is_none(),
+            "other command line kept"
+        );
+        drop(spared);
 
         // Read-only requests.
         let snap = wait_for("snapshot", || snapshot(&mut client));

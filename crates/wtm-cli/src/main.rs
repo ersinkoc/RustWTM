@@ -2,6 +2,7 @@
 
 mod actions;
 mod config;
+mod kill;
 mod parse;
 mod table;
 mod top;
@@ -107,6 +108,17 @@ enum Command {
         #[command(subcommand)]
         action: config::LimitAction,
     },
+    /// The kill list: programs the service may end (automatically when they
+    /// keep eating CPU, or all at once with `wtm panic`)
+    KillList {
+        #[command(subcommand)]
+        action: kill::KillAction,
+    },
+    /// End everything on the kill list that is running (preview without --yes)
+    Panic {
+        #[arg(long, short)]
+        yes: bool,
+    },
     /// Show, check or replace the service's configuration
     Config {
         #[command(subcommand)]
@@ -193,6 +205,44 @@ impl From<EcoArg> for EcoQos {
     }
 }
 
+/// Ends the kill list: through the service when this prompt is elevated
+/// (it can end anything), otherwise directly with our own rights.
+fn run_panic(yes: bool) -> anyhow::Result<ExitCode> {
+    let mut client = wtm_ipc::Client::connect()
+        .map_err(|e| anyhow::anyhow!("RustWTM service not reachable ({e})"))?;
+    let text = kill::fetch(&mut client)?;
+    let entries = wtm_policy::Config::from_toml(&text)?.kill;
+    let mut sampler = Sampler::new();
+    sampler.sample()?;
+    std::thread::sleep(Duration::from_millis(300));
+    let procs = sampler.sample()?.processes;
+    let admin = client.is_admin();
+    let mut end = |t: &control::ProcessRef| -> Result<(), String> {
+        if !admin {
+            return control::kill(t).map_err(|e| e.to_string());
+        }
+        let request = wtm_ipc::Request::Control {
+            target: t.clone(),
+            command: wtm_ipc::Command::Kill,
+        };
+        match client.call(&request) {
+            Ok(wtm_ipc::Response::Control(outcomes)) => {
+                outcomes.into_iter().try_for_each(|o| o.result)
+            }
+            Ok(other) => Err(format!("unexpected response: {other:?}")),
+            Err(e) => Err(e.to_string()),
+        }
+    };
+    kill::panic(
+        yes,
+        &entries,
+        &procs,
+        &mut |p| control::command_line(&control::ProcessRef::from(p)).ok(),
+        &mut end,
+        &mut io::stdout().lock(),
+    )
+}
+
 fn main() -> anyhow::Result<ExitCode> {
     let cli = Cli::parse();
     // Lets an elevated prompt control services and other users' processes.
@@ -223,6 +273,10 @@ fn main() -> anyhow::Result<ExitCode> {
         Command::Config { action } => {
             config::run(action, wtm_ipc::Client::connect, &mut io::stdout().lock())
         }
+        Command::KillList { action } => {
+            kill::kill_list(action, wtm_ipc::Client::connect, &mut io::stdout().lock())
+        }
+        Command::Panic { yes } => run_panic(yes),
         Command::Kill { targets, tree } => actions::kill(&targets, tree),
         Command::Suspend { targets } => actions::suspend(&targets),
         Command::Trim { targets } => actions::trim(&targets),
@@ -363,6 +417,29 @@ mod tests {
             }
         ));
         assert!(Cli::try_parse_from(["wtm", "kill"]).is_err());
+        let cli = Cli::try_parse_from(["wtm", "panic", "--yes"]).unwrap();
+        assert!(matches!(cli.command, Command::Panic { yes: true }));
+        let cli = Cli::try_parse_from([
+            "wtm",
+            "kill-list",
+            "add",
+            "node.exe",
+            "--cmdline",
+            "vitest",
+            "--cpu",
+            "50%",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::KillList {
+                action: kill::KillAction::Add {
+                    cpu: Some(50.0),
+                    secs: 60,
+                    ..
+                }
+            }
+        ));
     }
 
     fn stats(app: &str) -> AppStats {

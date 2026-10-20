@@ -264,6 +264,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::Confirm(t, c) => format!("confirm {} {c:?}", t.pid),
         Intent::OpenLocation(t) => format!("open {}", t.pid),
         Intent::LimitApp(name) => format!("limit app {name}"),
+        Intent::AddToKillList(name) => format!("kill list {name}"),
         Intent::Reveal(t) => format!("reveal {}", t.pid),
         Intent::ConfirmMany(ts, c) => format!("confirm {} processes {c:?}", ts.len()),
     }
@@ -394,6 +395,7 @@ fn processes_row_click_and_context_menu_produce_intents() {
         ("Free memory", "command 200 TrimMemory"),
         ("Open file location", "open 200"),
         ("Limit all beta.exe…", "limit app beta.exe"),
+        ("Add to kill list…", "kill list beta.exe"),
         ("Properties", "select 200"),
     ] {
         h.get_by_label("beta.exe").click_secondary();
