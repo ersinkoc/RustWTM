@@ -103,6 +103,9 @@ exempt = []
 enabled = true
 min_count = 150
 exempt = []
+# End copies that have run longer than this many minutes (and what they
+# started): a helper that should take seconds is stuck by then. 0 = only warn.
+end_after_mins = 0
 
 # App limits: every process of an app and everything it starts share a CPU
 # and/or memory budget (job object). scope = "each" gives every top-level

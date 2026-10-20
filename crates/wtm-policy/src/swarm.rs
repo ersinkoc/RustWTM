@@ -3,6 +3,7 @@
 //! launching `powershell.exe` every few seconds).
 
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
 use wtm_core::ProcessInfo;
@@ -20,6 +21,9 @@ pub struct SwarmConfig {
     pub min_count: usize,
     /// Image-name wildcards never reported.
     pub exempt: Vec<String>,
+    /// End copies of a swarm that have run longer than this (minutes), with
+    /// what they started; 0 leaves them alone. Respects `dry_run`.
+    pub end_after_mins: u64,
 }
 
 impl Default for SwarmConfig {
@@ -28,6 +32,7 @@ impl Default for SwarmConfig {
             enabled: true,
             min_count: 150,
             exempt: Vec::new(),
+            end_after_mins: 0,
         }
     }
 }
@@ -36,6 +41,9 @@ impl SwarmConfig {
     pub(crate) fn validate(&self) -> Result<(), String> {
         if self.min_count < 10 {
             return Err("min_count must be at least 10".into());
+        }
+        if self.end_after_mins > 7 * 24 * 60 {
+            return Err("end_after_mins must be at most a week (10080)".into());
         }
         Ok(())
     }
@@ -55,7 +63,7 @@ pub struct Swarm<'a> {
     pub memory: u64,
 }
 
-impl Swarm<'_> {
+impl<'a> Swarm<'a> {
     /// Copies whose parent has exited: nothing waits for them any more.
     pub fn orphans(&self) -> usize {
         self.parents
@@ -63,6 +71,20 @@ impl Swarm<'_> {
             .filter(|(p, _)| p.is_none())
             .map(|(_, n)| n)
             .sum()
+    }
+
+    /// Copies that have run longer than `age` at `now`: a helper that
+    /// should take seconds and is still there is stuck.
+    pub fn older_than(&self, age: Duration, now: SystemTime) -> Vec<&'a ProcessInfo> {
+        self.members
+            .iter()
+            .copied()
+            .filter(|p| {
+                p.start_time()
+                    .and_then(|t| now.duration_since(t).ok())
+                    .is_some_and(|d| d > age)
+            })
+            .collect()
     }
 
     /// e.g. "claude.exe (750), exited (378)".
@@ -260,6 +282,35 @@ mod tests {
     }
 
     #[test]
+    fn stuck_copies_are_those_older_than_the_limit() {
+        let mut procs = procs();
+        // FILETIME of 2026-01-01 plus i minutes for the first ten probes.
+        let base = 116_444_736_000_000_000 + 1_767_225_600 * 10_000_000;
+        for (i, p) in procs
+            .iter_mut()
+            .filter(|p| p.pid >= 1000 && p.pid < 1010)
+            .enumerate()
+        {
+            p.create_time = base + i as i64 * 60 * 10_000_000;
+        }
+        let swarms = find_swarms(&procs, &cfg());
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_767_225_600 + 10 * 60);
+        // Started 0..=9 minutes after base; at base+10 min, 5 are older than 5 min.
+        let old = swarms[0].older_than(Duration::from_secs(5 * 60), now);
+        assert_eq!(
+            old.len(),
+            5,
+            "{:?}",
+            old.iter().map(|p| p.pid).collect::<Vec<_>>()
+        );
+        assert!(old.iter().all(|p| p.pid < 1005));
+        // Started 1..=9 minutes before now; the rest have no known start time
+        // and are never treated as stuck.
+        let all = swarms[0].older_than(Duration::from_secs(60), now);
+        assert_eq!(all.len(), 9);
+    }
+
+    #[test]
     fn config_is_validated() {
         assert!(SwarmConfig::default().validate().is_ok());
         let bad = SwarmConfig {
@@ -267,5 +318,10 @@ mod tests {
             ..SwarmConfig::default()
         };
         assert!(bad.validate().is_err());
+        let too_long = SwarmConfig {
+            end_after_mins: 20_000,
+            ..SwarmConfig::default()
+        };
+        assert!(too_long.validate().is_err());
     }
 }

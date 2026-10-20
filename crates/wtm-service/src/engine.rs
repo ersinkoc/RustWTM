@@ -237,6 +237,8 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut rules = RuleEngine::new(config.rules.clone());
     let mut kill_watch = wtm_policy::KillWatch::new(config.kill.clone());
     let mut swarm_watch = wtm_policy::SwarmWatch::new();
+    // Dry run: when each swarm's cleanup was last reported.
+    let mut swarm_previewed: HashMap<String, Instant> = HashMap::new();
     let mut executor = Executor::new(config.dry_run, shared.events.clone());
     let mut history = match History::open(&paths.history) {
         Ok(h) => {
@@ -436,6 +438,16 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             );
         }
 
+        if config.swarm.end_after_mins > 0 {
+            end_stuck_swarms(
+                &config,
+                &snap.processes,
+                &shared,
+                &mut swarm_previewed,
+                SystemTime::now(),
+            );
+        }
+
         *shared
             .snapshot
             .write()
@@ -474,6 +486,80 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         s.shutdown();
     }
     Ok(())
+}
+
+/// Copies of a swarm ended per sampling tick, so a huge one cannot stall
+/// the engine; the rest follow on the next ticks.
+const SWARM_END_PER_TICK: usize = 100;
+
+/// Ends swarm copies that ran longer than `end_after_mins`, with what they
+/// started (their console hosts); in dry run only reports them.
+fn end_stuck_swarms(
+    config: &Config,
+    procs: &[ProcessInfo],
+    shared: &Shared,
+    previewed: &mut HashMap<String, Instant>,
+    now: SystemTime,
+) {
+    let age = Duration::from_secs(config.swarm.end_after_mins * 60);
+    let mut budget = SWARM_END_PER_TICK;
+    for swarm in wtm_policy::find_swarms(procs, &config.swarm) {
+        let stuck = swarm.older_than(age, now);
+        if stuck.is_empty() || budget == 0 {
+            continue;
+        }
+        let mins = config.swarm.end_after_mins;
+        if config.dry_run {
+            let due = previewed
+                .get(&swarm.name)
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(600));
+            if due {
+                previewed.insert(swarm.name.clone(), Instant::now());
+                shared.events.info(
+                    None,
+                    format!(
+                        "dry run: would end {} copies of {} running longer than {mins} min",
+                        stuck.len(),
+                        swarm.name
+                    ),
+                );
+            }
+            continue;
+        }
+        let (mut ended, mut children, mut failed) = (0, 0, 0);
+        for p in stuck.into_iter().take(budget) {
+            budget -= 1;
+            for (i, (_, r)) in control::kill_tree(&ProcessRef::from(p), procs)
+                .into_iter()
+                .enumerate()
+            {
+                match (i, r) {
+                    (0, Ok(())) => ended += 1,
+                    (_, Ok(())) => children += 1,
+                    (_, Err(_)) => failed += 1,
+                }
+            }
+        }
+        if ended + failed > 0 {
+            let extra = if children > 0 {
+                format!(" and {children} processes they started")
+            } else {
+                String::new()
+            };
+            let failures = if failed > 0 {
+                format!("; {failed} could not be ended")
+            } else {
+                String::new()
+            };
+            shared.events.alert(
+                None,
+                format!(
+                    "Ended {ended} copies of {} that ran longer than {mins} min{extra}{failures}",
+                    swarm.name
+                ),
+            );
+        }
+    }
 }
 
 fn handle_control(
@@ -1164,6 +1250,85 @@ mod unit_tests {
         );
         std::thread::sleep(Duration::from_millis(200));
         g
+    }
+
+    #[test]
+    fn stuck_swarm_copies_are_previewed_in_dry_run_and_ended_when_enforcing() {
+        let dir = std::env::temp_dir().join(format!("wtm-swarm-end-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("wtm-stuck-probe.exe");
+        std::fs::copy(r"C:\Windows\System32\PING.EXE", &exe).unwrap();
+        let _copies: Vec<Guard> = (0..12)
+            .map(|_| {
+                Guard(
+                    Proc::new(&exe)
+                        .args(["-n", "120", "127.0.0.1"])
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                        .unwrap(),
+                )
+            })
+            .collect();
+        let probe = |p: &ProcessInfo| p.name.eq_ignore_ascii_case("wtm-stuck-probe.exe");
+        // Only the probes are handed over: nothing else on this PC can be
+        // taken for a swarm and ended.
+        let procs: Vec<ProcessInfo> = wait_for("12 probes", || {
+            let procs: Vec<ProcessInfo> = Sampler::new()
+                .sample()
+                .ok()?
+                .processes
+                .into_iter()
+                .filter(probe)
+                .collect();
+            (procs.len() == 12).then_some(procs)
+        });
+        let mut config =
+            Config::from_toml("dry_run = true\n[swarm]\nmin_count = 12\nend_after_mins = 1\n")
+                .unwrap();
+        let shared = Shared::default();
+        let mut previewed = HashMap::new();
+        let later = SystemTime::now() + Duration::from_secs(120);
+
+        // Young copies are left alone.
+        end_stuck_swarms(&config, &procs, &shared, &mut previewed, SystemTime::now());
+        assert!(shared.events.after(0).is_empty());
+
+        end_stuck_swarms(&config, &procs, &shared, &mut previewed, later);
+        end_stuck_swarms(&config, &procs, &shared, &mut previewed, later);
+        let events = shared.events.after(0);
+        let previews: Vec<_> = events
+            .iter()
+            .filter(|e| e.message.contains("wtm-stuck-probe.exe"))
+            .collect();
+        assert_eq!(previews.len(), 1, "reported once: {events:?}");
+        assert!(
+            previews[0]
+                .message
+                .starts_with("dry run: would end 12 copies")
+        );
+
+        config.dry_run = false;
+        end_stuck_swarms(&config, &procs, &shared, &mut previewed, later);
+        let ended = shared
+            .events
+            .after(0)
+            .into_iter()
+            .find(|e| e.message.starts_with("Ended") && e.message.contains("wtm-stuck-probe.exe"))
+            .expect("an alert about the ended copies");
+        assert!(ended.notify);
+        assert!(
+            ended.message.starts_with("Ended 12 copies"),
+            "{}",
+            ended.message
+        );
+        wait_for("probes gone", || {
+            let procs = Sampler::new().sample().ok()?.processes;
+            procs.iter().all(|p| !probe(p)).then_some(())
+        });
+        drop(_copies);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

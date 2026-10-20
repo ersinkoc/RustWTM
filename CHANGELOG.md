@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Stuck swarms are cleaned up** (opt-in): with `[swarm] end_after_mins`
+  (Settings → Service settings → Swarm warning) the service ends copies of a
+  swarm that have run longer than that, together with what they started
+  (their console hosts), up to 100 per second, with one notification per
+  round; in dry run it only reports them. The swarm card offers the same by
+  hand: *End the N running over 10 min*.
+
+### Fixed
+
+- A process start time far in the future no longer overflows.
+
 ## [0.12.0] - 2026-10-20
 
 ### Added

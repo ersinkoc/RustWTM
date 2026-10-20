@@ -220,6 +220,10 @@ fn verdict(data: &Data) -> Option<(Color32, String)> {
     })
 }
 
+/// Swarm copies running this long count as stuck when the service does not
+/// set its own limit.
+const STUCK_MINS: u64 = 10;
+
 /// Hundreds of copies of one program: who started them and one click to end
 /// them all, or only those nothing waits for any more.
 fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Intent>) {
@@ -269,6 +273,27 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
                             .clicked()
                     {
                         intents.push(Intent::ConfirmMany(orphans, Command::Kill));
+                    }
+                    let mins = match data.swarm.end_after_mins {
+                        0 => STUCK_MINS,
+                        m => m,
+                    };
+                    let stuck: Vec<ProcessRef> = s
+                        .older_than(
+                            std::time::Duration::from_secs(mins * 60),
+                            std::time::SystemTime::now(),
+                        )
+                        .into_iter()
+                        .map(ProcessRef::from)
+                        .collect();
+                    if !stuck.is_empty()
+                        && stuck.len() < s.members.len()
+                        && ui
+                            .button(format!("End the {} running over {mins} min", stuck.len()))
+                            .on_hover_text("Stuck helpers, with the console hosts they started")
+                            .clicked()
+                    {
+                        intents.push(Intent::ConfirmMany(stuck, Command::KillTree));
                     }
                     if ui
                         .button("Add to kill list…")

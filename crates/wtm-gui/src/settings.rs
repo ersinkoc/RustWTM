@@ -314,21 +314,49 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
 
             let s = &c.swarm;
             ui.strong("Swarm warning");
-            ui.horizontal(|ui| {
-                let mut on = s.enabled;
-                let check = ui.checkbox(&mut on, "Warn when one program runs");
-                if check.changed() {
-                    set("swarm", "enabled", toml_edit_value::V::Bool(on));
-                }
-                let mut n = s.min_count as u64;
-                if ui
-                    .add_enabled(s.enabled, egui::DragValue::new(&mut n).range(10..=10_000))
-                    .labelled_by(check.id)
-                    .changed()
-                {
-                    set("swarm", "min_count", toml_edit_value::V::Int(n));
-                }
-                ui.label("copies or more");
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    let mut on = s.enabled;
+                    let check = ui.checkbox(&mut on, "Warn when one program runs");
+                    if check.changed() {
+                        set("swarm", "enabled", toml_edit_value::V::Bool(on));
+                    }
+                    let mut n = s.min_count as u64;
+                    if ui
+                        .add_enabled(s.enabled, egui::DragValue::new(&mut n).range(10..=10_000))
+                        .labelled_by(check.id)
+                        .changed()
+                    {
+                        set("swarm", "min_count", toml_edit_value::V::Int(n));
+                    }
+                    ui.label("copies or more");
+                });
+                ui.add_enabled_ui(s.enabled, |ui| {
+                    ui.horizontal(|ui| {
+                        let label = ui.label("End copies that run longer than");
+                        let mut mins = s.end_after_mins;
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut mins)
+                                    .range(0..=10_080)
+                                    .suffix(" min"),
+                            )
+                            .labelled_by(label.id)
+                            .on_hover_text(
+                                "With what they started. A helper that should take seconds is \
+                                 stuck by then. 0 only warns.",
+                            )
+                            .changed()
+                        {
+                            set("swarm", "end_after_mins", toml_edit_value::V::Int(mins));
+                        }
+                        ui.weak(if s.end_after_mins == 0 {
+                            "(off: only warn)"
+                        } else {
+                            "(and what they started)"
+                        });
+                    });
+                });
             });
             ui.end_row();
 

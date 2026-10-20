@@ -37,7 +37,11 @@ impl ProcessInfo {
     pub fn start_time(&self) -> Option<SystemTime> {
         let unix_100ns = self.create_time.checked_sub(FILETIME_UNIX_OFFSET)?;
         let unix_100ns = u64::try_from(unix_100ns).ok()?;
-        Some(UNIX_EPOCH + Duration::from_nanos(unix_100ns * 100))
+        let since = Duration::new(
+            unix_100ns / 10_000_000,
+            (unix_100ns % 10_000_000) as u32 * 100,
+        );
+        UNIX_EPOCH.checked_add(since)
     }
 
     pub fn io_rate(&self) -> f64 {
@@ -226,5 +230,13 @@ mod tests {
         let mut idle = proc(0, "idle", 0.0);
         idle.create_time = 0;
         assert_eq!(idle.start_time(), None);
+        // One and a half seconds after 1970, and no overflow at the far end.
+        idle.create_time = FILETIME_UNIX_OFFSET + 15_000_000;
+        assert_eq!(
+            idle.start_time(),
+            Some(UNIX_EPOCH + Duration::from_millis(1500))
+        );
+        idle.create_time = i64::MAX;
+        assert!(idle.start_time().is_some());
     }
 }
