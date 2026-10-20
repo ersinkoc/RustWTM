@@ -421,7 +421,8 @@ mod tests {
                 .all(|c| usage[0].members.iter().any(|m| m.0 == *c)),
             "{usage:?}"
         );
-        for pid in children {
+        // Everything still in the budget, console hosts included.
+        for &(pid, _) in &usage[0].members {
             if let Ok(h) = ProcessHandle::open(pid, Access::TERMINATE | Access::SYNCHRONIZE) {
                 let _ = h.terminate(1);
                 let _ = h.wait_exit(Duration::from_secs(5));
