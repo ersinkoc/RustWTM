@@ -54,10 +54,23 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
                 return;
             }
             Mode::Starting | Mode::Local => {
+                let other_version = data
+                    .service_error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("protocol"));
                 ui.colored_label(
                     WARN,
-                    "The bot runs in the RustWTM service, which is not running. Install RustWTM \
-                     with the MSI to use it.",
+                    if other_version {
+                        format!(
+                            "The bot runs in the RustWTM service, and the installed one is a \
+                             different version. Update it with the installer of version {}.",
+                            env!("CARGO_PKG_VERSION")
+                        )
+                    } else {
+                        "The bot runs in the RustWTM service, which is not running. Install \
+                         RustWTM with the MSI to use it."
+                            .to_owned()
+                    },
                 );
                 return;
             }

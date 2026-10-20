@@ -1,4 +1,5 @@
-//! Settings tab: edits the service's `config.toml` with live validation.
+//! Settings tab: the service's main settings as a form, and its
+//! `config.toml` as text, with live validation.
 
 use eframe::egui::{self, Color32, RichText, Ui};
 
@@ -10,9 +11,9 @@ pub struct ConfigView {
     pub text: String,
     /// The service's text the edit started from.
     original: Option<String>,
-    /// The last validated text and its result (the parsed `dry_run`), so
-    /// parsing runs only when the text changes.
-    check: Option<(String, Result<bool, String>)>,
+    /// The last validated text and its result, so parsing runs only when
+    /// the text changes.
+    check: Option<(String, Result<wtm_policy::Config, String>)>,
 }
 
 impl ConfigView {
@@ -31,13 +32,11 @@ impl ConfigView {
         self.original = Some(service_text.to_owned());
     }
 
-    fn validate(&mut self) -> Result<bool, String> {
+    fn validate(&mut self) -> Result<wtm_policy::Config, String> {
         match &self.check {
             Some((text, result)) if *text == self.text => result.clone(),
             _ => {
-                let result = wtm_policy::Config::from_toml(&self.text)
-                    .map(|c| c.dry_run)
-                    .map_err(|e| e.to_string());
+                let result = wtm_policy::Config::from_toml(&self.text).map_err(|e| e.to_string());
                 self.check = Some((self.text.clone(), result.clone()));
                 result
             }
@@ -118,19 +117,6 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
             view.original = None;
             reload(&mut commands);
         }
-        ui.separator();
-        if let Ok(dry_run) = valid {
-            let (label, to) = if dry_run {
-                ("Switch to enforcing", false)
-            } else {
-                ("Switch to dry-run", true)
-            };
-            if ui.button(label).clicked()
-                && let Some(new) = set_dry_run(&view.text, to)
-            {
-                view.text = new;
-            }
-        }
         if !admin {
             ui.weak("Run RustWTM as administrator to save.");
         }
@@ -139,10 +125,26 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
         Ok(_) => ui.colored_label(Color32::from_rgb(80, 180, 100), "✔ Valid configuration"),
         Err(e) => ui.colored_label(Color32::from_rgb(220, 70, 70), format!("✖ {e}")),
     };
-    ui.separator();
-    egui::ScrollArea::vertical()
-        .id_salt("config_editor")
+    ui.add_space(4.0);
+    if let Ok(config) = &valid {
+        crate::theme::card(
+            ui,
+            RichText::new("Service settings").size(16.0).strong(),
+            |ui| {
+                if let Some(new) = form(ui, config, &view.text) {
+                    view.text = new;
+                }
+            },
+        );
+        ui.add_space(4.0);
+    }
+    egui::CollapsingHeader::new("Advanced: edit config.toml")
+        .id_salt("config_text")
+        .default_open(valid.is_err())
         .show(ui, |ui| {
+            ui.weak(
+                "Rules, app limits, the kill list and every other option. See docs/configuration.md.",
+            );
             ui.add(
                 egui::TextEdit::multiline(&mut view.text)
                     .code_editor()
@@ -151,6 +153,238 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
             );
         });
     commands
+}
+
+/// The settings most people change, as controls; returns the edited text.
+fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
+    let mut out: Option<String> = None;
+    let mut set = |table: &str, key: &str, value: toml_edit_value::V| {
+        let base = out.as_deref().unwrap_or(text);
+        if let Ok(new) = value.write(base, table, key) {
+            out = Some(new);
+        }
+    };
+    let g = &c.governor;
+    egui::Grid::new("service_form")
+        .num_columns(2)
+        .spacing([16.0, 10.0])
+        .show(ui, |ui| {
+            ui.strong("Mode");
+            ui.horizontal(|ui| {
+                if ui.selectable_label(!c.dry_run, "Enforcing").clicked() && c.dry_run {
+                    set("", "dry_run", toml_edit_value::V::Bool(false));
+                }
+                if ui
+                    .selectable_label(c.dry_run, "Monitoring only")
+                    .on_hover_text("Logs what it would do without touching any process")
+                    .clicked()
+                    && !c.dry_run
+                {
+                    set("", "dry_run", toml_edit_value::V::Bool(true));
+                }
+            });
+            ui.end_row();
+
+            ui.strong("CPU governor");
+            ui.vertical(|ui| {
+                let mut on = g.enabled;
+                if ui
+                    .checkbox(
+                        &mut on,
+                        "Slow down the busiest apps when the CPU is overloaded",
+                    )
+                    .changed()
+                {
+                    set("governor", "enabled", toml_edit_value::V::Bool(on));
+                }
+                ui.add_enabled_ui(g.enabled, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Act when the CPU stays above");
+                        let mut high = g.high_cpu_percent;
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut high)
+                                    .range(50.0..=100.0)
+                                    .suffix("%"),
+                            )
+                            .changed()
+                        {
+                            set(
+                                "governor",
+                                "high_cpu_percent",
+                                toml_edit_value::V::Float(high),
+                            );
+                        }
+                        ui.label("for");
+                        let mut secs = g.sustain_secs;
+                        if ui
+                            .add(egui::DragValue::new(&mut secs).range(1..=300).suffix(" s"))
+                            .changed()
+                        {
+                            set("governor", "sustain_secs", toml_edit_value::V::Int(secs));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Undo once it stays below");
+                        let mut low = g.recover_cpu_percent;
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut low)
+                                    .range(10.0..=99.0)
+                                    .suffix("%"),
+                            )
+                            .changed()
+                        {
+                            set(
+                                "governor",
+                                "recover_cpu_percent",
+                                toml_edit_value::V::Float(low),
+                            );
+                        }
+                        ui.label("for");
+                        let mut secs = g.recover_secs;
+                        if ui
+                            .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
+                            .changed()
+                        {
+                            set("governor", "recover_secs", toml_edit_value::V::Int(secs));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        let label = ui.label("Slow down up to");
+                        let mut n = g.max_offenders as u64;
+                        if ui
+                            .add(egui::DragValue::new(&mut n).range(1..=20))
+                            .labelled_by(label.id)
+                            .changed()
+                        {
+                            set("governor", "max_offenders", toml_edit_value::V::Int(n));
+                        }
+                        ui.label("apps at a time");
+                    });
+                });
+            });
+            ui.end_row();
+
+            let m = &c.memory_guard;
+            ui.strong("Memory guard");
+            ui.vertical(|ui| {
+                let mut on = m.enabled;
+                if ui
+                    .checkbox(&mut on, "Free memory of the largest apps when RAM runs out")
+                    .on_hover_text("Moves their pages to the standby list; nothing is lost")
+                    .changed()
+                {
+                    set("memory_guard", "enabled", toml_edit_value::V::Bool(on));
+                }
+                ui.add_enabled_ui(m.enabled, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("When memory use stays above");
+                        let mut high = m.high_percent;
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut high)
+                                    .range(50.0..=99.0)
+                                    .suffix("%"),
+                            )
+                            .changed()
+                        {
+                            set(
+                                "memory_guard",
+                                "high_percent",
+                                toml_edit_value::V::Float(high),
+                            );
+                        }
+                        ui.label("for");
+                        let mut secs = m.sustain_secs;
+                        if ui
+                            .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
+                            .changed()
+                        {
+                            set(
+                                "memory_guard",
+                                "sustain_secs",
+                                toml_edit_value::V::Int(secs),
+                            );
+                        }
+                    });
+                });
+            });
+            ui.end_row();
+
+            let s = &c.swarm;
+            ui.strong("Swarm warning");
+            ui.horizontal(|ui| {
+                let mut on = s.enabled;
+                let check = ui.checkbox(&mut on, "Warn when one program runs");
+                if check.changed() {
+                    set("swarm", "enabled", toml_edit_value::V::Bool(on));
+                }
+                let mut n = s.min_count as u64;
+                if ui
+                    .add_enabled(s.enabled, egui::DragValue::new(&mut n).range(10..=10_000))
+                    .labelled_by(check.id)
+                    .changed()
+                {
+                    set("swarm", "min_count", toml_edit_value::V::Int(n));
+                }
+                ui.label("copies or more");
+            });
+            ui.end_row();
+
+            ui.strong("History");
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Keep per-app usage for");
+                    let mut days = u64::from(c.history_days);
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut days)
+                                .range(1..=365)
+                                .suffix(" days"),
+                        )
+                        .changed()
+                    {
+                        set("", "history_days", toml_edit_value::V::Int(days));
+                    }
+                });
+                let mut on = c.insights.enabled;
+                if ui
+                    .checkbox(
+                        &mut on,
+                        "Flag apps with constant CPU use or steadily growing memory",
+                    )
+                    .changed()
+                {
+                    set("insights", "enabled", toml_edit_value::V::Bool(on));
+                }
+            });
+            ui.end_row();
+        });
+    out
+}
+
+/// A value for `set_config_value`, without the GUI depending on toml_edit.
+mod toml_edit_value {
+    pub enum V {
+        Bool(bool),
+        Int(u64),
+        Float(f32),
+    }
+
+    impl V {
+        pub fn write(self, text: &str, table: &str, key: &str) -> Result<String, String> {
+            match self {
+                V::Bool(b) => wtm_policy::set_config_value(text, table, key, b),
+                V::Int(n) => wtm_policy::set_config_value(text, table, key, n as i64),
+                // Rounded so 90.0 stays 90.0 rather than 90.00000381.
+                V::Float(f) => {
+                    let f = (f64::from(f) * 10.0).round() / 10.0;
+                    wtm_policy::set_config_value(text, table, key, f)
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

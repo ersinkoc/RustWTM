@@ -20,7 +20,7 @@ mod swarm;
 mod telegram;
 
 pub use action::{Action, Decision, PriorityLevel, Source};
-pub use config::{Config, ConfigError, DEFAULT_CONFIG_TOML, GovernorConfig};
+pub use config::{Config, ConfigError, DEFAULT_CONFIG_TOML, GovernorConfig, set_config_value};
 pub use glob::glob_match;
 pub use governor::Governor;
 pub use insights::{

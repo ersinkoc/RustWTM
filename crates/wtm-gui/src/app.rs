@@ -495,8 +495,10 @@ impl eframe::App for App {
                 ));
             }
             Tab::Settings => {
-                window_settings(ui, state);
-                ui.separator();
+                crate::theme::card(ui, RichText::new("This window").size(16.0).strong(), |ui| {
+                    window_settings(ui, state);
+                });
+                ui.add_space(6.0);
                 service_cmds.extend(crate::telegram_settings::telegram(
                     ui,
                     &data,
@@ -844,7 +846,6 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
 
 /// Preferences of this window (the service's settings follow below them).
 fn window_settings(ui: &mut Ui, state: &mut UiState) {
-    ui.heading("This window");
     ui.horizontal(|ui| {
         ui.label("Theme:");
         egui::widgets::global_theme_preference_buttons(ui);
@@ -1217,21 +1218,25 @@ pub(crate) fn rate_label(hover: &egui_plot::HoverPosition<'_>) -> Option<String>
     }
 }
 
-/// Rows of name, a bar filled to `load` (0..=100) and its caption.
+/// Rows of name, a slim bar filled to `load` (0..=100) and its caption.
 fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, String)>) {
     egui::Grid::new(id)
-        .num_columns(2)
-        .spacing([12.0, 6.0])
+        .num_columns(3)
+        .spacing([12.0, 8.0])
         .show(ui, |ui| {
             for (name, load, caption) in rows {
                 ui.label(name);
-                ui.add(
-                    egui::ProgressBar::new(load.clamp(0.0, 100.0) / 100.0)
-                        .desired_width(300.0)
-                        .corner_radius(4)
-                        .fill(crate::theme::load_color(load).gamma_multiply(0.85))
-                        .text(caption),
-                );
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(160.0, 8.0), egui::Sense::hover());
+                let painter = ui.painter_at(rect);
+                painter.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
+                let frac = load.clamp(0.0, 100.0) / 100.0;
+                if frac > 0.0 {
+                    let mut fill = rect;
+                    fill.set_width((rect.width() * frac).max(rect.height()));
+                    painter.rect_filled(fill, 4.0, crate::theme::load_color(load));
+                }
+                ui.weak(caption);
                 ui.end_row();
             }
         });
@@ -1307,13 +1312,14 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(4.0);
         // Two columns of similar height when there is room: the tall CPU
-        // card with Disk on the left, the four shorter ones on the right.
+        // card with Disk and the summary on the left, the others on the
+        // right.
         if ui.available_width() >= PERF_TWO_COLUMNS {
             let [cpu, memory, gpu, network, disk, summary] = sections;
             ui.columns(2, |cols| {
                 for (col, list) in cols
                     .iter_mut()
-                    .zip([&[cpu, disk][..], &[memory, gpu, network, summary][..]])
+                    .zip([&[cpu, disk, summary][..], &[memory, gpu, network][..]])
                 {
                     for section in list {
                         section(col, data, s);
@@ -2697,10 +2703,12 @@ mod tests {
         assert!(h.query_by_label_contains("Valid configuration").is_some());
         assert!(h.query_by_label_contains("unsaved").is_none());
 
-        h.get_by_label("Switch to enforcing").click();
+        h.get_by_label("Enforcing").click();
         h.run_steps(2);
         assert!(h.query_by_label_contains("unsaved").is_some());
-        assert!(h.query_by_label("Switch to dry-run").is_some());
+        h.get_by_label("Slow down the busiest apps when the CPU is overloaded")
+            .click();
+        h.run_steps(2);
         h.get_by_label("Save").click();
         h.run_steps(2);
         let sent: Vec<UiCommand> = rx.try_iter().collect();
@@ -2713,7 +2721,12 @@ mod tests {
             _ => None,
         });
         let saved = saved.expect("Save sends the edited text");
-        assert!(wtm_policy::Config::from_toml(&saved).is_ok_and(|c| !c.dry_run));
+        let parsed = wtm_policy::Config::from_toml(&saved).unwrap();
+        assert!(!parsed.dry_run && !parsed.governor.enabled);
+        assert!(
+            saved.contains("# Log what would be done"),
+            "comments are kept"
+        );
 
         // Discarding asks the service for its text again.
         h.get_by_label("Discard changes").click();

@@ -363,6 +363,16 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             }
         };
         executor.forget_exited(&snap);
+        if snap.interval.is_some() {
+            let mut recent = shared
+                .recent
+                .write()
+                .unwrap_or_else(PoisonError::into_inner);
+            recent.push_back(wtm_ipc::SystemPoint::of(&snap.system));
+            while recent.len() > RECENT_LEN {
+                recent.pop_front();
+            }
+        }
         app_usage = app_limiter.tick(&snap.processes, snap.system.logical_cpus);
         if let Some(h) = history.as_mut() {
             let unix = unix_now();
@@ -571,6 +581,10 @@ fn lookup(
 }
 
 const WATCH_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Samples kept for clients' history graphs (five minutes at the default
+/// interval).
+const RECENT_LEN: usize = 300;
 
 /// Polls for new processes between full samples so unconditional rules
 /// (e.g. `kill`) act within a fraction of a second.

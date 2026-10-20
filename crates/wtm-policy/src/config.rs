@@ -183,6 +183,44 @@ impl Config {
 }
 
 /// Windows matches blocked programs by file name only, without wildcards.
+/// Sets `key` in `[table]` (top level when `table` is empty) of the
+/// configuration text, keeping comments and layout.
+pub fn set_config_value(
+    text: &str,
+    table: &str,
+    key: &str,
+    value: impl Into<toml_edit::Value>,
+) -> Result<String, String> {
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
+    let item = toml_edit::Item::Value(value.into());
+    if table.is_empty() {
+        // Keep the comment above an existing key.
+        match doc.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
+            Some(v) => {
+                let decor = v.decor().clone();
+                *v = item.into_value().map_err(|_| "not a value")?;
+                *v.decor_mut() = decor;
+            }
+            None => doc[key] = item,
+        }
+    } else {
+        let t = doc
+            .entry(table)
+            .or_insert_with(toml_edit::table)
+            .as_table_mut()
+            .ok_or_else(|| format!("`{table}` must be a table"))?;
+        match t.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
+            Some(v) => {
+                let decor = v.decor().clone();
+                *v = item.into_value().map_err(|_| "not a value")?;
+                *v.decor_mut() = decor;
+            }
+            None => t[key] = item,
+        }
+    }
+    Ok(doc.to_string())
+}
+
 fn validate_block(name: &str) -> Result<(), String> {
     if name.contains(['\\', '/', '*', '?', '"']) || name.trim() != name {
         return Err("must be a plain file name like pp.exe (no path or wildcards)".into());
@@ -202,6 +240,24 @@ fn validate_block(name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_values_are_set_keeping_comments() {
+        let text =
+            "# top\ndry_run = true  # safe\n\n[governor]\n# how high\nhigh_cpu_percent = 90.0\n";
+        let t = set_config_value(text, "", "dry_run", false).unwrap();
+        let t = set_config_value(&t, "governor", "high_cpu_percent", 85.5).unwrap();
+        let t = set_config_value(&t, "swarm", "min_count", 200i64).unwrap();
+        assert!(t.contains("dry_run = false  # safe"), "{t}");
+        assert!(t.contains("# how high\nhigh_cpu_percent = 85.5"), "{t}");
+        let c = Config::from_toml(&t).unwrap();
+        assert_eq!(
+            (c.dry_run, c.governor.high_cpu_percent, c.swarm.min_count),
+            (false, 85.5, 200)
+        );
+        assert!(set_config_value("governor = 1", "governor", "x", 1i64).is_err());
+        assert!(set_config_value("not toml [", "", "x", 1i64).is_err());
+    }
 
     #[test]
     fn block_names_must_be_plain_unprotected_executables() {

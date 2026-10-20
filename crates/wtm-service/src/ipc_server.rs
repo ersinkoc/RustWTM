@@ -32,6 +32,8 @@ pub struct Shared {
     pub events: EventLog,
     /// Current long-term findings.
     pub findings: RwLock<Vec<wtm_policy::Finding>>,
+    /// System-wide load of the last `RECENT_LEN` samples, oldest first.
+    pub recent: RwLock<std::collections::VecDeque<wtm_ipc::SystemPoint>>,
     /// The configuration in force.
     pub config: RwLock<wtm_policy::Config>,
     /// History database, opened read-only per request.
@@ -152,6 +154,7 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 None => Response::Error("no snapshot yet".into()),
             },
             Request::Status => Response::Status(read_lock(&shared.status)),
+            Request::Recent => Response::Recent(read_lock(&shared.recent).into()),
             Request::Events { after } => Response::Events(shared.events.after(after)),
             // Inspected with the client's rights, not the service's.
             Request::Inspect(target) => match conn.as_client(|| control::inspect(&target)) {

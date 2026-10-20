@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -63,6 +63,8 @@ pub enum Request {
     SetConfig {
         toml: String,
     },
+    /// The last few minutes of system-wide load, one point per sample.
+    Recent,
     /// The Telegram bot settings, token included (admin only).
     GetTelegram,
     /// Validates and replaces the Telegram bot settings (admin only).
@@ -115,11 +117,43 @@ pub enum Response {
         path: String,
     },
     Telegram(wtm_policy::TelegramConfig),
+    Recent(Vec<SystemPoint>),
     /// The request succeeded and has no payload.
     Done,
     /// The request succeeded; a line to show the user.
     Text(String),
     Error(String),
+}
+
+/// System-wide load at one sample, for history graphs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SystemPoint {
+    pub cpu: f32,
+    /// Share of physical memory in use, 0..=100.
+    pub memory: f32,
+    pub gpu: f32,
+    /// Bytes per second.
+    pub net_rx: f32,
+    pub net_tx: f32,
+    pub io_read: f32,
+    pub io_write: f32,
+    /// Load of each logical processor.
+    pub cores: Vec<f32>,
+}
+
+impl SystemPoint {
+    pub fn of(s: &wtm_core::SystemStats) -> Self {
+        Self {
+            cpu: s.cpu_percent,
+            memory: s.memory_used() as f32 * 100.0 / s.memory_total.max(1) as f32,
+            gpu: s.gpu_percent,
+            net_rx: s.net_rx_rate as f32,
+            net_tx: s.net_tx_rate as f32,
+            io_read: s.io_read_rate as f32,
+            io_write: s.io_write_rate as f32,
+            cores: s.core_percent.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

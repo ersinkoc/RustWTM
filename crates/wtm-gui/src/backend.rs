@@ -407,6 +407,14 @@ impl Worker {
             if let Some(pid) = (self.foreground)() {
                 let _ = client.call(&Request::Foreground { pid });
             }
+            // Right after connecting: the service's last minutes, so the
+            // graphs start full.
+            let backfill = (self.last_event == 0)
+                .then(|| match client.call(&Request::Recent) {
+                    Ok(Response::Recent(points)) => Some(points),
+                    _ => None,
+                })
+                .flatten();
             match fetch(client, self.last_event) {
                 Ok((snapshot, status, events)) => {
                     // Skip the backlog fetched right after connecting.
@@ -417,6 +425,11 @@ impl Worker {
                         self.last_event = last.id;
                     }
                     let mut data = self.data();
+                    if let Some(points) = backfill
+                        && data.history.cpu.len() < points.len()
+                    {
+                        fill_history(&mut data.history, &points);
+                    }
                     data.mode = Mode::Service { admin, verified };
                     data.status = Some(status);
                     data.events.extend(events);
@@ -992,6 +1005,29 @@ fn publish_local(data: &mut Data, sample: wtm_core::Result<Snapshot>) {
     }
 }
 
+/// Replaces the history with the service's recent points, oldest first.
+fn fill_history(h: &mut History, points: &[wtm_ipc::SystemPoint]) {
+    let points = &points[points.len().saturating_sub(HISTORY_LEN)..];
+    let series = |f: fn(&wtm_ipc::SystemPoint) -> f32| points.iter().map(f).collect();
+    h.cpu = series(|p| p.cpu);
+    h.memory = series(|p| p.memory);
+    h.gpu = series(|p| p.gpu);
+    h.net_rx = series(|p| p.net_rx);
+    h.net_tx = series(|p| p.net_tx);
+    h.io_read = series(|p| p.io_read);
+    h.io_write = series(|p| p.io_write);
+    let recent = &points[points.len().saturating_sub(CORE_HISTORY_LEN)..];
+    let cores = recent.last().map_or(0, |p| p.cores.len());
+    h.cores = (0..cores)
+        .map(|i| {
+            recent
+                .iter()
+                .map(|p| p.cores.get(i).copied().unwrap_or_default())
+                .collect()
+        })
+        .collect();
+}
+
 fn publish(data: &mut Data, snapshot: Snapshot) {
     let s = &snapshot.system;
     let mem = if s.memory_total > 0 {
@@ -1307,6 +1343,33 @@ mod tests {
         // b exits.
         update_process_history(&mut h, &[a.clone()]);
         assert_eq!(h.len(), 1);
+    }
+
+    #[test]
+    fn history_is_filled_from_the_services_recent_points() {
+        let point = |i: usize| wtm_ipc::SystemPoint {
+            cpu: i as f32,
+            memory: 1.0,
+            gpu: 2.0,
+            net_rx: 3.0,
+            net_tx: 4.0,
+            io_read: 5.0,
+            io_write: 6.0,
+            cores: vec![i as f32; 2],
+        };
+        let mut h = History::default();
+        fill_history(
+            &mut h,
+            &(0..HISTORY_LEN + 10).map(point).collect::<Vec<_>>(),
+        );
+        assert_eq!(h.cpu.len(), HISTORY_LEN);
+        assert_eq!(h.cpu.front(), Some(&10.0), "the oldest are dropped");
+        assert_eq!((h.net_tx[0], h.io_write[0]), (4.0, 6.0));
+        assert_eq!(h.cores.len(), 2);
+        assert_eq!(h.cores[1].len(), CORE_HISTORY_LEN);
+        assert_eq!(h.cores[1].back(), Some(&((HISTORY_LEN + 9) as f32)));
+        fill_history(&mut h, &[]);
+        assert!(h.cpu.is_empty() && h.cores.is_empty());
     }
 
     #[test]
@@ -1746,6 +1809,20 @@ mod tests {
                 path: r"C:\cfg.toml".into(),
             },
             Request::SetConfig { .. } => Response::Done,
+            Request::Recent => Response::Recent(
+                (0..400)
+                    .map(|i| wtm_ipc::SystemPoint {
+                        cpu: i as f32 / 4.0,
+                        memory: 50.0,
+                        gpu: 1.0,
+                        net_rx: 10.0,
+                        net_tx: 20.0,
+                        io_read: 30.0,
+                        io_write: 40.0,
+                        cores: vec![i as f32 / 4.0; 4],
+                    })
+                    .collect(),
+            ),
             Request::GetTelegram => Response::Telegram(wtm_policy::TelegramConfig::default()),
             Request::SetTelegram(_) => Response::Done,
             Request::TestTelegram => Response::Text("sent".into()),
@@ -1777,6 +1854,12 @@ mod tests {
             );
             assert!(d.status.is_some());
             assert_eq!(d.events.len(), 1);
+            // The graphs start with the service's last minutes.
+            assert_eq!(d.history.cpu.len(), HISTORY_LEN);
+            assert_eq!(d.history.cpu.back(), Some(&(399.0 / 4.0)));
+            assert_eq!(d.history.io_write.front(), Some(&40.0));
+            assert_eq!(d.history.cores.len(), 4);
+            assert_eq!(d.history.cores[0].len(), CORE_HISTORY_LEN);
         }
         assert_eq!(w.last_event, 7);
 
@@ -1879,7 +1962,7 @@ mod tests {
             Request::AppSeries { .. } => Response::Error("unknown app".into()),
             Request::GetConfig => Response::Done,
             Request::SetConfig { .. } => Response::Error("invalid configuration: x".into()),
-            Request::GetTelegram | Request::SetTelegram(_) => Response::Done,
+            Request::Recent | Request::GetTelegram | Request::SetTelegram(_) => Response::Done,
             Request::TestTelegram => Response::Error("chat 1: chat not found".into()),
             Request::Foreground { .. } => Response::Error("not a process of your session".into()),
         });

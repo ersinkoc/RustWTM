@@ -1,7 +1,7 @@
 //! Overview tab: the machine at a glance, one-click protection, the busiest
 //! apps with quick actions, and what the service did recently.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use eframe::egui::{self, Color32, RichText, Ui};
 use wtm_core::control::{EcoQos, ProcessRef};
@@ -35,8 +35,25 @@ fn app_color(cpu: f32, logical_cpus: u32) -> Color32 {
     }
 }
 
-/// A ring filled to the load, in a card with the resource's name and detail.
-fn gauge(ui: &mut Ui, title: &str, percent: f32, detail: String, accent: Color32) {
+/// One resource at a glance: a ring for loads that have a ceiling, or a
+/// big value for rates, and the last few minutes as a sparkline.
+struct Stat<'a> {
+    title: &'static str,
+    accent: Color32,
+    /// 0..=100 for loads; `None` for rates.
+    ring: Option<f32>,
+    value: String,
+    detail: String,
+    series: Vec<(&'a VecDeque<f32>, Color32)>,
+    /// Top of the sparkline; `None` scales to the largest value shown.
+    max: Option<f32>,
+}
+
+const STAT_HEIGHT: f32 = 128.0;
+/// Seconds of history in a card's sparkline.
+const STAT_SECONDS: usize = 60;
+
+fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
     let dark = ui.visuals().dark_mode;
     egui::Frame::new()
         .fill(if dark {
@@ -44,27 +61,87 @@ fn gauge(ui: &mut Ui, title: &str, percent: f32, detail: String, accent: Color32
         } else {
             Color32::WHITE
         })
-        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.45)))
+        .stroke(egui::Stroke::new(1.0, s.accent.gamma_multiply(0.45)))
         .corner_radius(10)
         .inner_margin(12)
         .show(ui, |ui| {
-            ui.set_width(250.0);
-            ui.set_height(84.0);
+            ui.set_width(ui.available_width());
+            ui.set_height(STAT_HEIGHT - 24.0);
             ui.horizontal(|ui| {
-                crate::theme::ring_gauge(
-                    ui,
-                    84.0,
-                    percent,
-                    load_color(percent),
-                    &format!("{percent:.0}%"),
-                );
-                ui.add_space(6.0);
+                if let Some(p) = s.ring {
+                    crate::theme::ring_gauge(ui, 60.0, p, load_color(p), &format!("{p:.0}%"));
+                    ui.add_space(6.0);
+                }
                 ui.vertical(|ui| {
-                    ui.add_space(10.0);
-                    ui.label(RichText::new(title).size(18.0).strong().color(accent));
-                    ui.weak(detail);
+                    ui.label(RichText::new(s.title).size(15.0).strong().color(s.accent));
+                    if s.ring.is_none() {
+                        ui.label(RichText::new(&s.value).size(20.0).strong());
+                    }
+                    ui.add(egui::Label::new(RichText::new(&s.detail).weak()).truncate());
                 });
             });
+            ui.add_space(4.0);
+            let height = ui.available_height().max(20.0);
+            let (rect, _) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), height),
+                egui::Sense::hover(),
+            );
+            let max = s.max.unwrap_or_else(|| {
+                s.series
+                    .iter()
+                    .flat_map(|(v, _)| v.iter().rev().take(STAT_SECONDS).copied())
+                    .fold(1024.0, f32::max)
+            });
+            for (values, color) in &s.series {
+                let tail: VecDeque<f32> = values
+                    .iter()
+                    .skip(values.len().saturating_sub(STAT_SECONDS))
+                    .copied()
+                    .collect();
+                crate::theme::sparkline(ui.painter(), rect, &tail, max, STAT_SECONDS, *color);
+            }
+        });
+}
+
+/// The cards in as many equal columns as fit, wrapping to further rows.
+fn stat_row(ui: &mut Ui, stats: &[Stat<'_>]) {
+    let width = ui.available_width();
+    let per_row = if width >= 1100.0 {
+        stats.len()
+    } else if width >= 640.0 {
+        3
+    } else {
+        2
+    };
+    for chunk in stats.chunks(per_row.max(1)) {
+        ui.columns(per_row, |cols| {
+            for (col, s) in cols.iter_mut().zip(chunk) {
+                stat_card(col, s);
+            }
+        });
+        ui.add_space(4.0);
+    }
+}
+
+fn rate(bytes_per_sec: f64) -> String {
+    format!("{}/s", format_bytes(bytes_per_sec))
+}
+
+/// The verdict in a tinted strip.
+fn banner(ui: &mut Ui, color: Color32, text: &str) {
+    let icon = if color == GOOD { "✔" } else { "⚠" };
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.14))
+        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.5)))
+        .corner_radius(8)
+        .inner_margin(egui::Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(
+                RichText::new(format!("{icon}  {text}"))
+                    .size(16.0)
+                    .color(color),
+            );
         });
 }
 
@@ -124,7 +201,22 @@ fn verdict(data: &Data) -> Option<(Color32, String)> {
     } else if mem >= 80.0 {
         (WARN, format!("Memory is getting full{}", mem_blame()))
     } else {
-        (GOOD, "Everything runs smoothly.".to_owned())
+        let swarms = wtm_policy::find_swarms(&data.snapshot.as_ref()?.processes, &data.swarm);
+        match swarms.len() {
+            0 => (GOOD, "Everything runs smoothly.".to_owned()),
+            1 => (
+                WARN,
+                format!(
+                    "{} copies of {} are running; see below.",
+                    swarms[0].members.len(),
+                    swarms[0].name
+                ),
+            ),
+            n => (
+                WARN,
+                format!("{n} programs run hundreds of copies each; see below."),
+            ),
+        }
     })
 }
 
@@ -150,7 +242,7 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
             .color(WARN),
             |ui| {
                 ui.label(format!(
-                    "Started by {}. Together {} of memory and {:.1}% CPU. Usually a tool that keeps                      starting helpers and never waits for them.",
+                    "Started by {}. Together {} of memory and {:.1}% CPU. Usually a tool that keeps starting helpers and never waits for them.",
                     s.parents_text(),
                     format_bytes(s.memory as f64),
                     s.cpu_percent
@@ -206,52 +298,119 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         } else {
             0.0
         };
-        ui.horizontal_top(|ui| {
-            gauge(
-                ui,
-                "CPU",
-                s.cpu_percent,
-                format!(
-                    "{} logical processors, {} processes",
+        let h = &data.history;
+        use crate::theme::{CPU, DISK_READ, DISK_WRITE, GPU, MEMORY, NET_RX, NET_TX};
+        let stats = [
+            Stat {
+                title: "CPU",
+                accent: CPU,
+                ring: Some(s.cpu_percent),
+                value: String::new(),
+                detail: format!(
+                    "{} processors · {} processes",
                     s.logical_cpus, s.process_count
                 ),
-                crate::theme::CPU,
-            );
-            gauge(
-                ui,
-                "Memory",
-                mem,
-                format!(
-                    "{} of {} in use",
+                series: vec![(&h.cpu, CPU)],
+                max: Some(100.0),
+            },
+            Stat {
+                title: "Memory",
+                accent: MEMORY,
+                ring: Some(mem),
+                value: String::new(),
+                detail: format!(
+                    "{} of {}",
                     format_bytes(s.memory_used() as f64),
                     format_bytes(s.memory_total as f64)
                 ),
-                crate::theme::MEMORY,
-            );
-            gauge(
-                ui,
-                "GPU",
-                s.gpu_percent,
-                "busiest engine".into(),
-                crate::theme::GPU,
-            );
-        });
+                series: vec![(&h.memory, MEMORY)],
+                max: Some(100.0),
+            },
+            Stat {
+                title: "GPU",
+                accent: GPU,
+                ring: Some(s.gpu_percent),
+                value: String::new(),
+                detail: "busiest engine".into(),
+                series: vec![(&h.gpu, GPU)],
+                max: Some(100.0),
+            },
+            Stat {
+                title: "Disk",
+                accent: DISK_READ,
+                ring: None,
+                value: rate(s.io_read_rate + s.io_write_rate),
+                detail: format!(
+                    "read {} · write {}",
+                    rate(s.io_read_rate),
+                    rate(s.io_write_rate)
+                ),
+                series: vec![(&h.io_read, DISK_READ), (&h.io_write, DISK_WRITE)],
+                max: None,
+            },
+            Stat {
+                title: "Network",
+                accent: NET_RX,
+                ring: None,
+                value: rate(s.net_rx_rate + s.net_tx_rate),
+                detail: format!("↓ {} · ↑ {}", rate(s.net_rx_rate), rate(s.net_tx_rate)),
+                series: vec![(&h.net_rx, NET_RX), (&h.net_tx, NET_TX)],
+                max: None,
+            },
+        ];
+        stat_row(ui, &stats);
         if let Some((color, text)) = verdict(data) {
-            ui.add_space(6.0);
-            ui.label(RichText::new(text).size(17.0).color(color));
+            ui.add_space(4.0);
+            banner(ui, color, &text);
         }
         swarms(ui, data, &snap.processes, &mut intents);
     } else {
         ui.spinner();
     }
-    ui.add_space(10.0);
-    ui.separator();
+    ui.add_space(6.0);
+    crate::theme::card(
+        ui,
+        RichText::new("Automatic protection").size(16.0).strong(),
+        |ui| {
+            protection(ui, data, &mut commands);
+        },
+    );
+    ui.add_space(6.0);
 
-    protection(ui, data, &mut commands);
-    ui.add_space(10.0);
-    ui.separator();
+    let busiest = |ui: &mut Ui, intents: &mut Vec<Intent>| {
+        crate::theme::card(
+            ui,
+            RichText::new("Busiest apps right now").size(16.0).strong(),
+            |ui| {
+                busiest_table(ui, data, intents);
+            },
+        );
+    };
+    let recent = |ui: &mut Ui| {
+        crate::theme::card(
+            ui,
+            RichText::new("Recent automatic actions")
+                .size(16.0)
+                .strong(),
+            |ui| {
+                recent_actions(ui, data);
+            },
+        );
+    };
+    if ui.available_width() >= 1300.0 {
+        ui.columns(2, |cols| {
+            busiest(&mut cols[0], &mut intents);
+            recent(&mut cols[1]);
+        });
+    } else {
+        busiest(ui, &mut intents);
+        ui.add_space(6.0);
+        recent(ui);
+    }
+    (commands, intents)
+}
 
-    ui.heading("Busiest apps right now");
+fn busiest_table(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
     let apps = busiest_apps(data, 8);
     egui::Grid::new("overview_apps")
         .num_columns(5)
@@ -277,7 +436,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 ui.label(a.instances.len().to_string());
                 ui.horizontal(|ui| {
                     if ui
-                        .button("Efficiency mode")
+                        .small_button("Efficiency mode")
                         .on_hover_text("Run every process of this app in efficiency mode (EcoQoS).")
                         .clicked()
                     {
@@ -286,7 +445,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                         }
                     }
                     if ui
-                        .button("Free memory")
+                        .small_button("Free memory")
                         .on_hover_text(
                             "Move this app's memory to the standby list; it comes back as needed.",
                         )
@@ -297,23 +456,22 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                         }
                     }
                     if ui
-                        .button("Limit…")
+                        .small_button("Limit…")
                         .on_hover_text("Give this app a permanent CPU / memory budget.")
                         .clicked()
                     {
                         intents.push(Intent::LimitApp(a.name.to_owned()));
                     }
-                    if ui.button("Details").clicked() {
+                    if ui.small_button("Details").clicked() {
                         intents.push(Intent::Reveal(a.instances[0].clone()));
                     }
                 });
                 ui.end_row();
             }
         });
-    ui.add_space(10.0);
-    ui.separator();
+}
 
-    ui.heading("Recent automatic actions");
+fn recent_actions(ui: &mut Ui, data: &Data) {
     let recent: Vec<_> = data
         .events
         .iter()
@@ -328,7 +486,6 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         let when = clock(e.unix_ms);
         ui.label(format!("{when}  {}", e.message));
     }
-    (commands, intents)
 }
 
 /// `HH:MM:SS` in local time.
@@ -342,7 +499,6 @@ fn clock(unix_ms: u64) -> String {
         .unwrap_or_default()
 }
 fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
-    ui.heading("Automatic protection");
     if !matches!(data.mode, Mode::Service { .. }) {
         let error = data.service_error.as_deref().unwrap_or_default();
         if error.contains("protocol") {

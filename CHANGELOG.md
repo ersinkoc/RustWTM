@@ -15,6 +15,27 @@ All notable changes to this project are documented here. The format follows
   report-only bot too.
 - Telegram: `/restartsvc NAME` restarts a service.
 
+### Changed
+
+- **Overview**: five cards across the window (CPU, memory, GPU, disk,
+  network), each with its last minute as a sparkline; the verdict sits in a
+  coloured strip and also warns about swarms; protection, the busiest apps
+  and recent actions are cards, the last two side by side on wide windows.
+- **Graphs start full**: the service keeps the last five minutes of
+  system-wide load, and the window fills its graphs from it when it
+  connects instead of starting empty.
+- **Settings**: the main service settings (enforcing or monitoring, CPU
+  governor thresholds, memory guard, swarm warning, history) are a form;
+  editing `config.toml` by hand moved under *Advanced*, and comments in the
+  file are kept.
+- **Performance**: slimmer disk and GPU engine bars with their figures beside
+  them; the system summary moved to the shorter column.
+
+### Fixed
+
+- The swarm card and its notification had a run of spaces in the middle of a
+  sentence.
+
 ## [0.11.0] - 2026-10-20
 
 ### Added
