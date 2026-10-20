@@ -116,11 +116,19 @@ fn end_intent(row: &PortRow<'_>, command: Command) -> Intent {
 
 fn exposure_label(ui: &mut Ui, exposure: Exposure) {
     let (color, hint) = match exposure {
-        Exposure::ThisPc => (GOOD, "Only programs on this PC can connect"),
-        Exposure::Network => (WARN, "Reachable from one network this PC is on"),
+        Exposure::ThisPc => (
+            GOOD,
+            crate::i18n::tr("Only programs on this PC can connect"),
+        ),
+        Exposure::Network => (
+            WARN,
+            crate::i18n::tr("Reachable from one network this PC is on"),
+        ),
         Exposure::AllNetworks => (
             WARN,
-            "Reachable from every network this PC is on, unless the firewall blocks it",
+            crate::i18n::tr(
+                "Reachable from every network this PC is on, unless the firewall blocks it",
+            ),
         ),
     };
     ui.colored_label(color, exposure.label())
@@ -188,12 +196,27 @@ pub fn ports_tab(ui: &mut Ui, data: &Data, view: &mut PortsView, intents: &mut V
         .count();
 
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(format!("{tcp} TCP ports listening")).strong());
+        ui.label(
+            RichText::new({
+                crate::i18n::format("{0} TCP ports listening", &[format!("{}", tcp)])
+            })
+            .strong(),
+        );
         ui.separator();
-        ui.label(format!("{tools} well-known tools and servers running"));
+        ui.label({
+            crate::i18n::format(
+                "{0} well-known tools and servers running",
+                &[format!("{}", tools)],
+            )
+        });
         ui.separator();
-        ui.label(format!("{open} open to all networks"))
-            .on_hover_text("Listening on 0.0.0.0 or ::, so other computers may reach them");
+        ui.label(crate::i18n::format(
+            "{0} open to all networks",
+            &[format!("{}", open)],
+        ))
+        .on_hover_text(crate::i18n::tr(
+            "Listening on 0.0.0.0 or ::, so other computers may reach them",
+        ));
     });
     ui.add_space(4.0);
     free_port_bar(ui, &all, view, intents);
@@ -211,7 +234,7 @@ fn free_port_bar(
     intents: &mut Vec<Intent>,
 ) {
     ui.horizontal(|ui| {
-        ui.label("Free a port:");
+        ui.label(crate::i18n::tr("Free a port:"));
         let edit = ui.add(
             egui::TextEdit::singleline(&mut view.free_input)
                 .hint_text("e.g. 3000")
@@ -221,13 +244,17 @@ fn free_port_bar(
         let row = port.and_then(|p| all.iter().find(|r| r.port == p));
         match (port, row) {
             (None, _) if !view.free_input.trim().is_empty() => {
-                ui.colored_label(BAD, "Not a port number");
+                ui.colored_label(BAD, crate::i18n::tr("Not a port number"));
             }
             (None, _) => {
-                ui.weak("Ends the program that keeps a port busy (\"address already in use\").");
+                ui.weak(crate::i18n::tr(
+                    "Ends the program that keeps a port busy (\"address already in use\").",
+                ));
             }
             (Some(p), None) => {
-                ui.colored_label(GOOD, format!("Port {p} is free."));
+                ui.colored_label(GOOD, {
+                    crate::i18n::format("Port {0} is free.", &[format!("{}", p)])
+                });
             }
             (Some(p), Some(row)) => {
                 let blocked = blocked(row);
@@ -236,7 +263,10 @@ fn free_port_bar(
                     .add_enabled(
                         blocked.is_none(),
                         egui::Button::new(
-                            RichText::new(format!("End what uses port {p}")).color(BAD),
+                            RichText::new({
+                                crate::i18n::format("End what uses port {0}", &[format!("{}", p)])
+                            })
+                            .color(BAD),
                         ),
                     )
                     .on_disabled_hover_text(blocked.clone().unwrap_or_default());
@@ -257,12 +287,15 @@ fn free_port_bar(
 fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: &mut Vec<Intent>) {
     card(
         ui,
-        RichText::new("Developer tools & servers").strong(),
+        RichText::new(crate::i18n::tr("Developer tools & servers")).strong(),
         |ui| {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut view.show_catalog, "Show free ports too");
+                ui.checkbox(
+                    &mut view.show_catalog,
+                    crate::i18n::tr("Show free ports too"),
+                );
                 ui.separator();
-                ui.label("Watch a port:");
+                ui.label(crate::i18n::tr("Watch a port:"));
                 let edit = ui.add(
                     egui::TextEdit::singleline(&mut view.watch_input)
                         .hint_text("e.g. 8090")
@@ -271,7 +304,7 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                 let port = ports::parse_port(&view.watch_input);
                 let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if (ui
-                    .add_enabled(port.is_some(), egui::Button::new("Watch"))
+                    .add_enabled(port.is_some(), egui::Button::new(crate::i18n::tr("Watch")))
                     .clicked()
                     || enter)
                     && let Some(p) = port
@@ -303,7 +336,9 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                 .filter(|(_, _, watched, row)| *watched || view.show_catalog || row.is_some())
                 .collect();
             if shown.is_empty() {
-                ui.weak("None of the well-known developer tools or servers is running.");
+                ui.weak(crate::i18n::tr(
+                    "None of the well-known developer tools or servers is running.",
+                ));
                 return;
             }
             let mut unwatch = None;
@@ -318,12 +353,12 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                         .show(ui, |ui| {
                             for h in [
                                 "",
-                                "Port",
-                                "Tool / server",
-                                "Kind",
-                                "Program",
-                                "Reach",
-                                "Clients",
+                                crate::i18n::tr("Port"),
+                                crate::i18n::tr("Tool / server"),
+                                crate::i18n::tr("Kind"),
+                                crate::i18n::tr("Program"),
+                                crate::i18n::tr("Reach"),
+                                crate::i18n::tr("Clients"),
                                 "",
                             ] {
                                 ui.strong(h);
@@ -331,11 +366,15 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                             ui.end_row();
                             for (port, known, watched, row) in shown {
                                 match row {
-                                    Some(_) => ui.colored_label(GOOD, "●").on_hover_text("In use"),
-                                    None => ui.weak("○").on_hover_text("Free"),
+                                    Some(_) => ui
+                                        .colored_label(GOOD, "●")
+                                        .on_hover_text(crate::i18n::tr("In use")),
+                                    None => ui.weak("○").on_hover_text(crate::i18n::tr("Free")),
                                 };
                                 ui.label(RichText::new(port.to_string()).monospace().strong());
-                                ui.label(known.map_or("Watched port", |k| k.service));
+                                ui.label(
+                                    known.map_or(crate::i18n::tr("Watched port"), |k| k.service),
+                                );
                                 ui.weak(known.map_or("", |k| k.category));
                                 match row {
                                     Some(r) => {
@@ -361,7 +400,7 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                                     if let Some(r) = row {
                                         if r.browsable()
                                             && ui
-                                                .small_button("Open")
+                                                .small_button(crate::i18n::tr("Open"))
                                                 .on_hover_text(format!("http://localhost:{port}"))
                                                 .clicked()
                                         {
@@ -371,13 +410,15 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                                         if ui
                                             .add_enabled(
                                                 blocked.is_none(),
-                                                egui::Button::new(RichText::new("End").color(BAD))
-                                                    .small(),
+                                                egui::Button::new(
+                                                    RichText::new(crate::i18n::tr("End"))
+                                                        .color(BAD),
+                                                )
+                                                .small(),
                                             )
-                                            .on_hover_text(
-                                                relay(r)
-                                                    .unwrap_or("End the program to free the port"),
-                                            )
+                                            .on_hover_text(relay(r).unwrap_or(crate::i18n::tr(
+                                                "End the program to free the port",
+                                            )))
                                             .on_disabled_hover_text(blocked.unwrap_or_default())
                                             .clicked()
                                         {
@@ -385,8 +426,8 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                                         }
                                         if let Some((_, Some(p))) = r.uses.first()
                                             && ui
-                                                .small_button("Show")
-                                                .on_hover_text("Show in Processes")
+                                                .small_button(crate::i18n::tr("Show"))
+                                                .on_hover_text(crate::i18n::tr("Show in Processes"))
                                                 .clicked()
                                         {
                                             intents.push(Intent::Reveal(ProcessRef::from(*p)));
@@ -395,7 +436,7 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                                     if watched
                                         && ui
                                             .small_button("✖")
-                                            .on_hover_text("Stop watching")
+                                            .on_hover_text(crate::i18n::tr("Stop watching"))
                                             .clicked()
                                     {
                                         unwatch = Some(port);
@@ -420,15 +461,15 @@ fn listening_table(
     intents: &mut Vec<Intent>,
 ) {
     ui.horizontal(|ui| {
-        ui.strong("All listening ports");
+        ui.strong(crate::i18n::tr("All listening ports"));
         ui.separator();
-        ui.label("Search:");
+        ui.label(crate::i18n::tr("Search:"));
         ui.add(
             egui::TextEdit::singleline(&mut view.search)
-                .hint_text("port, program or tool")
+                .hint_text(crate::i18n::tr("port, program or tool"))
                 .desired_width(200.0),
         );
-        ui.checkbox(&mut view.show_udp, "Include UDP");
+        ui.checkbox(&mut view.show_udp, crate::i18n::tr("Include UDP"));
     });
     let f = view.search.trim().to_lowercase();
     let mut rows: Vec<(&PortUse, Option<&ProcessInfo>)> = uses
@@ -485,16 +526,16 @@ fn listening_table(
         .column(Column::remainder().clip(true))
         .header(row_height, |mut h| {
             for (col, (label, numeric)) in [
-                ("Port", true),
-                ("Proto", false),
-                ("Known as", false),
-                ("Program", false),
+                (crate::i18n::tr("Port"), true),
+                (crate::i18n::tr("Proto"), false),
+                (crate::i18n::tr("Known as"), false),
+                (crate::i18n::tr("Program"), false),
                 ("PID", true),
-                ("Reach", false),
-                ("Clients", true),
+                (crate::i18n::tr("Reach"), false),
+                (crate::i18n::tr("Clients"), true),
                 ("CPU", true),
-                ("Memory", true),
-                ("Address", false),
+                (crate::i18n::tr("Memory"), true),
+                (crate::i18n::tr("Address"), false),
             ]
             .into_iter()
             .enumerate()
@@ -565,31 +606,40 @@ fn port_menu(
         let reason = ports::end_blocked(p.pid, &p.name);
         ui.add_enabled_ui(reason.is_none(), |ui| {
             if ui
-                .button(format!("End {} (frees port {port})", p.name))
+                .button({
+                    let __wtm_i18n_0 = &(p.name);
+                    crate::i18n::format(
+                        "End {0} (frees port {1})",
+                        &[__wtm_i18n_0.to_string(), format!("{}", port)],
+                    )
+                })
                 .clicked()
             {
                 intents.push(Intent::Confirm(target.clone(), Command::Kill));
                 ui.close();
             }
-            if ui.button("End process tree").clicked() {
+            if ui.button(crate::i18n::tr("End process tree")).clicked() {
                 intents.push(Intent::Confirm(target.clone(), Command::KillTree));
                 ui.close();
             }
         });
         if let Some(r) = reason {
-            ui.weak(format!("Not here: {r}"));
+            ui.weak(crate::i18n::format(
+                "Not here: {0}",
+                std::slice::from_ref(&r),
+            ));
         } else if let Some(hint) = ports::relay_hint(&p.name) {
             ui.colored_label(WARN, hint);
         }
-        if ui.button("Show in Processes").clicked() {
+        if ui.button(crate::i18n::tr("Show in Processes")).clicked() {
             intents.push(Intent::Reveal(target.clone()));
             ui.close();
         }
-        if ui.button("Open file location").clicked() {
+        if ui.button(crate::i18n::tr("Open file location")).clicked() {
             intents.push(Intent::OpenLocation(target));
             ui.close();
         }
-        if ui.button("Add to kill list…").clicked() {
+        if ui.button(crate::i18n::tr("Add to kill list…")).clicked() {
             intents.push(Intent::AddToKillList(p.name.clone()));
             ui.close();
         }
@@ -599,11 +649,17 @@ fn port_menu(
         open_url(ui, port);
         ui.close();
     }
-    if ui.button(format!("Copy localhost:{port}")).clicked() {
+    if ui
+        .button(crate::i18n::format(
+            "Copy localhost:{0}",
+            &[format!("{}", port)],
+        ))
+        .clicked()
+    {
         ui.ctx().copy_text(format!("localhost:{port}"));
         ui.close();
     }
-    if !view.watched.contains(&port) && ui.button("Watch this port").clicked() {
+    if !view.watched.contains(&port) && ui.button(crate::i18n::tr("Watch this port")).clicked() {
         view.watched.push(port);
         view.watched.sort_unstable();
         ui.close();

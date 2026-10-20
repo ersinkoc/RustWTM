@@ -131,14 +131,22 @@ pub fn dialog(
             GOOD
         };
         ui.label(
-            RichText::new(format!("⚠ Your PC is overloaded: CPU {:.0}%", alert.cpu))
-                .size(22.0)
-                .color(color),
+            RichText::new({
+                let __wtm_i18n_0 = &(alert.cpu);
+                crate::i18n::format(
+                    "⚠ Your PC is overloaded: CPU {0}%",
+                    &[format!("{:.0}", __wtm_i18n_0)],
+                )
+            })
+            .size(22.0)
+            .color(color),
         );
         if alert.cpu < settings.threshold {
-            ui.colored_label(GOOD, "The load is back to normal.");
+            ui.colored_label(GOOD, crate::i18n::tr("The load is back to normal."));
         } else {
-            ui.label("These apps use the most CPU. One click brings them down; nothing is lost.");
+            ui.label(crate::i18n::tr(
+                "These apps use the most CPU. One click brings them down; nothing is lost.",
+            ));
         }
         ui.add_space(8.0);
 
@@ -149,11 +157,15 @@ pub fn dialog(
                 .flat_map(|a| &a.instances)
                 .collect();
             if ui
-                .button(RichText::new("⚡ Calm them all down").size(16.0).strong())
-                .on_hover_text(
+                .button(
+                    RichText::new(crate::i18n::tr("⚡ Calm them all down"))
+                        .size(16.0)
+                        .strong(),
+                )
+                .on_hover_text(crate::i18n::tr(
                     "Efficiency mode and lower priority for these apps (except the one you are \
                      using): they keep running, but stop crowding out everything else.",
-                )
+                ))
                 .clicked()
             {
                 for t in background {
@@ -171,7 +183,11 @@ pub fn dialog(
                 for a in &apps {
                     let using = Some(a.name) == foreground;
                     ui.label(RichText::new(a.name).strong())
-                        .on_hover_text(if using { "The app you are using" } else { "" });
+                        .on_hover_text(if using {
+                            crate::i18n::tr("The app you are using")
+                        } else {
+                            ""
+                        });
                     ui.label(
                         RichText::new(format!("{:.0}%", a.cpu)).color(if a.cpu >= 50.0 {
                             BAD
@@ -186,8 +202,10 @@ pub fn dialog(
                                 .map(move |t| Intent::Command(t.clone(), c))
                         };
                         if ui
-                            .button("Efficiency mode")
-                            .on_hover_text("Runs it on efficient cores at lower priority")
+                            .button(crate::i18n::tr("Efficiency mode"))
+                            .on_hover_text(crate::i18n::tr(
+                                "Runs it on efficient cores at lower priority",
+                            ))
                             .clicked()
                         {
                             for t in &a.instances {
@@ -196,10 +214,10 @@ pub fn dialog(
                         }
                         let one_core = 100.0 / cpus as f32;
                         if ui
-                            .button("Limit to 1 core")
-                            .on_hover_text(
+                            .button(crate::i18n::tr("Limit to 1 core"))
+                            .on_hover_text(crate::i18n::tr(
                                 "A hard cap for each of its processes, until you remove it",
-                            )
+                            ))
                             .clicked()
                         {
                             intents.extend(all(Command::Limit(Limits {
@@ -208,15 +226,18 @@ pub fn dialog(
                             })));
                         }
                         if ui
-                            .button("Pause")
-                            .on_hover_text(
+                            .button(crate::i18n::tr("Pause"))
+                            .on_hover_text(crate::i18n::tr(
                                 "Stops it completely; right-click → Resume brings it back",
-                            )
+                            ))
                             .clicked()
                         {
                             intents.extend(all(Command::Suspend));
                         }
-                        if ui.button(RichText::new("End").color(BAD)).clicked() {
+                        if ui
+                            .button(RichText::new(crate::i18n::tr("End")).color(BAD))
+                            .clicked()
+                        {
                             intents.push(Intent::ConfirmMany(a.instances.clone(), Command::Kill));
                         }
                     });
@@ -224,18 +245,25 @@ pub fn dialog(
                 }
             });
         if apps.is_empty() {
-            ui.weak("No single app stands out; many small ones add up.");
+            ui.weak(crate::i18n::tr(
+                "No single app stands out; many small ones add up.",
+            ));
         }
         let doomed = crate::kill_tab::targets(data).len();
         if doomed > 0 {
             ui.add_space(6.0);
             if ui
                 .button(
-                    RichText::new(format!("🚨 End the kill list ({doomed} processes)"))
-                        .strong()
-                        .color(BAD),
+                    RichText::new({
+                        crate::i18n::format(
+                            "🚨 End the kill list ({0} processes)",
+                            &[format!("{}", doomed)],
+                        )
+                    })
+                    .strong()
+                    .color(BAD),
                 )
-                .on_hover_text("Shows them first")
+                .on_hover_text(crate::i18n::tr("Shows them first"))
                 .clicked()
             {
                 *panic = true;
@@ -246,11 +274,11 @@ pub fn dialog(
         match &data.config {
             Some(Ok((_, text))) if data.status.as_ref().is_some_and(|s| s.dry_run) => {
                 ui.horizontal(|ui| {
-                    ui.label("Automatic protection is off.");
+                    ui.label(crate::i18n::tr("Automatic protection is off."));
                     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
                     if ui
-                        .add_enabled(admin, egui::Button::new("Turn it on"))
-                        .on_hover_text("RustWTM then steps in by itself next time")
+                        .add_enabled(admin, egui::Button::new(crate::i18n::tr("Turn it on")))
+                        .on_hover_text(crate::i18n::tr("RustWTM then steps in by itself next time"))
                         .clicked()
                         && let Some(new) = crate::settings::set_dry_run(text, false)
                     {
@@ -259,20 +287,25 @@ pub fn dialog(
                 });
             }
             _ if !matches!(data.mode, Mode::Service { .. }) => {
-                ui.weak("Install the RustWTM service and it steps in automatically next time.");
+                ui.weak(crate::i18n::tr(
+                    "Install the RustWTM service and it steps in automatically next time.",
+                ));
             }
             _ => {}
         }
 
         ui.add_space(8.0);
         ui.horizontal(|ui| {
-            if ui.button("Close").clicked() {
+            if ui.button(crate::i18n::tr("Close")).clicked() {
                 close = Some(QUIET_AFTER_CLOSE);
             }
-            if ui.button("Snooze for 1 hour").clicked() {
+            if ui.button(crate::i18n::tr("Snooze for 1 hour")).clicked() {
                 close = Some(SNOOZE);
             }
-            if ui.button("Turn off these alerts").clicked() {
+            if ui
+                .button(crate::i18n::tr("Turn off these alerts"))
+                .clicked()
+            {
                 settings.enabled = false;
                 close = Some(QUIET_AFTER_CLOSE);
             }

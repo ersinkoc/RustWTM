@@ -28,6 +28,7 @@ egui_plot.workspace = true
 notify-rust.workspace = true
 raw-window-handle = "0.6.2"
 serde.workspace = true
+serde_json.workspace = true
 tray-icon.workspace = true
 winreg.workspace = true
 

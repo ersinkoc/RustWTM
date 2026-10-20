@@ -85,7 +85,7 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
         }
         Some(Err(e)) => {
             ui.colored_label(Color32::RED, e);
-            if ui.button("Retry").clicked() {
+            if ui.button(crate::i18n::tr("Retry")).clicked() {
                 reload(&mut commands);
             }
             return commands;
@@ -102,34 +102,45 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
     ui.horizontal(|ui| {
         ui.label(RichText::new(path).monospace());
         if dirty {
-            ui.colored_label(Color32::from_rgb(230, 140, 40), "● unsaved changes");
+            ui.colored_label(
+                Color32::from_rgb(230, 140, 40),
+                crate::i18n::tr("● unsaved changes"),
+            );
         }
     });
     ui.horizontal(|ui| {
-        let save = ui.add_enabled(admin && dirty && valid.is_ok(), egui::Button::new("Save"));
+        let save = ui.add_enabled(
+            admin && dirty && valid.is_ok(),
+            egui::Button::new(crate::i18n::tr("Save")),
+        );
         if save.clicked() {
             commands.push(UiCommand::SaveConfig(view.text.clone()));
         }
         if ui
-            .add_enabled(dirty, egui::Button::new("Discard changes"))
+            .add_enabled(dirty, egui::Button::new(crate::i18n::tr("Discard changes")))
             .clicked()
         {
             view.original = None;
             reload(&mut commands);
         }
         if !admin {
-            ui.weak("Run RustWTM as administrator to save.");
+            ui.weak(crate::i18n::tr("Run RustWTM as administrator to save."));
         }
     });
     match &valid {
-        Ok(_) => ui.colored_label(Color32::from_rgb(80, 180, 100), "✔ Valid configuration"),
+        Ok(_) => ui.colored_label(
+            Color32::from_rgb(80, 180, 100),
+            crate::i18n::tr("✔ Valid configuration"),
+        ),
         Err(e) => ui.colored_label(Color32::from_rgb(220, 70, 70), format!("✖ {e}")),
     };
     ui.add_space(4.0);
     if let Ok(config) = &valid {
         crate::theme::card(
             ui,
-            RichText::new("Service settings").size(16.0).strong(),
+            RichText::new(crate::i18n::tr("Service settings"))
+                .size(16.0)
+                .strong(),
             |ui| {
                 if let Some(new) = form(ui, config, &view.text) {
                     view.text = new;
@@ -138,12 +149,12 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
         );
         ui.add_space(4.0);
     }
-    egui::CollapsingHeader::new("Advanced: edit config.toml")
+    egui::CollapsingHeader::new(crate::i18n::tr("Advanced: edit config.toml"))
         .id_salt("config_text")
         .default_open(valid.is_err())
         .show(ui, |ui| {
             ui.weak(
-                "Rules, app limits, the kill list and every other option. See docs/configuration.md.",
+                crate::i18n::tr("Rules, app limits, the kill list and every other option. See docs/configuration.md."),
             );
             ui.add(
                 egui::TextEdit::multiline(&mut view.text)
@@ -169,14 +180,20 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
         .num_columns(2)
         .spacing([16.0, 10.0])
         .show(ui, |ui| {
-            ui.strong("Mode");
+            ui.strong(crate::i18n::tr("Mode"));
             ui.horizontal(|ui| {
-                if ui.selectable_label(!c.dry_run, "Enforcing").clicked() && c.dry_run {
+                if ui
+                    .selectable_label(!c.dry_run, crate::i18n::tr("Enforcing"))
+                    .clicked()
+                    && c.dry_run
+                {
                     set("", "dry_run", toml_edit_value::V::Bool(false));
                 }
                 if ui
-                    .selectable_label(c.dry_run, "Monitoring only")
-                    .on_hover_text("Logs what it would do without touching any process")
+                    .selectable_label(c.dry_run, crate::i18n::tr("Monitoring only"))
+                    .on_hover_text(crate::i18n::tr(
+                        "Logs what it would do without touching any process",
+                    ))
                     .clicked()
                     && !c.dry_run
                 {
@@ -185,13 +202,13 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
             });
             ui.end_row();
 
-            ui.strong("CPU governor");
+            ui.strong(crate::i18n::tr("CPU governor"));
             ui.vertical(|ui| {
                 let mut on = g.enabled;
                 if ui
                     .checkbox(
                         &mut on,
-                        "Slow down the busiest apps when the CPU is overloaded",
+                        crate::i18n::tr("Slow down the busiest apps when the CPU is overloaded"),
                     )
                     .changed()
                 {
@@ -199,7 +216,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                 }
                 ui.add_enabled_ui(g.enabled, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Act when the CPU stays above");
+                        ui.label(crate::i18n::tr("Act when the CPU stays above"));
                         let mut high = g.high_cpu_percent;
                         if ui
                             .add(
@@ -215,7 +232,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                                 toml_edit_value::V::Float(high),
                             );
                         }
-                        ui.label("for");
+                        ui.label(crate::i18n::tr("for"));
                         let mut secs = g.sustain_secs;
                         if ui
                             .add(egui::DragValue::new(&mut secs).range(1..=300).suffix(" s"))
@@ -225,7 +242,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                         }
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Undo once it stays below");
+                        ui.label(crate::i18n::tr("Undo once it stays below"));
                         let mut low = g.recover_cpu_percent;
                         if ui
                             .add(
@@ -241,7 +258,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                                 toml_edit_value::V::Float(low),
                             );
                         }
-                        ui.label("for");
+                        ui.label(crate::i18n::tr("for"));
                         let mut secs = g.recover_secs;
                         if ui
                             .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
@@ -251,7 +268,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                         }
                     });
                     ui.horizontal(|ui| {
-                        let label = ui.label("Slow down up to");
+                        let label = ui.label(crate::i18n::tr("Slow down up to"));
                         let mut n = g.max_offenders as u64;
                         if ui
                             .add(egui::DragValue::new(&mut n).range(1..=20))
@@ -260,26 +277,31 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                         {
                             set("governor", "max_offenders", toml_edit_value::V::Int(n));
                         }
-                        ui.label("apps at a time");
+                        ui.label(crate::i18n::tr("apps at a time"));
                     });
                 });
             });
             ui.end_row();
 
             let m = &c.memory_guard;
-            ui.strong("Memory guard");
+            ui.strong(crate::i18n::tr("Memory guard"));
             ui.vertical(|ui| {
                 let mut on = m.enabled;
                 if ui
-                    .checkbox(&mut on, "Free memory of the largest apps when RAM runs out")
-                    .on_hover_text("Moves their pages to the standby list; nothing is lost")
+                    .checkbox(
+                        &mut on,
+                        crate::i18n::tr("Free memory of the largest apps when RAM runs out"),
+                    )
+                    .on_hover_text(crate::i18n::tr(
+                        "Moves their pages to the standby list; nothing is lost",
+                    ))
                     .changed()
                 {
                     set("memory_guard", "enabled", toml_edit_value::V::Bool(on));
                 }
                 ui.add_enabled_ui(m.enabled, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("When memory use stays above");
+                        ui.label(crate::i18n::tr("When memory use stays above"));
                         let mut high = m.high_percent;
                         if ui
                             .add(
@@ -295,7 +317,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                                 toml_edit_value::V::Float(high),
                             );
                         }
-                        ui.label("for");
+                        ui.label(crate::i18n::tr("for"));
                         let mut secs = m.sustain_secs;
                         if ui
                             .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
@@ -313,11 +335,11 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
             ui.end_row();
 
             let s = &c.swarm;
-            ui.strong("Swarm warning");
+            ui.strong(crate::i18n::tr("Swarm warning"));
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     let mut on = s.enabled;
-                    let check = ui.checkbox(&mut on, "Warn when one program runs");
+                    let check = ui.checkbox(&mut on, crate::i18n::tr("Warn when one program runs"));
                     if check.changed() {
                         set("swarm", "enabled", toml_edit_value::V::Bool(on));
                     }
@@ -329,47 +351,47 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                     {
                         set("swarm", "min_count", toml_edit_value::V::Int(n));
                     }
-                    ui.label("copies or more");
+                    ui.label(crate::i18n::tr("copies or more"));
                 });
                 ui.add_enabled_ui(s.enabled, |ui| {
                     ui.horizontal(|ui| {
-                        let label = ui.label("End copies that run longer than");
+                        let label = ui.label(crate::i18n::tr("End copies that run longer than"));
                         let mut mins = s.end_after_mins;
                         if ui
                             .add(
                                 egui::DragValue::new(&mut mins)
                                     .range(0..=10_080)
-                                    .suffix(" min"),
+                                    .suffix(crate::i18n::tr(" min")),
                             )
                             .labelled_by(label.id)
-                            .on_hover_text(
+                            .on_hover_text(crate::i18n::tr(
                                 "With what they started. A helper that should take seconds is \
                                  stuck by then. 0 only warns.",
-                            )
+                            ))
                             .changed()
                         {
                             set("swarm", "end_after_mins", toml_edit_value::V::Int(mins));
                         }
                         ui.weak(if s.end_after_mins == 0 {
-                            "(off: only warn)"
+                            crate::i18n::tr("(off: only warn)")
                         } else {
-                            "(and what they started)"
+                            crate::i18n::tr("(and what they started)")
                         });
                     });
                 });
             });
             ui.end_row();
 
-            ui.strong("History");
+            ui.strong(crate::i18n::tr("History"));
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Keep per-app usage for");
+                    ui.label(crate::i18n::tr("Keep per-app usage for"));
                     let mut days = u64::from(c.history_days);
                     if ui
                         .add(
                             egui::DragValue::new(&mut days)
                                 .range(1..=365)
-                                .suffix(" days"),
+                                .suffix(crate::i18n::tr(" days")),
                         )
                         .changed()
                     {
@@ -380,7 +402,9 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                 if ui
                     .checkbox(
                         &mut on,
-                        "Flag apps with constant CPU use or steadily growing memory",
+                        crate::i18n::tr(
+                            "Flag apps with constant CPU use or steadily growing memory",
+                        ),
                     )
                     .changed()
                 {

@@ -27,12 +27,15 @@ impl Default for PowerView {
 pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiCommand> {
     let mut commands = Vec::new();
     ui.add_space(12.0);
-    crate::theme::card(ui, "CPU frequency policy", |ui| {
-        ui.label("A shared Windows power-plan limit affects every app using that policy class. For one app, use Efficiency mode or CPU core type in Processes.");
-        ui.weak(
+    crate::theme::card(ui, crate::i18n::tr("CPU frequency policy"), |ui| {
+        ui.label(crate::i18n::tr("A shared Windows power-plan limit affects every app using that policy class. For one app, use Efficiency mode or CPU core type in Processes."));
+        ui.weak(crate::i18n::tr(
             "Policy class 1 is not automatically E-cores. Firmware may ignore frequency requests.",
-        );
-        if ui.small_button("Refresh power plan").clicked() {
+        ));
+        if ui
+            .small_button(crate::i18n::tr("Refresh power plan"))
+            .clicked()
+        {
             commands.push(UiCommand::Load(Panel::Sensors));
         }
         let report = match &data.frequency {
@@ -42,20 +45,25 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
                 return;
             }
             None => {
-                ui.weak("Power-plan settings have not been loaded yet.");
+                ui.weak(crate::i18n::tr(
+                    "Power-plan settings have not been loaded yet.",
+                ));
                 return;
             }
         };
-        ui.weak(format!("Active plan: {}", report.plan));
+        ui.weak({
+            let __wtm_i18n_0 = &(report.plan);
+            crate::i18n::format("Active plan: {0}", std::slice::from_ref(__wtm_i18n_0))
+        });
         egui::Grid::new("frequency_values")
             .spacing([18.0, 6.0])
             .show(ui, |ui| {
-                ui.strong("Windows policy");
-                ui.strong("Plugged in");
-                ui.strong("Battery");
+                ui.strong(crate::i18n::tr("Windows policy"));
+                ui.strong(crate::i18n::tr("Plugged in"));
+                ui.strong(crate::i18n::tr("Battery"));
                 ui.end_row();
                 for class in [0, 1] {
-                    ui.label(format!("Class {class}"));
+                    ui.label(crate::i18n::format("Class {0}", &[format!("{}", class)]));
                     for source in [PowerSource::Ac, PowerSource::Dc] {
                         let value = report
                             .values
@@ -63,12 +71,12 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
                             .find(|v| v.class == class && v.source == source)
                             .and_then(|v| v.mhz);
                         ui.label(value.map_or_else(
-                            || "Unavailable".into(),
+                            || crate::i18n::tr("Unavailable").into(),
                             |v| {
                                 if v == 0 {
-                                    "Windows default".into()
+                                    crate::i18n::tr("Windows default").into()
                                 } else {
-                                    format!("{v} MHz")
+                                    crate::i18n::format("{0} MHz", &[format!("{}", v)])
                                 }
                             },
                         ));
@@ -78,23 +86,30 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
             });
         ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::new("power_class", "Policy class")
-                .selected_text(format!("Class {}", view.class))
+            egui::ComboBox::new("power_class", crate::i18n::tr("Policy class"))
+                .selected_text({
+                    let __wtm_i18n_0 = &(view.class);
+                    crate::i18n::format("Class {0}", &[format!("{}", __wtm_i18n_0)])
+                })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut view.class, 0, "Class 0");
-                    ui.selectable_value(&mut view.class, 1, "Class 1");
+                    ui.selectable_value(&mut view.class, 0, crate::i18n::tr("Class 0"));
+                    ui.selectable_value(&mut view.class, 1, crate::i18n::tr("Class 1"));
                 });
-            egui::ComboBox::new("power_source", "Power source")
-                .selected_text(view.source.label())
+            egui::ComboBox::new("power_source", crate::i18n::tr("Power source"))
+                .selected_text(crate::i18n::tr(view.source.label()))
                 .show_ui(ui, |ui| {
                     for source in [PowerSupply::Ac, PowerSupply::Dc, PowerSupply::Both] {
-                        ui.selectable_value(&mut view.source, source, source.label());
+                        ui.selectable_value(
+                            &mut view.source,
+                            source,
+                            crate::i18n::tr(source.label()),
+                        );
                     }
                 });
             ui.add(
                 egui::DragValue::new(&mut view.mhz)
                     .range(100..=64000)
-                    .suffix(" MHz"),
+                    .suffix(crate::i18n::tr(" MHz")),
             );
         });
         let request = FrequencyRequest {
@@ -128,7 +143,10 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
             && request.validate().is_ok();
         ui.horizontal_wrapped(|ui| {
             if ui
-                .add_enabled(available, egui::Button::new("Set frequency limit…"))
+                .add_enabled(
+                    available,
+                    egui::Button::new(crate::i18n::tr("Set frequency limit…")),
+                )
                 .clicked()
             {
                 view.confirm = Some(Confirmation::Limit(request));
@@ -136,7 +154,7 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
             if ui
                 .add_enabled(
                     data.elevated && report.backup_plan.is_some(),
-                    egui::Button::new("Restore saved frequency settings…"),
+                    egui::Button::new(crate::i18n::tr("Restore saved frequency settings…")),
                 )
                 .clicked()
             {
@@ -144,39 +162,52 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
             }
         });
         if let Some(plan) = &report.backup_plan {
-            ui.label(format!(
-                "Original settings saved for plan {plan}. Restore before applying another limit."
-            ));
+            ui.label({
+                crate::i18n::format(
+                    "Original settings saved for plan {0}. Restore before applying another limit.",
+                    std::slice::from_ref(plan),
+                )
+            });
         }
         if let Some(error) = &report.backup_error {
-            ui.label(format!("Backup unavailable: {error}"));
+            ui.label(crate::i18n::format(
+                "Backup unavailable: {0}",
+                std::slice::from_ref(error),
+            ));
         }
         if !supported {
-            ui.weak("The selected setting is unavailable on this power plan.");
+            ui.weak(crate::i18n::tr(
+                "The selected setting is unavailable on this power plan.",
+            ));
         }
         if !data.elevated {
-            ui.weak("Administrator rights are required to change these shared settings.");
-            if ui.button("Elevate for power controls").clicked() {
+            ui.weak(crate::i18n::tr(
+                "Administrator rights are required to change these shared settings.",
+            ));
+            if ui
+                .button(crate::i18n::tr("Elevate for power controls"))
+                .clicked()
+            {
                 commands.push(UiCommand::RestartElevated);
             }
         }
     });
     if let Some(action) = view.confirm.clone() {
         let modal=egui::Modal::new(egui::Id::unique("confirm_frequency")).show(ui.ctx(),|ui| {
-            let (heading,label)=match &action {Confirmation::Limit(_)=>("Change shared CPU frequency policy?","Apply system frequency limit"),Confirmation::Restore=>("Restore original frequency settings?","Restore power settings")};
+            let (heading,label)=match &action {Confirmation::Limit(_)=>(crate::i18n::tr("Change shared CPU frequency policy?"),crate::i18n::tr("Apply system frequency limit")),Confirmation::Restore=>(crate::i18n::tr("Restore original frequency settings?"),crate::i18n::tr("Restore power settings"))};
             ui.heading(heading);
             match &action {
                 Confirmation::Limit(request)=> {
-                    ui.label(format!("Windows policy class {} · {} · {} MHz",request.class,request.source.label(),request.mhz));
-                    ui.label("This affects all apps using that policy class, not one PID. It persists after RustWTM closes. Original values are saved before writing; use Restore to undo it.");
+                    ui.label({ let __wtm_i18n_0 = &(request.class); let __wtm_i18n_1 = &(request.source.label()); let __wtm_i18n_2 = &(request.mhz); crate::i18n::format("Windows policy class {0} · {1} · {2} MHz", &[format!("{}", __wtm_i18n_0), __wtm_i18n_1.to_string(), format!("{}", __wtm_i18n_2)]) });
+                    ui.label(crate::i18n::tr("This affects all apps using that policy class, not one PID. It persists after RustWTM closes. Original values are saved before writing; use Restore to undo it."));
                 }
-                Confirmation::Restore=>{ui.label("Restore the saved values on the original plan without switching plans. If another app changed these settings, RustWTM will refuse to overwrite them.");}
+                Confirmation::Restore=>{ui.label(crate::i18n::tr("Restore the saved values on the original plan without switching plans. If another app changed these settings, RustWTM will refuse to overwrite them."));}
             }
             if ui.button(label).clicked() {
                 commands.push(match action {Confirmation::Limit(request)=>UiCommand::SetFrequency(request),Confirmation::Restore=>UiCommand::RestoreFrequency});
                 view.confirm=None;
             }
-            if ui.button("Cancel").clicked() {view.confirm=None;}
+            if ui.button(crate::i18n::tr("Cancel")).clicked() {view.confirm=None;}
         });
         if modal.should_close() {
             view.confirm = None;
@@ -199,10 +230,8 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "visual-tests")]
-    pub(crate) fn render_power_review() {
-        let out =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visual-review");
-        std::fs::create_dir_all(&out).unwrap();
+    pub(crate) fn render_power_review(out: &std::path::Path) {
+        std::fs::create_dir_all(out).unwrap();
         for (theme_name, theme) in [("dark", egui::Theme::Dark), ("light", egui::Theme::Light)] {
             for (size_name, size) in [("wide", [1100.0, 650.0]), ("compact", [820.0, 500.0])] {
                 let mut data = crate::ui_tests::data();

@@ -31,5 +31,6 @@ pub use wtm_sys::services::{
 pub use wtm_sys::sessions::{
     Session, SessionState, disconnect as disconnect_session, log_off as log_off_session, sessions,
 };
+pub use wtm_sys::system_ui_language;
 pub use wtm_sys::window::{self, foreground_pid};
 pub use wtm_sys::{Error, Result};

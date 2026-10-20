@@ -27,14 +27,17 @@ const NO_TELEGRAM: &str = "The Telegram bot runs in the RustWTM service";
 /// Why `what` (one of the constants above) is unavailable: the service is not
 /// running, or it is another version that this window cannot talk to.
 fn without_service(data: &Mutex<Data>, what: &str) -> String {
+    let what = crate::i18n::tr(what);
     let data = data.lock().unwrap_or_else(PoisonError::into_inner);
     match data.service_error.as_deref() {
-        Some(e) if e.contains("protocol") => format!(
-            "{what}, but the installed service is a different version ({e}). Update it with \
-             the installer of version {}.",
-            env!("CARGO_PKG_VERSION")
-        ),
-        _ => format!("{what}, which is not running."),
+        Some(e) if e.contains("protocol") => {
+            let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION"));
+            crate::i18n::format(
+                "{0}, but the installed service is a different version ({1}). Update it with the installer of version {2}.",
+                &[what.to_string(), e.to_string(), __wtm_i18n_0.to_string()],
+            )
+        }
+        _ => crate::i18n::format("{0}, which is not running.", &[what.to_string()]),
     }
 }
 use wtm_ipc::{Client, Command, Event, EventLevel, Outcome, Request, Response, Status};
@@ -367,7 +370,7 @@ struct Worker {
 fn unexpected(r: Response) -> io::Error {
     io::Error::other(match r {
         Response::Error(e) => e,
-        other => format!("unexpected response: {other:?}"),
+        other => crate::i18n::format("unexpected response: {0}", &[format!("{:?}", other)]),
     })
 }
 
@@ -456,8 +459,9 @@ impl Worker {
                 Err(e) => {
                     self.client = None;
                     self.next_connect = Instant::now() + RECONNECT;
-                    self.data().message =
-                        Some((EventLevel::Warn, format!("Lost connection to service: {e}")));
+                    self.data().message = Some((EventLevel::Warn, {
+                        crate::i18n::format("Lost connection to service: {0}", &[format!("{}", e)])
+                    }));
                 }
             }
         }
@@ -492,11 +496,14 @@ impl Worker {
                 level: EventLevel::Info,
                 pid: Some(t.pid),
                 name: Some(t.name.clone()),
-                message: format!(
-                    "{} has exited (watched for {}).",
-                    t.name,
-                    wtm_core::format_duration(since.elapsed())
-                ),
+                message: {
+                    let __wtm_i18n_0 = &(t.name);
+                    let __wtm_i18n_1 = &(wtm_core::format_duration(since.elapsed()));
+                    crate::i18n::format(
+                        "{0} has exited (watched for {1}).",
+                        &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
+                    )
+                },
                 notify: true,
             });
         }
@@ -535,7 +542,7 @@ impl Worker {
         match cmd {
             UiCommand::SetFrequency(request) => {
                 let result = wtm_core::power::set_frequency(&request);
-                self.data().message=Some(match result {Ok(())=>(EventLevel::Info,"Shared CPU frequency limit saved; original values are available in Restore".into()),Err(e)=>(EventLevel::Error,e)});
+                self.data().message=Some(match result {Ok(())=>(EventLevel::Info,crate::i18n::tr("Shared CPU frequency limit saved; original values are available in Restore").into()),Err(e)=>(EventLevel::Error,e)});
                 self.load(Panel::Sensors);
             }
             UiCommand::RestoreFrequency => {
@@ -543,7 +550,7 @@ impl Worker {
                 self.data().message = Some(match result {
                     Ok(()) => (
                         EventLevel::Info,
-                        "Original CPU frequency settings restored".into(),
+                        crate::i18n::tr("Original CPU frequency settings restored").into(),
                     ),
                     Err(e) => (EventLevel::Error, e),
                 });
@@ -558,12 +565,16 @@ impl Worker {
                             Err(e) => Err(e.to_string()),
                         }
                     }
-                    _ => Err(
-                        "Cooling needs the matching RustWTM service and an elevated window".into(),
-                    ),
+                    _ => Err(crate::i18n::tr(
+                        "Cooling needs the matching RustWTM service and an elevated window",
+                    )
+                    .into()),
                 };
                 self.data().message = Some(match result {
-                    Ok(()) => (EventLevel::Info, "Cooling request applied".into()),
+                    Ok(()) => (
+                        EventLevel::Info,
+                        crate::i18n::tr("Cooling request applied").into(),
+                    ),
                     Err(e) => (EventLevel::Error, e),
                 });
                 self.load(Panel::Sensors);
@@ -620,12 +631,22 @@ impl Worker {
                 let before = data.exit_watches.len();
                 data.exit_watches.retain(|(t, _)| *t != target);
                 let text = if data.exit_watches.len() < before {
-                    format!("No longer watching {}", target.name)
+                    {
+                        let __wtm_i18n_0 = &(target.name);
+                        crate::i18n::format(
+                            "No longer watching {0}",
+                            std::slice::from_ref(__wtm_i18n_0),
+                        )
+                    }
                 } else {
-                    let text = format!(
-                        "You will be notified when {} ({}) exits",
-                        target.name, target.pid
-                    );
+                    let text = {
+                        let __wtm_i18n_0 = &(target.name);
+                        let __wtm_i18n_1 = &(target.pid);
+                        crate::i18n::format(
+                            "You will be notified when {0} ({1}) exits",
+                            &[__wtm_i18n_0.to_string(), format!("{}", __wtm_i18n_1)],
+                        )
+                    };
                     data.exit_watches.push((target, Instant::now()));
                     text
                 };
@@ -634,18 +655,21 @@ impl Worker {
             UiCommand::CreateDump(target) => {
                 self.in_background(move || {
                     Some(match control::create_dump(&target, &std::env::temp_dir()) {
-                        Ok(path) => (
-                            EventLevel::Info,
-                            format!(
-                                "Memory dump of {} written to {}",
-                                target.name,
-                                path.display()
-                            ),
-                        ),
-                        Err(e) => (
-                            EventLevel::Error,
-                            format!("Cannot dump {}: {e}", target.name),
-                        ),
+                        Ok(path) => (EventLevel::Info, {
+                            let __wtm_i18n_0 = &(target.name);
+                            let __wtm_i18n_1 = &(path.display());
+                            crate::i18n::format(
+                                "Memory dump of {0} written to {1}",
+                                &[__wtm_i18n_0.to_string(), format!("{}", __wtm_i18n_1)],
+                            )
+                        }),
+                        Err(e) => (EventLevel::Error, {
+                            let __wtm_i18n_0 = &(target.name);
+                            crate::i18n::format(
+                                "Cannot dump {0}: {1}",
+                                &[__wtm_i18n_0.to_string(), format!("{}", e)],
+                            )
+                        }),
                     })
                 });
             }
@@ -655,16 +679,28 @@ impl Worker {
                     SessionOp::SignOff => wtm_core::log_off_session(id),
                 };
                 let what = match op {
-                    SessionOp::Disconnect => "Disconnected",
-                    SessionOp::SignOff => "Signed out",
+                    SessionOp::Disconnect => crate::i18n::tr("Disconnected"),
+                    SessionOp::SignOff => crate::i18n::tr("Signed out"),
                 };
                 self.data().message = Some(match result {
-                    Ok(()) => (EventLevel::Info, format!("{what} session {id}")),
-                    Err(e) if e.is_access_denied() => (
-                        EventLevel::Warn,
-                        format!("Session {id}: access denied (run RustWTM as administrator)"),
-                    ),
-                    Err(e) => (EventLevel::Warn, format!("Session {id}: {e}")),
+                    Ok(()) => (EventLevel::Info, {
+                        crate::i18n::format(
+                            "{0} session {1}",
+                            &[what.to_string(), format!("{}", id)],
+                        )
+                    }),
+                    Err(e) if e.is_access_denied() => (EventLevel::Warn, {
+                        crate::i18n::format(
+                            "Session {0}: access denied (run RustWTM as administrator)",
+                            &[format!("{}", id)],
+                        )
+                    }),
+                    Err(e) => (EventLevel::Warn, {
+                        crate::i18n::format(
+                            "Session {0}: {1}",
+                            &[format!("{}", id), format!("{}", e)],
+                        )
+                    }),
                 });
                 self.load(Panel::Users);
             }
@@ -673,17 +709,27 @@ impl Worker {
                     .map_err(|e| e.to_string())
                     .and_then(|path| (self.open)(&path).map_err(|e| e.to_string()));
                 if let Err(e) = opened {
-                    self.data().message = Some((
-                        EventLevel::Error,
-                        format!("Cannot open the location of {}: {e}", target.name),
-                    ));
+                    self.data().message = Some((EventLevel::Error, {
+                        let __wtm_i18n_0 = &(target.name);
+                        crate::i18n::format(
+                            "Cannot open the location of {0}: {1}",
+                            &[__wtm_i18n_0.to_string(), e.to_string()],
+                        )
+                    }));
                 }
             }
             UiCommand::Run { line, elevated } => {
                 let launch = self.launch;
                 self.in_background(move || match launch(&line, elevated) {
-                    Ok(()) => Some((EventLevel::Info, format!("Started {line}"))),
-                    Err(e) => Some((EventLevel::Error, format!("Cannot run {line}: {e}"))),
+                    Ok(()) => Some((EventLevel::Info, {
+                        crate::i18n::format("Started {0}", std::slice::from_ref(&line))
+                    })),
+                    Err(e) => Some((EventLevel::Error, {
+                        crate::i18n::format(
+                            "Cannot run {0}: {1}",
+                            &[line.to_string(), e.to_string()],
+                        )
+                    })),
                 });
             }
             UiCommand::RestartElevated => {
@@ -693,10 +739,12 @@ impl Worker {
                         crate::tray::request_exit(&ctx);
                         None
                     }
-                    Err(e) => Some((
-                        EventLevel::Error,
-                        format!("Cannot restart as administrator: {e}"),
-                    )),
+                    Err(e) => Some((EventLevel::Error, {
+                        crate::i18n::format(
+                            "Cannot restart as administrator: {0}",
+                            std::slice::from_ref(&e),
+                        )
+                    })),
                 });
             }
             UiCommand::CheckUpdate => {
@@ -750,12 +798,17 @@ impl Worker {
                 self.data().message = Some(match result {
                     Ok(()) => (
                         EventLevel::Info,
-                        "Configuration saved; the service applies it within a second.".into(),
+                        crate::i18n::tr(
+                            "Configuration saved; the service applies it within a second.",
+                        )
+                        .into(),
                     ),
-                    Err(e) => (
-                        EventLevel::Error,
-                        format!("Saving the configuration failed: {e}"),
-                    ),
+                    Err(e) => (EventLevel::Error, {
+                        crate::i18n::format(
+                            "Saving the configuration failed: {0}",
+                            std::slice::from_ref(&e),
+                        )
+                    }),
                 });
                 self.load(Panel::Config);
             }
@@ -771,12 +824,17 @@ impl Worker {
                 self.data().message = Some(match result {
                     Ok(()) => (
                         EventLevel::Info,
-                        "Telegram settings saved; the bot follows them within seconds.".into(),
+                        crate::i18n::tr(
+                            "Telegram settings saved; the bot follows them within seconds.",
+                        )
+                        .into(),
                     ),
-                    Err(e) => (
-                        EventLevel::Error,
-                        format!("Saving the Telegram settings failed: {e}"),
-                    ),
+                    Err(e) => (EventLevel::Error, {
+                        crate::i18n::format(
+                            "Saving the Telegram settings failed: {0}",
+                            std::slice::from_ref(&e),
+                        )
+                    }),
                 });
                 self.load(Panel::Telegram);
             }
@@ -791,7 +849,9 @@ impl Worker {
                 };
                 self.data().message = Some(match result {
                     Ok(t) => (EventLevel::Info, t),
-                    Err(e) => (EventLevel::Error, format!("Telegram test failed: {e}")),
+                    Err(e) => (EventLevel::Error, {
+                        crate::i18n::format("Telegram test failed: {0}", std::slice::from_ref(&e))
+                    }),
                 });
             }
             UiCommand::Inspect(target) => {
@@ -938,16 +998,21 @@ impl Worker {
                 EventLevel::Info,
                 format!("{} — {}", describe(command), names(outcomes)),
             ),
-            Some(o) => (
-                EventLevel::Warn,
-                format!(
-                    "{} failed for {} ({}): {}",
-                    describe(command),
-                    o.target.name,
-                    o.target.pid,
-                    o.result.as_ref().err().map_or("", String::as_str)
-                ),
-            ),
+            Some(o) => (EventLevel::Warn, {
+                let __wtm_i18n_0 = &(describe(command));
+                let __wtm_i18n_1 = &(o.target.name);
+                let __wtm_i18n_2 = &(o.target.pid);
+                let __wtm_i18n_3 = &(o.result.as_ref().err().map_or("", String::as_str));
+                crate::i18n::format(
+                    "{0} failed for {1} ({2}): {3}",
+                    &[
+                        __wtm_i18n_0.to_string(),
+                        __wtm_i18n_1.to_string(),
+                        format!("{}", __wtm_i18n_2),
+                        __wtm_i18n_3.to_string(),
+                    ],
+                )
+            }),
         });
         if local {
             // The service logs its own events; record local actions ourselves.
@@ -966,8 +1031,17 @@ impl Worker {
                     pid: Some(o.target.pid),
                     name: Some(o.target.name.clone()),
                     message: match &o.result {
-                        Ok(()) => format!("Local: {}", describe(command)),
-                        Err(e) => format!("Local: {} failed: {e}", describe(command)),
+                        Ok(()) => {
+                            let __wtm_i18n_0 = &(describe(command));
+                            crate::i18n::format("Local: {0}", std::slice::from_ref(__wtm_i18n_0))
+                        }
+                        Err(e) => {
+                            let __wtm_i18n_0 = &(describe(command));
+                            crate::i18n::format(
+                                "Local: {0} failed: {1}",
+                                &[__wtm_i18n_0.to_string(), e.to_string()],
+                            )
+                        }
                     },
                     notify: false,
                 });
@@ -978,13 +1052,24 @@ impl Worker {
 }
 
 fn startup_message(name: &str, enabled: bool, result: io::Result<()>) -> (EventLevel, String) {
-    let verb = if enabled { "Enabled" } else { "Disabled" };
+    let verb = if enabled {
+        crate::i18n::tr("Enabled")
+    } else {
+        crate::i18n::tr("Disabled")
+    };
     match result {
-        Ok(()) => (EventLevel::Info, format!("{verb} startup entry {name}")),
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => (
-            EventLevel::Warn,
-            format!("{name}: access denied (all-users entries need administrator)"),
-        ),
+        Ok(()) => (EventLevel::Info, {
+            crate::i18n::format(
+                "{0} startup entry {1}",
+                &[verb.to_string(), name.to_string()],
+            )
+        }),
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => (EventLevel::Warn, {
+            crate::i18n::format(
+                "{0}: access denied (all-users entries need administrator)",
+                &[name.to_string()],
+            )
+        }),
         Err(e) => (EventLevel::Warn, format!("{name}: {e}")),
     }
 }
@@ -996,11 +1081,18 @@ fn service_message(
 ) -> (EventLevel, String) {
     match result {
         Ok(()) => (EventLevel::Info, format!("{op:?}: {name}")),
-        Err(e) if e.is_access_denied() => (
-            EventLevel::Warn,
-            format!("{op:?} {name}: access denied (run RustWTM as administrator)"),
-        ),
-        Err(e) => (EventLevel::Warn, format!("{op:?} {name} failed: {e}")),
+        Err(e) if e.is_access_denied() => (EventLevel::Warn, {
+            crate::i18n::format(
+                "{0} {1}: access denied (run RustWTM as administrator)",
+                &[format!("{:?}", op), name.to_string()],
+            )
+        }),
+        Err(e) => (EventLevel::Warn, {
+            crate::i18n::format(
+                "{0} {1} failed: {2}",
+                &[format!("{:?}", op), name.to_string(), format!("{}", e)],
+            )
+        }),
     }
 }
 
@@ -1014,32 +1106,46 @@ fn failed(target: &ProcessRef, error: String) -> Outcome {
 fn names(outcomes: &[Outcome]) -> String {
     match outcomes {
         [one] => format!("{} ({})", one.target.name, one.target.pid),
-        many => format!("{} processes", many.len()),
+        many => {
+            let __wtm_i18n_0 = &(many.len());
+            crate::i18n::format("{0} processes", &[format!("{}", __wtm_i18n_0)])
+        }
     }
 }
 
 pub fn describe(command: Command) -> String {
     match command {
-        Command::Kill => "End task".into(),
-        Command::KillTree => "End process tree".into(),
-        Command::Suspend => "Suspend".into(),
-        Command::Resume => "Resume".into(),
-        Command::Priority(p) => format!("Priority {p:?}"),
-        Command::Affinity(mask) => format!("Affinity {mask:#x}"),
-        Command::AffinityTier(selection) => format!("Run on {}", selection.label()),
-        Command::EcoQos(mode) => format!("Efficiency mode {mode:?}"),
+        Command::Kill => crate::i18n::tr("End task").into(),
+        Command::KillTree => crate::i18n::tr("End process tree").into(),
+        Command::Suspend => crate::i18n::tr("Suspend").into(),
+        Command::Resume => crate::i18n::tr("Resume").into(),
+        Command::Priority(p) => crate::i18n::format("Priority {0}", &[format!("{:?}", p)]),
+        Command::Affinity(mask) => crate::i18n::format("Affinity {0}", &[format!("{:#x}", mask)]),
+        Command::AffinityTier(selection) => {
+            let __wtm_i18n_0 = &(crate::i18n::tr(selection.label()));
+            crate::i18n::format("Run on {0}", &[__wtm_i18n_0.to_string()])
+        }
+        Command::EcoQos(mode) => {
+            crate::i18n::format("Efficiency mode {0}", &[format!("{:?}", mode)])
+        }
         Command::Limit(l) => {
             let mut parts = Vec::new();
             if let Some(c) = l.cpu_percent {
-                parts.push(format!("CPU ≤ {c:.2}%"));
+                parts.push(crate::i18n::format("CPU ≤ {0}%", &[format!("{:.2}", c)]));
             }
             if let Some(m) = l.memory_bytes {
-                parts.push(format!("memory ≤ {}", wtm_core::format_bytes(m as f64)));
+                parts.push({
+                    let __wtm_i18n_0 = &(wtm_core::format_bytes(m as f64));
+                    crate::i18n::format("memory ≤ {0}", std::slice::from_ref(__wtm_i18n_0))
+                });
             }
-            format!("Limit {}", parts.join(", "))
+            {
+                let __wtm_i18n_0 = &(parts.join(", "));
+                crate::i18n::format("Limit {0}", std::slice::from_ref(__wtm_i18n_0))
+            }
         }
-        Command::Unlimit => "Remove limits".into(),
-        Command::TrimMemory => "Free memory".into(),
+        Command::Unlimit => crate::i18n::tr("Remove limits").into(),
+        Command::TrimMemory => crate::i18n::tr("Free memory").into(),
     }
 }
 
@@ -1071,7 +1177,11 @@ fn publish_local(data: &mut Data, sample: wtm_core::Result<Snapshot>) {
             data.status = None;
             publish(data, s);
         }
-        Err(e) => data.message = Some((EventLevel::Error, format!("Sampling failed: {e}"))),
+        Err(e) => {
+            data.message = Some((EventLevel::Error, {
+                crate::i18n::format("Sampling failed: {0}", &[format!("{}", e)])
+            }))
+        }
     }
 }
 
@@ -1238,7 +1348,7 @@ fn notification(e: &Event) -> notify_rust::Notification {
         .app_id(APP_ID)
         .appname("RustWTM")
         .summary(&title)
-        .body(&e.message)
+        .body(&crate::i18n::message(&e.message))
         .finalize()
 }
 
@@ -1251,8 +1361,8 @@ pub fn blocked_notification(name: &str) -> notify_rust::Notification {
     notify_rust::Notification::new()
         .app_id(APP_ID)
         .appname("RustWTM")
-        .summary("Program blocked")
-        .body(&format!("RustWTM prevented {name} from starting."))
+        .summary(crate::i18n::tr("Program blocked"))
+        .body(&{ crate::i18n::format("RustWTM prevented {0} from starting.", &[name.to_string()]) })
         .finalize()
 }
 
@@ -2303,6 +2413,35 @@ mod tests {
         let n = blocked_notification("xmrig.exe");
         assert_eq!(n.summary, "Program blocked");
         assert_eq!(n.body, "RustWTM prevented xmrig.exe from starting.");
+    }
+
+    #[test]
+    fn notifications_follow_language_and_preserve_program_names() {
+        use crate::i18n::{Language, scope};
+        for (language, title) in [
+            (Language::Turkish, "Program engellendi"),
+            (Language::German, "Programm blockiert"),
+            (Language::French, "Programme bloqué"),
+            (Language::Spanish, "Programa bloqueado"),
+        ] {
+            let _language = scope(language);
+            let n = blocked_notification("çğİıöşü-{0}.exe");
+            assert_eq!(n.summary, title);
+            assert!(n.body.contains("çğİıöşü-{0}.exe"));
+            let event = Event {
+                id: 1,
+                unix_ms: 0,
+                level: EventLevel::Info,
+                pid: Some(5),
+                name: Some("çğİıöşü.exe".into()),
+                message: "blocked from starting: çğİıöşü.exe".into(),
+                notify: true,
+            };
+            let n = notification(&event);
+            assert!(n.summary.contains("çğİıöşü.exe (5)"));
+            assert_ne!(n.body, event.message);
+            assert!(n.body.contains("çğİıöşü.exe"));
+        }
     }
 
     #[test]

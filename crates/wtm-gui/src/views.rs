@@ -69,13 +69,13 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
         .striped(true)
         .show(ui, |ui| {
             for (col, (h, numeric)) in [
-                ("User", false),
-                ("Session", true),
-                ("Station", false),
-                ("State", false),
-                ("Processes", true),
+                (crate::i18n::tr("User"), false),
+                (crate::i18n::tr("Session"), true),
+                (crate::i18n::tr("Station"), false),
+                (crate::i18n::tr("State"), false),
+                (crate::i18n::tr("Processes"), true),
                 ("CPU", true),
-                ("Memory", true),
+                (crate::i18n::tr("Memory"), true),
             ]
             .into_iter()
             .enumerate()
@@ -87,22 +87,24 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
                 ui.label(account(s));
                 ui.label(s.id.to_string());
                 ui.label(&s.station);
-                ui.label(format!("{:?}", s.state));
+                ui.label(crate::i18n::debug(s.state));
                 ui.label(count.to_string());
                 ui.label(format!("{cpu:.1}%"));
                 ui.label(format_bytes(mem as f64));
                 ui.horizontal(|ui| {
                     if s.state != wtm_core::SessionState::Disconnected
                         && ui
-                            .small_button("Disconnect")
-                            .on_hover_text("Programs keep running; the user can sign in again")
+                            .small_button(crate::i18n::tr("Disconnect"))
+                            .on_hover_text(crate::i18n::tr(
+                                "Programs keep running; the user can sign in again",
+                            ))
                             .clicked()
                     {
                         request = Some((s.id, account(s), SessionOp::Disconnect));
                     }
                     if ui
-                        .small_button("Sign off")
-                        .on_hover_text("Closes the user's programs")
+                        .small_button(crate::i18n::tr("Sign off"))
+                        .on_hover_text(crate::i18n::tr("Closes the user's programs"))
                         .clicked()
                     {
                         request = Some((s.id, account(s), SessionOp::SignOff));
@@ -117,14 +119,17 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
 
 pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u32>) {
     ui.horizontal(|ui| {
-        ui.label("Search:");
+        ui.label(crate::i18n::tr("Search:"));
         ui.add(
             egui::TextEdit::singleline(filter)
-                .hint_text("process, address or port")
+                .hint_text(crate::i18n::tr("process, address or port"))
                 .desired_width(240.0),
         );
         if let Some(pid) = only_pid {
-            ui.label(format!("(selected process {pid} only)"));
+            ui.label(crate::i18n::format(
+                "(selected process {0} only)",
+                &[format!("{}", pid)],
+            ));
         }
     });
     ui.separator();
@@ -170,8 +175,8 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
         3 => a.local.cmp(&b.local),
         4 => text(ar, br),
         _ => text(
-            &a.state.map(|s| format!("{s:?}")).unwrap_or_default(),
-            &b.state.map(|s| format!("{s:?}")).unwrap_or_default(),
+            &a.state.map(crate::i18n::debug).unwrap_or_default(),
+            &b.state.map(crate::i18n::debug).unwrap_or_default(),
         ),
     });
 
@@ -190,12 +195,12 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
         .column(Column::remainder())
         .header(row_height, |mut h| {
             for (col, (label, numeric)) in [
-                ("Process", false),
+                (crate::i18n::tr("Process"), false),
                 ("PID", true),
-                ("Proto", false),
-                ("Local", false),
-                ("Remote", false),
-                ("State", false),
+                (crate::i18n::tr("Proto"), false),
+                (crate::i18n::tr("Local"), false),
+                (crate::i18n::tr("Remote"), false),
+                (crate::i18n::tr("State"), false),
             ]
             .into_iter()
             .enumerate()
@@ -220,7 +225,7 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
                     ui.label(remote.as_str());
                 });
                 row.col(|ui| {
-                    ui.label(c.state.map(|s| format!("{s:?}")).unwrap_or_default());
+                    ui.label(c.state.map(crate::i18n::debug).unwrap_or_default());
                 });
             });
         });
@@ -238,10 +243,10 @@ fn state_color(state: wtm_core::ServiceState) -> Color32 {
 /// Returns the service the user right-clicked or clicked, if any.
 pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_core::ServiceEntry> {
     ui.horizontal(|ui| {
-        ui.label("Search:");
+        ui.label(crate::i18n::tr("Search:"));
         ui.add(
             egui::TextEdit::singleline(filter)
-                .hint_text("name or description")
+                .hint_text(crate::i18n::tr("name or description"))
                 .desired_width(240.0),
         );
     });
@@ -297,12 +302,12 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
         .column(Column::remainder().clip(true))
         .header(row_height, |mut h| {
             for (col, (label, numeric)) in [
-                ("Name", false),
-                ("Description", false),
+                (crate::i18n::tr("Name"), false),
+                (crate::i18n::tr("Description"), false),
                 ("PID", true),
-                ("Status", false),
-                ("Startup", false),
-                ("Account", false),
+                (crate::i18n::tr("Status"), false),
+                (crate::i18n::tr("Startup"), false),
+                (crate::i18n::tr("Account"), false),
             ]
             .into_iter()
             .enumerate()
@@ -330,10 +335,10 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
                     )
                 });
                 row.col(|ui| {
-                    ui.colored_label(state_color(s.state), format!("{:?}", s.state));
+                    ui.colored_label(state_color(s.state), crate::i18n::debug(s.state));
                 });
                 row.col(|ui| {
-                    ui.label(s.start_type.map(|t| format!("{t:?}")).unwrap_or_default());
+                    ui.label(s.start_type.map(crate::i18n::debug).unwrap_or_default());
                 });
                 row.col(|ui| {
                     ui.label(s.account.as_deref().unwrap_or(""));
@@ -379,20 +384,20 @@ fn duration_label(minutes: u32) -> String {
 pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label("Window:");
+        ui.label(crate::i18n::tr("Window:"));
         for (label, hours) in [
             ("1 h", 1),
             ("6 h", 6),
             ("24 h", 24),
-            ("7 days", 168),
-            ("30 days", 720),
+            (crate::i18n::tr("7 days"), 168),
+            (crate::i18n::tr("30 days"), 720),
         ] {
             if ui.selectable_value(&mut view.hours, hours, label).changed() {
                 changed = true;
             }
         }
         ui.separator();
-        ui.weak("Click a column header to sort.");
+        ui.weak(crate::i18n::tr("Click a column header to sort."));
     });
     ui.separator();
 
@@ -409,9 +414,14 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
     };
 
     if findings.is_empty() {
-        ui.weak("No long-term findings in the analysis window.");
+        ui.weak(crate::i18n::tr(
+            "No long-term findings in the analysis window.",
+        ));
     } else {
-        ui.strong(format!("Findings ({})", findings.len()));
+        ui.strong({
+            let __wtm_i18n_0 = &(findings.len());
+            crate::i18n::format("Findings ({0})", &[format!("{}", __wtm_i18n_0)])
+        });
         for f in findings {
             ui.colored_label(
                 Color32::from_rgb(230, 140, 40),
@@ -423,7 +433,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
 
     let flagged: HashMap<String, String> = findings
         .iter()
-        .map(|f| (f.app.to_lowercase(), format!("{:?}", f.kind)))
+        .map(|f| (f.app.to_lowercase(), crate::i18n::debug(f.kind)))
         .collect();
     let mut rows: Vec<_> = stats.iter().collect();
     let mut sort = Sort::load(ui, "history", Sort::new(2, true));
@@ -467,8 +477,17 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                 .column(Column::remainder())
                 .header(row_height, |mut h| {
                     for (col, label) in [
-                        "App", "Seen", "Avg CPU", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time",
-                        "Avg mem", "Peak mem", "Growth/h", "Finding",
+                        crate::i18n::tr("App"),
+                        crate::i18n::tr("Seen"),
+                        crate::i18n::tr("Avg CPU"),
+                        crate::i18n::tr("p95 CPU"),
+                        crate::i18n::tr("Peak CPU"),
+                        crate::i18n::tr("Avg GPU"),
+                        crate::i18n::tr("CPU time"),
+                        crate::i18n::tr("Avg mem"),
+                        crate::i18n::tr("Peak mem"),
+                        crate::i18n::tr("Growth/h"),
+                        crate::i18n::tr("Finding"),
                     ]
                     .into_iter()
                     .enumerate()
@@ -490,19 +509,25 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                         row.col(|ui| right(ui, format!("{:.1}%", s.cpu_peak)));
                         row.col(|ui| right(ui, format!("{:.1}%", s.gpu_avg)));
                         row.col(|ui| {
-                            right(ui, format!("{:.2} core-h", s.cpu_core_seconds / 3600.0))
+                            right(ui, {
+                                let __wtm_i18n_0 = &(s.cpu_core_seconds / 3600.0);
+                                crate::i18n::format("{0} core-h", &[format!("{:.2}", __wtm_i18n_0)])
+                            })
                         });
                         row.col(|ui| right(ui, format_bytes(s.mem_avg as f64)));
                         row.col(|ui| right(ui, format_bytes(s.mem_peak as f64)));
                         row.col(|ui| {
-                            right(
-                                ui,
-                                format!(
-                                    "{:+.0} MiB (R² {:.2})",
-                                    mib(s.mem_growth_per_hour),
-                                    s.mem_growth_fit
-                                ),
-                            )
+                            right(ui, {
+                                let __wtm_i18n_0 = &(mib(s.mem_growth_per_hour));
+                                let __wtm_i18n_1 = &(s.mem_growth_fit);
+                                crate::i18n::format(
+                                    "{0} MiB (R² {1})",
+                                    &[
+                                        format!("{:+.0}", __wtm_i18n_0),
+                                        format!("{:.2}", __wtm_i18n_1),
+                                    ],
+                                )
+                            })
                         });
                         row.col(|ui| {
                             if let Some(kind) = flagged.get(&s.app.to_lowercase()) {
@@ -525,10 +550,16 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
             let cores = suggested_cores(s.cpu_p95, cpus);
             ui.horizontal(|ui| {
                 if ui
-                    .button(format!("Limit {app}…"))
-                    .on_hover_text(format!(
-                        "Create an app limit; suggested from its p95 usage: {cores} cores."
+                    .button(crate::i18n::format(
+                        "Limit {0}…",
+                        std::slice::from_ref(&app),
                     ))
+                    .on_hover_text({
+                        crate::i18n::format(
+                            "Create an app limit; suggested from its p95 usage: {0} cores.",
+                            &[format!("{}", cores)],
+                        )
+                    })
                     .clicked()
                 {
                     view.limit_request = Some((app.clone(), cores));
@@ -570,9 +601,12 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {
         .iter()
         .map(|r| [hours_ago(r.minute), f64::from(r.gpu_avg)])
         .collect();
-    ui.strong(format!(
-        "{app} — per-minute usage (x: hours before latest sample)"
-    ));
+    ui.strong({
+        crate::i18n::format(
+            "{0} — per-minute usage (x: hours before latest sample)",
+            &[app.to_string()],
+        )
+    });
     ui.columns(2, |cols| {
         Plot::new("hist_cpu")
             .height(190.0)
@@ -589,10 +623,12 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {
         Plot::new("hist_mem")
             .height(190.0)
             .include_y(0.0)
-            .y_axis_label("MiB")
+            .y_axis_label(crate::i18n::tr("MiB"))
             .allow_drag(false)
             .allow_scroll(false)
-            .show(&mut cols[1], |p| p.line(Line::new("Memory", mem)));
+            .show(&mut cols[1], |p| {
+                p.line(Line::new(crate::i18n::tr("Memory"), mem))
+            });
     });
 }
 
@@ -618,9 +654,9 @@ pub fn startup(
             Some(e) => {
                 ui.strong(&e.name);
                 let (label, enable) = if e.enabled {
-                    ("Disable", false)
+                    (crate::i18n::tr("Disable"), false)
                 } else {
-                    ("Enable", true)
+                    (crate::i18n::tr("Enable"), true)
                 };
                 if ui.button(label).clicked() {
                     command = Some(crate::backend::UiCommand::SetStartup {
@@ -630,7 +666,9 @@ pub fn startup(
                 }
             }
             None => {
-                ui.weak("Select an entry to enable or disable it at sign-in.");
+                ui.weak(crate::i18n::tr(
+                    "Select an entry to enable or disable it at sign-in.",
+                ));
             }
         }
     });
@@ -659,9 +697,15 @@ pub fn startup(
         .column(Column::initial(80.0))
         .column(Column::remainder().clip(true))
         .header(row_height, |mut h| {
-            for (col, label) in ["Name", "Status", "Scope", "Source", "Command"]
-                .into_iter()
-                .enumerate()
+            for (col, label) in [
+                crate::i18n::tr("Name"),
+                crate::i18n::tr("Status"),
+                crate::i18n::tr("Scope"),
+                crate::i18n::tr("Source"),
+                crate::i18n::tr("Command"),
+            ]
+            .into_iter()
+            .enumerate()
             {
                 h.col(|ui| header(ui, label, col, false, &mut sort));
             }
@@ -677,16 +721,25 @@ pub fn startup(
                 });
                 row.col(|ui| {
                     if e.enabled {
-                        ui.colored_label(Color32::from_rgb(80, 180, 100), "Enabled");
+                        ui.colored_label(
+                            Color32::from_rgb(80, 180, 100),
+                            crate::i18n::tr("Enabled"),
+                        );
                     } else {
-                        ui.weak("Disabled");
+                        ui.weak(crate::i18n::tr("Disabled"));
                     }
                 });
                 row.col(|ui| {
-                    ui.label(format!("{:?}", e.scope));
+                    ui.label(crate::i18n::debug(e.scope));
                 });
                 row.col(|ui| {
-                    ui.label(format!("{:?}", e.source));
+                    ui.label(match e.source {
+                        wtm_core::startup::StartupSource::Run => "Run",
+                        wtm_core::startup::StartupSource::Run32 => "Run32",
+                        wtm_core::startup::StartupSource::Folder => {
+                            crate::i18n::tr("StartupFolder")
+                        }
+                    });
                 });
                 row.col(|ui| {
                     ui.label(&e.command);

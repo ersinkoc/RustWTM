@@ -57,29 +57,48 @@ const NAV: [(Tab, crate::navigation::Icon, &str); 16] = {
 };
 const NAV_AUTO_COLLAPSE: f32 = 1000.0;
 
+fn nav_width(ctx: &egui::Context) -> f32 {
+    ctx.fonts_mut(|fonts| {
+        NAV.iter()
+            .map(|(_, _, label)| {
+                fonts
+                    .layout_no_wrap(
+                        crate::i18n::tr(label).to_owned(),
+                        egui::FontId::proportional(14.0),
+                        Color32::WHITE,
+                    )
+                    .size()
+                    .x
+                    + 58.0
+            })
+            .fold(200.0, f32::max)
+            .min(280.0)
+    })
+}
+
 impl Tab {
     fn label(self) -> &'static str {
-        NAV.iter().find(|n| n.0 == self).map_or("RustWTM", |n| n.2)
+        crate::i18n::tr(NAV.iter().find(|n| n.0 == self).map_or("RustWTM", |n| n.2))
     }
 
     fn subtitle(self) -> &'static str {
         match self {
-            Self::Overview => "Your machine at a glance",
-            Self::Processes => "Find what is busy. Keep what matters running.",
-            Self::Performance => "Live resource usage and recent trends",
-            Self::Sensors => "Temperatures, fan speeds and thermal control",
-            Self::History => "Understand resource usage over time",
-            Self::Governor => "How automatic protection keeps your PC responsive",
-            Self::Limits => "Give each app a predictable resource budget",
-            Self::KillList => "Choose which background tasks may be ended",
-            Self::Events => "A record of decisions and actions",
-            Self::Startup => "Choose what starts when you sign in",
-            Self::Services => "Inspect and manage Windows services",
-            Self::Users => "Sessions and the people using this machine",
-            Self::Network => "Connections and the processes behind them",
-            Self::Ports => "Find listeners, developer tools and available ports",
-            Self::Settings => "Make RustWTM work the way you do",
-            Self::About => "Built for a responsive Windows PC",
+            Self::Overview => crate::i18n::tr("Your machine at a glance"),
+            Self::Processes => crate::i18n::tr("Find what is busy. Keep what matters running."),
+            Self::Performance => crate::i18n::tr("Live resource usage and recent trends"),
+            Self::Sensors => crate::i18n::tr("Temperatures, fan speeds and thermal control"),
+            Self::History => crate::i18n::tr("Understand resource usage over time"),
+            Self::Governor => crate::i18n::tr("How automatic protection keeps your PC responsive"),
+            Self::Limits => crate::i18n::tr("Give each app a predictable resource budget"),
+            Self::KillList => crate::i18n::tr("Choose which background tasks may be ended"),
+            Self::Events => crate::i18n::tr("A record of decisions and actions"),
+            Self::Startup => crate::i18n::tr("Choose what starts when you sign in"),
+            Self::Services => crate::i18n::tr("Inspect and manage Windows services"),
+            Self::Users => crate::i18n::tr("Sessions and the people using this machine"),
+            Self::Network => crate::i18n::tr("Connections and the processes behind them"),
+            Self::Ports => crate::i18n::tr("Find listeners, developer tools and available ports"),
+            Self::Settings => crate::i18n::tr("Make RustWTM work the way you do"),
+            Self::About => crate::i18n::tr("Built for a responsive Windows PC"),
         }
     }
 }
@@ -103,24 +122,28 @@ fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
         if !collapsed {
             ui.vertical(|ui| {
                 ui.label(RichText::new("RustWTM").size(18.0).strong());
-                ui.label(RichText::new("SYSTEM MONITOR").size(9.0).weak());
+                ui.label(
+                    RichText::new(crate::i18n::tr("SYSTEM MONITOR"))
+                        .size(9.0)
+                        .weak(),
+                );
             });
         }
     });
     ui.add_space(8.0);
     let (arrow, hint) = if collapsed {
-        ("»", "Show labels")
+        ("»", crate::i18n::tr("Show labels"))
     } else {
-        ("«", "Icons only")
+        ("«", crate::i18n::tr("Icons only"))
     };
     if ui.small_button(arrow).on_hover_text(hint).clicked() {
         state.nav_collapsed = Some(!collapsed);
     }
     for (i, (tab, icon, label)) in NAV.iter().enumerate() {
         let group = match i {
-            0 => Some("MONITOR"),
-            5 => Some("PROTECT"),
-            9 => Some("SYSTEM"),
+            0 => Some(crate::i18n::tr("MONITOR")),
+            5 => Some(crate::i18n::tr("PROTECT")),
+            9 => Some(crate::i18n::tr("SYSTEM")),
             14 => Some("RUSTWTM"),
             _ => None,
         };
@@ -132,7 +155,15 @@ fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
                 ui.label(RichText::new(group).size(10.0).weak());
             }
         }
-        if crate::navigation::row(ui, *icon, label, state.tab == *tab, collapsed).clicked() {
+        if crate::navigation::row(
+            ui,
+            *icon,
+            crate::i18n::tr(label),
+            state.tab == *tab,
+            collapsed,
+        )
+        .clicked()
+        {
             state.tab = *tab;
         }
     }
@@ -144,6 +175,8 @@ pub struct App {
 }
 
 struct UiState {
+    language: crate::i18n::Language,
+    language_error: Option<String>,
     tab: Tab,
     processes: ProcessView,
     sensors: crate::sensors::SensorsView,
@@ -216,6 +249,7 @@ impl App {
             let _ = crate::backend::set_autostart(true);
         }
         let mut state = UiState::restored(cc.storage);
+        state.language = crate::i18n::preference();
         // eframe shows the window after its first frame; hide it again.
         state.hide_frames = if background { 3 } else { 0 };
         Self {
@@ -233,6 +267,7 @@ const PREFS_KEY: &str = "prefs";
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct Prefs {
+    language: crate::i18n::Language,
     tab: Tab,
     nav_collapsed: Option<bool>,
     process_mode: crate::processes::ViewMode,
@@ -260,6 +295,7 @@ impl UiState {
     fn prefs(&self) -> Prefs {
         let p = &self.processes;
         Prefs {
+            language: self.language,
             tab: self.tab,
             nav_collapsed: self.nav_collapsed,
             process_mode: p.mode,
@@ -287,6 +323,7 @@ impl UiState {
     }
 
     fn apply(&mut self, prefs: Prefs) {
+        self.language = prefs.language;
         self.tab = prefs.tab;
         self.nav_collapsed = prefs.nav_collapsed;
         let p = &mut self.processes;
@@ -307,6 +344,8 @@ impl UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            language: crate::i18n::Language::System,
+            language_error: None,
             tab: Tab::Overview,
             processes: ProcessView::default(),
             sensors: crate::sensors::SensorsView::default(),
@@ -359,6 +398,7 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let _language = crate::i18n::scope(self.state.language);
         let ctx = ui.ctx().clone();
         let App {
             backend,
@@ -366,6 +406,9 @@ impl eframe::App for App {
             tray,
         } = self;
         let mut data = backend.data();
+        if let Some(tray) = tray.as_mut() {
+            tray.localize();
+        }
         let service_mode = matches!(data.mode, Mode::Service { .. });
         data.alert_watch.settings = state.alerts;
         if state.hide_frames > 0 && data.alert_watch.active.is_none() {
@@ -388,10 +431,13 @@ impl eframe::App for App {
         if let (Some(tray), Some(s)) = (tray.as_mut(), &data.snapshot) {
             let s = &s.system;
             let memory = s.memory_used() as f64 / s.memory_total.max(1) as f64 * 100.0;
-            tray.set_tooltip(format!(
-                "RustWTM - CPU {:.0}%, memory {memory:.0}%",
-                s.cpu_percent
-            ));
+            tray.set_tooltip({
+                let __wtm_i18n_0 = &(s.cpu_percent);
+                crate::i18n::format(
+                    "RustWTM - CPU {0}%, memory {1}%",
+                    &[format!("{:.0}", __wtm_i18n_0), format!("{:.0}", memory)],
+                )
+            });
             tray.set_load(s.cpu_percent);
         }
         let mut intents = Vec::new();
@@ -413,7 +459,7 @@ impl eframe::App for App {
             .unwrap_or(ui.ctx().content_rect().width() < NAV_AUTO_COLLAPSE);
         egui::Panel::left("nav")
             .resizable(false)
-            .exact_size(if collapsed { 56.0 } else { 200.0 })
+            .exact_size(if collapsed { 56.0 } else { nav_width(&ctx) })
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("nav_scroll")
@@ -423,46 +469,41 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 match &data.message {
                     Some((level, text)) => {
-                        ui.label(RichText::new(text).color(level_color(*level)));
+                        ui.label(RichText::new(crate::i18n::message(text).as_ref()).color(level_color(*level)));
                     }
                     None => {
-                        ui.weak("Right-click a process for actions.");
+                        ui.weak(crate::i18n::tr("Right-click a process for actions."));
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     mode_badge(ui, data.mode);
                     if !data.kill_list.is_empty()
                         && ui
-                            .small_button(RichText::new("🚨 Panic").strong().color(BAD))
-                            .on_hover_text("End everything on the kill list (Ctrl+Shift+K)")
+                            .small_button(RichText::new(crate::i18n::tr("🚨 Panic")).strong().color(BAD))
+                            .on_hover_text(crate::i18n::tr("End everything on the kill list (Ctrl+Shift+K)"))
                             .clicked()
                     {
                         state.panic = true;
                     }
                     if ui
-                        .small_button("Run new task")
-                        .on_hover_text("Start a program, folder, document or website")
+                        .small_button(crate::i18n::tr("Run new task"))
+                        .on_hover_text(crate::i18n::tr("Start a program, folder, document or website"))
                         .clicked()
                     {
                         state.run_task = Some((String::new(), false));
                     }
                     if !data.elevated
                         && ui
-                            .small_button("Restart as administrator")
+                            .small_button(crate::i18n::tr("Restart as administrator"))
                             .on_hover_text(
-                                "Control every process, including those of other users and services",
+                                crate::i18n::tr("Control every process, including those of other users and services"),
                             )
                             .clicked()
                     {
                         service_cmds.push(UiCommand::RestartElevated);
                     }
                     if let Some(s) = &data.snapshot {
-                        ui.label(format!(
-                            "CPU {:.0}%   Memory {} / {}",
-                            s.system.cpu_percent,
-                            format_bytes(s.system.memory_used() as f64),
-                            format_bytes(s.system.memory_total as f64)
-                        ));
+                        ui.label({ let __wtm_i18n_0 = &(s.system.cpu_percent); let __wtm_i18n_1 = &(format_bytes(s.system.memory_used() as f64)); let __wtm_i18n_2 = &(format_bytes(s.system.memory_total as f64)); crate::i18n::format("CPU {0}%   Memory {1} / {2}", &[format!("{:.0}", __wtm_i18n_0), __wtm_i18n_1.to_string(), __wtm_i18n_2.to_string()]) });
                     }
                 });
             });
@@ -476,7 +517,7 @@ impl eframe::App for App {
                 .resizable(true)
                 .default_size(330.0)
                 .show(ui, |ui| {
-                    if ui.small_button("Close details").clicked() {
+                    if ui.small_button(crate::i18n::tr("Close details")).clicked() {
                         state.processes.selected = None;
                     }
                     egui::ScrollArea::vertical()
@@ -572,7 +613,9 @@ impl eframe::App for App {
                 Tab::Settings => {
                     crate::theme::card(
                         ui,
-                        RichText::new("This window").size(16.0).strong(),
+                        RichText::new(crate::i18n::tr("This window"))
+                            .size(16.0)
+                            .strong(),
                         |ui| {
                             window_settings(ui, state);
                         },
@@ -584,7 +627,7 @@ impl eframe::App for App {
                         &mut state.telegram,
                     ));
                     ui.add_space(8.0);
-                    ui.heading("Service configuration");
+                    ui.heading(crate::i18n::tr("Service configuration"));
                     service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
                 }
                 Tab::Services => {
@@ -616,12 +659,19 @@ impl eframe::App for App {
         if let Some((target, command)) = state.confirm.clone() {
             let modal = egui::Modal::new(egui::Id::unique("confirm")).show(&ctx, |ui| {
                 ui.heading(describe(command));
-                ui.label(format!(
-                    "{} \"{}\" (PID {})? Unsaved data in that program will be lost.",
-                    describe(command),
-                    target.name,
-                    target.pid
-                ));
+                ui.label({
+                    let __wtm_i18n_0 = &(describe(command));
+                    let __wtm_i18n_1 = &(target.name);
+                    let __wtm_i18n_2 = &(target.pid);
+                    crate::i18n::format(
+                        "{0} \"{1}\" (PID {2})? Unsaved data in that program will be lost.",
+                        &[
+                            __wtm_i18n_0.to_string(),
+                            __wtm_i18n_1.to_string(),
+                            format!("{}", __wtm_i18n_2),
+                        ],
+                    )
+                });
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
@@ -631,7 +681,7 @@ impl eframe::App for App {
                         intents.push(Intent::Command(target.clone(), command));
                         state.confirm = None;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(crate::i18n::tr("Cancel")).clicked() {
                         state.confirm = None;
                     }
                 });
@@ -645,23 +695,36 @@ impl eframe::App for App {
             use crate::backend::SessionOp;
             let (title, warning) = match op {
                 SessionOp::Disconnect => (
-                    "Disconnect",
-                    "Their programs keep running; they can sign in again to continue.",
+                    crate::i18n::tr("Disconnect"),
+                    crate::i18n::tr(
+                        "Their programs keep running; they can sign in again to continue.",
+                    ),
                 ),
-                SessionOp::SignOff => {
-                    ("Sign off", "Their programs close and unsaved work is lost.")
-                }
+                SessionOp::SignOff => (
+                    crate::i18n::tr("Sign off"),
+                    crate::i18n::tr("Their programs close and unsaved work is lost."),
+                ),
             };
             let modal = egui::Modal::new(egui::Id::unique("confirm_session")).show(&ctx, |ui| {
                 ui.heading(title);
-                ui.label(format!("{title} {user} (session {id})? {warning}"));
+                ui.label({
+                    crate::i18n::format(
+                        "{0} {1} (session {2})? {3}",
+                        &[
+                            title.to_string(),
+                            user.to_string(),
+                            format!("{}", id),
+                            warning.to_string(),
+                        ],
+                    )
+                });
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button(RichText::new(title).color(BAD)).clicked() {
                         service_cmds.push(UiCommand::Session { id, op });
                         state.confirm_session = None;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(crate::i18n::tr("Cancel")).clicked() {
                         state.confirm_session = None;
                     }
                 });
@@ -688,8 +751,10 @@ impl eframe::App for App {
             let mut run = false;
             let mut close = false;
             let modal = egui::Modal::new(egui::Id::unique("run_task")).show(&ctx, |ui| {
-                ui.heading("Run new task");
-                ui.label("Type the name of a program, folder, document or website.");
+                ui.heading(crate::i18n::tr("Run new task"));
+                ui.label(crate::i18n::tr(
+                    "Type the name of a program, folder, document or website.",
+                ));
                 ui.add_space(4.0);
                 let edit = ui.add(
                     egui::TextEdit::singleline(line)
@@ -701,12 +766,17 @@ impl eframe::App for App {
                     edit.request_focus();
                 }
                 run |= edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.checkbox(elevated, "Create this task with administrator rights");
+                ui.checkbox(
+                    elevated,
+                    crate::i18n::tr("Create this task with administrator rights"),
+                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     let ready = !line.trim().is_empty();
-                    run |= ui.add_enabled(ready, egui::Button::new("Run")).clicked();
-                    close |= ui.button("Cancel").clicked();
+                    run |= ui
+                        .add_enabled(ready, egui::Button::new(crate::i18n::tr("Run")))
+                        .clicked();
+                    close |= ui.button(crate::i18n::tr("Cancel")).clicked();
                 });
             });
             if run && !line.trim().is_empty() {
@@ -728,32 +798,23 @@ impl eframe::App for App {
             let modal = egui::Modal::new(egui::Id::unique("confirm_many")).show(&ctx, |ui| {
                 if same {
                     ui.heading(format!("{} — {name}", describe(command)));
-                    ui.label(format!(
-                        "{} all {} processes of \"{name}\"? Unsaved data in that program will be lost.",
-                        describe(command),
-                        targets.len()
-                    ));
+                    ui.label({ let __wtm_i18n_0 = &(describe(command)); let __wtm_i18n_1 = &(targets.len()); crate::i18n::format("{0} all {1} processes of \"{2}\"? Unsaved data in that program will be lost.", &[__wtm_i18n_0.to_string(), format!("{}", __wtm_i18n_1), name.to_string()]) });
                 } else {
                     let list: Vec<String> =
                         targets.iter().map(|t| format!("{} ({})", t.name, t.pid)).collect();
                     ui.heading(describe(command));
-                    ui.label(format!(
-                        "{} these {} processes: {}? Unsaved data in them will be lost.",
-                        describe(command),
-                        targets.len(),
-                        list.join(", ")
-                    ));
+                    ui.label({ let __wtm_i18n_0 = &(describe(command)); let __wtm_i18n_1 = &(targets.len()); let __wtm_i18n_2 = &(list.join(", ")); crate::i18n::format("{0} these {1} processes: {2}? Unsaved data in them will be lost.", &[__wtm_i18n_0.to_string(), format!("{}", __wtm_i18n_1), __wtm_i18n_2.to_string()]) });
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
-                        .button(RichText::new(format!("{} all", describe(command))).color(BAD))
+                        .button(RichText::new({ let __wtm_i18n_0 = &(describe(command)); crate::i18n::format("{0} all", std::slice::from_ref(__wtm_i18n_0)) }).color(BAD))
                         .clicked()
                     {
                         intents.extend(targets.iter().map(|t| Intent::Command(t.clone(), command)));
                         state.confirm_many = None;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(crate::i18n::tr("Cancel")).clicked() {
                         state.confirm_many = None;
                     }
                 });
@@ -868,9 +929,14 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
         UpdateState::Failed(e) if state.update_started => {
             egui::Panel::top("update_bar").show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(BAD, format!("The update failed: {e}"));
-                    ui.hyperlink_to("Release page", wtm_core::update::RELEASES_PAGE);
-                    if ui.button("Dismiss").clicked() {
+                    ui.colored_label(BAD, {
+                        crate::i18n::format("The update failed: {0}", std::slice::from_ref(e))
+                    });
+                    ui.hyperlink_to(
+                        crate::i18n::tr("Release page"),
+                        wtm_core::update::RELEASES_PAGE,
+                    );
+                    if ui.button(crate::i18n::tr("Dismiss")).clicked() {
                         state.update_started = false;
                     }
                 });
@@ -883,27 +949,20 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
         ui.horizontal(|ui| {
             if matches!(data.update, UpdateState::Installing(_)) {
                 ui.spinner();
-                ui.label(format!(
-                    "Downloading and verifying RustWTM {}; the installer starts next and RustWTM restarts by itself.",
-                    release.version_text()
-                ));
+                ui.label({ let __wtm_i18n_0 = &(release.version_text()); crate::i18n::format("Downloading and verifying RustWTM {0}; the installer starts next and RustWTM restarts by itself.", std::slice::from_ref(__wtm_i18n_0)) });
                 return;
             }
             ui.label(
-                RichText::new(format!(
-                    "⬆ RustWTM {} is available (you have {}).",
-                    release.version_text(),
-                    env!("CARGO_PKG_VERSION")
-                ))
+                RichText::new({ let __wtm_i18n_0 = &(release.version_text()); let __wtm_i18n_1 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("⬆ RustWTM {0} is available (you have {1}).", &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()]) })
                 .strong()
                 .color(GOOD),
             );
             if data.installable && release.msi.is_some() {
                 if ui
-                    .button(RichText::new("Update now").strong())
+                    .button(RichText::new(crate::i18n::tr("Update now")).strong())
                     .on_hover_text(
-                        "Downloads the installer, checks it against its published SHA-256, \
-                         installs it (Windows asks for administrator rights) and restarts RustWTM",
+                        crate::i18n::tr("Downloads the installer, checks it against its published SHA-256, \
+                         installs it (Windows asks for administrator rights) and restarts RustWTM"),
                     )
                     .clicked()
                 {
@@ -911,29 +970,68 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
                     state.update_started = true;
                 }
             } else {
-                ui.hyperlink_to("Download", &release.page)
-                    .on_hover_text("This copy was not installed with the installer");
+                ui.hyperlink_to(crate::i18n::tr("Download"), &release.page)
+                    .on_hover_text(crate::i18n::tr("This copy was not installed with the installer"));
             }
-            ui.hyperlink_to("What's new", &release.page);
-            if ui.button("Later").clicked() {
+            ui.hyperlink_to(crate::i18n::tr("What's new"), &release.page);
+            if ui.button(crate::i18n::tr("Later")).clicked() {
                 state.update_later = true;
             }
-            if ui.button("Skip this version").clicked() {
+            if ui.button(crate::i18n::tr("Skip this version")).clicked() {
                 state.skip_version = Some(release.tag.clone());
             }
         });
     });
 }
 
+fn language_settings(
+    ui: &mut Ui,
+    state: &mut UiState,
+    save: impl Fn(crate::i18n::Language) -> std::io::Result<()>,
+) {
+    ui.horizontal_wrapped(|ui| {
+        let label = ui.label(crate::i18n::tr("Language"));
+        let previous = state.language;
+        egui::ComboBox::from_id_salt("language")
+            .selected_text(state.language.name())
+            .show_ui(ui, |ui| {
+                for language in crate::i18n::Language::ALL {
+                    ui.selectable_value(&mut state.language, language, language.name());
+                }
+            })
+            .response
+            .labelled_by(label.id);
+        if previous != state.language {
+            match save(state.language) {
+                Ok(()) => {
+                    state.language_error = None;
+                    ui.ctx().request_repaint();
+                }
+                Err(e) => {
+                    state.language = previous;
+                    state.language_error = Some(e.to_string());
+                }
+            }
+        }
+    });
+    if let Some(error) = &state.language_error {
+        ui.colored_label(
+            BAD,
+            crate::i18n::format("Cannot save language: {0}", std::slice::from_ref(error)),
+        );
+    }
+}
+
 /// Preferences of this window (the service's settings follow below them).
 fn window_settings(ui: &mut Ui, state: &mut UiState) {
+    language_settings(ui, state, crate::i18n::save);
     ui.horizontal(|ui| {
-        ui.label("Theme:");
+        ui.label(crate::i18n::tr("Theme:"));
         let mut preference = ui.ctx().options(|o| o.theme_preference);
         for (value, label) in [
-            (egui::ThemePreference::System, "System"),
-            (egui::ThemePreference::Light, "Light"),
-            (egui::ThemePreference::Dark, "Dark"),
+            (egui::ThemePreference::System, crate::i18n::tr("System")),
+            (egui::ThemePreference::Light, crate::i18n::tr("Light")),
+            (egui::ThemePreference::Dark, crate::i18n::tr("Dark")),
         ] {
             if ui.selectable_value(&mut preference, value, label).changed() {
                 ui.ctx().set_theme(preference);
@@ -942,14 +1040,17 @@ fn window_settings(ui: &mut Ui, state: &mut UiState) {
     });
     let a = &mut state.alerts;
     ui.horizontal(|ui| {
-        ui.checkbox(&mut a.enabled, "Pop up when the CPU stays above");
+        ui.checkbox(
+            &mut a.enabled,
+            crate::i18n::tr("Pop up when the CPU stays above"),
+        );
         ui.add_enabled(
             a.enabled,
             egui::DragValue::new(&mut a.threshold)
                 .range(50.0..=100.0)
                 .suffix("%"),
         );
-        ui.label("for");
+        ui.label(crate::i18n::tr("for"));
         ui.add_enabled(
             a.enabled,
             egui::DragValue::new(&mut a.seconds)
@@ -958,18 +1059,28 @@ fn window_settings(ui: &mut Ui, state: &mut UiState) {
         );
     })
     .response
-    .on_hover_text("Shows the busiest apps with one-click fixes before the PC becomes unusable");
+    .on_hover_text(crate::i18n::tr(
+        "Shows the busiest apps with one-click fixes before the PC becomes unusable",
+    ));
     ui.checkbox(
         &mut state.tray_on_close,
-        "Keep running in the tray when the window is closed",
+        crate::i18n::tr("Keep running in the tray when the window is closed"),
     );
-    ui.checkbox(&mut state.check_updates, "Check for updates automatically")
-        .on_hover_text("Asks GitHub for a newer release at start and twice a day");
+    ui.checkbox(
+        &mut state.check_updates,
+        crate::i18n::tr("Check for updates automatically"),
+    )
+    .on_hover_text(crate::i18n::tr(
+        "Asks GitHub for a newer release at start and twice a day",
+    ));
     let mut on = *state
         .autostart
         .get_or_insert_with(crate::backend::autostart_enabled);
     if ui
-        .checkbox(&mut on, "Start RustWTM in the tray when I sign in")
+        .checkbox(
+            &mut on,
+            crate::i18n::tr("Start RustWTM in the tray when I sign in"),
+        )
         .changed()
         && crate::backend::set_autostart(on).is_ok()
     {
@@ -980,28 +1091,38 @@ fn window_settings(ui: &mut Ui, state: &mut UiState) {
 
 fn mode_badge(ui: &mut Ui, mode: Mode) {
     let (text, color, hover) = match mode {
-        Mode::Starting => ("○ Starting", Color32::GRAY, "Collecting data…"),
+        Mode::Starting => (
+            crate::i18n::tr("○ Starting"),
+            Color32::GRAY,
+            crate::i18n::tr("Collecting data…"),
+        ),
         Mode::Service {
             verified: false, ..
         } => (
-            "● Console instance",
+            crate::i18n::tr("● Console instance"),
             WARN,
-            "Connected to a RustWTM engine that is not the installed service (e.g. `wtm-service console`).",
+            crate::i18n::tr(
+                "Connected to a RustWTM engine that is not the installed service (e.g. `wtm-service console`).",
+            ),
         ),
         Mode::Service { admin: true, .. } => (
-            "● Service",
+            crate::i18n::tr("● Service"),
             GOOD,
-            "Connected to the RustWTM service with full control.",
+            crate::i18n::tr("Connected to the RustWTM service with full control."),
         ),
         Mode::Service { admin: false, .. } => (
-            "● Service (read-only)",
+            crate::i18n::tr("● Service (read-only)"),
             WARN,
-            "Connected to the service. Run RustWTM as administrator to send commands through it; until then actions use your own rights.",
+            crate::i18n::tr(
+                "Connected to the service. Run RustWTM as administrator to send commands through it; until then actions use your own rights.",
+            ),
         ),
         Mode::Local => (
-            "○ Local",
+            crate::i18n::tr("○ Local"),
             WARN,
-            "The RustWTM service is not running. Monitoring and actions use this window's own rights.",
+            crate::i18n::tr(
+                "The RustWTM service is not running. Monitoring and actions use this window's own rights.",
+            ),
         ),
     };
     ui.label(RichText::new(text).color(crate::theme::text_color(ui, color)))
@@ -1036,7 +1157,7 @@ fn details_panel(
         .iter()
         .find(|p| p.pid == sel.pid && p.create_time == sel.create_time)
     else {
-        ui.colored_label(WARN, "This process has exited.");
+        ui.colored_label(WARN, crate::i18n::tr("This process has exited."));
         return;
     };
 
@@ -1050,48 +1171,77 @@ fn details_panel(
                 ui.end_row();
             };
             row("PID", p.pid.to_string());
-            row("Parent PID", p.parent_pid.to_string());
-            row("Session", p.session_id.to_string());
-            row("Uptime", uptime(p.start_time()));
+            row(crate::i18n::tr("Parent PID"), p.parent_pid.to_string());
+            row(crate::i18n::tr("Session"), p.session_id.to_string());
+            row(crate::i18n::tr("Uptime"), uptime(p.start_time()));
             row("CPU", format!("{:.2}%", p.cpu_percent));
-            row("CPU time", format!("{:.1} s", p.cpu_time.as_secs_f64()));
             row(
-                "Private working set",
+                crate::i18n::tr("CPU time"),
+                format!("{:.1} s", p.cpu_time.as_secs_f64()),
+            );
+            row(
+                crate::i18n::tr("Private working set"),
                 format_bytes(p.private_working_set as f64),
             );
-            row("Working set", format_bytes(p.working_set as f64));
-            row("Commit", format_bytes(p.private_bytes as f64));
-            row("Disk read", format!("{}/s", format_bytes(p.io_read_rate)));
-            row("Disk write", format!("{}/s", format_bytes(p.io_write_rate)));
-            row("Threads", p.thread_count.to_string());
-            row("Handles", p.handle_count.to_string());
+            row(
+                crate::i18n::tr("Working set"),
+                format_bytes(p.working_set as f64),
+            );
+            row(
+                crate::i18n::tr("Commit"),
+                format_bytes(p.private_bytes as f64),
+            );
+            row(
+                crate::i18n::tr("Disk read"),
+                format!("{}/s", format_bytes(p.io_read_rate)),
+            );
+            row(
+                crate::i18n::tr("Disk write"),
+                format!("{}/s", format_bytes(p.io_write_rate)),
+            );
+            row(crate::i18n::tr("Threads"), p.thread_count.to_string());
+            row(crate::i18n::tr("Handles"), p.handle_count.to_string());
 
             match &data.details {
                 Some((r, Ok(d))) if r == sel => {
                     let na = || "n/a".to_owned();
-                    row("Priority", d.priority.map_or_else(na, |p| format!("{p:?}")));
                     row(
-                        "Efficiency",
+                        crate::i18n::tr("Priority"),
+                        d.priority.map_or_else(na, |p| format!("{p:?}")),
+                    );
+                    row(
+                        crate::i18n::tr("Efficiency"),
                         d.eco_qos.map_or_else(na, |e| format!("{e:?}")),
                     );
                     row(
-                        "Affinity",
+                        crate::i18n::tr("Affinity"),
                         d.affinity.map_or_else(na, |(m, s)| {
-                            format!("{} of {} CPUs", m.count_ones(), s.count_ones())
+                            let __wtm_i18n_0 = &(m.count_ones());
+                            let __wtm_i18n_1 = &(s.count_ones());
+                            crate::i18n::format(
+                                "{0} of {1} CPUs",
+                                &[format!("{}", __wtm_i18n_0), format!("{}", __wtm_i18n_1)],
+                            )
                         }),
                     );
                     row(
-                        "Critical",
-                        d.critical
-                            .map_or_else(na, |c| if c { "yes" } else { "no" }.into()),
+                        crate::i18n::tr("Critical"),
+                        d.critical.map_or_else(na, |c| {
+                            crate::i18n::tr(if c { "yes" } else { "no" }).into()
+                        }),
                     );
                     row(
-                        "Protected",
-                        d.protected.clone().unwrap_or_else(|| "no".into()),
+                        crate::i18n::tr("Protected"),
+                        d.protected
+                            .clone()
+                            .unwrap_or_else(|| crate::i18n::tr("no").into()),
                     );
                 }
-                Some((r, Err(e))) if r == sel => row("Details", e.clone()),
-                _ => row("Details", "loading…".into()),
+                Some((r, Err(e))) if r == sel => row(crate::i18n::tr("Details"), e.clone()),
+                _ => row(
+                    crate::i18n::tr("Details"),
+                    crate::i18n::tr("loading…").into(),
+                ),
             }
         });
 
@@ -1100,7 +1250,7 @@ fn details_panel(
     {
         if let Some(user) = &d.user {
             ui.add_space(6.0);
-            ui.label(format!("User: {user}"));
+            ui.label(crate::i18n::format("User: {0}", std::slice::from_ref(user)));
         }
         if let Some(path) = &d.path {
             ui.add_space(6.0);
@@ -1109,7 +1259,10 @@ fn details_panel(
         if let Some(cmd) = d.command_line.as_deref().filter(|c| !c.is_empty()) {
             ui.add_space(4.0);
             ui.label(RichText::new(cmd).small().monospace());
-            if ui.small_button("Copy command line").clicked() {
+            if ui
+                .small_button(crate::i18n::tr("Copy command line"))
+                .clicked()
+            {
                 ui.ctx().copy_text(cmd.to_owned());
             }
         }
@@ -1122,7 +1275,7 @@ fn details_panel(
             .collect();
         if !uses.is_empty() {
             ui.add_space(8.0);
-            ui.label(RichText::new("Listening on").strong());
+            ui.label(RichText::new(crate::i18n::tr("Listening on")).strong());
             for u in &uses {
                 ui.horizontal(|ui| {
                     ui.label(
@@ -1136,10 +1289,10 @@ fn details_panel(
                     if let Some(k) = u.known() {
                         ui.weak(k.service);
                     }
-                    ui.weak(u.exposure().label());
+                    ui.weak(crate::i18n::tr(u.exposure().label()));
                 });
             }
-            if ui.small_button("Show in Ports").clicked() {
+            if ui.small_button(crate::i18n::tr("Show in Ports")).clicked() {
                 intents.push(Intent::ShowPorts);
             }
         }
@@ -1149,17 +1302,20 @@ fn details_panel(
         && h.cpu.len() > 1
     {
         ui.add_space(8.0);
-        ui.label(RichText::new("Last two minutes").strong());
+        ui.label(RichText::new(crate::i18n::tr("Last two minutes")).strong());
         process_plot(ui, "proc_cpu", "CPU", &h.cpu, false);
-        process_plot(ui, "proc_mem", "Memory", &h.memory, true);
+        process_plot(ui, "proc_mem", crate::i18n::tr("Memory"), &h.memory, true);
     }
 
     ui.add_space(8.0);
     ui.horizontal_wrapped(|ui| {
-        if ui.button(RichText::new("End task").color(BAD)).clicked() {
+        if ui
+            .button(RichText::new(crate::i18n::tr("End task")).color(BAD))
+            .clicked()
+        {
             intents.push(Intent::Confirm(sel.clone(), Command::Kill));
         }
-        ui.menu_button("More actions", |ui| {
+        ui.menu_button(crate::i18n::tr("More actions"), |ui| {
             context_menu(
                 ui,
                 sel,
@@ -1168,10 +1324,10 @@ fn details_panel(
                 intents,
             )
         });
-        if ui.button("Open file location").clicked() {
+        if ui.button(crate::i18n::tr("Open file location")).clicked() {
             intents.push(Intent::OpenLocation(sel.clone()));
         }
-        if ui.button("Refresh").clicked() {
+        if ui.button(crate::i18n::tr("Refresh")).clicked() {
             intents.push(Intent::Select(sel.clone()));
         }
     });
@@ -1353,8 +1509,14 @@ fn core_grid(
         for (i, &load) in cores.iter().enumerate() {
             let cpu = topology.and_then(|t| t.cpus.iter().find(|c| usize::from(c.index) == i));
             let label = cpu.zip(topology).map_or_else(
-                || format!("CPU {i}"),
-                |(c, t)| format!("CPU {i} · {}", t.tier(c.efficiency_class)),
+                || crate::i18n::format("CPU {0}", &[format!("{}", i)]),
+                |(c, t)| {
+                    let __wtm_i18n_0 = &(t.tier(c.efficiency_class));
+                    crate::i18n::format(
+                        "CPU {0} · {1}",
+                        &[format!("{}", i), __wtm_i18n_0.to_string()],
+                    )
+                },
             );
             let (rect, response) = ui.allocate_exact_size(CELL, egui::Sense::hover());
             let painter = ui.painter_at(rect);
@@ -1396,10 +1558,19 @@ fn core_grid(
             );
             let mut text = format!("{label}: {load:.1}%");
             if let Some(c) = cpu {
-                text.push_str(&format!(
-                    " · Group {}, physical core {}, Windows class {}",
-                    c.group, c.core, c.efficiency_class
-                ));
+                text.push_str(&{
+                    let __wtm_i18n_0 = &(c.group);
+                    let __wtm_i18n_1 = &(c.core);
+                    let __wtm_i18n_2 = &(c.efficiency_class);
+                    crate::i18n::format(
+                        " · Group {0}, physical core {1}, Windows class {2}",
+                        &[
+                            format!("{}", __wtm_i18n_0),
+                            format!("{}", __wtm_i18n_1),
+                            format!("{}", __wtm_i18n_2),
+                        ],
+                    )
+                });
             }
             response
                 .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
@@ -1489,29 +1660,37 @@ fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             history_plot(ui, "cpu_plot", "CPU", &data.history.cpu, crate::theme::CPU);
             if !s.core_percent.is_empty() {
                 ui.add_space(6.0);
-                ui.weak(format!("Per logical processor ({})", s.core_percent.len()));
+                ui.weak({
+                    let __wtm_i18n_0 = &(s.core_percent.len());
+                    crate::i18n::format(
+                        "Per logical processor ({0})",
+                        &[format!("{}", __wtm_i18n_0)],
+                    )
+                });
                 if let Some(t) = data.cpu_topology.as_ref().filter(|t| t.hybrid()) {
                     let summary = t
                         .classes()
                         .iter()
                         .rev()
                         .map(|class| {
-                            format!(
-                                "{}: {} threads",
-                                t.tier(*class),
-                                t.cpus
-                                    .iter()
-                                    .filter(|c| c.efficiency_class == *class)
-                                    .count()
+                            let __wtm_i18n_0 = &(t.tier(*class));
+                            let __wtm_i18n_1 = &(t
+                                .cpus
+                                .iter()
+                                .filter(|c| c.efficiency_class == *class)
+                                .count());
+                            crate::i18n::format(
+                                "{0}: {1} threads",
+                                &[__wtm_i18n_0.to_string(), format!("{}", __wtm_i18n_1)],
                             )
                         })
                         .collect::<Vec<_>>()
                         .join(" · ");
-                    ui.label(summary).on_hover_text(
+                    ui.label(summary).on_hover_text(crate::i18n::tr(
                         "Relative Windows CPU performance tiers; not vendor model identifiers.",
-                    );
+                    ));
                     if t.groups().len() > 1 {
-                        ui.weak("Per-core tier labels are unavailable across multiple processor groups.");
+                        ui.weak(crate::i18n::tr("Per-core tier labels are unavailable across multiple processor groups."));
                     }
                 }
                 core_grid(
@@ -1535,7 +1714,7 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
         ui,
         title(
             ui,
-            "Memory",
+            crate::i18n::tr("Memory"),
             format!(
                 "{} / {} ({mem_pct:.0}%)",
                 format_bytes(s.memory_used() as f64),
@@ -1547,25 +1726,31 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             history_plot(
                 ui,
                 "mem_plot",
-                "Memory",
+                crate::i18n::tr("Memory"),
                 &data.history.memory,
                 crate::theme::MEMORY,
             );
             ui.add_space(4.0);
             let committed = s.commit_limit.saturating_sub(s.commit_available);
             ui.horizontal_wrapped(|ui| {
-                ui.weak(format!("In use {}", format_bytes(s.memory_used() as f64)));
+                ui.weak({
+                    let __wtm_i18n_0 = &(format_bytes(s.memory_used() as f64));
+                    crate::i18n::format("In use {0}", std::slice::from_ref(__wtm_i18n_0))
+                });
                 ui.weak("·");
-                ui.weak(format!(
-                    "Available {}",
-                    format_bytes(s.memory_available as f64)
-                ));
+                ui.weak({
+                    let __wtm_i18n_0 = &(format_bytes(s.memory_available as f64));
+                    crate::i18n::format("Available {0}", std::slice::from_ref(__wtm_i18n_0))
+                });
                 ui.weak("·");
-                ui.weak(format!(
-                    "Committed {} of {}",
-                    format_bytes(committed as f64),
-                    format_bytes(s.commit_limit as f64)
-                ));
+                ui.weak({
+                    let __wtm_i18n_0 = &(format_bytes(committed as f64));
+                    let __wtm_i18n_1 = &(format_bytes(s.commit_limit as f64));
+                    crate::i18n::format(
+                        "Committed {0} of {1}",
+                        &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
+                    )
+                });
             });
         },
     );
@@ -1577,7 +1762,10 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
         title(
             ui,
             "GPU",
-            format!("{:.0}%  busiest engine", s.gpu_percent),
+            {
+                let __wtm_i18n_0 = &(s.gpu_percent);
+                crate::i18n::format("{0}%  busiest engine", &[format!("{:.0}", __wtm_i18n_0)])
+            },
             crate::theme::GPU,
         ),
         |ui| {
@@ -1600,10 +1788,10 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                         .iter()
                         .map(|(name, load)| format!("{name} {load:.0}%"))
                         .collect();
-                    ui.weak(format!(
-                        "+ {} more engines",
-                        engines.len() - GPU_ENGINES_SHOWN
-                    ))
+                    ui.weak({
+                        let __wtm_i18n_0 = &(engines.len() - GPU_ENGINES_SHOWN);
+                        crate::i18n::format("+ {0} more engines", &[format!("{}", __wtm_i18n_0)])
+                    })
                     .on_hover_text(rest.join("\n"));
                 }
             }
@@ -1614,11 +1802,14 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
 fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
     crate::theme::card(
         ui,
-        egui::RichText::new(format!(
-            "Network  ↓ {}/s  ↑ {}/s",
-            format_bytes(s.net_rx_rate),
-            format_bytes(s.net_tx_rate)
-        ))
+        egui::RichText::new({
+            let __wtm_i18n_0 = &(format_bytes(s.net_rx_rate));
+            let __wtm_i18n_1 = &(format_bytes(s.net_tx_rate));
+            crate::i18n::format(
+                "Network  ↓ {0}/s  ↑ {1}/s",
+                &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
+            )
+        })
         .size(18.0)
         .strong(),
         |ui| {
@@ -1626,8 +1817,16 @@ fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                 ui,
                 "net_plot",
                 [
-                    ("Receive", &data.history.net_rx, crate::theme::NET_RX),
-                    ("Send", &data.history.net_tx, crate::theme::NET_TX),
+                    (
+                        crate::i18n::tr("Receive"),
+                        &data.history.net_rx,
+                        crate::theme::NET_RX,
+                    ),
+                    (
+                        crate::i18n::tr("Send"),
+                        &data.history.net_tx,
+                        crate::theme::NET_TX,
+                    ),
                 ],
             );
         },
@@ -1637,11 +1836,14 @@ fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
 fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
     crate::theme::card(
         ui,
-        egui::RichText::new(format!(
-            "Disk & I/O  read {}/s  write {}/s",
-            format_bytes(s.io_read_rate),
-            format_bytes(s.io_write_rate)
-        ))
+        egui::RichText::new({
+            let __wtm_i18n_0 = &(format_bytes(s.io_read_rate));
+            let __wtm_i18n_1 = &(format_bytes(s.io_write_rate));
+            crate::i18n::format(
+                "Disk & I/O  read {0}/s  write {1}/s",
+                &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
+            )
+        })
         .size(18.0)
         .strong(),
         |ui| {
@@ -1649,8 +1851,16 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                 ui,
                 "io_plot",
                 [
-                    ("Read", &data.history.io_read, crate::theme::DISK_READ),
-                    ("Write", &data.history.io_write, crate::theme::DISK_WRITE),
+                    (
+                        crate::i18n::tr("Read"),
+                        &data.history.io_read,
+                        crate::theme::DISK_READ,
+                    ),
+                    (
+                        crate::i18n::tr("Write"),
+                        &data.history.io_write,
+                        crate::theme::DISK_WRITE,
+                    ),
                 ],
             );
             if !s.disks.is_empty() {
@@ -1660,14 +1870,24 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                     "disks",
                     s.disks.iter().map(|d| {
                         (
-                            format!("Disk {}", d.name),
+                            {
+                                let __wtm_i18n_0 = &(d.name);
+                                crate::i18n::format("Disk {0}", std::slice::from_ref(__wtm_i18n_0))
+                            },
                             d.active_percent,
-                            format!(
-                                "{:.0}% active   read {}/s   write {}/s",
-                                d.active_percent,
-                                format_bytes(d.read_rate),
-                                format_bytes(d.write_rate)
-                            ),
+                            {
+                                let __wtm_i18n_0 = &(d.active_percent);
+                                let __wtm_i18n_1 = &(format_bytes(d.read_rate));
+                                let __wtm_i18n_2 = &(format_bytes(d.write_rate));
+                                crate::i18n::format(
+                                    "{0}% active   read {1}/s   write {2}/s",
+                                    &[
+                                        format!("{:.0}", __wtm_i18n_0),
+                                        __wtm_i18n_1.to_string(),
+                                        __wtm_i18n_2.to_string(),
+                                    ],
+                                )
+                            },
                         )
                     }),
                 );
@@ -1679,7 +1899,9 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
 fn perf_summary(ui: &mut Ui, _data: &Data, s: &wtm_core::SystemStats) {
     crate::theme::card(
         ui,
-        egui::RichText::new("System").size(18.0).strong(),
+        egui::RichText::new(crate::i18n::tr("System"))
+            .size(18.0)
+            .strong(),
         |ui| {
             egui::Grid::new("perf_grid")
                 .num_columns(2)
@@ -1691,12 +1913,15 @@ fn perf_summary(ui: &mut Ui, _data: &Data, s: &wtm_core::SystemStats) {
                         ui.strong(v);
                         ui.end_row();
                     };
-                    row("Logical processors", s.logical_cpus.to_string());
-                    row("Processes", s.process_count.to_string());
-                    row("Threads", s.thread_count.to_string());
-                    row("Handles", s.handle_count.to_string());
                     row(
-                        "Committed",
+                        crate::i18n::tr("Logical processors"),
+                        s.logical_cpus.to_string(),
+                    );
+                    row(crate::i18n::tr("Processes"), s.process_count.to_string());
+                    row(crate::i18n::tr("Threads"), s.thread_count.to_string());
+                    row(crate::i18n::tr("Handles"), s.handle_count.to_string());
+                    row(
+                        crate::i18n::tr("Committed"),
                         format!(
                             "{} / {}",
                             format_bytes(s.commit_limit.saturating_sub(s.commit_available) as f64),
@@ -1709,8 +1934,8 @@ fn perf_summary(ui: &mut Ui, _data: &Data, s: &wtm_core::SystemStats) {
 }
 fn governor(ui: &mut Ui, data: &Data) {
     let Some(status) = &data.status else {
-        ui.heading("Service not running");
-        ui.label("The governor runs inside the RustWTM service. Install and start it from an elevated prompt:");
+        ui.heading(crate::i18n::tr("Service not running"));
+        ui.label(crate::i18n::tr("The governor runs inside the RustWTM service. Install and start it from an elevated prompt:"));
         ui.code("wtm-service install\nwtm-service start");
         return;
     };
@@ -1724,41 +1949,58 @@ fn governor(ui: &mut Ui, data: &Data) {
                 ui.end_row();
             };
             row(
-                "Mode",
+                crate::i18n::tr("Mode"),
                 if status.dry_run {
-                    RichText::new("Dry-run (decisions are only logged)").color(WARN)
+                    RichText::new(crate::i18n::tr("Dry-run (decisions are only logged)"))
+                        .color(WARN)
                 } else {
-                    RichText::new("Enforcing").color(GOOD)
+                    RichText::new(crate::i18n::tr("Enforcing")).color(GOOD)
                 },
             );
             row(
-                "Governor",
+                crate::i18n::tr("Governor"),
                 RichText::new(if status.governor_enabled {
-                    "enabled"
+                    crate::i18n::tr("enabled")
                 } else {
-                    "disabled"
+                    crate::i18n::tr("disabled")
                 }),
             );
             row(
-                "Thresholds",
-                RichText::new(format!(
-                    "act at ≥ {:.0}% CPU, roll back at ≤ {:.0}%",
-                    status.high_cpu_percent, status.recover_cpu_percent
-                )),
+                crate::i18n::tr("Thresholds"),
+                RichText::new({
+                    let __wtm_i18n_0 = &(status.high_cpu_percent);
+                    let __wtm_i18n_1 = &(status.recover_cpu_percent);
+                    crate::i18n::format(
+                        "act at ≥ {0}% CPU, roll back at ≤ {1}%",
+                        &[
+                            format!("{:.0}", __wtm_i18n_0),
+                            format!("{:.0}", __wtm_i18n_1),
+                        ],
+                    )
+                }),
             );
-            row("Rules", RichText::new(status.rules.to_string()));
-            row("Config", RichText::new(&status.config_path).monospace());
+            row(
+                crate::i18n::tr("Rules"),
+                RichText::new(status.rules.to_string()),
+            );
+            row(
+                crate::i18n::tr("Config"),
+                RichText::new(&status.config_path).monospace(),
+            );
         });
 
     ui.add_space(12.0);
-    ui.heading(format!("Managed processes ({})", status.managed.len()));
+    ui.heading({
+        let __wtm_i18n_0 = &(status.managed.len());
+        crate::i18n::format("Managed processes ({0})", &[format!("{}", __wtm_i18n_0)])
+    });
     if status.managed.is_empty() {
-        ui.weak("No process is currently limited.");
+        ui.weak(crate::i18n::tr("No process is currently limited."));
         return;
     }
     use crate::sort::{Sort, header, text};
     let sources = |m: &wtm_ipc::Managed| {
-        let s: Vec<String> = m.sources.iter().map(|s| format!("{s:?}")).collect();
+        let s: Vec<String> = m.sources.iter().map(crate::i18n::debug).collect();
         s.join(", ")
     };
     let mut rows: Vec<_> = status.managed.iter().collect();
@@ -1773,9 +2015,14 @@ fn governor(ui: &mut Ui, data: &Data) {
         .num_columns(4)
         .striped(true)
         .show(ui, |ui| {
-            for (col, label) in ["PID", "Name", "Source", "Effective limits"]
-                .into_iter()
-                .enumerate()
+            for (col, label) in [
+                "PID",
+                crate::i18n::tr("Name"),
+                crate::i18n::tr("Source"),
+                crate::i18n::tr("Effective limits"),
+            ]
+            .into_iter()
+            .enumerate()
             {
                 header(ui, label, col, col == 0, &mut sort);
             }
@@ -1784,7 +2031,7 @@ fn governor(ui: &mut Ui, data: &Data) {
                 ui.label(m.target.pid.to_string());
                 ui.label(&m.target.name);
                 ui.label(sources(m));
-                ui.label(&m.summary);
+                ui.label(crate::i18n::message(&m.summary).as_ref());
                 ui.end_row();
             }
         });
@@ -1793,7 +2040,7 @@ fn governor(ui: &mut Ui, data: &Data) {
 
 fn events(ui: &mut Ui, data: &Data) {
     if data.events.is_empty() {
-        ui.weak("No events yet.");
+        ui.weak(crate::i18n::tr("No events yet."));
         return;
     }
     let row_height = ui.spacing().interact_size.y;
@@ -1807,7 +2054,13 @@ fn events(ui: &mut Ui, data: &Data) {
         .column(Column::initial(160.0).clip(true))
         .column(Column::remainder().clip(true))
         .header(row_height, |mut h| {
-            for label in ["Time", "Level", "PID", "Process", "Message"] {
+            for label in [
+                crate::i18n::tr("Time"),
+                crate::i18n::tr("Level"),
+                "PID",
+                crate::i18n::tr("Process"),
+                crate::i18n::tr("Message"),
+            ] {
                 h.col(|ui| {
                     ui.strong(label);
                 });
@@ -1827,7 +2080,9 @@ fn events(ui: &mut Ui, data: &Data) {
                     ui.label(time);
                 });
                 row.col(|ui| {
-                    ui.label(RichText::new(format!("{:?}", e.level)).color(level_color(e.level)));
+                    ui.label(
+                        RichText::new(crate::i18n::debug(e.level)).color(level_color(e.level)),
+                    );
                 });
                 row.col(|ui| {
                     ui.label(e.pid.map(|p| p.to_string()).unwrap_or_default());
@@ -1836,7 +2091,7 @@ fn events(ui: &mut Ui, data: &Data) {
                     ui.label(e.name.clone().unwrap_or_default());
                 });
                 row.col(|ui| {
-                    ui.label(&e.message);
+                    ui.label(crate::i18n::message(&e.message).as_ref());
                 });
             });
         });
@@ -1855,7 +2110,9 @@ fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCom
     let mut out = None;
     ui.horizontal(|ui| {
         let Some(s) = service else {
-            ui.weak("Select a service to start, stop or change its startup type.");
+            ui.weak(crate::i18n::tr(
+                "Select a service to start, stop or change its startup type.",
+            ));
             return;
         };
         ui.strong(&s.display_name);
@@ -1868,27 +2125,30 @@ fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCom
             });
         };
         if ui
-            .add_enabled(stopped, egui::Button::new("Start"))
+            .add_enabled(stopped, egui::Button::new(crate::i18n::tr("Start")))
             .clicked()
         {
             send(ServiceOp::Start);
         }
-        if ui.add_enabled(running, egui::Button::new("Stop")).clicked() {
+        if ui
+            .add_enabled(running, egui::Button::new(crate::i18n::tr("Stop")))
+            .clicked()
+        {
             send(ServiceOp::Stop);
         }
         if ui
-            .add_enabled(running, egui::Button::new("Restart"))
+            .add_enabled(running, egui::Button::new(crate::i18n::tr("Restart")))
             .clicked()
         {
             send(ServiceOp::Restart);
         }
-        ui.menu_button("Startup type", |ui| {
+        ui.menu_button(crate::i18n::tr("Startup type"), |ui| {
             for t in [
                 wtm_core::StartType::Automatic,
                 wtm_core::StartType::Manual,
                 wtm_core::StartType::Disabled,
             ] {
-                if ui.button(format!("{t:?}")).clicked() {
+                if ui.button(crate::i18n::debug(t)).clicked() {
                     send(ServiceOp::StartType(t));
                     ui.close();
                 }
@@ -1913,7 +2173,11 @@ mod tests {
         let mut h = Harness::builder()
             .allow_missing_glyphs()
             .with_size([1300.0, 850.0])
-            .build_eframe(|cc| App::new(cc, false));
+            .build_eframe(|cc| {
+                let mut app = App::new(cc, false);
+                app.state.language = crate::i18n::Language::English;
+                app
+            });
         let sampled = (0..100).any(|_| {
             std::thread::sleep(Duration::from_millis(50));
             h.state().backend.data().snapshot.is_some()
@@ -2091,6 +2355,7 @@ mod tests {
 
         let mut state = UiState {
             tab: Tab::Performance,
+            language: crate::i18n::Language::French,
             nav_collapsed: Some(true),
             ..UiState::default()
         };
@@ -3288,106 +3553,199 @@ mod tests {
         );
     }
 
+    #[test]
+    fn language_picker_changes_immediately_and_keeps_the_old_choice_on_save_failure() {
+        use crate::i18n::{Language, scope};
+        let mut h = Harness::builder().allow_missing_glyphs().build_ui_state(
+            |ui, state: &mut UiState| {
+                let _language = scope(state.language);
+                language_settings(ui, state, |language| {
+                    if language == Language::French {
+                        Err(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "denied",
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                });
+            },
+            UiState {
+                language: Language::English,
+                ..UiState::default()
+            },
+        );
+        h.get_by_role(egui::accesskit::Role::ComboBox).click();
+        h.run();
+        h.get_by_label("Türkçe").click();
+        h.run();
+        assert_eq!(h.state().language, Language::Turkish);
+        assert!(h.query_by_label("Dil").is_some());
+        h.get_by_role(egui::accesskit::Role::ComboBox).click();
+        h.run();
+        h.get_by_label("Français").click();
+        h.run();
+        assert_eq!(h.state().language, Language::Turkish);
+        assert!(h.query_by_label("Dil kaydedilemedi: denied").is_some());
+    }
+
+    #[test]
+    fn every_page_renders_in_all_five_languages() {
+        use crate::i18n::{Language, scope};
+        for language in [
+            Language::English,
+            Language::Turkish,
+            Language::German,
+            Language::French,
+            Language::Spanish,
+        ] {
+            let _language = scope(language);
+            let mut d = data();
+            d.hardware = crate::sensors::fixture();
+            let (backend, _rx) = Backend::offline(d);
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([1320.0, 900.0])
+                .build_eframe(|cc| {
+                    crate::theme::install_fonts(&cc.egui_ctx);
+                    App {
+                        backend,
+                        state: UiState {
+                            language,
+                            autostart: Some(false),
+                            check_updates: false,
+                            ..UiState::default()
+                        },
+                        tray: None,
+                    }
+                });
+            for (tab, _, _) in NAV {
+                h.state_mut().state.tab = tab;
+                h.run_steps(2);
+                assert!(
+                    h.query_by_label(tab.subtitle()).is_some(),
+                    "{language:?} {tab:?}"
+                );
+            }
+            assert!((200.0..=280.0).contains(&nav_width(&h.ctx)));
+        }
+    }
+
     /// Reproducible product screenshots, without connecting to or controlling
     /// the host. Run with `--features visual-tests render_release_review`.
     #[cfg(feature = "visual-tests")]
     #[test]
     fn render_release_review() {
-        let out =
+        let root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visual-review");
-        std::fs::create_dir_all(&out).unwrap();
-        for (theme_name, theme) in [("dark", egui::Theme::Dark), ("light", egui::Theme::Light)] {
-            for (size_name, size) in [("wide", [1440.0, 1000.0]), ("compact", [820.0, 500.0])] {
-                for tab in [
-                    Tab::Overview,
-                    Tab::Processes,
-                    Tab::Performance,
-                    Tab::Sensors,
-                    Tab::Settings,
-                ] {
-                    let mut d = data();
-                    d.hardware = crate::sensors::fixture();
-                    d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
-                    let sensors = crate::sensors::SensorsView::review_fixture(&d.hardware);
-                    d.mode = Mode::Service {
-                        admin: true,
-                        verified: true,
-                    };
-                    d.elevated = true;
-                    d.config = Some(Ok((
-                        "config.toml".into(),
-                        wtm_policy::DEFAULT_CONFIG_TOML.into(),
-                    )));
-                    d.telegram = Some(Ok(wtm_policy::TelegramConfig::default()));
-                    let mut snap = d.snapshot.as_deref().unwrap().clone();
-                    snap.system.core_percent = vec![95.0, 70.0, 10.0, 0.0, 45.0, 8.0, 14.0, 4.0];
-                    d.history.cores = snap
-                        .system
-                        .core_percent
-                        .iter()
-                        .map(|&load| {
-                            (0..crate::backend::CORE_HISTORY_LEN)
-                                .map(|i| (load + (i as f32 * 0.2).sin() * 5.0).clamp(0.0, 100.0))
-                                .collect()
-                        })
-                        .collect();
-                    d.snapshot = Some(std::sync::Arc::new(snap));
-                    // Give every graph a full, deterministic history for review.
-                    for i in 0..HISTORY_LEN {
-                        d.history
-                            .cpu
-                            .push_back(30.0 + (i as f32 * 0.09).sin() * 18.0);
-                        d.history
-                            .memory
-                            .push_back(50.0 + (i as f32 * 0.02).sin() * 3.0);
-                        d.history
-                            .gpu
-                            .push_back(12.0 + (i as f32 * 0.12).sin() * 8.0);
-                        d.history
-                            .io_read
-                            .push_back(1000.0 + (i as f32 * 0.07).sin() * 800.0);
-                        d.history.io_write.push_back(400.0);
-                        d.history
-                            .net_rx
-                            .push_back(2048.0 + (i as f32 * 0.1).sin() * 1800.0);
-                        d.history.net_tx.push_back(512.0);
+        for (code, language) in [
+            ("en", crate::i18n::Language::English),
+            ("tr", crate::i18n::Language::Turkish),
+            ("de", crate::i18n::Language::German),
+            ("fr", crate::i18n::Language::French),
+            ("es", crate::i18n::Language::Spanish),
+        ] {
+            let _language = crate::i18n::scope(language);
+            let out = root.join("locales").join(code);
+            std::fs::create_dir_all(&out).unwrap();
+            for (theme_name, theme) in [("dark", egui::Theme::Dark), ("light", egui::Theme::Light)]
+            {
+                for (size_name, size) in [("wide", [1440.0, 1000.0]), ("compact", [820.0, 500.0])] {
+                    for tab in [
+                        Tab::Overview,
+                        Tab::Processes,
+                        Tab::Performance,
+                        Tab::Sensors,
+                        Tab::Settings,
+                    ] {
+                        let mut d = data();
+                        d.hardware = crate::sensors::fixture();
+                        d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
+                        let sensors = crate::sensors::SensorsView::review_fixture(&d.hardware);
+                        d.mode = Mode::Service {
+                            admin: true,
+                            verified: true,
+                        };
+                        d.elevated = true;
+                        d.config = Some(Ok((
+                            "config.toml".into(),
+                            wtm_policy::DEFAULT_CONFIG_TOML.into(),
+                        )));
+                        d.telegram = Some(Ok(wtm_policy::TelegramConfig::default()));
+                        let mut snap = d.snapshot.as_deref().unwrap().clone();
+                        snap.system.core_percent =
+                            vec![95.0, 70.0, 10.0, 0.0, 45.0, 8.0, 14.0, 4.0];
+                        d.history.cores = snap
+                            .system
+                            .core_percent
+                            .iter()
+                            .map(|&load| {
+                                (0..crate::backend::CORE_HISTORY_LEN)
+                                    .map(|i| {
+                                        (load + (i as f32 * 0.2).sin() * 5.0).clamp(0.0, 100.0)
+                                    })
+                                    .collect()
+                            })
+                            .collect();
+                        d.snapshot = Some(std::sync::Arc::new(snap));
+                        // Give every graph a full, deterministic history for review.
+                        for i in 0..HISTORY_LEN {
+                            d.history
+                                .cpu
+                                .push_back(30.0 + (i as f32 * 0.09).sin() * 18.0);
+                            d.history
+                                .memory
+                                .push_back(50.0 + (i as f32 * 0.02).sin() * 3.0);
+                            d.history
+                                .gpu
+                                .push_back(12.0 + (i as f32 * 0.12).sin() * 8.0);
+                            d.history
+                                .io_read
+                                .push_back(1000.0 + (i as f32 * 0.07).sin() * 800.0);
+                            d.history.io_write.push_back(400.0);
+                            d.history
+                                .net_rx
+                                .push_back(2048.0 + (i as f32 * 0.1).sin() * 1800.0);
+                            d.history.net_tx.push_back(512.0);
+                        }
+                        let (backend, _rx) = Backend::offline(d);
+                        let mut h = Harness::builder()
+                            .allow_missing_glyphs()
+                            .with_size(size)
+                            .with_theme(theme)
+                            .build_eframe(|cc| {
+                                crate::theme::install_fonts(&cc.egui_ctx);
+                                crate::theme::apply(&cc.egui_ctx);
+                                cc.egui_ctx.set_theme(theme);
+                                App {
+                                    backend,
+                                    state: UiState {
+                                        tab,
+                                        language,
+                                        sensors,
+                                        autostart: Some(false),
+                                        check_updates: false,
+                                        ..UiState::default()
+                                    },
+                                    tray: None,
+                                }
+                            });
+                        h.run_steps(3);
+                        assert_eq!(
+                            h.ctx.global_style().visuals.dark_mode,
+                            theme == egui::Theme::Dark
+                        );
+                        assert!(h.query_by_label(tab.subtitle()).is_some());
+                        let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
+                        h.render().expect("GPU render").save(&path).unwrap();
+                        println!("Rendered {}", path.display());
                     }
-                    let (backend, _rx) = Backend::offline(d);
-                    let mut h = Harness::builder()
-                        .allow_missing_glyphs()
-                        .with_size(size)
-                        .with_theme(theme)
-                        .build_eframe(|cc| {
-                            crate::theme::install_fonts(&cc.egui_ctx);
-                            crate::theme::apply(&cc.egui_ctx);
-                            cc.egui_ctx.set_theme(theme);
-                            App {
-                                backend,
-                                state: UiState {
-                                    tab,
-                                    sensors,
-                                    autostart: Some(false),
-                                    check_updates: false,
-                                    ..UiState::default()
-                                },
-                                tray: None,
-                            }
-                        });
-                    h.run_steps(3);
-                    assert_eq!(
-                        h.ctx.global_style().visuals.dark_mode,
-                        theme == egui::Theme::Dark
-                    );
-                    assert!(h.query_by_label(tab.subtitle()).is_some());
-                    let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
-                    h.render().expect("GPU render").save(&path).unwrap();
-                    println!("Rendered {}", path.display());
                 }
             }
+            // Keep native GPU review contexts in one test; parallel review tests
+            // exited with a native access violation on the development machine.
+            crate::power_controls::tests::render_power_review(&out);
         }
-        // Keep native GPU review contexts in one test; parallel review tests
-        // exited with a native access violation on the development machine.
-        crate::power_controls::tests::render_power_review();
     }
 
     #[test]

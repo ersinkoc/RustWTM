@@ -8,6 +8,10 @@ use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, Predefin
 use tray_icon::{Icon, MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 pub struct Tray {
+    labels: [&'static str; 3],
+    show: MenuItem,
+    notify: CheckMenuItem,
+    exit: MenuItem,
     icon: TrayIcon,
     tooltip: String,
     /// CPU load shown by the icon, in steps of 10%.
@@ -123,14 +127,14 @@ impl Tray {
         notifications: Arc<AtomicBool>,
         window: Arc<AtomicIsize>,
     ) -> Option<Self> {
-        let show = MenuItem::new("Show RustWTM", true, None);
+        let show = MenuItem::new(crate::i18n::tr("Show RustWTM"), true, None);
         let notify = CheckMenuItem::new(
-            "Notifications",
+            crate::i18n::tr("Notifications"),
             true,
             notifications.load(Ordering::Relaxed),
             None,
         );
-        let exit = MenuItem::new("Exit", true, None);
+        let exit = MenuItem::new(crate::i18n::tr("Exit"), true, None);
         let menu = Menu::new();
         menu.append_items(&[&show, &notify, &PredefinedMenuItem::separator(), &exit])
             .ok()?;
@@ -154,6 +158,10 @@ impl Tray {
             .build()
             .ok()?;
         Some(Self {
+            labels: [""; 3],
+            show,
+            notify,
+            exit,
             icon,
             tooltip: "RustWTM".into(),
             load_step: None,
@@ -176,6 +184,21 @@ impl Tray {
             let _ = self.icon.set_tooltip(Some(&text));
             self.tooltip = text;
         }
+    }
+
+    pub fn localize(&mut self) {
+        let labels = [
+            crate::i18n::tr("Show RustWTM"),
+            crate::i18n::tr("Notifications"),
+            crate::i18n::tr("Exit"),
+        ];
+        if self.labels == labels {
+            return;
+        }
+        self.show.set_text(labels[0]);
+        self.notify.set_text(labels[1]);
+        self.exit.set_text(labels[2]);
+        self.labels = labels;
     }
 }
 

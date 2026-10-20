@@ -18,6 +18,7 @@ workspace = true
 features = [
     "Wdk_System_SystemInformation",
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_Networking_WinHttp",
     "Win32_NetworkManagement_IpHelper",

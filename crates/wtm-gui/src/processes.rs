@@ -16,10 +16,10 @@ pub type ManagedMap = HashMap<(u32, i64), String>;
 pub fn budget_label(limit: &wtm_policy::AppLimit) -> String {
     let mut parts = Vec::new();
     if let Some(c) = limit.cpu_cores {
-        parts.push(format!("{c} cores"));
+        parts.push(crate::i18n::format("{0} cores", &[format!("{}", c)]));
     }
     if let Some(m) = limit.memory_gb {
-        parts.push(format!("{m} GB"));
+        parts.push(crate::i18n::format("{0} GB", &[format!("{}", m)]));
     }
     parts.join(", ")
 }
@@ -29,14 +29,17 @@ pub fn limit_labels(status: Option<&wtm_ipc::Status>) -> ManagedMap {
     let mut out = ManagedMap::new();
     let Some(status) = status else { return out };
     for m in &status.managed {
-        let sources: Vec<String> = m.sources.iter().map(|s| format!("{s:?}")).collect();
+        let sources: Vec<String> = m.sources.iter().map(crate::i18n::debug).collect();
         out.insert(
             (m.target.pid, m.target.create_time),
             format!("{}: {}", sources.join("+"), m.summary),
         );
     }
     for g in &status.app_limits {
-        let label = format!("App limit: {}", budget_label(&g.limit));
+        let label = {
+            let __wtm_i18n_0 = &(budget_label(&g.limit));
+            crate::i18n::format("App limit: {0}", std::slice::from_ref(__wtm_i18n_0))
+        };
         for key in &g.members {
             out.entry(*key)
                 .and_modify(|l| {
@@ -385,11 +388,11 @@ impl ProcessView {
         let logical_cpus = snap.system.logical_cpus.max(1);
 
         ui.horizontal_wrapped(|ui| {
-            ui.label("Search:");
+            ui.label(crate::i18n::tr("Search:"));
             let search = ui.add(
                 egui::TextEdit::singleline(&mut self.search)
                     .id(egui::Id::unique("process_search"))
-                    .hint_text("name, PID, path or command line (Ctrl+F)")
+                    .hint_text(crate::i18n::tr("name, PID, path or command line (Ctrl+F)"))
                     .desired_width(240.0),
             );
             if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
@@ -405,19 +408,19 @@ impl ProcessView {
                 self.search.clear();
             }
             for (mode, label) in [
-                (ViewMode::List, "List"),
-                (ViewMode::Tree, "Tree"),
-                (ViewMode::Apps, "Apps"),
+                (ViewMode::List, crate::i18n::tr("List")),
+                (ViewMode::Tree, crate::i18n::tr("Tree")),
+                (ViewMode::Apps, crate::i18n::tr("Apps")),
             ] {
                 ui.selectable_value(&mut self.mode, mode, label);
             }
-            ui.menu_button("Columns", |ui| {
-                ui.checkbox(&mut self.heat, "Heat map")
-                    .on_hover_text("Shade busy CPU, memory, disk and GPU cells");
+            ui.menu_button(crate::i18n::tr("Columns"), |ui| {
+                ui.checkbox(&mut self.heat, crate::i18n::tr("Heat map"))
+                    .on_hover_text(crate::i18n::tr("Shade busy CPU, memory, disk and GPU cells"));
                 ui.separator();
                 for (col, label, ..) in COLUMNS.iter().skip(1) {
                     let mut on = self.visible.contains(col);
-                    if ui.checkbox(&mut on, *label).changed() {
+                    if ui.checkbox(&mut on, crate::i18n::tr(label)).changed() {
                         if on {
                             self.visible.insert(*col);
                         } else {
@@ -430,8 +433,8 @@ impl ProcessView {
                 && !ui.ctx().text_edit_focused()
                 && !egui::Popup::is_any_open(ui.ctx())
                 && !ui.memory(|m| m.top_modal_layer().is_some());
-            if ui.button(if self.paused.is_some() { "Resume updates" } else { "Pause updates" })
-                .on_hover_text("Freeze this process list for inspection (F6). Monitoring, alerts and protection continue.")
+            if ui.button(if self.paused.is_some() { crate::i18n::tr("Resume updates") } else { crate::i18n::tr("Pause updates") })
+                .on_hover_text(crate::i18n::tr("Freeze this process list for inspection (F6). Monitoring, alerts and protection continue."))
                 .clicked() || toggle_key {
                 self.paused = if self.paused.is_some() { None } else { Some(std::sync::Arc::new(snap.clone())) };
             }
@@ -440,28 +443,35 @@ impl ProcessView {
         let snap = paused.as_deref().unwrap_or(snap);
         ui.horizontal_wrapped(|ui| {
             for (filter, label, hint) in [
-                (QuickFilter::All, "All processes", "Every process"),
+                (
+                    QuickFilter::All,
+                    crate::i18n::tr("All processes"),
+                    crate::i18n::tr("Every process"),
+                ),
                 (
                     QuickFilter::Cpu,
-                    "High CPU",
-                    "At least 5% of the whole machine; excludes the idle process",
+                    crate::i18n::tr("High CPU"),
+                    crate::i18n::tr("At least 5% of the whole machine; excludes the idle process"),
                 ),
                 (
                     QuickFilter::Memory,
-                    "High memory",
-                    "At least 512 MiB of private working set",
+                    crate::i18n::tr("High memory"),
+                    crate::i18n::tr("At least 512 MiB of private working set"),
                 ),
                 (
                     QuickFilter::Managed,
-                    "Managed",
-                    "Processes with a governor action, manual limit or app budget",
+                    crate::i18n::tr("Managed"),
+                    crate::i18n::tr("Processes with a governor action, manual limit or app budget"),
                 ),
             ] {
                 ui.selectable_value(&mut self.filter, filter, label)
                     .on_hover_text(hint);
             }
             if paused.is_some() {
-                ui.label(RichText::new("Paused · monitoring continues").color(crate::theme::WARN));
+                ui.label(
+                    RichText::new(crate::i18n::tr("Paused · monitoring continues"))
+                        .color(crate::theme::WARN),
+                );
             }
         });
         ui.separator();
@@ -525,15 +535,25 @@ impl ProcessView {
         };
         let shown = snap.processes.iter().filter(|p| matches(p)).count();
         ui.label(
-            RichText::new(format!("{shown} of {} processes", snap.processes.len()))
-                .small()
-                .weak(),
+            RichText::new({
+                let __wtm_i18n_0 = &(snap.processes.len());
+                crate::i18n::format(
+                    "{0} of {1} processes",
+                    &[format!("{}", shown), format!("{}", __wtm_i18n_0)],
+                )
+            })
+            .small()
+            .weak(),
         );
         if rows.is_empty() {
             ui.add_space(24.0);
-            ui.label(RichText::new("No matching processes").size(18.0).strong());
-            ui.weak("Try another name, PID or resource filter.");
-            if ui.button("Clear filters").clicked() {
+            ui.label(
+                RichText::new(crate::i18n::tr("No matching processes"))
+                    .size(18.0)
+                    .strong(),
+            );
+            ui.weak(crate::i18n::tr("Try another name, PID or resource filter."));
+            if ui.button(crate::i18n::tr("Clear filters")).clicked() {
                 self.search.clear();
                 self.filter = QuickFilter::All;
             }
@@ -574,6 +594,7 @@ impl ProcessView {
                 table
                     .header(row_height, |mut header| {
                         for (col, label, _, numeric, _) in &columns {
+                            let label = crate::i18n::tr(label);
                             header.col(|ui| {
                                 let arrow = match (self.sort == *col, self.descending) {
                                     (true, true) => " ↓",
@@ -761,28 +782,45 @@ fn app_menu(ui: &mut Ui, g: &AppGroup<'_>, intents: &mut Vec<Intent>) {
             ui.close();
         }
     };
-    each(ui, "Efficiency mode for all", Command::EcoQos(EcoQos::On));
     each(
         ui,
-        "Normal mode for all",
+        crate::i18n::tr("Efficiency mode for all"),
+        Command::EcoQos(EcoQos::On),
+    );
+    each(
+        ui,
+        crate::i18n::tr("Normal mode for all"),
         Command::EcoQos(EcoQos::SystemManaged),
     );
-    each(ui, "Free memory of all", Command::TrimMemory);
-    each(ui, "Suspend all", Command::Suspend);
-    each(ui, "Resume all", Command::Resume);
+    each(
+        ui,
+        crate::i18n::tr("Free memory of all"),
+        Command::TrimMemory,
+    );
+    each(ui, crate::i18n::tr("Suspend all"), Command::Suspend);
+    each(ui, crate::i18n::tr("Resume all"), Command::Resume);
     ui.separator();
-    if ui.button(format!("Limit all {}…", g.total.name)).clicked() {
+    if ui
+        .button({
+            let __wtm_i18n_0 = &(g.total.name);
+            crate::i18n::format("Limit all {0}…", std::slice::from_ref(__wtm_i18n_0))
+        })
+        .clicked()
+    {
         intents.push(Intent::LimitApp(g.total.name.clone()));
         ui.close();
     }
-    if ui.button("Add to kill list…").clicked() {
+    if ui.button(crate::i18n::tr("Add to kill list…")).clicked() {
         intents.push(Intent::AddToKillList(g.total.name.clone()));
         ui.close();
     }
     if ui
         .button(
-            RichText::new(format!("End all {} processes", all.len()))
-                .color(Color32::from_rgb(220, 70, 70)),
+            RichText::new({
+                let __wtm_i18n_0 = &(all.len());
+                crate::i18n::format("End all {0} processes", &[format!("{}", __wtm_i18n_0)])
+            })
+            .color(Color32::from_rgb(220, 70, 70)),
         )
         .clicked()
     {
@@ -822,45 +860,55 @@ pub fn context_menu(
         }
     };
 
-    cmd(ui, "End task", Command::Kill, true);
-    cmd(ui, "End process tree", Command::KillTree, true);
+    cmd(ui, crate::i18n::tr("End task"), Command::Kill, true);
+    cmd(
+        ui,
+        crate::i18n::tr("End process tree"),
+        Command::KillTree,
+        true,
+    );
     ui.separator();
-    cmd(ui, "Suspend", Command::Suspend, false);
-    cmd(ui, "Resume", Command::Resume, false);
+    cmd(ui, crate::i18n::tr("Suspend"), Command::Suspend, false);
+    cmd(ui, crate::i18n::tr("Resume"), Command::Resume, false);
     ui.separator();
-    ui.menu_button("Priority", |ui| {
+    ui.menu_button(crate::i18n::tr("Priority"), |ui| {
         for (label, p) in [
-            ("Idle", PriorityClass::Idle),
-            ("Below normal", PriorityClass::BelowNormal),
-            ("Normal", PriorityClass::Normal),
-            ("Above normal", PriorityClass::AboveNormal),
-            ("High", PriorityClass::High),
+            (crate::i18n::tr("Idle"), PriorityClass::Idle),
+            (crate::i18n::tr("Below normal"), PriorityClass::BelowNormal),
+            (crate::i18n::tr("Normal"), PriorityClass::Normal),
+            (crate::i18n::tr("Above normal"), PriorityClass::AboveNormal),
+            (crate::i18n::tr("High"), PriorityClass::High),
         ] {
             cmd(ui, label, Command::Priority(p), false);
         }
     });
-    ui.menu_button("Efficiency mode", |ui| {
-        cmd(ui, "On", Command::EcoQos(EcoQos::On), false);
+    ui.menu_button(crate::i18n::tr("Efficiency mode"), |ui| {
         cmd(
             ui,
-            "Off (let Windows decide)",
+            crate::i18n::tr("On"),
+            Command::EcoQos(EcoQos::On),
+            false,
+        );
+        cmd(
+            ui,
+            crate::i18n::tr("Off (let Windows decide)"),
             Command::EcoQos(EcoQos::SystemManaged),
             false,
         );
     });
     if let Some(topology) = topology.filter(|t| t.hybrid()) {
-        ui.menu_button("CPU core type", |ui| {
+        ui.menu_button(crate::i18n::tr("CPU core type"), |ui| {
             use wtm_core::cpu::CoreSelection as C;
             cmd(
                 ui,
-                "P-cores only",
+                crate::i18n::tr("P-cores only"),
                 Command::AffinityTier(C::Performance),
                 false,
             );
             if topology.classes().len() <= 3 {
                 cmd(
                     ui,
-                    "E-cores only",
+                    crate::i18n::tr("E-cores only"),
                     Command::AffinityTier(C::Efficient),
                     false,
                 );
@@ -868,27 +916,29 @@ pub fn context_menu(
             if topology.classes().len() == 3 {
                 cmd(
                     ui,
-                    "LP-E cores only",
+                    crate::i18n::tr("LP-E cores only"),
                     Command::AffinityTier(C::LowPower),
                     false,
                 );
             }
             cmd(
                 ui,
-                "All available cores",
+                crate::i18n::tr("All available cores"),
                 Command::AffinityTier(C::All),
                 false,
             );
-            ui.weak("Windows performance tiers. Cross-group processes are rejected.");
+            ui.weak(crate::i18n::tr(
+                "Windows performance tiers. Cross-group processes are rejected.",
+            ));
         });
     }
-    ui.menu_button("Limit CPU", |ui| {
+    ui.menu_button(crate::i18n::tr("Limit CPU"), |ui| {
         for (label, cores) in [
-            ("¼ core", 0.25),
-            ("½ core", 0.5),
-            ("1 core", 1.0),
-            ("2 cores", 2.0),
-            ("4 cores", 4.0),
+            (crate::i18n::tr("¼ core"), 0.25),
+            (crate::i18n::tr("½ core"), 0.5),
+            (crate::i18n::tr("1 core"), 1.0),
+            (crate::i18n::tr("2 cores"), 2.0),
+            (crate::i18n::tr("4 cores"), 4.0),
         ] {
             if cores > f64::from(logical_cpus) {
                 continue;
@@ -900,13 +950,18 @@ pub fn context_menu(
             };
             cmd(
                 ui,
-                &format!("{label}  ({percent:.2}% of machine)"),
+                &{
+                    crate::i18n::format(
+                        "{0}  ({1}% of machine)",
+                        &[label.to_string(), format!("{:.2}", percent)],
+                    )
+                },
                 Command::Limit(limits),
                 false,
             );
         }
     });
-    ui.menu_button("Limit memory", |ui| {
+    ui.menu_button(crate::i18n::tr("Limit memory"), |ui| {
         for mb in [256u64, 512, 1024, 2048, 4096, 8192] {
             let limits = Limits {
                 cpu_percent: None,
@@ -920,46 +975,64 @@ pub fn context_menu(
             );
         }
     });
-    cmd(ui, "Remove limits", Command::Unlimit, false);
-    cmd(ui, "Free memory", Command::TrimMemory, false);
+    cmd(
+        ui,
+        crate::i18n::tr("Remove limits"),
+        Command::Unlimit,
+        false,
+    );
+    cmd(
+        ui,
+        crate::i18n::tr("Free memory"),
+        Command::TrimMemory,
+        false,
+    );
     ui.separator();
-    if ui.button("Open file location").clicked() {
+    if ui.button(crate::i18n::tr("Open file location")).clicked() {
         intents.push(Intent::OpenLocation(t.clone()));
         ui.close();
     }
-    if ui.button(format!("Limit all {}…", t.name)).clicked() {
+    if ui
+        .button({
+            let __wtm_i18n_0 = &(t.name);
+            crate::i18n::format("Limit all {0}…", std::slice::from_ref(__wtm_i18n_0))
+        })
+        .clicked()
+    {
         intents.push(Intent::LimitApp(t.name.clone()));
         ui.close();
     }
-    if ui.button("Add to kill list…").clicked() {
+    if ui.button(crate::i18n::tr("Add to kill list…")).clicked() {
         intents.push(Intent::AddToKillList(t.name.clone()));
         ui.close();
     }
     ui.separator();
     if ui
-        .button("Notify me when it exits")
-        .on_hover_text(
+        .button(crate::i18n::tr("Notify me when it exits"))
+        .on_hover_text(crate::i18n::tr(
             "A desktop notification when it ends, e.g. a long build or download; again to stop",
-        )
+        ))
         .clicked()
     {
         intents.push(Intent::WatchExit(t.clone()));
         ui.close();
     }
     if ui
-        .button("Create memory dump file")
-        .on_hover_text("A full dump in your Temp folder, for debugging a hang or crash")
+        .button(crate::i18n::tr("Create memory dump file"))
+        .on_hover_text(crate::i18n::tr(
+            "A full dump in your Temp folder, for debugging a hang or crash",
+        ))
         .clicked()
     {
         intents.push(Intent::Dump(t.clone()));
         ui.close();
     }
-    if ui.button("Search online").clicked() {
+    if ui.button(crate::i18n::tr("Search online")).clicked() {
         ui.ctx()
             .open_url(egui::OpenUrl::new_tab(search_url(&t.name)));
         ui.close();
     }
-    if ui.button("Properties").clicked() {
+    if ui.button(crate::i18n::tr("Properties")).clicked() {
         intents.push(Intent::Select(t.clone()));
         ui.close();
     }

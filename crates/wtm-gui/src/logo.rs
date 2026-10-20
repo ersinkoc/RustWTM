@@ -124,7 +124,7 @@ pub fn rgba(size: u32) -> Vec<u8> {
 /// Only the asset tests use it; the build embeds the committed file.
 #[cfg(test)]
 pub fn ico() -> Vec<u8> {
-    const SIZES: [u32; 7] = [16, 20, 24, 32, 48, 64, 256];
+    const SIZES: [u32; 9] = [16, 20, 24, 32, 48, 64, 96, 128, 256];
     let images: Vec<Vec<u8>> = SIZES.iter().map(|&s| bmp(s)).collect();
     let mut out = Vec::new();
     out.extend(0u16.to_le_bytes()); // reserved
@@ -263,12 +263,34 @@ mod tests {
     fn ico_has_every_size() {
         let ico = ico();
         assert_eq!(&ico[0..4], &[0, 0, 1, 0]);
-        assert_eq!(u16::from_le_bytes([ico[4], ico[5]]), 7);
+        assert_eq!(u16::from_le_bytes([ico[4], ico[5]]), 9);
         // The 256 px entry is written as size 0.
-        assert_eq!(ico[6 + 16 * 6], 0);
+        assert_eq!(ico[6 + 16 * 8], 0);
         let last_size =
-            u32::from_le_bytes(ico[6 + 16 * 6 + 8..6 + 16 * 6 + 12].try_into().unwrap());
+            u32::from_le_bytes(ico[6 + 16 * 8 + 8..6 + 16 * 8 + 12].try_into().unwrap());
         assert_eq!(last_size, 40 + 256 * 256 * 4 + 32 * 256);
+    }
+
+    #[test]
+    fn executable_embeds_the_product_icon() {
+        let path = std::env::current_exe().unwrap();
+        let icon = wtm_core::small_icon(&path.to_string_lossy()).expect("executable icon resource");
+        assert!(
+            icon.rgba.as_chunks::<4>().0.iter().any(|p| p[3] > 128
+                && p[0] > 180
+                && p[1] > 80
+                && p[1] < 180
+                && p[2] < 130),
+            "product orange missing"
+        );
+        assert!(
+            icon.rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|p| p[3] > 128 && p[1] > 140 && p[0] < 180),
+            "gauge green missing"
+        );
     }
 
     /// The committed assets must match the code; regenerate them with
@@ -276,7 +298,10 @@ mod tests {
     #[test]
     fn committed_assets_are_up_to_date() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets");
-        assert_eq!(std::fs::read(format!("{root}/rustwtm.ico")).unwrap(), ico());
+        assert!(
+            std::fs::read(format!("{root}/rustwtm.ico")).unwrap() == ico(),
+            "Regenerate the multi-size icon with the write_assets test"
+        );
         assert_eq!(
             std::fs::read_to_string(format!("{root}/logo.svg")).unwrap(),
             svg()

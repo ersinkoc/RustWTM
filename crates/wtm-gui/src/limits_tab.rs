@@ -110,8 +110,8 @@ fn running_apps(data: &Data) -> Vec<(String, f32, u64)> {
 
 fn scope_label(scope: LimitScope) -> &'static str {
     match scope {
-        LimitScope::Group => "all processes together",
-        LimitScope::Each => "each instance separately",
+        LimitScope::Group => crate::i18n::tr("all processes together"),
+        LimitScope::Each => crate::i18n::tr("each instance separately"),
     }
 }
 
@@ -124,7 +124,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         }
         Some(Err(e)) => {
             ui.colored_label(Color32::RED, e);
-            if ui.button("Retry").clicked() {
+            if ui.button(crate::i18n::tr("Retry")).clicked() {
                 commands.push(UiCommand::Load(Panel::Config));
             }
             return commands;
@@ -134,10 +134,12 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
     let config = match Config::from_toml(text) {
         Ok(c) => c,
         Err(e) => {
-            ui.colored_label(
-                Color32::RED,
-                format!("The configuration is invalid ({e}); fix it in Settings."),
-            );
+            ui.colored_label(Color32::RED, {
+                crate::i18n::format(
+                    "The configuration is invalid ({0}); fix it in Settings.",
+                    &[format!("{}", e)],
+                )
+            });
             return commands;
         }
     };
@@ -148,18 +150,20 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         .map_or(1, |s| s.system.logical_cpus.max(1));
     let usage = data.status.as_ref().map_or(&[][..], |s| &s.app_limits);
 
-    ui.label(
+    ui.label(crate::i18n::tr(
         "Every process of an app, and everything it starts, shares the app's budget. \
          Programs that reach the memory budget get out-of-memory errors.",
-    );
+    ));
     if config.dry_run {
         ui.colored_label(
             WARN,
-            "Dry-run mode: limits are only previewed in the event log. Switch to enforcing in Settings.",
+            crate::i18n::tr("Dry-run mode: limits are only previewed in the event log. Switch to enforcing in Settings."),
         );
     }
     if !admin {
-        ui.weak("Run RustWTM as administrator to change limits.");
+        ui.weak(crate::i18n::tr(
+            "Run RustWTM as administrator to change limits.",
+        ));
     }
     ui.add_space(6.0);
 
@@ -225,12 +229,12 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         .striped(true)
         .show(ui, |ui| {
             for (col, (h, numeric)) in [
-                ("App", false),
-                ("Budget", true),
-                ("Applies to", false),
-                ("Processes", true),
-                ("CPU now", true),
-                ("Memory now", true),
+                (crate::i18n::tr("App"), false),
+                (crate::i18n::tr("Budget"), true),
+                (crate::i18n::tr("Applies to"), false),
+                (crate::i18n::tr("Processes"), true),
+                (crate::i18n::tr("CPU now"), true),
+                (crate::i18n::tr("Memory now"), true),
             ]
             .into_iter()
             .enumerate()
@@ -244,33 +248,56 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 ui.label(&l.name);
                 let mut budget = budget_label(l);
                 if let Some(p) = l.cpu_percent(cpus) {
-                    budget.push_str(&format!(" ({p:.1}% of machine)"));
+                    budget.push_str(&{
+                        crate::i18n::format(" ({0}% of machine)", &[format!("{:.1}", p)])
+                    });
                 }
                 ui.label(budget);
                 ui.label(scope_label(l.scope));
                 let count = match l.scope {
                     LimitScope::Each if r.instances > 0 => {
-                        format!("{} in {} instances", r.processes, r.instances)
+                        let __wtm_i18n_0 = &(r.processes);
+                        let __wtm_i18n_1 = &(r.instances);
+                        crate::i18n::format(
+                            "{0} in {1} instances",
+                            &[format!("{}", __wtm_i18n_0), format!("{}", __wtm_i18n_1)],
+                        )
                     }
                     _ => r.processes.to_string(),
                 };
                 if r.outside > 0 {
-                    ui.label(format!("{count} ({} outside)", r.outside)).on_hover_text(
+                    ui.label({
+                        let __wtm_i18n_0 = &(r.outside);
+                        crate::i18n::format(
+                            "{0} ({1} outside)",
+                            &[count.to_string(), format!("{}", __wtm_i18n_0)],
+                        )
+                    })
+                    .on_hover_text(crate::i18n::tr(
                         "These processes run in a job object of their own (a sandbox or a build \
                          tool) and Windows does not let them share the budget. They join it once \
                          the app is restarted.",
-                    );
+                    ));
                 } else {
                     ui.label(count);
                 }
-                let cores = format!("{:.2} cores", r.cpu / 100.0 * cpus as f32);
+                let cores = {
+                    let __wtm_i18n_0 = &(r.cpu / 100.0 * cpus as f32);
+                    crate::i18n::format("{0} cores", &[format!("{:.2}", __wtm_i18n_0)])
+                };
                 usage_cell(ui, cores, r.cpu_fill);
                 usage_cell(ui, format_bytes(r.mem as f64), r.mem_fill);
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(admin, egui::Button::new("Edit")).clicked() {
+                    if ui
+                        .add_enabled(admin, egui::Button::new(crate::i18n::tr("Edit")))
+                        .clicked()
+                    {
                         view.edit(l);
                     }
-                    if ui.add_enabled(admin, egui::Button::new("Remove")).clicked() {
+                    if ui
+                        .add_enabled(admin, egui::Button::new(crate::i18n::tr("Remove")))
+                        .clicked()
+                    {
                         match remove_app_limit(text, &l.name, l.scope) {
                             Ok(new) => commands.push(UiCommand::SaveConfig(new)),
                             Err(e) => view.error = Some(e),
@@ -282,31 +309,40 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         });
     sort.store(ui, "app_limits");
     if config.limits.is_empty() {
-        ui.weak("No app limits yet. Add one below, or right-click a process and choose \"Limit this app…\".");
+        ui.weak(crate::i18n::tr("No app limits yet. Add one below, or right-click a process and choose \"Limit this app…\"."));
     }
 
     ui.add_space(12.0);
     ui.heading(if view.editing.is_some() {
-        "Change limit"
+        crate::i18n::tr("Change limit")
     } else {
-        "Add limit"
+        crate::i18n::tr("Add limit")
     });
     egui::Grid::new("app_limit_form")
         .num_columns(2)
         .show(ui, |ui| {
-            ui.label("Program");
+            ui.label(crate::i18n::tr("Program"));
             ui.horizontal(|ui| {
                 ui.add(
                     egui::TextEdit::singleline(&mut view.name)
-                        .hint_text("e.g. node.exe or chrome*.exe"),
+                        .hint_text(crate::i18n::tr("e.g. node.exe or chrome*.exe")),
                 );
-                egui::ComboBox::from_label("or a running app")
-                    .selected_text("Pick…")
+                egui::ComboBox::from_label(crate::i18n::tr("or a running app"))
+                    .selected_text(crate::i18n::tr("Pick…"))
                     .height(400.0)
                     .show_ui(ui, |ui| {
                         for (name, cpu, mem) in running_apps(data) {
-                            let label =
-                                format!("{name}  ({cpu:.1}% CPU, {})", format_bytes(mem as f64));
+                            let label = {
+                                let __wtm_i18n_0 = &(format_bytes(mem as f64));
+                                crate::i18n::format(
+                                    "{0}  ({1}% CPU, {2})",
+                                    &[
+                                        name.to_string(),
+                                        format!("{:.1}", cpu),
+                                        __wtm_i18n_0.to_string(),
+                                    ],
+                                )
+                            };
                             if ui.selectable_label(view.name == name, label).clicked() {
                                 view.name = name;
                             }
@@ -322,35 +358,39 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                     .range(0.1..=cpus as f32)
                     .speed(0.05)
                     .max_decimals(2)
-                    .suffix(" cores"),
+                    .suffix(crate::i18n::tr(" cores")),
             );
             ui.end_row();
 
-            ui.checkbox(&mut view.memory, "Memory");
+            ui.checkbox(&mut view.memory, crate::i18n::tr("Memory"));
             ui.add_enabled(
                 view.memory,
                 egui::DragValue::new(&mut view.gb)
                     .range(0.1..=4096.0)
                     .speed(0.1)
                     .max_decimals(2)
-                    .suffix(" GB"),
+                    .suffix(crate::i18n::tr(" GB")),
             );
             ui.end_row();
 
-            ui.label("Applies to");
+            ui.label(crate::i18n::tr("Applies to"));
             ui.horizontal(|ui| {
-                ui.radio_value(&mut view.scope, LimitScope::Group, "All processes together")
-                    .on_hover_text(
-                        "One shared budget for every process of the app and their children.",
-                    );
+                ui.radio_value(
+                    &mut view.scope,
+                    LimitScope::Group,
+                    crate::i18n::tr("All processes together"),
+                )
+                .on_hover_text(crate::i18n::tr(
+                    "One shared budget for every process of the app and their children.",
+                ));
                 ui.radio_value(
                     &mut view.scope,
                     LimitScope::Each,
-                    "Each instance separately",
+                    crate::i18n::tr("Each instance separately"),
                 )
-                .on_hover_text(
+                .on_hover_text(crate::i18n::tr(
                     "Every top-level instance gets its own budget, shared with its children.",
-                );
+                ));
             });
             ui.end_row();
         });
@@ -359,7 +399,10 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         && (candidate.cpu_cores.is_some() || candidate.memory_gb.is_some());
     ui.horizontal(|ui| {
         if ui
-            .add_enabled(admin && valid, egui::Button::new("Save limit"))
+            .add_enabled(
+                admin && valid,
+                egui::Button::new(crate::i18n::tr("Save limit")),
+            )
             .clicked()
         {
             match view.apply(text) {
@@ -370,7 +413,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 Err(e) => view.error = Some(e),
             }
         }
-        if view.editing.is_some() && ui.button("Cancel").clicked() {
+        if view.editing.is_some() && ui.button(crate::i18n::tr("Cancel")).clicked() {
             *view = LimitsView::default();
         }
     });
@@ -400,7 +443,9 @@ fn usage_cell(ui: &mut Ui, text: String, fill: Option<f32>) {
             .fill(color.gamma_multiply(0.8))
             .text(format!("{text} ({:.0}%)", fill * 100.0)),
     )
-    .on_hover_text("Use of the budget; for one budget per instance, the fullest instance");
+    .on_hover_text(crate::i18n::tr(
+        "Use of the budget; for one budget per instance, the fullest instance",
+    ));
 }
 
 #[cfg(test)]

@@ -189,38 +189,71 @@ fn verdict(data: &Data) -> Option<(Color32, String)> {
     let top_mem = apps.iter().max_by_key(|a| a.memory);
     let cpu_blame = || {
         top_cpu.map_or(String::new(), |a| {
-            format!(": {} uses {:.0}% of it", a.name, a.cpu)
+            let __wtm_i18n_0 = &(a.name);
+            let __wtm_i18n_1 = &(a.cpu);
+            crate::i18n::format(
+                ": {0} uses {1}% of it",
+                &[__wtm_i18n_0.to_string(), format!("{:.0}", __wtm_i18n_1)],
+            )
         })
     };
     let mem_blame = || {
         top_mem.map_or(String::new(), |a| {
-            format!(": {} uses {} of it", a.name, format_bytes(a.memory as f64))
+            let __wtm_i18n_0 = &(a.name);
+            let __wtm_i18n_1 = &(format_bytes(a.memory as f64));
+            crate::i18n::format(
+                ": {0} uses {1} of it",
+                &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
+            )
         })
     };
     Some(if s.cpu_percent >= 90.0 {
-        (BAD, format!("CPU is maxed out{}", cpu_blame()))
+        (BAD, {
+            let __wtm_i18n_0 = &(cpu_blame());
+            crate::i18n::format("CPU is maxed out{0}", std::slice::from_ref(__wtm_i18n_0))
+        })
     } else if mem >= 90.0 {
-        (BAD, format!("Memory is almost full{}", mem_blame()))
+        (BAD, {
+            let __wtm_i18n_0 = &(mem_blame());
+            crate::i18n::format(
+                "Memory is almost full{0}",
+                std::slice::from_ref(__wtm_i18n_0),
+            )
+        })
     } else if s.cpu_percent >= 70.0 {
-        (WARN, format!("CPU is busy{}", cpu_blame()))
+        (WARN, {
+            let __wtm_i18n_0 = &(cpu_blame());
+            crate::i18n::format("CPU is busy{0}", std::slice::from_ref(__wtm_i18n_0))
+        })
     } else if mem >= 80.0 {
-        (WARN, format!("Memory is getting full{}", mem_blame()))
+        (WARN, {
+            let __wtm_i18n_0 = &(mem_blame());
+            crate::i18n::format(
+                "Memory is getting full{0}",
+                std::slice::from_ref(__wtm_i18n_0),
+            )
+        })
     } else {
         let swarms = wtm_policy::find_swarms(&data.snapshot.as_ref()?.processes, &data.swarm);
         match swarms.len() {
-            0 => (GOOD, "Everything runs smoothly.".to_owned()),
-            1 => (
-                WARN,
-                format!(
-                    "{} copies of {} are running; see below.",
-                    swarms[0].members.len(),
-                    swarms[0].name
-                ),
+            0 => (
+                GOOD,
+                crate::i18n::tr("Everything runs smoothly.").to_owned(),
             ),
-            n => (
-                WARN,
-                format!("{n} programs run hundreds of copies each; see below."),
-            ),
+            1 => (WARN, {
+                let __wtm_i18n_0 = &(swarms[0].members.len());
+                let __wtm_i18n_1 = &(swarms[0].name);
+                crate::i18n::format(
+                    "{0} copies of {1} are running; see below.",
+                    &[format!("{}", __wtm_i18n_0), __wtm_i18n_1.to_string()],
+                )
+            }),
+            n => (WARN, {
+                crate::i18n::format(
+                    "{0} programs run hundreds of copies each; see below.",
+                    &[format!("{}", n)],
+                )
+            }),
         }
     })
 }
@@ -241,28 +274,29 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
         ui.add_space(6.0);
         crate::theme::card(
             ui,
-            RichText::new(format!(
-                "⚠ {} copies of {} are running",
-                s.members.len(),
-                s.name
-            ))
+            RichText::new({
+                let __wtm_i18n_0 = &(s.members.len());
+                let __wtm_i18n_1 = &(s.name);
+                crate::i18n::format(
+                    "⚠ {0} copies of {1} are running",
+                    &[format!("{}", __wtm_i18n_0), __wtm_i18n_1.to_string()],
+                )
+            })
             .size(16.0)
             .strong()
             .color(crate::theme::text_color(ui, WARN)),
             |ui| {
-                ui.label(format!(
-                    "Started by {}. Together {} of memory and {:.1}% CPU. Usually a tool that keeps starting helpers and never waits for them.",
-                    s.parents_text(),
-                    format_bytes(s.memory as f64),
-                    s.cpu_percent
-                ));
+                ui.label({ let __wtm_i18n_0 = &(s.parents_text()); let __wtm_i18n_1 = &(format_bytes(s.memory as f64)); let __wtm_i18n_2 = &(s.cpu_percent); crate::i18n::format("Started by {0}. Together {1} of memory and {2}% CPU. Usually a tool that keeps starting helpers and never waits for them.", &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string(), format!("{:.1}", __wtm_i18n_2)]) });
                 ui.horizontal_wrapped(|ui| {
                     let all: Vec<ProcessRef> =
                         s.members.iter().map(|p| ProcessRef::from(*p)).collect();
                     if ui
                         .button(
-                            RichText::new(format!("End all {}", all.len()))
-                                .color(crate::theme::text_color(ui, BAD)),
+                            RichText::new({
+                                let __wtm_i18n_0 = &(all.len());
+                                crate::i18n::format("End all {0}", &[format!("{}", __wtm_i18n_0)])
+                            })
+                            .color(crate::theme::text_color(ui, BAD)),
                         )
                         .clicked()
                     {
@@ -276,8 +310,14 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
                         .collect();
                     if !orphans.is_empty()
                         && ui
-                            .button(format!("End the {} whose parent exited", orphans.len()))
-                            .on_hover_text("Nothing waits for these any more")
+                            .button({
+                                let __wtm_i18n_0 = &(orphans.len());
+                                crate::i18n::format(
+                                    "End the {0} whose parent exited",
+                                    &[format!("{}", __wtm_i18n_0)],
+                                )
+                            })
+                            .on_hover_text(crate::i18n::tr("Nothing waits for these any more"))
                             .clicked()
                     {
                         intents.push(Intent::ConfirmMany(orphans, Command::Kill));
@@ -297,20 +337,30 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
                     if !stuck.is_empty()
                         && stuck.len() < s.members.len()
                         && ui
-                            .button(format!("End the {} running over {mins} min", stuck.len()))
-                            .on_hover_text("Stuck helpers, with the console hosts they started")
+                            .button({
+                                let __wtm_i18n_0 = &(stuck.len());
+                                crate::i18n::format(
+                                    "End the {0} running over {1} min",
+                                    &[format!("{}", __wtm_i18n_0), format!("{}", mins)],
+                                )
+                            })
+                            .on_hover_text(crate::i18n::tr(
+                                "Stuck helpers, with the console hosts they started",
+                            ))
                             .clicked()
                     {
                         intents.push(Intent::ConfirmMany(stuck, Command::KillTree));
                     }
                     if ui
-                        .button("Add to kill list…")
-                        .on_hover_text("End them automatically or with the panic button")
+                        .button(crate::i18n::tr("Add to kill list…"))
+                        .on_hover_text(crate::i18n::tr(
+                            "End them automatically or with the panic button",
+                        ))
                         .clicked()
                     {
                         intents.push(Intent::AddToKillList(s.name.clone()));
                     }
-                    if ui.button("Show").clicked() {
+                    if ui.button(crate::i18n::tr("Show")).clicked() {
                         intents.push(Intent::Reveal(ProcessRef::from(s.members[0])));
                     }
                 });
@@ -339,20 +389,26 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 accent: CPU,
                 ring: Some(s.cpu_percent),
                 value: String::new(),
-                detail: format!("{} logical CPUs", s.logical_cpus),
+                detail: {
+                    let __wtm_i18n_0 = &(s.logical_cpus);
+                    crate::i18n::format("{0} logical CPUs", &[format!("{}", __wtm_i18n_0)])
+                },
                 series: vec![(&h.cpu, CPU)],
                 max: Some(100.0),
             },
             Stat {
-                title: "Memory",
+                title: crate::i18n::tr("Memory"),
                 accent: MEMORY,
                 ring: Some(mem),
                 value: String::new(),
-                detail: format!(
-                    "{} of {}",
-                    format_bytes(s.memory_used() as f64),
-                    format_bytes(s.memory_total as f64)
-                ),
+                detail: {
+                    let __wtm_i18n_0 = &(format_bytes(s.memory_used() as f64));
+                    let __wtm_i18n_1 = &(format_bytes(s.memory_total as f64));
+                    crate::i18n::format(
+                        "{0} of {1}",
+                        &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
+                    )
+                },
                 series: vec![(&h.memory, MEMORY)],
                 max: Some(100.0),
             },
@@ -361,25 +417,28 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 accent: GPU,
                 ring: Some(s.gpu_percent),
                 value: String::new(),
-                detail: "busiest engine".into(),
+                detail: crate::i18n::tr("busiest engine").into(),
                 series: vec![(&h.gpu, GPU)],
                 max: Some(100.0),
             },
             Stat {
-                title: "Disk",
+                title: crate::i18n::tr("Disk"),
                 accent: DISK_READ,
                 ring: None,
                 value: rate(s.io_read_rate + s.io_write_rate),
-                detail: format!(
-                    "read {} · write {}",
-                    rate(s.io_read_rate),
-                    rate(s.io_write_rate)
-                ),
+                detail: {
+                    let __wtm_i18n_0 = &(rate(s.io_read_rate));
+                    let __wtm_i18n_1 = &(rate(s.io_write_rate));
+                    crate::i18n::format(
+                        "read {0} · write {1}",
+                        &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
+                    )
+                },
                 series: vec![(&h.io_read, DISK_READ), (&h.io_write, DISK_WRITE)],
                 max: None,
             },
             Stat {
-                title: "Network",
+                title: crate::i18n::tr("Network"),
                 accent: NET_RX,
                 ring: None,
                 value: rate(s.net_rx_rate + s.net_tx_rate),
@@ -400,7 +459,9 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     ui.add_space(6.0);
     crate::theme::card(
         ui,
-        RichText::new("Automatic protection").size(16.0).strong(),
+        RichText::new(crate::i18n::tr("Automatic protection"))
+            .size(16.0)
+            .strong(),
         |ui| {
             protection(ui, data, &mut commands);
         },
@@ -410,7 +471,9 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     let busiest = |ui: &mut Ui, intents: &mut Vec<Intent>| {
         crate::theme::card(
             ui,
-            RichText::new("Busiest apps right now").size(16.0).strong(),
+            RichText::new(crate::i18n::tr("Busiest apps right now"))
+                .size(16.0)
+                .strong(),
             |ui| {
                 busiest_table(ui, data, intents);
             },
@@ -419,7 +482,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     let recent = |ui: &mut Ui| {
         crate::theme::card(
             ui,
-            RichText::new("Recent automatic actions")
+            RichText::new(crate::i18n::tr("Recent automatic actions"))
                 .size(16.0)
                 .strong(),
             |ui| {
@@ -446,7 +509,13 @@ fn busiest_table(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
         .num_columns(5)
         .striped(true)
         .show(ui, |ui| {
-            for h in ["App", "CPU", "Memory", "Processes", ""] {
+            for h in [
+                crate::i18n::tr("App"),
+                "CPU",
+                crate::i18n::tr("Memory"),
+                crate::i18n::tr("Processes"),
+                "",
+            ] {
                 ui.strong(h);
             }
             ui.end_row();
@@ -469,8 +538,10 @@ fn busiest_table(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
                 ui.label(a.instances.len().to_string());
                 ui.horizontal(|ui| {
                     if ui
-                        .small_button("Efficiency mode")
-                        .on_hover_text("Run every process of this app in efficiency mode (EcoQoS).")
+                        .small_button(crate::i18n::tr("Efficiency mode"))
+                        .on_hover_text(crate::i18n::tr(
+                            "Run every process of this app in efficiency mode (EcoQoS).",
+                        ))
                         .clicked()
                     {
                         for t in &a.instances {
@@ -478,10 +549,10 @@ fn busiest_table(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
                         }
                     }
                     if ui
-                        .small_button("Free memory")
-                        .on_hover_text(
+                        .small_button(crate::i18n::tr("Free memory"))
+                        .on_hover_text(crate::i18n::tr(
                             "Move this app's memory to the standby list; it comes back as needed.",
-                        )
+                        ))
                         .clicked()
                     {
                         for t in &a.instances {
@@ -489,13 +560,15 @@ fn busiest_table(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
                         }
                     }
                     if ui
-                        .small_button("Limit…")
-                        .on_hover_text("Give this app a permanent CPU / memory budget.")
+                        .small_button(crate::i18n::tr("Limit…"))
+                        .on_hover_text(crate::i18n::tr(
+                            "Give this app a permanent CPU / memory budget.",
+                        ))
                         .clicked()
                     {
                         intents.push(Intent::LimitApp(a.name.to_owned()));
                     }
-                    if ui.small_button("Details").clicked() {
+                    if ui.small_button(crate::i18n::tr("Details")).clicked() {
                         intents.push(Intent::Reveal(a.instances[0].clone()));
                     }
                 });
@@ -513,11 +586,13 @@ fn recent_actions(ui: &mut Ui, data: &Data) {
         .take(8)
         .collect();
     if recent.is_empty() {
-        ui.weak("Nothing yet. RustWTM steps in when the machine is overloaded or a rule matches.");
+        ui.weak(crate::i18n::tr(
+            "Nothing yet. RustWTM steps in when the machine is overloaded or a rule matches.",
+        ));
     }
     for e in recent {
         let when = clock(e.unix_ms);
-        ui.label(format!("{when}  {}", e.message));
+        ui.label(format!("{when}  {}", crate::i18n::message(&e.message)));
     }
 }
 
@@ -537,22 +612,22 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
         if error.contains("protocol") {
             ui.colored_label(
                 WARN,
-                format!(
-                    "The installed RustWTM service is a different version ({error}), so nothing is \
-                     limited automatically. Update it with the installer of version {}.",
-                    env!("CARGO_PKG_VERSION")
-                ),
+                { let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("The installed RustWTM service is a different version ({0}), so nothing is limited automatically. Update it with the installer of version {1}.", &[error.to_string(), __wtm_i18n_0.to_string()]) },
             );
             ui.hyperlink_to(
-                "Download the latest release",
+                crate::i18n::tr("Download the latest release"),
                 format!("{}/releases/latest", crate::about::REPO),
             );
         } else {
             ui.colored_label(
                 WARN,
-                "The RustWTM service is not running, so nothing is limited automatically.",
+                crate::i18n::tr(
+                    "The RustWTM service is not running, so nothing is limited automatically.",
+                ),
             );
-            ui.label("Install and start it from an elevated prompt:");
+            ui.label(crate::i18n::tr(
+                "Install and start it from an elevated prompt:",
+            ));
             ui.code("wtm-service install\nwtm-service start");
         }
         return;
@@ -565,7 +640,7 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
     let Ok(config) = Config::from_toml(text) else {
         ui.colored_label(
             crate::theme::text_color(ui, BAD),
-            "The configuration is invalid; fix it in Settings.",
+            crate::i18n::tr("The configuration is invalid; fix it in Settings."),
         );
         return;
     };
@@ -573,13 +648,13 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
     ui.horizontal(|ui| {
         if config.dry_run {
             ui.label(
-                RichText::new("● Monitoring only — nothing is limited")
+                RichText::new(crate::i18n::tr("● Monitoring only — nothing is limited"))
                     .size(18.0)
                     .color(crate::theme::text_color(ui, WARN)),
             );
             let turn_on = ui.add_enabled(
                 admin,
-                egui::Button::new(RichText::new("Turn protection on").strong()),
+                egui::Button::new(RichText::new(crate::i18n::tr("Turn protection on")).strong()),
             );
             if turn_on.clicked()
                 && let Some(new) = crate::settings::set_dry_run(text, false)
@@ -588,12 +663,15 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             }
         } else {
             ui.label(
-                RichText::new("● Protection is on")
+                RichText::new(crate::i18n::tr("● Protection is on"))
                     .size(18.0)
                     .color(crate::theme::text_color(ui, GOOD)),
             );
             if ui
-                .add_enabled(admin, egui::Button::new("Switch to monitoring only"))
+                .add_enabled(
+                    admin,
+                    egui::Button::new(crate::i18n::tr("Switch to monitoring only")),
+                )
                 .clicked()
                 && let Some(new) = crate::settings::set_dry_run(text, true)
             {
@@ -601,8 +679,11 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             }
         }
         if !admin {
-            ui.weak("Changing it needs administrator rights.");
-            if ui.small_button("Restart as administrator").clicked() {
+            ui.weak(crate::i18n::tr("Changing it needs administrator rights."));
+            if ui
+                .small_button(crate::i18n::tr("Restart as administrator"))
+                .clicked()
+            {
                 commands.push(UiCommand::RestartElevated);
             }
         }
@@ -610,12 +691,12 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
 
     let current = Preset::of(&config.governor);
     ui.horizontal(|ui| {
-        ui.label("CPU protection level:");
+        ui.label(crate::i18n::tr("CPU protection level:"));
         for p in Preset::ALL {
-            let button = egui::Button::selectable(current == Some(p), p.label());
+            let button = egui::Button::selectable(current == Some(p), crate::i18n::tr(p.label()));
             if ui
                 .add_enabled(admin, button)
-                .on_hover_text(p.description())
+                .on_hover_text(crate::i18n::tr(p.description()))
                 .clicked()
                 && current != Some(p)
                 && let Ok(new) = set_preset(text, p)
@@ -624,38 +705,52 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             }
         }
         if current.is_none() {
-            ui.weak("Custom (edited in Settings)");
+            ui.weak(crate::i18n::tr("Custom (edited in Settings)"));
         }
     });
     if let Some(p) = current {
-        ui.weak(p.description());
+        ui.weak(crate::i18n::tr(p.description()));
     }
 
     if let Some(status) = &data.status {
-        let mut facts = vec![format!(
-            "{} processes limited right now",
-            status.managed.len()
+        let mut facts = vec![crate::i18n::format(
+            "{0} processes limited right now",
+            &[status.managed.len().to_string()],
         )];
         if !config.limits.is_empty() {
             let processes: usize = status.app_limits.iter().map(|g| g.processes).sum();
-            facts.push(format!(
-                "{} app limits covering {processes} processes",
-                config.limits.len()
-            ));
+            facts.push({
+                let __wtm_i18n_0 = &(config.limits.len());
+                crate::i18n::format(
+                    "{0} app limits covering {1} processes",
+                    &[format!("{}", __wtm_i18n_0), format!("{}", processes)],
+                )
+            });
         }
         if config.governor.protect_foreground
             && let Some(app) = &status.foreground
         {
-            facts.push(format!("{app} is in use and never throttled"));
+            facts.push({
+                crate::i18n::format(
+                    "{0} is in use and never throttled",
+                    std::slice::from_ref(app),
+                )
+            });
         }
         if config.memory_guard.enabled {
-            facts.push(format!(
-                "memory guard above {:.0}% RAM",
-                config.memory_guard.high_percent
-            ));
+            facts.push({
+                let __wtm_i18n_0 = &(config.memory_guard.high_percent);
+                crate::i18n::format(
+                    "memory guard above {0}% RAM",
+                    &[format!("{:.0}", __wtm_i18n_0)],
+                )
+            });
         }
         if !config.block.is_empty() {
-            facts.push(format!("{} programs blocked", config.block.len()));
+            facts.push({
+                let __wtm_i18n_0 = &(config.block.len());
+                crate::i18n::format("{0} programs blocked", &[format!("{}", __wtm_i18n_0)])
+            });
         }
         ui.label(facts.join("  ·  "));
     }

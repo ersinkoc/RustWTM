@@ -86,7 +86,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
     ui.horizontal_wrapped(|ui| {
         ui.label(
             RichText::new(if report.provider.is_empty() {
-                "Discovering hardware…"
+                crate::i18n::tr("Discovering hardware…")
             } else {
                 &report.provider
             })
@@ -103,40 +103,50 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                         crate::theme::BAD
                     },
                 ),
-                format!("{} · {age}s ago", if fresh { "Live" } else { "Stale" }),
+                {
+                    let __wtm_i18n_0 = &(if fresh {
+                        crate::i18n::tr("Live")
+                    } else {
+                        crate::i18n::tr("Stale")
+                    });
+                    crate::i18n::format(
+                        "{0} · {1}s ago",
+                        &[__wtm_i18n_0.to_string(), format!("{}", age)],
+                    )
+                },
             );
         }
-        if ui.button("Refresh sensors").clicked() {
+        if ui.button(crate::i18n::tr("Refresh sensors")).clicked() {
             commands.push(UiCommand::Load(Panel::Sensors));
         }
-        if ui.button("Reset min/max").clicked() {
+        if ui.button(crate::i18n::tr("Reset min/max")).clicked() {
             view.extremes.clear();
             view.observed_at = 0;
             view.observe(report);
         }
     });
     if !report.notice.is_empty() {
-        ui.label(RichText::new(&report.notice).weak());
+        ui.label(RichText::new(crate::i18n::message(&report.notice).as_ref()).weak());
     }
     if !fresh && !report.sensors.is_empty() {
         ui.colored_label(
             crate::theme::text_color(ui, crate::theme::WARN),
-            "Readings are stale. Software fan control cannot be applied.",
+            crate::i18n::tr("Readings are stale. Software fan control cannot be applied."),
         );
     }
     ui.add_space(8.0);
     ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut view.search)
-                .hint_text("Find a device or sensor")
+                .hint_text(crate::i18n::tr("Find a device or sensor"))
                 .desired_width(220.0),
         );
-        ui.selectable_value(&mut view.filter, None, "All sensors");
+        ui.selectable_value(&mut view.filter, None, crate::i18n::tr("All sensors"));
         for (kind, label) in [
-            (SensorKind::Temperature, "Temperatures"),
-            (SensorKind::Fan, "Fan RPM"),
-            (SensorKind::Power, "Power"),
-            (SensorKind::Clock, "Clocks"),
+            (SensorKind::Temperature, crate::i18n::tr("Temperatures")),
+            (SensorKind::Fan, crate::i18n::tr("Fan RPM")),
+            (SensorKind::Power, crate::i18n::tr("Power")),
+            (SensorKind::Clock, crate::i18n::tr("Clocks")),
         ] {
             ui.selectable_value(&mut view.filter, Some(kind), label);
         }
@@ -154,15 +164,19 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
         }
     }
     if report.sensors.is_empty() {
-        crate::theme::card(ui, "Hardware discovery", |ui| {
-            ui.label("No sensor readings yet");
-            ui.weak("The optional hardware provider supplies CPU, GPU, motherboard and storage sensors. NVIDIA driver telemetry is used when it is available.");
-            if !data.elevated && ui.button("Restart as administrator").clicked() {
+        crate::theme::card(ui, crate::i18n::tr("Hardware discovery"), |ui| {
+            ui.label(crate::i18n::tr("No sensor readings yet"));
+            ui.weak(crate::i18n::tr("The optional hardware provider supplies CPU, GPU, motherboard and storage sensors. NVIDIA driver telemetry is used when it is available."));
+            if !data.elevated
+                && ui
+                    .button(crate::i18n::tr("Restart as administrator"))
+                    .clicked()
+            {
                 commands.push(UiCommand::RestartElevated);
             }
         });
     } else if devices.is_empty() {
-        ui.label("No matching sensors");
+        ui.label(crate::i18n::tr("No matching sensors"));
     }
     for (device, mut readings) in devices {
         readings.sort_by(|a, b| {
@@ -177,7 +191,12 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                 .spacing([16.0, 8.0])
                 .striped(true)
                 .show(ui, |ui| {
-                    for title in ["Sensor", "Current", "Min / max", "Recent samples"] {
+                    for title in [
+                        crate::i18n::tr("Sensor"),
+                        crate::i18n::tr("Current"),
+                        crate::i18n::tr("Min / max"),
+                        crate::i18n::tr("Recent samples"),
+                    ] {
                         ui.strong(title);
                     }
                     ui.end_row();
@@ -193,7 +212,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                         let color = crate::theme::text_color(ui, colour(sensor.kind));
                         ui.label(
                             RichText::new(sensor.value.map_or_else(
-                                || "Unavailable".into(),
+                                || crate::i18n::tr("Unavailable").into(),
                                 |v| format!("{v:.1} {}", sensor.kind.unit()),
                             ))
                             .color(color),
@@ -227,10 +246,12 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
         ui.add_space(8.0);
     }
     ui.add_space(8.0);
-    ui.heading("Cooling");
-    ui.weak("Profiles run in the service. Applying one needs a current temperature, an elevated window and enforcing mode. Startup keeps hardware automatic control.");
+    ui.heading(crate::i18n::tr("Cooling"));
+    ui.weak(crate::i18n::tr("Profiles run in the service. Applying one needs a current temperature, an elevated window and enforcing mode. Startup keeps hardware automatic control."));
     if report.channels.is_empty() {
-        ui.label("No controllable fan channels were reported.");
+        ui.label(crate::i18n::tr(
+            "No controllable fan channels were reported.",
+        ));
     }
     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
     let enforcing = data.status.as_ref().is_some_and(|s| !s.dry_run);
@@ -242,17 +263,19 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                 if let Some((_, state)) = report.cooling.iter().find(|(id, _)| id == &channel.id) {
                     ui.label(state);
                 } else {
-                    ui.weak("Hardware automatic / no RustWTM profile applied");
+                    ui.weak(crate::i18n::tr(
+                        "Hardware automatic / no RustWTM profile applied",
+                    ));
                 }
                 if !channel.writable {
-                    ui.label(&channel.reason);
+                    ui.label(crate::i18n::message(&channel.reason).as_ref());
                 }
                 let profile = view.profiles.entry(channel.id.clone()).or_default();
                 ui.horizontal_wrapped(|ui| {
                     if ui
                         .selectable_label(
                             profile.mode == CoolingMode::Automatic,
-                            "Hardware automatic",
+                            crate::i18n::tr("Hardware automatic"),
                         )
                         .clicked()
                     {
@@ -261,7 +284,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     if ui
                         .selectable_label(
                             matches!(profile.mode, CoolingMode::Manual(_)),
-                            "Manual duty",
+                            crate::i18n::tr("Manual duty"),
                         )
                         .clicked()
                     {
@@ -270,7 +293,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     if ui
                         .selectable_label(
                             matches!(profile.mode, CoolingMode::Curve(_)),
-                            "Temperature curve",
+                            crate::i18n::tr("Temperature curve"),
                         )
                         .clicked()
                     {
@@ -288,24 +311,27 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     {
                         profile.sensor_id = s.id.clone();
                     }
-                    egui::ComboBox::new(("cooling_sensor", &channel.id), "Temperature source")
-                        .selected_text(
-                            temps
-                                .iter()
-                                .find(|s| s.id == profile.sensor_id)
-                                .map_or("Select temperature", |s| s.name.as_str()),
-                        )
-                        .show_ui(ui, |ui| {
-                            for s in &temps {
-                                ui.selectable_value(
-                                    &mut profile.sensor_id,
-                                    s.id.clone(),
-                                    format!("{} · {}", s.device, s.name),
-                                );
-                            }
-                        });
+                    egui::ComboBox::new(
+                        ("cooling_sensor", &channel.id),
+                        crate::i18n::tr("Temperature source"),
+                    )
+                    .selected_text(
+                        temps
+                            .iter()
+                            .find(|s| s.id == profile.sensor_id)
+                            .map_or(crate::i18n::tr("Select temperature"), |s| s.name.as_str()),
+                    )
+                    .show_ui(ui, |ui| {
+                        for s in &temps {
+                            ui.selectable_value(
+                                &mut profile.sensor_id,
+                                s.id.clone(),
+                                format!("{} · {}", s.device, s.name),
+                            );
+                        }
+                    });
                     ui.horizontal(|ui| {
-                        ui.label("Full speed at");
+                        ui.label(crate::i18n::tr("Full speed at"));
                         ui.add(
                             egui::DragValue::new(&mut profile.critical_celsius)
                                 .range(60.0..=95.0)
@@ -318,18 +344,18 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                         ui.add(
                             egui::Slider::new(value, channel.min_percent..=channel.max_percent)
                                 .suffix("%")
-                                .text("Requested duty"),
+                                .text(crate::i18n::tr("Requested duty")),
                         );
                     }
                     CoolingMode::Curve(points) => {
                         ui.horizontal_wrapped(|ui| {
                             for name in ["Quiet", "Balanced", "Performance"] {
-                                if ui.small_button(name).clicked() {
+                                if ui.small_button(crate::i18n::tr(name)).clicked() {
                                     *points = CoolingProfile::preset(name);
                                 }
                             }
                         });
-                        ui.weak("Temperature (°C) → Fan duty (%)");
+                        ui.weak(crate::i18n::tr("Temperature (°C) → Fan duty (%)"));
                         let plot = egui_plot::Plot::new(("fan_curve", &channel.id))
                             .height(120.0)
                             .include_y(0.0)
@@ -340,7 +366,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                         plot.show(ui, |plot| {
                             plot.line(
                                 egui_plot::Line::new(
-                                    "Duty % / °C",
+                                    crate::i18n::tr("Duty % / °C"),
                                     egui_plot::PlotPoints::from_iter(
                                         points.iter().map(|p| {
                                             [f64::from(p.temperature), f64::from(p.percent)]
@@ -365,14 +391,22 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                             }
                         });
                         ui.horizontal(|ui| {
-                            if points.len() < 12 && ui.small_button("Add curve point").clicked() {
+                            if points.len() < 12
+                                && ui
+                                    .small_button(crate::i18n::tr("Add curve point"))
+                                    .clicked()
+                            {
                                 let t = points.last().map_or(80.0, |p| p.temperature + 1.0);
                                 points.push(CurvePoint {
                                     temperature: t.min(100.0),
                                     percent: 100.0,
                                 });
                             }
-                            if points.len() > 2 && ui.small_button("Remove last point").clicked() {
+                            if points.len() > 2
+                                && ui
+                                    .small_button(crate::i18n::tr("Remove last point"))
+                                    .clicked()
+                            {
                                 points.pop();
                             }
                         });
@@ -389,7 +423,10 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     && (automatic
                         || (channel.writable && enforcing && temperature_ready && valid.is_ok()));
                 if ui
-                    .add_enabled(enabled, egui::Button::new("Apply cooling profile"))
+                    .add_enabled(
+                        enabled,
+                        egui::Button::new(crate::i18n::tr("Apply cooling profile")),
+                    )
                     .clicked()
                 {
                     if automatic {
@@ -402,11 +439,13 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     }
                 }
                 if !admin {
-                    ui.weak("Connect to the matching service from an elevated RustWTM window to apply controls.");
+                    ui.weak(crate::i18n::tr("Connect to the matching service from an elevated RustWTM window to apply controls."));
                 } else if !enforcing {
-                    ui.weak("The service is monitoring only. Fan writes are disabled.");
+                    ui.weak(crate::i18n::tr(
+                        "The service is monitoring only. Fan writes are disabled.",
+                    ));
                 } else if !automatic && fresh && !temperature_ready {
-                    ui.weak("The selected temperature is unavailable. Choose a sensor with a current reading.");
+                    ui.weak(crate::i18n::tr("The selected temperature is unavailable. Choose a sensor with a current reading."));
                 }
             },
         );
@@ -419,12 +458,12 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
     ));
     if let Some((channel, profile)) = view.confirm.clone() {
         let modal=egui::Modal::new(egui::Id::unique("confirm_cooling")).show(ui.ctx(),|ui| {
-            ui.heading("Apply software fan control?");
+            ui.heading(crate::i18n::tr("Apply software fan control?"));
             let name=report.channels.iter().find(|c|c.id==channel).map_or(channel.as_str(),|c|c.name.as_str());
-            ui.label(format!("Channel: {name}. This changes a physical fan's requested speed. Fan duty and measured RPM are different values."));
-            ui.label("The selected temperature drives thermal protection. Missing/stale temperature requests hardware automatic mode. The provider attempts defaults when its control lease expires.");
-            if ui.button("Apply fan control").clicked() {commands.push(UiCommand::SetCooling{channel:channel.clone(),profile:profile.clone()});view.confirm=None;}
-            if ui.button("Cancel").clicked() {view.confirm=None;}
+            ui.label(crate::i18n::format("Channel: {0}. This changes a physical fan's requested speed. Fan duty and measured RPM are different values.", &[name.to_string()]));
+            ui.label(crate::i18n::tr("The selected temperature drives thermal protection. Missing/stale temperature requests hardware automatic mode. The provider attempts defaults when its control lease expires."));
+            if ui.button(crate::i18n::tr("Apply fan control")).clicked() {commands.push(UiCommand::SetCooling{channel:channel.clone(),profile:profile.clone()});view.confirm=None;}
+            if ui.button(crate::i18n::tr("Cancel")).clicked() {view.confirm=None;}
         });
         if modal.should_close() {
             view.confirm = None;

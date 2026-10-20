@@ -6,6 +6,7 @@ mod about;
 mod alert;
 mod app;
 mod backend;
+mod i18n;
 mod kill_tab;
 mod limits_tab;
 mod logo;
@@ -57,6 +58,7 @@ fn blocked_program(mut args: impl Iterator<Item = String>) -> Option<String> {
 }
 
 fn main() -> eframe::Result {
+    i18n::initialize();
     if let Some(name) = blocked_program(std::env::args().skip(1)) {
         backend::register_app_id();
         backend::notify_blocked(&name);

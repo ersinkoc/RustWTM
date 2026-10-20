@@ -35,203 +35,232 @@ impl TelegramView {
 /// Returns the commands to send (load, save, test).
 pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiCommand> {
     let mut commands = Vec::new();
-    card(ui, RichText::new("🔔 Telegram bot").strong(), |ui| {
-        ui.label(
-            "Check on this PC and control it from your phone: status, busiest processes, ports \
+    card(
+        ui,
+        RichText::new(crate::i18n::tr("🔔 Telegram bot")).strong(),
+        |ui| {
+            ui.label(crate::i18n::tr(
+                "Check on this PC and control it from your phone: status, busiest processes, ports \
              and services; end, suspend and resume processes; get alerts when the CPU is \
              overloaded or a program runs hundreds of copies.",
-        );
-        ui.add_space(4.0);
-        match data.mode {
-            Mode::Service { admin: true, .. } => {}
-            Mode::Service { admin: false, .. } => {
-                ui.horizontal(|ui| {
+            ));
+            ui.add_space(4.0);
+            match data.mode {
+                Mode::Service { admin: true, .. } => {}
+                Mode::Service { admin: false, .. } => {
+                    ui.horizontal(|ui| {
+                        ui.colored_label(
+                            crate::theme::text_color(ui, WARN),
+                            crate::i18n::tr("Setting up the bot needs administrator rights."),
+                        );
+                        if ui
+                            .small_button(crate::i18n::tr("Restart as administrator"))
+                            .clicked()
+                        {
+                            commands.push(UiCommand::RestartElevated);
+                        }
+                    });
+                    return;
+                }
+                Mode::Starting | Mode::Local => {
+                    let other_version = data
+                        .service_error
+                        .as_deref()
+                        .is_some_and(|e| e.contains("protocol"));
                     ui.colored_label(
-                        crate::theme::text_color(ui, WARN),
-                        "Setting up the bot needs administrator rights.",
-                    );
-                    if ui.small_button("Restart as administrator").clicked() {
-                        commands.push(UiCommand::RestartElevated);
-                    }
-                });
-                return;
-            }
-            Mode::Starting | Mode::Local => {
-                let other_version = data
-                    .service_error
-                    .as_deref()
-                    .is_some_and(|e| e.contains("protocol"));
-                ui.colored_label(
                     crate::theme::text_color(ui, WARN),
                     if other_version {
-                        format!(
-                            "The bot runs in the RustWTM service, and the installed one is a \
-                             different version. Update it with the installer of version {}.",
-                            env!("CARGO_PKG_VERSION")
-                        )
+                        { let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("The bot runs in the RustWTM service, and the installed one is a different version. Update it with the installer of version {0}.", &[__wtm_i18n_0.to_string()]) }
                     } else {
-                        "The bot runs in the RustWTM service, which is not running. Install \
-                         RustWTM with the MSI to use it."
+                        crate::i18n::tr("The bot runs in the RustWTM service, which is not running. Install \
+                         RustWTM with the MSI to use it.")
                             .to_owned()
                     },
                 );
-                return;
-            }
-        }
-        match &data.telegram {
-            None => {
-                if !view.requested {
-                    view.requested = true;
-                    commands.push(UiCommand::Load(Panel::Telegram));
-                }
-                ui.spinner();
-                return;
-            }
-            Some(Err(e)) => {
-                ui.colored_label(crate::theme::text_color(ui, BAD), e);
-                if ui.button("Retry").clicked() {
-                    commands.push(UiCommand::Load(Panel::Telegram));
-                }
-                return;
-            }
-            Some(Ok(saved)) => {
-                if view.original.as_ref() != Some(saved) {
-                    view.chats = saved
-                        .chats
-                        .iter()
-                        .map(i64::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    view.form = Some(saved.clone());
-                    view.original = Some(saved.clone());
+                    return;
                 }
             }
-        }
-        steps(ui);
-        let Some(form) = view.form.as_mut() else {
-            return;
-        };
-        ui.checkbox(&mut form.enabled, "Enabled");
-        egui::Grid::new("telegram_form")
-            .num_columns(2)
-            .spacing([8.0, 6.0])
-            .show(ui, |ui| {
-                ui.label("Bot token");
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut form.token)
-                            .password(!view.show_token)
-                            .hint_text("123456789:ABC… from @BotFather")
-                            .desired_width(340.0),
-                    );
-                    let eye = if view.show_token { "Hide" } else { "Show" };
-                    if ui
-                        .small_button(eye)
-                        .on_hover_text("Show or hide the token")
-                        .clicked()
-                    {
-                        view.show_token = !view.show_token;
+            match &data.telegram {
+                None => {
+                    if !view.requested {
+                        view.requested = true;
+                        commands.push(UiCommand::Load(Panel::Telegram));
                     }
+                    ui.spinner();
+                    return;
+                }
+                Some(Err(e)) => {
+                    ui.colored_label(crate::theme::text_color(ui, BAD), e);
+                    if ui.button(crate::i18n::tr("Retry")).clicked() {
+                        commands.push(UiCommand::Load(Panel::Telegram));
+                    }
+                    return;
+                }
+                Some(Ok(saved)) => {
+                    if view.original.as_ref() != Some(saved) {
+                        view.chats = saved
+                            .chats
+                            .iter()
+                            .map(i64::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        view.form = Some(saved.clone());
+                        view.original = Some(saved.clone());
+                    }
+                }
+            }
+            steps(ui);
+            let Some(form) = view.form.as_mut() else {
+                return;
+            };
+            ui.checkbox(&mut form.enabled, crate::i18n::tr("Enabled"));
+            egui::Grid::new("telegram_form")
+                .num_columns(2)
+                .spacing([8.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label(crate::i18n::tr("Bot token"));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut form.token)
+                                .password(!view.show_token)
+                                .hint_text(crate::i18n::tr("123456789:ABC… from @BotFather"))
+                                .desired_width(340.0),
+                        );
+                        let eye = if view.show_token {
+                            crate::i18n::tr("Hide")
+                        } else {
+                            crate::i18n::tr("Show")
+                        };
+                        if ui
+                            .small_button(eye)
+                            .on_hover_text(crate::i18n::tr("Show or hide the token"))
+                            .clicked()
+                        {
+                            view.show_token = !view.show_token;
+                        }
+                    });
+                    ui.end_row();
+                    ui.label(crate::i18n::tr("Allowed chat IDs"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut view.chats)
+                            .hint_text(crate::i18n::tr("e.g. 123456789, 987654321"))
+                            .desired_width(340.0),
+                    )
+                    .on_hover_text(crate::i18n::tr(
+                        "Only these chats may use the bot; separate several with commas",
+                    ));
+                    ui.end_row();
                 });
-                ui.end_row();
-                ui.label("Allowed chat IDs");
-                ui.add(
-                    egui::TextEdit::singleline(&mut view.chats)
-                        .hint_text("e.g. 123456789, 987654321")
-                        .desired_width(340.0),
-                )
-                .on_hover_text("Only these chats may use the bot; separate several with commas");
-                ui.end_row();
-            });
-        ui.checkbox(
-            &mut form.notify,
-            "Send alerts (CPU overload, swarms, programs ended by the kill list)",
-        );
-        ui.checkbox(
-            &mut form.control,
-            "Allow ending, suspending and resuming processes and services",
-        )
-        .on_hover_text(
-            "Without it the bot only reports; protected Windows processes are never ended",
-        );
-        if !form.token.trim().is_empty() && !token_looks_valid(form.token.trim()) {
-            ui.colored_label(
-                WARN,
-                "This does not look like a bot token (123456789:ABC…).",
+            ui.checkbox(
+                &mut form.notify,
+                crate::i18n::tr(
+                    "Send alerts (CPU overload, swarms, programs ended by the kill list)",
+                ),
             );
-        }
-        let edited = view.edited();
-        let dirty = match &edited {
-            Some(Ok(cfg)) => view.original.as_ref() != Some(cfg),
-            _ => true,
-        };
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            let valid = matches!(edited, Some(Ok(_)));
-            if ui
-                .add_enabled(valid && dirty, egui::Button::new("Save"))
-                .clicked()
-                && let Some(Ok(cfg)) = edited.clone()
-            {
-                commands.push(UiCommand::SaveTelegram(cfg));
+            ui.checkbox(
+                &mut form.control,
+                crate::i18n::tr("Allow ending, suspending and resuming processes and services"),
+            )
+            .on_hover_text(crate::i18n::tr(
+                "Without it the bot only reports; protected Windows processes are never ended",
+            ));
+            if !form.token.trim().is_empty() && !token_looks_valid(form.token.trim()) {
+                ui.colored_label(
+                    WARN,
+                    crate::i18n::tr("This does not look like a bot token (123456789:ABC…)."),
+                );
             }
-            let saved_token = view
-                .original
-                .as_ref()
-                .is_some_and(|c| token_looks_valid(&c.token));
-            if ui
-                .add_enabled(
-                    saved_token && !dirty,
-                    egui::Button::new("Send test message"),
-                )
-                .on_hover_text("Checks the saved token and messages every allowed chat")
-                .on_disabled_hover_text("Save a bot token first")
-                .clicked()
-            {
-                commands.push(UiCommand::TestTelegram);
-            }
-            match (&edited, &view.original) {
-                (Some(Err(e)), _) => {
-                    ui.colored_label(crate::theme::text_color(ui, BAD), format!("✖ {e}"));
+            let edited = view.edited();
+            let dirty = match &edited {
+                Some(Ok(cfg)) => view.original.as_ref() != Some(cfg),
+                _ => true,
+            };
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                let valid = matches!(edited, Some(Ok(_)));
+                if ui
+                    .add_enabled(valid && dirty, egui::Button::new(crate::i18n::tr("Save")))
+                    .clicked()
+                    && let Some(Ok(cfg)) = edited.clone()
+                {
+                    commands.push(UiCommand::SaveTelegram(cfg));
                 }
-                (_, _) if dirty => {
-                    ui.colored_label(crate::theme::text_color(ui, WARN), "● unsaved changes");
+                let saved_token = view
+                    .original
+                    .as_ref()
+                    .is_some_and(|c| token_looks_valid(&c.token));
+                if ui
+                    .add_enabled(
+                        saved_token && !dirty,
+                        egui::Button::new(crate::i18n::tr("Send test message")),
+                    )
+                    .on_hover_text(crate::i18n::tr(
+                        "Checks the saved token and messages every allowed chat",
+                    ))
+                    .on_disabled_hover_text(crate::i18n::tr("Save a bot token first"))
+                    .clicked()
+                {
+                    commands.push(UiCommand::TestTelegram);
                 }
-                (_, Some(c)) if c.enabled && c.chats.is_empty() => {
-                    ui.colored_label(
-                        WARN,
-                        "On, but no chat is allowed yet: message the bot to get your ID.",
-                    );
+                match (&edited, &view.original) {
+                    (Some(Err(e)), _) => {
+                        ui.colored_label(crate::theme::text_color(ui, BAD), format!("✖ {e}"));
+                    }
+                    (_, _) if dirty => {
+                        ui.colored_label(
+                            crate::theme::text_color(ui, WARN),
+                            crate::i18n::tr("● unsaved changes"),
+                        );
+                    }
+                    (_, Some(c)) if c.enabled && c.chats.is_empty() => {
+                        ui.colored_label(
+                            WARN,
+                            crate::i18n::tr(
+                                "On, but no chat is allowed yet: message the bot to get your ID.",
+                            ),
+                        );
+                    }
+                    (_, Some(c)) if c.enabled => {
+                        ui.colored_label(crate::theme::text_color(ui, GOOD), {
+                            let __wtm_i18n_0 = &(c.chats.len());
+                            crate::i18n::format(
+                                "✔ On for {0} chat(s)",
+                                &[format!("{}", __wtm_i18n_0)],
+                            )
+                        });
+                    }
+                    _ => {
+                        ui.weak(crate::i18n::tr("Off"));
+                    }
                 }
-                (_, Some(c)) if c.enabled => {
-                    ui.colored_label(
-                        crate::theme::text_color(ui, GOOD),
-                        format!("✔ On for {} chat(s)", c.chats.len()),
-                    );
-                }
-                _ => {
-                    ui.weak("Off");
-                }
-            }
-        });
-    });
+            });
+        },
+    );
     commands
 }
 
 fn steps(ui: &mut Ui) {
-    egui::CollapsingHeader::new("How to set it up")
+    egui::CollapsingHeader::new(crate::i18n::tr("How to set it up"))
         .id_salt("telegram_steps")
         .default_open(false)
         .show(ui, |ui| {
-            ui.label("1. In Telegram, open @BotFather, send /newbot and follow the questions.");
-            ui.label("2. Paste the token it gives you below, tick Enabled and Save.");
-            ui.label("3. Send your new bot any message: it answers with your chat ID.");
-            ui.label("4. Add that ID to Allowed chat IDs and Save. Send /help to the bot.");
-            ui.weak(
+            ui.label(crate::i18n::tr(
+                "1. In Telegram, open @BotFather, send /newbot and follow the questions.",
+            ));
+            ui.label(crate::i18n::tr(
+                "2. Paste the token it gives you below, tick Enabled and Save.",
+            ));
+            ui.label(crate::i18n::tr(
+                "3. Send your new bot any message: it answers with your chat ID.",
+            ));
+            ui.label(crate::i18n::tr(
+                "4. Add that ID to Allowed chat IDs and Save. Send /help to the bot.",
+            ));
+            ui.weak(crate::i18n::tr(
                 "The token is stored in %ProgramData%\\RustWTM\\telegram.toml, readable only by \
                  administrators. Anyone with the token can read what the bot sends, so keep it \
                  private; chats not on the list cannot give commands.",
-            );
+            ));
         });
 }
 

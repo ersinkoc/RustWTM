@@ -49,6 +49,9 @@
           <Component Id="CpuDocumentation">
             <File Id="CpuGuide" Source="docs\cpu-controls.md" KeyPath="yes" />
           </Component>
+          <Component Id="LanguageDocumentation">
+            <File Id="LanguageGuide" Source="docs\localization.md" KeyPath="yes" />
+          </Component>
         </Directory>
 
         <Component Id="Cli">
@@ -113,6 +116,7 @@
       <ComponentRef Id="HardwareDocumentation" />
       <ComponentRef Id="ReleaseDocumentation" />
       <ComponentRef Id="CpuDocumentation" />
+      <ComponentRef Id="LanguageDocumentation" />
       <ComponentRef Id="Cli" />
       <ComponentRef Id="Service" />
       <ComponentRef Id="Readme" />

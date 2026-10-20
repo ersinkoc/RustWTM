@@ -27,3 +27,17 @@ pub mod system;
 pub mod window;
 
 pub use error::{Error, Result};
+
+/// The user's Windows UI language, independent of regional number formats.
+pub fn system_ui_language() -> String {
+    // SAFETY: GetUserDefaultUILanguage takes no pointers or owned resources.
+    let language = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
+    match language & 0x03ff {
+        0x1f => "tr",
+        0x07 => "de",
+        0x0c => "fr",
+        0x0a => "es",
+        _ => "en",
+    }
+    .to_owned()
+}

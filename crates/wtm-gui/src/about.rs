@@ -55,26 +55,20 @@ pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
                 ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(128.0, 128.0)));
                 ui.label(RichText::new("RustWTM").size(44.0).strong().color(ACCENT));
                 ui.label(
-                    RichText::new("The Windows task manager that keeps your PC responsive")
+                    RichText::new(crate::i18n::tr("The Windows task manager that keeps your PC responsive"))
                         .size(18.0),
                 );
-                ui.weak(format!(
-                    "Version {}  ·  MIT license  ·  written in Rust",
-                    env!("CARGO_PKG_VERSION")
-                ));
+                ui.weak({ let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("Version {0}  ·  MIT license  ·  written in Rust", &[__wtm_i18n_0.to_string()]) });
                 ui.horizontal(|ui| {
                     let status = match update {
                         UpdateState::Unknown => String::new(),
-                        UpdateState::Checking => "Checking for updates…".into(),
-                        UpdateState::UpToDate => "You have the latest version.".into(),
+                        UpdateState::Checking => crate::i18n::tr("Checking for updates…").into(),
+                        UpdateState::UpToDate => crate::i18n::tr("You have the latest version.").into(),
                         UpdateState::Available(r) => {
-                            format!(
-                                "Version {} is available (see the bar at the top).",
-                                r.version_text()
-                            )
+                            { let __wtm_i18n_0 = &(r.version_text()); crate::i18n::format("Version {0} is available (see the bar at the top).", std::slice::from_ref(__wtm_i18n_0)) }
                         }
-                        UpdateState::Installing(r) => format!("Installing {}…", r.version_text()),
-                        UpdateState::Failed(e) => format!("Update check failed: {e}"),
+                        UpdateState::Installing(r) => { let __wtm_i18n_0 = &(r.version_text()); crate::i18n::format("Installing {0}…", std::slice::from_ref(__wtm_i18n_0)) },
+                        UpdateState::Failed(e) => {  crate::i18n::format("Update check failed: {0}", std::slice::from_ref(e)) },
                     };
                     // Centre the button and the status.
                     let width = 360.0_f32.min(ui.available_width());
@@ -82,7 +76,7 @@ pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
                     if ui
                         .add_enabled(
                             !matches!(update, UpdateState::Checking | UpdateState::Installing(_)),
-                            egui::Button::new("Check for updates"),
+                            egui::Button::new(crate::i18n::tr("Check for updates")),
                         )
                         .clicked()
                     {
@@ -93,23 +87,23 @@ pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
                 ui.add_space(14.0);
 
                 ui.label(
-                    RichText::new(format!("Crafted by {AUTHOR}"))
+                    RichText::new(crate::i18n::format("Crafted by {0}", &[AUTHOR.to_string()]))
                         .size(22.0)
                         .strong(),
                 );
                 ui.label(
-                    "RustWTM is the work of Ersin KOÇ, who set out to build the task manager \
+                    crate::i18n::tr("RustWTM is the work of Ersin KOÇ, who set out to build the task manager \
                      Windows never had: one that does not just show you what is slowing the \
-                     machine down, but quietly fixes it — fast, safe and free for everyone.",
+                     machine down, but quietly fixes it — fast, safe and free for everyone."),
                 );
                 ui.horizontal(|ui| {
                     // Centre the two links.
                     let width = 360.0;
                     ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
-                    ui.hyperlink_to(RichText::new("★ Star RustWTM on GitHub").size(16.0), REPO);
+                    ui.hyperlink_to(RichText::new(crate::i18n::tr("★ Star RustWTM on GitHub")).size(16.0), REPO);
                     ui.label("  ");
                     ui.hyperlink_to(
-                        RichText::new(format!("{AUTHOR} on GitHub")).size(16.0),
+                        RichText::new(crate::i18n::format("{0} on GitHub", &[AUTHOR.to_string()])).size(16.0),
                         AUTHOR_URL,
                     );
                 });
@@ -124,8 +118,8 @@ pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
                     for (i, (title, text)) in HIGHLIGHTS.iter().enumerate() {
                         ui.vertical(|ui| {
                             ui.set_max_width(420.0);
-                            ui.label(RichText::new(*title).strong().color(ACCENT));
-                            ui.label(*text);
+                            ui.label(RichText::new(crate::i18n::tr(title)).strong().color(ACCENT));
+                            ui.label(crate::i18n::tr(text));
                         });
                         if i % 2 == 1 {
                             ui.end_row();
@@ -136,25 +130,22 @@ pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
             ui.separator();
 
             ui.horizontal_wrapped(|ui| {
-                ui.hyperlink_to("Releases", format!("{REPO}/releases"));
+                ui.hyperlink_to(crate::i18n::tr("Releases"), format!("{REPO}/releases"));
                 ui.label("·");
                 ui.hyperlink_to(
-                    "Report a problem or request a feature",
+                    crate::i18n::tr("Report a problem or request a feature"),
                     format!("{REPO}/issues"),
                 );
                 ui.label("·");
                 ui.hyperlink_to(
-                    "Configuration reference",
+                    crate::i18n::tr("Configuration reference"),
                     format!("{REPO}/blob/main/docs/configuration.md"),
                 );
                 ui.label("·");
-                ui.hyperlink_to("License (MIT)", format!("{REPO}/blob/main/LICENSE"));
+                ui.hyperlink_to(crate::i18n::tr("License (MIT)"), format!("{REPO}/blob/main/LICENSE"));
             });
             ui.add_space(6.0);
-            ui.weak(format!(
-                "© {AUTHOR}. Free and open source software. If RustWTM saves your day, a star on \
-                 GitHub is the best way to say thanks."
-            ));
+            ui.weak(crate::i18n::format("© {0}. Free and open source software. If RustWTM saves your day, a star on GitHub is the best way to say thanks.", &[AUTHOR.to_string()]));
         });
     check
 }

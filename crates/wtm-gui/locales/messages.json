@@ -1,0 +1,4748 @@
+{
+  "Usage history is recorded by the RustWTM service": {
+    "tr": "Kullanım geçmişini RustWTM servisi kaydeder",
+    "de": "Der RustWTM-Dienst zeichnet den Verlauf auf",
+    "fr": "Le service RustWTM enregistre l'historique",
+    "es": "El servicio RustWTM registra el historial"
+  },
+  "The configuration belongs to the RustWTM service": {
+    "tr": "Yapılandırma RustWTM servisine aittir",
+    "de": "Die Konfiguration gehört zum RustWTM-Dienst",
+    "fr": "La configuration appartient au service RustWTM",
+    "es": "La configuración pertenece al servicio RustWTM"
+  },
+  "The Telegram bot runs in the RustWTM service": {
+    "tr": "Telegram botu RustWTM servisinde çalışır",
+    "de": "Der Telegram-Bot läuft im RustWTM-Dienst",
+    "fr": "Le bot Telegram fonctionne dans le service RustWTM",
+    "es": "El bot de Telegram funciona en el servicio RustWTM"
+  },
+  "Shared CPU frequency limit saved; original values are available in Restore": {
+    "tr": "Ortak CPU frekans sınırı kaydedildi; ilk değerler Geri yükle ile alınabilir",
+    "de": "Gemeinsame CPU-Frequenzgrenze gespeichert; Originalwerte sind wiederherstellbar",
+    "fr": "Limite CPU partagée enregistrée ; les valeurs initiales peuvent être restaurées",
+    "es": "Límite de frecuencia compartido guardado; puede restaurar los valores originales"
+  },
+  "Original CPU frequency settings restored": {
+    "tr": "İlk CPU frekans ayarları geri yüklendi",
+    "de": "Ursprüngliche CPU-Frequenzeinstellungen wiederhergestellt",
+    "fr": "Paramètres CPU d'origine restaurés",
+    "es": "Configuración de frecuencia original restaurada"
+  },
+  "Cooling needs the matching RustWTM service and an elevated window": {
+    "tr": "Soğutma için aynı sürüm RustWTM servisi ve yönetici penceresi gerekir",
+    "de": "Kühlung erfordert einen passenden RustWTM-Dienst und Administratorrechte",
+    "fr": "Le refroidissement exige un service RustWTM de même version et une fenêtre administrateur",
+    "es": "La refrigeración requiere un servicio RustWTM compatible y una ventana de administrador"
+  },
+  "Cooling request applied": {
+    "tr": "Soğutma isteği uygulandı",
+    "de": "Kühlungsanforderung angewendet",
+    "fr": "Commande de refroidissement appliquée",
+    "es": "Solicitud de refrigeración aplicada"
+  },
+  "Disconnected": {
+    "tr": "Bağlantısı kesildi",
+    "de": "Getrennt",
+    "fr": "Déconnecté",
+    "es": "Desconectado"
+  },
+  "Signed out": {
+    "tr": "Oturumu kapatıldı",
+    "de": "Abgemeldet",
+    "fr": "Session fermée",
+    "es": "Sesión cerrada"
+  },
+  "Configuration saved; the service applies it within a second.": {
+    "tr": "Yapılandırma kaydedildi; servis bir saniye içinde uygular.",
+    "de": "Konfiguration gespeichert; der Dienst übernimmt sie innerhalb einer Sekunde.",
+    "fr": "Configuration enregistrée ; le service l'applique sous une seconde.",
+    "es": "Configuración guardada; el servicio la aplica en un segundo."
+  },
+  "Telegram settings saved; the bot follows them within seconds.": {
+    "tr": "Telegram ayarları kaydedildi; bot birkaç saniye içinde uygular.",
+    "de": "Telegram-Einstellungen gespeichert; Übernahme in wenigen Sekunden.",
+    "fr": "Paramètres Telegram enregistrés ; application sous quelques secondes.",
+    "es": "Ajustes de Telegram guardados; se aplicarán en unos segundos."
+  },
+  "Enabled": {
+    "tr": "Etkin",
+    "de": "Aktiviert",
+    "fr": "Activé",
+    "es": "Activado"
+  },
+  "Disabled": {
+    "tr": "Devre dışı",
+    "de": "Deaktiviert",
+    "fr": "Désactivé",
+    "es": "Desactivado"
+  },
+  "End process tree": {
+    "tr": "İşlem ağacını sonlandır",
+    "de": "Prozessstruktur beenden",
+    "fr": "Terminer l'arborescence",
+    "es": "Finalizar árbol de procesos"
+  },
+  "Suspend": {
+    "tr": "Askıya al",
+    "de": "Anhalten",
+    "fr": "Suspendre",
+    "es": "Suspender"
+  },
+  "Resume": {
+    "tr": "Sürdür",
+    "de": "Fortsetzen",
+    "fr": "Reprendre",
+    "es": "Reanudar"
+  },
+  "Remove limits": {
+    "tr": "Sınırları kaldır",
+    "de": "Grenzen entfernen",
+    "fr": "Supprimer les limites",
+    "es": "Quitar límites"
+  },
+  "Free memory": {
+    "tr": "Belleği boşalt",
+    "de": "Speicher freigeben",
+    "fr": "Libérer la mémoire",
+    "es": "Liberar memoria"
+  },
+  "Program blocked": {
+    "tr": "Program engellendi",
+    "de": "Programm blockiert",
+    "fr": "Programme bloqué",
+    "es": "Programa bloqueado"
+  },
+  "🚨 Panic: end the kill list": {
+    "tr": "🚨 Acil: sonlandırma listesini bitir",
+    "de": "🚨 Not-Aus: Beendigungsliste ausführen",
+    "fr": "🚨 Urgence : terminer la liste",
+    "es": "🚨 Emergencia: finalizar la lista"
+  },
+  "Nothing on the kill list is running right now.": {
+    "tr": "Sonlandırma listesinden çalışan program yok.",
+    "de": "Kein Programm der Beendigungsliste läuft.",
+    "fr": "Aucun programme de la liste n'est actif.",
+    "es": "No hay programas activos en la lista de finalización."
+  },
+  "Add programs in the Kill list tab, or right-click a process → Add to kill list….": {
+    "tr": "Sonlandırma listesinden program ekleyin veya işleme sağ tıklayıp Listeye ekle'yi seçin.",
+    "de": "Programme in der Beendigungsliste oder per Prozess-Rechtsklick hinzufügen.",
+    "fr": "Ajoutez un programme dans la liste ou par clic droit sur un processus.",
+    "es": "Añada programas en la lista o con clic derecho en un proceso."
+  },
+  "Kill-list entry": {
+    "tr": "Sonlandırma girdisi",
+    "de": "Beendigungseintrag",
+    "fr": "Entrée de la liste d'arrêt",
+    "es": "Entrada de finalización"
+  },
+  "Programs that may be ended. With a CPU threshold the service ends them by itself once they keep using that much and do not recover; the panic button ends everything listed here at once.": {
+    "tr": "Sonlandırılabilecek programlar. CPU eşiği aşılır ve düzelmezse servis otomatik sonlandırır; acil düğmesi listedekilerin hepsini bitirir.",
+    "de": "Beendbare Programme. Bei anhaltender CPU-Überschreitung beendet der Dienst sie automatisch. Not-Aus beendet alle Listeneinträge.",
+    "fr": "Programmes pouvant être arrêtés. Le service les termine si le seuil CPU reste dépassé ; l'urgence termine toute la liste.",
+    "es": "Programas que se pueden finalizar. El servicio actúa si se mantiene el exceso de CPU; la emergencia finaliza toda la lista."
+  },
+  "Shows what will be ended first (Ctrl+Shift+K from anywhere)": {
+    "tr": "Önce sonlanacakları gösterir (her yerden Ctrl+Shift+K)",
+    "de": "Zeigt zuerst die betroffenen Prozesse (Strg+Umschalt+K)",
+    "fr": "Affiche d'abord les processus concernés (Ctrl+Maj+K)",
+    "es": "Muestra primero los procesos afectados (Ctrl+Mayús+K)"
+  },
+  "Retry": {
+    "tr": "Yeniden dene",
+    "de": "Erneut versuchen",
+    "fr": "Réessayer",
+    "es": "Reintentar"
+  },
+  "Dry-run mode: automatic ends are only logged. The panic button always works.": {
+    "tr": "Deneme modu: otomatik sonlandırmalar yalnızca kaydedilir. Acil düğmesi her zaman çalışır.",
+    "de": "Testmodus: automatische Beendigungen werden nur protokolliert. Not-Aus funktioniert immer.",
+    "fr": "Simulation : les arrêts automatiques sont seulement journalisés. L'urgence reste active.",
+    "es": "Simulación: los cierres automáticos solo se registran. La emergencia siempre funciona."
+  },
+  "Run RustWTM as administrator to change the kill list.": {
+    "tr": "Sonlandırma listesini değiştirmek için yönetici olarak çalıştırın.",
+    "de": "Zum Ändern der Liste als Administrator starten.",
+    "fr": "Exécutez en administrateur pour modifier la liste.",
+    "es": "Ejecute como administrador para modificar la lista."
+  },
+  "Program": {
+    "tr": "Program",
+    "de": "Programm",
+    "fr": "Programme",
+    "es": "Programa"
+  },
+  "Ended": {
+    "tr": "Sonlandırılan",
+    "de": "Beendet",
+    "fr": "Terminés",
+    "es": "Finalizados"
+  },
+  "Its children": {
+    "tr": "Alt işlemleri",
+    "de": "Unterprozesse",
+    "fr": "Processus enfants",
+    "es": "Procesos hijos"
+  },
+  "Running now": {
+    "tr": "Şimdi çalışan",
+    "de": "Jetzt aktiv",
+    "fr": "Actifs",
+    "es": "Activos ahora"
+  },
+  "Edit": {
+    "tr": "Düzenle",
+    "de": "Bearbeiten",
+    "fr": "Modifier",
+    "es": "Editar"
+  },
+  "Remove": {
+    "tr": "Kaldır",
+    "de": "Entfernen",
+    "fr": "Supprimer",
+    "es": "Quitar"
+  },
+  "The kill list is empty. Add a program below, or right-click a process → Add to kill list…": {
+    "tr": "Sonlandırma listesi boş. Aşağıdan veya bir işleme sağ tıklayarak program ekleyin.",
+    "de": "Die Beendigungsliste ist leer. Unten oder per Rechtsklick einen Prozess hinzufügen.",
+    "fr": "La liste est vide. Ajoutez un programme ci-dessous ou par clic droit.",
+    "es": "La lista está vacía. Añada un programa abajo o con clic derecho."
+  },
+  "Change entry": {
+    "tr": "Girdiyi değiştir",
+    "de": "Eintrag ändern",
+    "fr": "Modifier l'entrée",
+    "es": "Modificar entrada"
+  },
+  "Add to the kill list": {
+    "tr": "Sonlandırma listesine ekle",
+    "de": "Zur Beendigungsliste hinzufügen",
+    "fr": "Ajouter à la liste d'arrêt",
+    "es": "Añadir a la lista de finalización"
+  },
+  "e.g. node.exe or python*.exe": {
+    "tr": "ör. node.exe veya python*.exe",
+    "de": "z. B. node.exe oder python*.exe",
+    "fr": "p. ex. node.exe ou python*.exe",
+    "es": "p. ej. node.exe o python*.exe"
+  },
+  "Command line contains": {
+    "tr": "Komut satırı şunu içerir",
+    "de": "Befehlszeile enthält",
+    "fr": "La ligne de commande contient",
+    "es": "La línea de comandos contiene"
+  },
+  "optional, e.g. vitest (only those node.exe)": {
+    "tr": "isteğe bağlı, ör. vitest (yalnızca bu node.exe işlemleri)",
+    "de": "optional, z. B. vitest (nur diese node.exe)",
+    "fr": "facultatif, p. ex. vitest (uniquement ces node.exe)",
+    "es": "opcional, p. ej. vitest (solo esos node.exe)"
+  },
+  "End it automatically at": {
+    "tr": "Şu değerde otomatik sonlandır",
+    "de": "Automatisch beenden ab",
+    "fr": "Terminer automatiquement à",
+    "es": "Finalizar automáticamente al"
+  },
+  "% CPU": {
+    "tr": "% CPU",
+    "de": "% CPU",
+    "fr": "% CPU",
+    "es": "% CPU"
+  },
+  "only while the PC is above": {
+    "tr": "yalnızca bilgisayar şu değerin üzerindeyken",
+    "de": "nur bei PC-Last über",
+    "fr": "uniquement si le PC dépasse",
+    "es": "solo si el equipo supera"
+  },
+  "Also end the processes it started": {
+    "tr": "Başlattığı işlemleri de sonlandır",
+    "de": "Auch gestartete Unterprozesse beenden",
+    "fr": "Terminer aussi ses processus enfants",
+    "es": "Finalizar también sus procesos hijos"
+  },
+  "Matches no running process right now.": {
+    "tr": "Şu an eşleşen işlem yok.",
+    "de": "Aktuell kein passender Prozess.",
+    "fr": "Aucun processus correspondant actuellement.",
+    "es": "No hay procesos coincidentes activos."
+  },
+  "Save entry": {
+    "tr": "Girdiyi kaydet",
+    "de": "Eintrag speichern",
+    "fr": "Enregistrer l'entrée",
+    "es": "Guardar entrada"
+  },
+  "Add entry": {
+    "tr": "Girdi ekle",
+    "de": "Eintrag hinzufügen",
+    "fr": "Ajouter une entrée",
+    "es": "Añadir entrada"
+  },
+  "all processes together": {
+    "tr": "tüm işlemler birlikte",
+    "de": "alle Prozesse gemeinsam",
+    "fr": "tous les processus ensemble",
+    "es": "todos los procesos juntos"
+  },
+  "each instance separately": {
+    "tr": "her örnek ayrı",
+    "de": "jede Instanz einzeln",
+    "fr": "chaque instance séparément",
+    "es": "cada instancia por separado"
+  },
+  "Every process of an app, and everything it starts, shares the app's budget. Programs that reach the memory budget get out-of-memory errors.": {
+    "tr": "Uygulama ve başlattığı her işlem bütçeyi paylaşır. Bellek sınırına ulaşan programlar yetersiz bellek hatası alır.",
+    "de": "App und Unterprozesse teilen das Budget. Bei Erreichen der Speichergrenze entstehen Speichermangelfehler.",
+    "fr": "L'application et ses processus enfants partagent le budget. Atteindre le plafond mémoire entraîne des erreurs de mémoire insuffisante.",
+    "es": "La aplicación y sus procesos hijos comparten el presupuesto. Al alcanzar el límite de memoria se producen errores de memoria insuficiente."
+  },
+  "Dry-run mode: limits are only previewed in the event log. Switch to enforcing in Settings.": {
+    "tr": "Deneme modu: sınırlar yalnızca olay günlüğünde gösterilir. Ayarlar'dan uygulamayı etkinleştirin.",
+    "de": "Testmodus: Grenzen werden nur protokolliert. In Einstellungen aktivieren.",
+    "fr": "Simulation : limites uniquement journalisées. Activez l'application dans les paramètres.",
+    "es": "Simulación: los límites solo se registran. Active la aplicación en Configuración."
+  },
+  "Run RustWTM as administrator to change limits.": {
+    "tr": "Sınırları değiştirmek için yönetici olarak çalıştırın.",
+    "de": "Zum Ändern der Grenzen als Administrator starten.",
+    "fr": "Exécutez en administrateur pour modifier les limites.",
+    "es": "Ejecute como administrador para modificar límites."
+  },
+  "App": {
+    "tr": "Uygulama",
+    "de": "App",
+    "fr": "Application",
+    "es": "Aplicación"
+  },
+  "Budget": {
+    "tr": "Bütçe",
+    "de": "Budget",
+    "fr": "Budget",
+    "es": "Presupuesto"
+  },
+  "Applies to": {
+    "tr": "Kapsam",
+    "de": "Gilt für",
+    "fr": "Portée",
+    "es": "Se aplica a"
+  },
+  "CPU now": {
+    "tr": "Anlık CPU",
+    "de": "CPU jetzt",
+    "fr": "CPU actuelle",
+    "es": "CPU actual"
+  },
+  "Memory now": {
+    "tr": "Anlık bellek",
+    "de": "Speicher jetzt",
+    "fr": "Mémoire actuelle",
+    "es": "Memoria actual"
+  },
+  "These processes run in a job object of their own (a sandbox or a build tool) and Windows does not let them share the budget. They join it once the app is restarted.": {
+    "tr": "Bu işlemler kendi Windows iş nesnelerinde çalışır ve bütçeyi paylaşamaz. Uygulama yeniden başladığında bütçeye katılırlar.",
+    "de": "Diese Prozesse haben eigene Windows-Auftragsobjekte und können das Budget nicht teilen. Nach einem App-Neustart treten sie bei.",
+    "fr": "Ces processus ont leurs propres objets travaux Windows et ne partagent pas le budget. Ils y adhèrent après redémarrage de l'application.",
+    "es": "Estos procesos tienen objetos de trabajo propios y no pueden compartir el presupuesto. Se incorporan al reiniciar la aplicación."
+  },
+  "No app limits yet. Add one below, or right-click a process and choose \"Limit this app…\".": {
+    "tr": "Henüz uygulama sınırı yok. Aşağıdan veya işleme sağ tıklayıp Bu uygulamayı sınırla'yı seçerek ekleyin.",
+    "de": "Noch keine App-Grenzen. Unten oder per Prozess-Rechtsklick hinzufügen.",
+    "fr": "Aucune limite. Ajoutez-en ci-dessous ou par clic droit sur un processus.",
+    "es": "Sin límites de aplicaciones. Añada uno abajo o con clic derecho en un proceso."
+  },
+  "Change limit": {
+    "tr": "Sınırı değiştir",
+    "de": "Grenze ändern",
+    "fr": "Modifier la limite",
+    "es": "Modificar límite"
+  },
+  "Add limit": {
+    "tr": "Sınır ekle",
+    "de": "Grenze hinzufügen",
+    "fr": "Ajouter une limite",
+    "es": "Añadir límite"
+  },
+  "e.g. node.exe or chrome*.exe": {
+    "tr": "ör. node.exe veya chrome*.exe",
+    "de": "z. B. node.exe oder chrome*.exe",
+    "fr": "p. ex. node.exe ou chrome*.exe",
+    "es": "p. ej. node.exe o chrome*.exe"
+  },
+  "or a running app": {
+    "tr": "veya çalışan uygulama",
+    "de": "oder aktive App",
+    "fr": "ou une application active",
+    "es": "o una aplicación activa"
+  },
+  "Pick…": {
+    "tr": "Seç…",
+    "de": "Auswählen…",
+    "fr": "Choisir…",
+    "es": "Elegir…"
+  },
+  " cores": {
+    "tr": " çekirdek",
+    "de": " Kerne",
+    "fr": " cœurs",
+    "es": " núcleos"
+  },
+  " GB": {
+    "tr": " GB",
+    "de": " GB",
+    "fr": " Go",
+    "es": " GB"
+  },
+  "All processes together": {
+    "tr": "Tüm işlemler birlikte",
+    "de": "Alle Prozesse gemeinsam",
+    "fr": "Tous les processus ensemble",
+    "es": "Todos los procesos juntos"
+  },
+  "One shared budget for every process of the app and their children.": {
+    "tr": "Uygulamanın tüm işlemleri ve alt işlemleri tek bütçeyi paylaşır.",
+    "de": "Ein Budget für alle App-Prozesse und Unterprozesse.",
+    "fr": "Un budget commun pour l'application et tous ses processus enfants.",
+    "es": "Un presupuesto común para la aplicación y todos sus procesos hijos."
+  },
+  "Each instance separately": {
+    "tr": "Her örnek ayrı",
+    "de": "Jede Instanz einzeln",
+    "fr": "Chaque instance séparément",
+    "es": "Cada instancia por separado"
+  },
+  "Every top-level instance gets its own budget, shared with its children.": {
+    "tr": "Her ana örneğin alt işlemleriyle paylaştığı ayrı bütçesi olur.",
+    "de": "Jede Hauptinstanz erhält ein Budget für sich und ihre Unterprozesse.",
+    "fr": "Chaque instance principale partage son propre budget avec ses enfants.",
+    "es": "Cada instancia principal comparte su propio presupuesto con sus procesos hijos."
+  },
+  "Save limit": {
+    "tr": "Sınırı kaydet",
+    "de": "Grenze speichern",
+    "fr": "Enregistrer la limite",
+    "es": "Guardar límite"
+  },
+  "Use of the budget; for one budget per instance, the fullest instance": {
+    "tr": "Bütçe kullanımı; örnek başına bütçede en dolu örnek",
+    "de": "Budgetauslastung; bei Einzelbudgets die vollste Instanz",
+    "fr": "Utilisation du budget ; instance la plus chargée pour les budgets individuels",
+    "es": "Uso del presupuesto; instancia más ocupada si hay presupuestos individuales"
+  },
+  "Everything runs smoothly.": {
+    "tr": "Her şey akıcı çalışıyor.",
+    "de": "Alles läuft flüssig.",
+    "fr": "Tout fonctionne bien.",
+    "es": "Todo funciona con fluidez."
+  },
+  "Nothing waits for these any more": {
+    "tr": "Artık bunları bekleyen işlem yok",
+    "de": "Kein Prozess wartet mehr darauf",
+    "fr": "Plus aucun processus ne les attend",
+    "es": "Ningún proceso los espera ya"
+  },
+  "Stuck helpers, with the console hosts they started": {
+    "tr": "Takılmış yardımcılar ve başlattıkları konsol süreçleri",
+    "de": "Hängende Helfer samt gestarteten Konsolenhosts",
+    "fr": "Assistants bloqués et leurs hôtes de console",
+    "es": "Auxiliares bloqueados y sus hosts de consola"
+  },
+  "Add to kill list…": {
+    "tr": "Sonlandırma listesine ekle…",
+    "de": "Zur Beendigungsliste…",
+    "fr": "Ajouter à la liste d'arrêt…",
+    "es": "Añadir a la lista de finalización…"
+  },
+  "End them automatically or with the panic button": {
+    "tr": "Otomatik veya acil düğmesiyle sonlandır",
+    "de": "Automatisch oder per Not-Aus beenden",
+    "fr": "Terminer automatiquement ou en urgence",
+    "es": "Finalizar automáticamente o por emergencia"
+  },
+  "Show": {
+    "tr": "Göster",
+    "de": "Anzeigen",
+    "fr": "Afficher",
+    "es": "Mostrar"
+  },
+  "busiest engine": {
+    "tr": "en yoğun motor",
+    "de": "stärkste Engine",
+    "fr": "moteur le plus actif",
+    "es": "motor más activo"
+  },
+  "Disk": {
+    "tr": "Disk",
+    "de": "Datenträger",
+    "fr": "Disque",
+    "es": "Disco"
+  },
+  "Automatic protection": {
+    "tr": "Otomatik koruma",
+    "de": "Automatischer Schutz",
+    "fr": "Protection automatique",
+    "es": "Protección automática"
+  },
+  "Busiest apps right now": {
+    "tr": "Şu an en yoğun uygulamalar",
+    "de": "Aktuell stärkste Verbraucher",
+    "fr": "Applications les plus actives",
+    "es": "Aplicaciones más ocupadas ahora"
+  },
+  "Recent automatic actions": {
+    "tr": "Son otomatik eylemler",
+    "de": "Letzte automatische Aktionen",
+    "fr": "Actions automatiques récentes",
+    "es": "Acciones automáticas recientes"
+  },
+  "Run every process of this app in efficiency mode (EcoQoS).": {
+    "tr": "Bu uygulamanın her işlemini verimlilik modunda (EcoQoS) çalıştır.",
+    "de": "Alle Prozesse dieser App im Effizienzmodus (EcoQoS) ausführen.",
+    "fr": "Exécuter tous les processus en mode efficacité (EcoQoS).",
+    "es": "Ejecutar todos los procesos de esta aplicación en modo de eficiencia (EcoQoS)."
+  },
+  "Move this app's memory to the standby list; it comes back as needed.": {
+    "tr": "Belleği bekleme listesine taşır; gerektiğinde geri alınır.",
+    "de": "Speicher in die Standby-Liste verschieben; er kehrt bei Bedarf zurück.",
+    "fr": "Déplacer la mémoire vers la liste d'attente ; elle revient au besoin.",
+    "es": "Mover memoria a la lista de espera; vuelve cuando se necesita."
+  },
+  "Limit…": {
+    "tr": "Sınırla…",
+    "de": "Begrenzen…",
+    "fr": "Limiter…",
+    "es": "Limitar…"
+  },
+  "Give this app a permanent CPU / memory budget.": {
+    "tr": "Bu uygulamaya kalıcı CPU / bellek bütçesi verin.",
+    "de": "Dieser App ein dauerhaftes CPU-/Speicherbudget geben.",
+    "fr": "Attribuer un budget CPU/mémoire permanent.",
+    "es": "Asignar un presupuesto permanente de CPU/memoria."
+  },
+  "Nothing yet. RustWTM steps in when the machine is overloaded or a rule matches.": {
+    "tr": "Henüz yok. Sistem aşırı yüklendiğinde veya bir kural eşleştiğinde RustWTM müdahale eder.",
+    "de": "Noch nichts. RustWTM greift bei Überlast oder passenden Regeln ein.",
+    "fr": "Aucune. RustWTM intervient en cas de surcharge ou de règle correspondante.",
+    "es": "Aún ninguna. RustWTM actúa ante sobrecarga o una regla coincidente."
+  },
+  "Download the latest release": {
+    "tr": "En güncel sürümü indir",
+    "de": "Aktuelle Version herunterladen",
+    "fr": "Télécharger la dernière version",
+    "es": "Descargar última versión"
+  },
+  "The RustWTM service is not running, so nothing is limited automatically.": {
+    "tr": "RustWTM servisi çalışmıyor; otomatik sınırlama yapılmıyor.",
+    "de": "Der RustWTM-Dienst läuft nicht; keine automatische Begrenzung.",
+    "fr": "Le service RustWTM est arrêté ; aucune limite automatique.",
+    "es": "El servicio RustWTM no está activo; sin límites automáticos."
+  },
+  "Install and start it from an elevated prompt:": {
+    "tr": "Yönetici terminalinden kurup başlatın:",
+    "de": "In einer Administratorkonsole installieren und starten:",
+    "fr": "Installez et démarrez depuis une console administrateur :",
+    "es": "Instale e inicie desde una consola de administrador:"
+  },
+  "The configuration is invalid; fix it in Settings.": {
+    "tr": "Yapılandırma geçersiz; Ayarlar'dan düzeltin.",
+    "de": "Ungültige Konfiguration; in Einstellungen korrigieren.",
+    "fr": "Configuration invalide ; corrigez-la dans les paramètres.",
+    "es": "Configuración no válida; corríjala en Configuración."
+  },
+  "● Monitoring only — nothing is limited": {
+    "tr": "● Yalnızca izleme — sınır uygulanmıyor",
+    "de": "● Nur Überwachung — keine Begrenzung",
+    "fr": "● Surveillance seule — aucune limite",
+    "es": "● Solo supervisión — sin límites"
+  },
+  "Turn protection on": {
+    "tr": "Korumayı aç",
+    "de": "Schutz aktivieren",
+    "fr": "Activer la protection",
+    "es": "Activar protección"
+  },
+  "● Protection is on": {
+    "tr": "● Koruma açık",
+    "de": "● Schutz aktiv",
+    "fr": "● Protection active",
+    "es": "● Protección activa"
+  },
+  "Switch to monitoring only": {
+    "tr": "Yalnızca izlemeye geç",
+    "de": "Nur überwachen",
+    "fr": "Passer en surveillance seule",
+    "es": "Cambiar a solo supervisión"
+  },
+  "Changing it needs administrator rights.": {
+    "tr": "Değiştirmek için yönetici hakları gerekir.",
+    "de": "Änderungen erfordern Administratorrechte.",
+    "fr": "La modification exige les droits administrateur.",
+    "es": "Se requieren permisos de administrador para cambiarlo."
+  },
+  "CPU protection level:": {
+    "tr": "CPU koruma düzeyi:",
+    "de": "CPU-Schutzstufe:",
+    "fr": "Niveau de protection CPU :",
+    "es": "Nivel de protección CPU:"
+  },
+  "Custom (edited in Settings)": {
+    "tr": "Özel (Ayarlar'da düzenlendi)",
+    "de": "Benutzerdefiniert (in Einstellungen bearbeitet)",
+    "fr": "Personnalisé (modifié dans les paramètres)",
+    "es": "Personalizado (editado en Configuración)"
+  },
+  "Only programs on this PC can connect": {
+    "tr": "Yalnızca bu bilgisayardaki programlar bağlanabilir",
+    "de": "Nur Programme auf diesem PC können sich verbinden",
+    "fr": "Seuls les programmes de ce PC peuvent se connecter",
+    "es": "Solo pueden conectarse programas de este equipo"
+  },
+  "Reachable from one network this PC is on": {
+    "tr": "Bu bilgisayarın bir ağından erişilebilir",
+    "de": "Aus einem Netzwerk dieses PCs erreichbar",
+    "fr": "Accessible depuis un des réseaux de ce PC",
+    "es": "Accesible desde una red de este equipo"
+  },
+  "Reachable from every network this PC is on, unless the firewall blocks it": {
+    "tr": "Güvenlik duvarı engellemezse tüm bağlı ağlardan erişilebilir",
+    "de": "Aus allen verbundenen Netzwerken erreichbar, sofern die Firewall es erlaubt",
+    "fr": "Accessible depuis tous les réseaux connectés, sauf blocage du pare-feu",
+    "es": "Accesible desde todas las redes conectadas, salvo bloqueo del cortafuegos"
+  },
+  "Listening on 0.0.0.0 or ::, so other computers may reach them": {
+    "tr": "0.0.0.0 veya :: üzerinde dinliyor; başka bilgisayarlar erişebilir",
+    "de": "Lauscht auf 0.0.0.0 oder ::; andere PCs können darauf zugreifen",
+    "fr": "Écoute sur 0.0.0.0 ou :: ; d'autres ordinateurs peuvent y accéder",
+    "es": "Escucha en 0.0.0.0 o ::; otros equipos pueden acceder"
+  },
+  "Free a port:": {
+    "tr": "Port boşalt:",
+    "de": "Port freigeben:",
+    "fr": "Libérer un port :",
+    "es": "Liberar un puerto:"
+  },
+  "Not a port number": {
+    "tr": "Geçerli bir port numarası değil",
+    "de": "Keine Portnummer",
+    "fr": "Numéro de port invalide",
+    "es": "Número de puerto no válido"
+  },
+  "Ends the program that keeps a port busy (\"address already in use\").": {
+    "tr": "Portu meşgul eden programı sonlandırır (\"adres zaten kullanılıyor\").",
+    "de": "Beendet das Programm, das den Port belegt (\"Adresse bereits verwendet\").",
+    "fr": "Termine le programme qui occupe le port (« adresse déjà utilisée »).",
+    "es": "Finaliza el programa que ocupa el puerto (\"dirección ya en uso\")."
+  },
+  "Developer tools & servers": {
+    "tr": "Geliştirici araçları ve sunucular",
+    "de": "Entwicklertools und Server",
+    "fr": "Outils de développement et serveurs",
+    "es": "Herramientas de desarrollo y servidores"
+  },
+  "Show free ports too": {
+    "tr": "Boş portları da göster",
+    "de": "Freie Ports anzeigen",
+    "fr": "Afficher aussi les ports libres",
+    "es": "Mostrar también puertos libres"
+  },
+  "Watch a port:": {
+    "tr": "Port izle:",
+    "de": "Port überwachen:",
+    "fr": "Surveiller un port :",
+    "es": "Supervisar un puerto:"
+  },
+  "Watch": {
+    "tr": "İzle",
+    "de": "Überwachen",
+    "fr": "Surveiller",
+    "es": "Supervisar"
+  },
+  "None of the well-known developer tools or servers is running.": {
+    "tr": "Bilinen geliştirici araçlarından veya sunuculardan hiçbiri çalışmıyor.",
+    "de": "Kein bekanntes Entwicklertool oder Server aktiv.",
+    "fr": "Aucun outil ou serveur connu n'est actif.",
+    "es": "No hay herramientas ni servidores conocidos activos."
+  },
+  "Port": {
+    "tr": "Port",
+    "de": "Port",
+    "fr": "Port",
+    "es": "Puerto"
+  },
+  "Tool / server": {
+    "tr": "Araç / sunucu",
+    "de": "Tool / Server",
+    "fr": "Outil / serveur",
+    "es": "Herramienta / servidor"
+  },
+  "Kind": {
+    "tr": "Tür",
+    "de": "Typ",
+    "fr": "Type",
+    "es": "Tipo"
+  },
+  "Reach": {
+    "tr": "Erişim",
+    "de": "Erreichbarkeit",
+    "fr": "Accessibilité",
+    "es": "Alcance"
+  },
+  "Clients": {
+    "tr": "İstemciler",
+    "de": "Clients",
+    "fr": "Clients",
+    "es": "Clientes"
+  },
+  "In use": {
+    "tr": "Kullanımda",
+    "de": "Belegt",
+    "fr": "Utilisé",
+    "es": "En uso"
+  },
+  "Free": {
+    "tr": "Boş",
+    "de": "Frei",
+    "fr": "Libre",
+    "es": "Libre"
+  },
+  "Watched port": {
+    "tr": "İzlenen port",
+    "de": "Überwachter Port",
+    "fr": "Port surveillé",
+    "es": "Puerto supervisado"
+  },
+  "Open": {
+    "tr": "Aç",
+    "de": "Öffnen",
+    "fr": "Ouvrir",
+    "es": "Abrir"
+  },
+  "End the program to free the port": {
+    "tr": "Portu boşaltmak için programı sonlandır",
+    "de": "Programm beenden, um den Port freizugeben",
+    "fr": "Terminer le programme pour libérer le port",
+    "es": "Finalizar el programa para liberar el puerto"
+  },
+  "Show in Processes": {
+    "tr": "İşlemlerde göster",
+    "de": "In Prozesse anzeigen",
+    "fr": "Afficher dans Processus",
+    "es": "Mostrar en Procesos"
+  },
+  "Stop watching": {
+    "tr": "İzlemeyi durdur",
+    "de": "Überwachung beenden",
+    "fr": "Arrêter la surveillance",
+    "es": "Dejar de supervisar"
+  },
+  "All listening ports": {
+    "tr": "Dinleyen tüm portlar",
+    "de": "Alle lauschenden Ports",
+    "fr": "Tous les ports en écoute",
+    "es": "Todos los puertos en escucha"
+  },
+  "Search:": {
+    "tr": "Ara:",
+    "de": "Suche:",
+    "fr": "Recherche :",
+    "es": "Buscar:"
+  },
+  "port, program or tool": {
+    "tr": "port, program veya araç",
+    "de": "Port, Programm oder Tool",
+    "fr": "port, programme ou outil",
+    "es": "puerto, programa o herramienta"
+  },
+  "Include UDP": {
+    "tr": "UDP dahil",
+    "de": "UDP einschließen",
+    "fr": "Inclure UDP",
+    "es": "Incluir UDP"
+  },
+  "Proto": {
+    "tr": "Protokol",
+    "de": "Protokoll",
+    "fr": "Protocole",
+    "es": "Protocolo"
+  },
+  "Known as": {
+    "tr": "Bilinen adı",
+    "de": "Bekannt als",
+    "fr": "Nom connu",
+    "es": "Nombre conocido"
+  },
+  "Address": {
+    "tr": "Adres",
+    "de": "Adresse",
+    "fr": "Adresse",
+    "es": "Dirección"
+  },
+  "Watch this port": {
+    "tr": "Bu portu izle",
+    "de": "Diesen Port überwachen",
+    "fr": "Surveiller ce port",
+    "es": "Supervisar este puerto"
+  },
+  "CPU frequency policy": {
+    "tr": "CPU frekans ilkesi",
+    "de": "CPU-Frequenzrichtlinie",
+    "fr": "Politique de fréquence CPU",
+    "es": "Directiva de frecuencia de CPU"
+  },
+  "A shared Windows power-plan limit affects every app using that policy class. For one app, use Efficiency mode or CPU core type in Processes.": {
+    "tr": "Ortak Windows güç planı sınırı, bu ilke sınıfındaki tüm uygulamaları etkiler. Tek uygulama için İşlemler'deki Verimlilik modu veya Çekirdek türünü kullanın.",
+    "de": "Eine gemeinsame Windows-Energieplangrenze betrifft alle Apps dieser Richtlinienklasse. Für einzelne Apps Effizienzmodus oder Kerntyp unter Prozesse nutzen.",
+    "fr": "La limite du plan Windows affecte toutes les applications de cette classe. Pour une seule application, utilisez le mode efficacité ou le type de cœur dans Processus.",
+    "es": "El límite del plan de Windows afecta a todas las aplicaciones de esa clase. Para una sola, use el modo de eficiencia o tipo de núcleo en Procesos."
+  },
+  "Policy class 1 is not automatically E-cores. Firmware may ignore frequency requests.": {
+    "tr": "İlke sınıfı 1 mutlaka E çekirdek değildir. Donanım yazılımı frekans isteklerini yok sayabilir.",
+    "de": "Richtlinienklasse 1 bedeutet nicht automatisch E-Kerne. Firmware kann Frequenzanfragen ignorieren.",
+    "fr": "La classe 1 ne désigne pas automatiquement les cœurs E. Le micrologiciel peut ignorer les demandes de fréquence.",
+    "es": "La clase 1 no equivale automáticamente a núcleos E. El firmware puede ignorar las solicitudes de frecuencia."
+  },
+  "Refresh power plan": {
+    "tr": "Güç planını yenile",
+    "de": "Energieplan aktualisieren",
+    "fr": "Actualiser le plan d'alimentation",
+    "es": "Actualizar plan de energía"
+  },
+  "Power-plan settings have not been loaded yet.": {
+    "tr": "Güç planı ayarları henüz yüklenmedi.",
+    "de": "Energieplaneinstellungen noch nicht geladen.",
+    "fr": "Paramètres du plan non chargés.",
+    "es": "Ajustes del plan aún no cargados."
+  },
+  "Windows policy": {
+    "tr": "Windows ilkesi",
+    "de": "Windows-Richtlinie",
+    "fr": "Politique Windows",
+    "es": "Directiva de Windows"
+  },
+  "Plugged in": {
+    "tr": "Prize takılı",
+    "de": "Netzbetrieb",
+    "fr": "Sur secteur",
+    "es": "Conectado"
+  },
+  "Battery": {
+    "tr": "Pil",
+    "de": "Akku",
+    "fr": "Batterie",
+    "es": "Batería"
+  },
+  "Unavailable": {
+    "tr": "Kullanılamıyor",
+    "de": "Nicht verfügbar",
+    "fr": "Indisponible",
+    "es": "No disponible"
+  },
+  "Windows default": {
+    "tr": "Windows varsayılanı",
+    "de": "Windows-Standard",
+    "fr": "Valeur Windows par défaut",
+    "es": "Predeterminado de Windows"
+  },
+  "Policy class": {
+    "tr": "İlke sınıfı",
+    "de": "Richtlinienklasse",
+    "fr": "Classe de politique",
+    "es": "Clase de directiva"
+  },
+  "Class 0": {
+    "tr": "Sınıf 0",
+    "de": "Klasse 0",
+    "fr": "Classe 0",
+    "es": "Clase 0"
+  },
+  "Class 1": {
+    "tr": "Sınıf 1",
+    "de": "Klasse 1",
+    "fr": "Classe 1",
+    "es": "Clase 1"
+  },
+  "Power source": {
+    "tr": "Güç kaynağı",
+    "de": "Stromquelle",
+    "fr": "Source d'alimentation",
+    "es": "Fuente de energía"
+  },
+  " MHz": {
+    "tr": " MHz",
+    "de": " MHz",
+    "fr": " MHz",
+    "es": " MHz"
+  },
+  "Set frequency limit…": {
+    "tr": "Frekans sınırı ayarla…",
+    "de": "Frequenzgrenze setzen…",
+    "fr": "Définir une limite de fréquence…",
+    "es": "Establecer límite de frecuencia…"
+  },
+  "Restore saved frequency settings…": {
+    "tr": "Kayıtlı frekans ayarlarını geri yükle…",
+    "de": "Gespeicherte Frequenzwerte wiederherstellen…",
+    "fr": "Restaurer les fréquences enregistrées…",
+    "es": "Restaurar frecuencias guardadas…"
+  },
+  "The selected setting is unavailable on this power plan.": {
+    "tr": "Seçili ayar bu güç planında kullanılamıyor.",
+    "de": "Diese Einstellung ist im Energieplan nicht verfügbar.",
+    "fr": "Le paramètre sélectionné n'est pas disponible dans ce plan.",
+    "es": "El ajuste no está disponible en este plan de energía."
+  },
+  "Administrator rights are required to change these shared settings.": {
+    "tr": "Bu ortak ayarları değiştirmek için yönetici hakları gerekir.",
+    "de": "Änderungen dieser gemeinsamen Einstellungen erfordern Administratorrechte.",
+    "fr": "Les droits administrateur sont requis pour ces paramètres partagés.",
+    "es": "Se requieren derechos de administrador para estos ajustes compartidos."
+  },
+  "Elevate for power controls": {
+    "tr": "Güç kontrolleri için yöneticiye yükselt",
+    "de": "Für Energiesteuerung erhöhen",
+    "fr": "Passer en administrateur",
+    "es": "Elevar permisos para controles de energía"
+  },
+  "Change shared CPU frequency policy?": {
+    "tr": "Ortak CPU frekans ilkesi değiştirilsin mi?",
+    "de": "Gemeinsame CPU-Frequenzrichtlinie ändern?",
+    "fr": "Modifier la politique de fréquence partagée ?",
+    "es": "¿Cambiar la directiva de frecuencia compartida?"
+  },
+  "Apply system frequency limit": {
+    "tr": "Sistem frekans sınırını uygula",
+    "de": "Systemfrequenzgrenze anwenden",
+    "fr": "Appliquer la limite système",
+    "es": "Aplicar límite de frecuencia del sistema"
+  },
+  "Restore original frequency settings?": {
+    "tr": "İlk frekans ayarları geri yüklensin mi?",
+    "de": "Ursprüngliche Frequenzwerte wiederherstellen?",
+    "fr": "Restaurer les fréquences d'origine ?",
+    "es": "¿Restaurar las frecuencias originales?"
+  },
+  "Restore power settings": {
+    "tr": "Güç ayarlarını geri yükle",
+    "de": "Energieeinstellungen wiederherstellen",
+    "fr": "Restaurer les paramètres d'alimentation",
+    "es": "Restaurar ajustes de energía"
+  },
+  "This affects all apps using that policy class, not one PID. It persists after RustWTM closes. Original values are saved before writing; use Restore to undo it.": {
+    "tr": "Tek PID yerine bu ilke sınıfındaki tüm uygulamaları etkiler. RustWTM kapansa da kalır. İlk değerler yazmadan önce saklanır; Geri yükle ile geri alın.",
+    "de": "Betrifft alle Apps dieser Klasse, nicht eine PID. Bleibt nach dem Schließen aktiv. Originalwerte werden vor dem Schreiben gesichert; Wiederherstellen macht es rückgängig.",
+    "fr": "Affecte toutes les applications de la classe, pas un PID. Persiste après fermeture. Les valeurs initiales sont sauvegardées avant écriture ; utilisez Restaurer pour annuler.",
+    "es": "Afecta a todas las aplicaciones de la clase, no a un PID. Persiste al cerrar. Se guardan los valores originales antes de escribir; use Restaurar para deshacer."
+  },
+  "Restore the saved values on the original plan without switching plans. If another app changed these settings, RustWTM will refuse to overwrite them.": {
+    "tr": "Plan değiştirmeden kayıtlı değerleri asıl plana geri yükler. Başka uygulama bu ayarları değiştirmişse RustWTM üzerine yazmaz.",
+    "de": "Stellt Werte im ursprünglichen Plan wieder her, ohne den Plan zu wechseln. Fremde Änderungen werden nicht überschrieben.",
+    "fr": "Restaure le plan d'origine sans changer de plan. Les modifications d'une autre application ne sont pas écrasées.",
+    "es": "Restaura valores en el plan original sin cambiar de plan. No sobrescribe cambios de otra aplicación."
+  },
+  "GPU memory": {
+    "tr": "GPU belleği",
+    "de": "GPU-Speicher",
+    "fr": "Mémoire GPU",
+    "es": "Memoria GPU"
+  },
+  "Base priority": {
+    "tr": "Temel öncelik",
+    "de": "Basispriorität",
+    "fr": "Priorité de base",
+    "es": "Prioridad base"
+  },
+  "Running for": {
+    "tr": "Çalışma süresi",
+    "de": "Laufzeit",
+    "fr": "Durée d'activité",
+    "es": "Tiempo activo"
+  },
+  "Command line": {
+    "tr": "Komut satırı",
+    "de": "Befehlszeile",
+    "fr": "Ligne de commande",
+    "es": "Línea de comandos"
+  },
+  "name, PID, path or command line (Ctrl+F)": {
+    "tr": "ad, PID, yol veya komut satırı (Ctrl+F)",
+    "de": "Name, PID, Pfad oder Befehlszeile (Strg+F)",
+    "fr": "nom, PID, chemin ou commande (Ctrl+F)",
+    "es": "nombre, PID, ruta o comando (Ctrl+F)"
+  },
+  "List": {
+    "tr": "Liste",
+    "de": "Liste",
+    "fr": "Liste",
+    "es": "Lista"
+  },
+  "Tree": {
+    "tr": "Ağaç",
+    "de": "Struktur",
+    "fr": "Arborescence",
+    "es": "Árbol"
+  },
+  "Apps": {
+    "tr": "Uygulamalar",
+    "de": "Apps",
+    "fr": "Applications",
+    "es": "Aplicaciones"
+  },
+  "Columns": {
+    "tr": "Sütunlar",
+    "de": "Spalten",
+    "fr": "Colonnes",
+    "es": "Columnas"
+  },
+  "Heat map": {
+    "tr": "Isı haritası",
+    "de": "Heatmap",
+    "fr": "Carte thermique",
+    "es": "Mapa de calor"
+  },
+  "Shade busy CPU, memory, disk and GPU cells": {
+    "tr": "Yoğun CPU, bellek, disk ve GPU hücrelerini renklendir",
+    "de": "Stark ausgelastete CPU-, Speicher-, Datenträger- und GPU-Zellen einfärben",
+    "fr": "Colorer les cellules CPU, mémoire, disque et GPU chargées",
+    "es": "Colorear celdas de CPU, memoria, disco y GPU ocupadas"
+  },
+  "Resume updates": {
+    "tr": "Güncellemeleri sürdür",
+    "de": "Aktualisierung fortsetzen",
+    "fr": "Reprendre les actualisations",
+    "es": "Reanudar actualizaciones"
+  },
+  "Pause updates": {
+    "tr": "Güncellemeleri duraklat",
+    "de": "Aktualisierung pausieren",
+    "fr": "Suspendre les actualisations",
+    "es": "Pausar actualizaciones"
+  },
+  "Freeze this process list for inspection (F6). Monitoring, alerts and protection continue.": {
+    "tr": "İncelemek için listeyi dondurur (F6). İzleme, uyarılar ve koruma sürer.",
+    "de": "Liste zur Prüfung einfrieren (F6). Überwachung, Warnungen und Schutz laufen weiter.",
+    "fr": "Figer la liste pour l'examiner (F6). Surveillance, alertes et protection continuent.",
+    "es": "Congelar la lista para examinarla (F6). La supervisión, alertas y protección continúan."
+  },
+  "All processes": {
+    "tr": "Tüm işlemler",
+    "de": "Alle Prozesse",
+    "fr": "Tous les processus",
+    "es": "Todos los procesos"
+  },
+  "Every process": {
+    "tr": "Her işlem",
+    "de": "Jeder Prozess",
+    "fr": "Chaque processus",
+    "es": "Cada proceso"
+  },
+  "High CPU": {
+    "tr": "Yüksek CPU",
+    "de": "Hohe CPU-Last",
+    "fr": "CPU élevé",
+    "es": "CPU alta"
+  },
+  "At least 5% of the whole machine; excludes the idle process": {
+    "tr": "Bilgisayarın en az %5'i; boşta işlemi hariç",
+    "de": "Mindestens 5 % des PCs; ohne Leerlaufprozess",
+    "fr": "Au moins 5 % du PC ; hors processus inactif",
+    "es": "Al menos 5 % del equipo; excluye el proceso inactivo"
+  },
+  "High memory": {
+    "tr": "Yüksek bellek",
+    "de": "Hoher Speicherbedarf",
+    "fr": "Mémoire élevée",
+    "es": "Memoria alta"
+  },
+  "At least 512 MiB of private working set": {
+    "tr": "En az 512 MiB özel çalışma kümesi",
+    "de": "Mindestens 512 MiB privater Arbeitssatz",
+    "fr": "Au moins 512 Mio d'ensemble de travail privé",
+    "es": "Al menos 512 MiB de conjunto de trabajo privado"
+  },
+  "Managed": {
+    "tr": "Yönetilen",
+    "de": "Verwaltet",
+    "fr": "Gérés",
+    "es": "Gestionados"
+  },
+  "Processes with a governor action, manual limit or app budget": {
+    "tr": "Yönetici eylemi, elle sınır veya uygulama bütçesi olan işlemler",
+    "de": "Prozesse mit Steuerungsaktion, manueller Grenze oder App-Budget",
+    "fr": "Processus soumis au régulateur, à une limite manuelle ou à un budget",
+    "es": "Procesos con acción del regulador, límite manual o presupuesto"
+  },
+  "Paused · monitoring continues": {
+    "tr": "Duraklatıldı · izleme sürüyor",
+    "de": "Pausiert · Überwachung läuft",
+    "fr": "En pause · surveillance active",
+    "es": "En pausa · supervisión activa"
+  },
+  "No matching processes": {
+    "tr": "Eşleşen işlem yok",
+    "de": "Keine passenden Prozesse",
+    "fr": "Aucun processus correspondant",
+    "es": "No hay procesos coincidentes"
+  },
+  "Try another name, PID or resource filter.": {
+    "tr": "Başka bir ad, PID veya kaynak filtresi deneyin.",
+    "de": "Anderen Namen, PID oder Ressourcenfilter versuchen.",
+    "fr": "Essayez un autre nom, PID ou filtre de ressources.",
+    "es": "Pruebe otro nombre, PID o filtro de recursos."
+  },
+  "Clear filters": {
+    "tr": "Filtreleri temizle",
+    "de": "Filter löschen",
+    "fr": "Effacer les filtres",
+    "es": "Borrar filtros"
+  },
+  "Efficiency mode for all": {
+    "tr": "Tümüne verimlilik modu",
+    "de": "Effizienzmodus für alle",
+    "fr": "Mode efficacité pour tous",
+    "es": "Modo de eficiencia para todos"
+  },
+  "Normal mode for all": {
+    "tr": "Tümüne normal mod",
+    "de": "Normalmodus für alle",
+    "fr": "Mode normal pour tous",
+    "es": "Modo normal para todos"
+  },
+  "Free memory of all": {
+    "tr": "Tümünün belleğini boşalt",
+    "de": "Speicher aller freigeben",
+    "fr": "Libérer la mémoire de tous",
+    "es": "Liberar memoria de todos"
+  },
+  "Suspend all": {
+    "tr": "Tümünü askıya al",
+    "de": "Alle anhalten",
+    "fr": "Tout suspendre",
+    "es": "Suspender todos"
+  },
+  "Resume all": {
+    "tr": "Tümünü sürdür",
+    "de": "Alle fortsetzen",
+    "fr": "Tout reprendre",
+    "es": "Reanudar todos"
+  },
+  "Idle": {
+    "tr": "Boşta",
+    "de": "Leerlauf",
+    "fr": "Inactif",
+    "es": "Inactivo"
+  },
+  "Below normal": {
+    "tr": "Normalin altında",
+    "de": "Niedriger als normal",
+    "fr": "Inférieure à la normale",
+    "es": "Inferior a normal"
+  },
+  "Normal": {
+    "tr": "Normal",
+    "de": "Normal",
+    "fr": "Normale",
+    "es": "Normal"
+  },
+  "Above normal": {
+    "tr": "Normalin üstünde",
+    "de": "Höher als normal",
+    "fr": "Supérieure à la normale",
+    "es": "Superior a normal"
+  },
+  "High": {
+    "tr": "Yüksek",
+    "de": "Hoch",
+    "fr": "Haute",
+    "es": "Alta"
+  },
+  "On": {
+    "tr": "Açık",
+    "de": "Ein",
+    "fr": "Activé",
+    "es": "Activado"
+  },
+  "Off (let Windows decide)": {
+    "tr": "Kapalı (Windows karar versin)",
+    "de": "Aus (Windows entscheidet)",
+    "fr": "Désactivé (laisser Windows décider)",
+    "es": "Desactivado (decide Windows)"
+  },
+  "CPU core type": {
+    "tr": "CPU çekirdek türü",
+    "de": "CPU-Kerntyp",
+    "fr": "Type de cœur CPU",
+    "es": "Tipo de núcleo CPU"
+  },
+  "P-cores only": {
+    "tr": "Yalnızca P çekirdekler",
+    "de": "Nur P-Kerne",
+    "fr": "Cœurs P uniquement",
+    "es": "Solo núcleos P"
+  },
+  "E-cores only": {
+    "tr": "Yalnızca E çekirdekler",
+    "de": "Nur E-Kerne",
+    "fr": "Cœurs E uniquement",
+    "es": "Solo núcleos E"
+  },
+  "LP-E cores only": {
+    "tr": "Yalnızca LP-E çekirdekler",
+    "de": "Nur LP-E-Kerne",
+    "fr": "Cœurs LP-E uniquement",
+    "es": "Solo núcleos LP-E"
+  },
+  "All available cores": {
+    "tr": "Kullanılabilir tüm çekirdekler",
+    "de": "Alle verfügbaren Kerne",
+    "fr": "Tous les cœurs disponibles",
+    "es": "Todos los núcleos disponibles"
+  },
+  "Windows performance tiers. Cross-group processes are rejected.": {
+    "tr": "Windows performans sınıfları. Birden fazla gruba yayılan işlemler reddedilir.",
+    "de": "Windows-Leistungsklassen. Gruppenübergreifende Prozesse werden abgelehnt.",
+    "fr": "Classes Windows. Les processus sur plusieurs groupes sont refusés.",
+    "es": "Clases de Windows. Se rechazan procesos que abarcan varios grupos."
+  },
+  "Limit CPU": {
+    "tr": "CPU'yu sınırla",
+    "de": "CPU begrenzen",
+    "fr": "Limiter le CPU",
+    "es": "Limitar CPU"
+  },
+  "¼ core": {
+    "tr": "¼ çekirdek",
+    "de": "¼ Kern",
+    "fr": "¼ cœur",
+    "es": "¼ núcleo"
+  },
+  "½ core": {
+    "tr": "½ çekirdek",
+    "de": "½ Kern",
+    "fr": "½ cœur",
+    "es": "½ núcleo"
+  },
+  "1 core": {
+    "tr": "1 çekirdek",
+    "de": "1 Kern",
+    "fr": "1 cœur",
+    "es": "1 núcleo"
+  },
+  "2 cores": {
+    "tr": "2 çekirdek",
+    "de": "2 Kerne",
+    "fr": "2 cœurs",
+    "es": "2 núcleos"
+  },
+  "4 cores": {
+    "tr": "4 çekirdek",
+    "de": "4 Kerne",
+    "fr": "4 cœurs",
+    "es": "4 núcleos"
+  },
+  "Limit memory": {
+    "tr": "Belleği sınırla",
+    "de": "Speicher begrenzen",
+    "fr": "Limiter la mémoire",
+    "es": "Limitar memoria"
+  },
+  "Notify me when it exits": {
+    "tr": "Sonlandığında bildir",
+    "de": "Bei Ende benachrichtigen",
+    "fr": "Avertir à la fin",
+    "es": "Avisar al terminar"
+  },
+  "A desktop notification when it ends, e.g. a long build or download; again to stop": {
+    "tr": "Derleme veya indirme bittiğinde masaüstü bildirimi gönderir; durdurmak için tekrar seçin",
+    "de": "Desktopmeldung beim Ende, z. B. eines Builds oder Downloads; erneut wählen zum Stoppen",
+    "fr": "Notification à la fin, par exemple d'une compilation ; sélectionner à nouveau pour arrêter",
+    "es": "Aviso al terminar, por ejemplo una compilación; seleccione de nuevo para detener"
+  },
+  "Create memory dump file": {
+    "tr": "Bellek döküm dosyası oluştur",
+    "de": "Speicherabbild erstellen",
+    "fr": "Créer une image mémoire",
+    "es": "Crear volcado de memoria"
+  },
+  "A full dump in your Temp folder, for debugging a hang or crash": {
+    "tr": "Takılma veya çökmeyi incelemek için Temp klasöründe tam döküm oluşturur",
+    "de": "Vollständiges Abbild im Temp-Ordner zur Analyse von Hängern oder Abstürzen",
+    "fr": "Image complète dans Temp pour analyser un blocage ou plantage",
+    "es": "Volcado completo en Temp para depurar bloqueos o fallos"
+  },
+  "Search online": {
+    "tr": "İnternette ara",
+    "de": "Online suchen",
+    "fr": "Rechercher en ligne",
+    "es": "Buscar en línea"
+  },
+  "Properties": {
+    "tr": "Özellikler",
+    "de": "Eigenschaften",
+    "fr": "Propriétés",
+    "es": "Propiedades"
+  },
+  "Discovering hardware…": {
+    "tr": "Donanım keşfediliyor…",
+    "de": "Hardware wird erkannt…",
+    "fr": "Détection du matériel…",
+    "es": "Detectando hardware…"
+  },
+  "Live": {
+    "tr": "Canlı",
+    "de": "Live",
+    "fr": "En direct",
+    "es": "En directo"
+  },
+  "Stale": {
+    "tr": "Güncel değil",
+    "de": "Veraltet",
+    "fr": "Périmé",
+    "es": "Desactualizado"
+  },
+  "Refresh sensors": {
+    "tr": "Sensörleri yenile",
+    "de": "Sensoren aktualisieren",
+    "fr": "Actualiser les capteurs",
+    "es": "Actualizar sensores"
+  },
+  "Reset min/max": {
+    "tr": "Min/maks sıfırla",
+    "de": "Min./Max. zurücksetzen",
+    "fr": "Réinitialiser min/max",
+    "es": "Restablecer mín/máx"
+  },
+  "Readings are stale. Software fan control cannot be applied.": {
+    "tr": "Ölçümler güncel değil. Yazılımla fan kontrolü uygulanamaz.",
+    "de": "Messwerte veraltet. Software-Lüftersteuerung nicht anwendbar.",
+    "fr": "Mesures périmées. Contrôle logiciel des ventilateurs impossible.",
+    "es": "Lecturas desactualizadas. No se puede aplicar el control de ventiladores."
+  },
+  "Find a device or sensor": {
+    "tr": "Aygıt veya sensör bul",
+    "de": "Gerät oder Sensor suchen",
+    "fr": "Rechercher un appareil ou capteur",
+    "es": "Buscar dispositivo o sensor"
+  },
+  "All sensors": {
+    "tr": "Tüm sensörler",
+    "de": "Alle Sensoren",
+    "fr": "Tous les capteurs",
+    "es": "Todos los sensores"
+  },
+  "Temperatures": {
+    "tr": "Sıcaklıklar",
+    "de": "Temperaturen",
+    "fr": "Températures",
+    "es": "Temperaturas"
+  },
+  "Fan RPM": {
+    "tr": "Fan devri",
+    "de": "Lüfterdrehzahl",
+    "fr": "Vitesse ventilateur",
+    "es": "Velocidad del ventilador"
+  },
+  "Power": {
+    "tr": "Güç",
+    "de": "Leistung",
+    "fr": "Puissance",
+    "es": "Potencia"
+  },
+  "Clocks": {
+    "tr": "Saat hızları",
+    "de": "Taktraten",
+    "fr": "Fréquences",
+    "es": "Frecuencias"
+  },
+  "Hardware discovery": {
+    "tr": "Donanım keşfi",
+    "de": "Hardwareerkennung",
+    "fr": "Détection du matériel",
+    "es": "Detección de hardware"
+  },
+  "No sensor readings yet": {
+    "tr": "Henüz sensör ölçümü yok",
+    "de": "Noch keine Sensormesswerte",
+    "fr": "Aucune mesure de capteur",
+    "es": "Aún no hay lecturas de sensores"
+  },
+  "The optional hardware provider supplies CPU, GPU, motherboard and storage sensors. NVIDIA driver telemetry is used when it is available.": {
+    "tr": "İsteğe bağlı donanım sağlayıcısı CPU, GPU, anakart ve depolama sensörlerini sunar. Varsa NVIDIA sürücü verileri kullanılır.",
+    "de": "Der optionale Hardwareanbieter liefert CPU-, GPU-, Mainboard- und Speichersensoren. NVIDIA-Telemetrie wird genutzt, wenn verfügbar.",
+    "fr": "Le fournisseur facultatif expose les capteurs CPU, GPU, carte mère et stockage. La télémétrie NVIDIA est utilisée si disponible.",
+    "es": "El proveedor opcional ofrece sensores de CPU, GPU, placa y almacenamiento. Se utiliza telemetría NVIDIA si está disponible."
+  },
+  "No matching sensors": {
+    "tr": "Eşleşen sensör yok",
+    "de": "Keine passenden Sensoren",
+    "fr": "Aucun capteur correspondant",
+    "es": "No hay sensores coincidentes"
+  },
+  "Sensor": {
+    "tr": "Sensör",
+    "de": "Sensor",
+    "fr": "Capteur",
+    "es": "Sensor"
+  },
+  "Current": {
+    "tr": "Anlık",
+    "de": "Aktuell",
+    "fr": "Actuelle",
+    "es": "Actual"
+  },
+  "Min / max": {
+    "tr": "Min / maks",
+    "de": "Min. / Max.",
+    "fr": "Min / max",
+    "es": "Mín / máx"
+  },
+  "Recent samples": {
+    "tr": "Son örnekler",
+    "de": "Letzte Messwerte",
+    "fr": "Échantillons récents",
+    "es": "Muestras recientes"
+  },
+  "Cooling": {
+    "tr": "Soğutma",
+    "de": "Kühlung",
+    "fr": "Refroidissement",
+    "es": "Refrigeración"
+  },
+  "Profiles run in the service. Applying one needs a current temperature, an elevated window and enforcing mode. Startup keeps hardware automatic control.": {
+    "tr": "Profiller serviste çalışır. Uygulamak için güncel sıcaklık, yönetici penceresi ve etkin uygulama modu gerekir. Açılışta donanımın otomatik kontrolü korunur.",
+    "de": "Profile laufen im Dienst. Aktuelle Temperatur, Administratorfenster und aktiver Modus sind erforderlich. Beim Start bleibt die Hardwareautomatik erhalten.",
+    "fr": "Les profils s'exécutent dans le service. Température récente, droits administrateur et mode actif requis. Le démarrage conserve le contrôle matériel automatique.",
+    "es": "Los perfiles funcionan en el servicio. Requieren temperatura reciente, ventana elevada y modo activo. El inicio conserva el control automático del hardware."
+  },
+  "No controllable fan channels were reported.": {
+    "tr": "Kontrol edilebilir fan kanalı bulunamadı.",
+    "de": "Keine steuerbaren Lüfterkanäle gemeldet.",
+    "fr": "Aucun canal de ventilateur contrôlable.",
+    "es": "No hay canales de ventilador controlables."
+  },
+  "Hardware automatic / no RustWTM profile applied": {
+    "tr": "Donanım otomatik / RustWTM profili uygulanmadı",
+    "de": "Hardwareautomatik / kein RustWTM-Profil aktiv",
+    "fr": "Automatique matériel / aucun profil RustWTM appliqué",
+    "es": "Hardware automático / sin perfil RustWTM aplicado"
+  },
+  "Hardware automatic": {
+    "tr": "Donanım otomatik",
+    "de": "Hardwareautomatik",
+    "fr": "Automatique matériel",
+    "es": "Automático del hardware"
+  },
+  "Manual duty": {
+    "tr": "Elle görev oranı",
+    "de": "Manueller Tastgrad",
+    "fr": "Rapport cyclique manuel",
+    "es": "Ciclo de trabajo manual"
+  },
+  "Temperature curve": {
+    "tr": "Sıcaklık eğrisi",
+    "de": "Temperaturkurve",
+    "fr": "Courbe de température",
+    "es": "Curva de temperatura"
+  },
+  "Balanced": {
+    "tr": "Dengeli",
+    "de": "Ausgewogen",
+    "fr": "Équilibré",
+    "es": "Equilibrado"
+  },
+  "Temperature source": {
+    "tr": "Sıcaklık kaynağı",
+    "de": "Temperaturquelle",
+    "fr": "Source de température",
+    "es": "Fuente de temperatura"
+  },
+  "Select temperature": {
+    "tr": "Sıcaklık seç",
+    "de": "Temperatur wählen",
+    "fr": "Choisir la température",
+    "es": "Elegir temperatura"
+  },
+  "Full speed at": {
+    "tr": "Şu sıcaklıkta tam hız",
+    "de": "Volle Drehzahl ab",
+    "fr": "Pleine vitesse à",
+    "es": "Velocidad máxima a"
+  },
+  "Requested duty": {
+    "tr": "İstenen görev oranı",
+    "de": "Gewünschter Tastgrad",
+    "fr": "Rapport demandé",
+    "es": "Ciclo solicitado"
+  },
+  "Quiet": {
+    "tr": "Sessiz",
+    "de": "Leise",
+    "fr": "Silencieux",
+    "es": "Silencioso"
+  },
+  "Temperature (°C) → Fan duty (%)": {
+    "tr": "Sıcaklık (°C) → Fan oranı (%)",
+    "de": "Temperatur (°C) → Lüfterleistung (%)",
+    "fr": "Température (°C) → Ventilateur (%)",
+    "es": "Temperatura (°C) → Ventilador (%)"
+  },
+  "Duty % / °C": {
+    "tr": "Görev oranı % / °C",
+    "de": "Tastgrad % / °C",
+    "fr": "Rapport % / °C",
+    "es": "Ciclo % / °C"
+  },
+  "Add curve point": {
+    "tr": "Eğri noktası ekle",
+    "de": "Kurvenpunkt hinzufügen",
+    "fr": "Ajouter un point",
+    "es": "Añadir punto de curva"
+  },
+  "Remove last point": {
+    "tr": "Son noktayı kaldır",
+    "de": "Letzten Punkt entfernen",
+    "fr": "Supprimer le dernier point",
+    "es": "Quitar último punto"
+  },
+  "Apply cooling profile": {
+    "tr": "Soğutma profilini uygula",
+    "de": "Kühlprofil anwenden",
+    "fr": "Appliquer le profil",
+    "es": "Aplicar perfil de refrigeración"
+  },
+  "Connect to the matching service from an elevated RustWTM window to apply controls.": {
+    "tr": "Kontrol için yönetici penceresinden aynı sürüm servise bağlanın.",
+    "de": "Mit einem Administratorfenster am passenden Dienst verbinden.",
+    "fr": "Connectez une fenêtre administrateur au service de même version.",
+    "es": "Conecte una ventana elevada al servicio compatible."
+  },
+  "The service is monitoring only. Fan writes are disabled.": {
+    "tr": "Servis yalnızca izliyor. Fan yazımları devre dışı.",
+    "de": "Dienst überwacht nur. Lüfterschreibzugriffe sind deaktiviert.",
+    "fr": "Le service surveille uniquement. Écritures ventilateur désactivées.",
+    "es": "El servicio solo supervisa. Escrituras del ventilador desactivadas."
+  },
+  "The selected temperature is unavailable. Choose a sensor with a current reading.": {
+    "tr": "Seçili sıcaklık kullanılamıyor. Güncel ölçümü olan bir sensör seçin.",
+    "de": "Temperatur nicht verfügbar. Sensor mit aktuellem Messwert wählen.",
+    "fr": "Température indisponible. Choisissez un capteur avec une mesure récente.",
+    "es": "Temperatura no disponible. Elija un sensor con lectura reciente."
+  },
+  "Apply software fan control?": {
+    "tr": "Yazılımla fan kontrolü uygulansın mı?",
+    "de": "Software-Lüftersteuerung anwenden?",
+    "fr": "Appliquer le contrôle logiciel du ventilateur ?",
+    "es": "¿Aplicar control de ventilador por software?"
+  },
+  "The selected temperature drives thermal protection. Missing/stale temperature requests hardware automatic mode. The provider attempts defaults when its control lease expires.": {
+    "tr": "Seçili sıcaklık ısıl korumayı yönetir. Eksik veya eski ölçümde donanım otomatik modu istenir. Kontrol süresi dolunca sağlayıcı varsayılanları geri yüklemeyi dener.",
+    "de": "Die gewählte Temperatur steuert den Hitzeschutz. Fehlende oder veraltete Werte fordern Hardwareautomatik an. Bei Lease-Ablauf versucht der Anbieter die Standardwerte wiederherzustellen.",
+    "fr": "La température choisie pilote la protection thermique. Une mesure absente ou périmée demande le mode matériel automatique. Le fournisseur tente de rétablir les valeurs par défaut à l'expiration du bail.",
+    "es": "La temperatura elegida controla la protección térmica. Una lectura ausente o antigua solicita el modo automático. El proveedor intenta restaurar valores predeterminados al caducar la concesión."
+  },
+  "Apply fan control": {
+    "tr": "Fan kontrolünü uygula",
+    "de": "Lüftersteuerung anwenden",
+    "fr": "Appliquer le contrôle ventilateur",
+    "es": "Aplicar control de ventilador"
+  },
+  "● unsaved changes": {
+    "tr": "● kaydedilmemiş değişiklikler",
+    "de": "● ungespeicherte Änderungen",
+    "fr": "● modifications non enregistrées",
+    "es": "● cambios sin guardar"
+  },
+  "Save": {
+    "tr": "Kaydet",
+    "de": "Speichern",
+    "fr": "Enregistrer",
+    "es": "Guardar"
+  },
+  "Discard changes": {
+    "tr": "Değişiklikleri at",
+    "de": "Änderungen verwerfen",
+    "fr": "Annuler les modifications",
+    "es": "Descartar cambios"
+  },
+  "Run RustWTM as administrator to save.": {
+    "tr": "Kaydetmek için yönetici olarak çalıştırın.",
+    "de": "Zum Speichern als Administrator starten.",
+    "fr": "Exécutez en administrateur pour enregistrer.",
+    "es": "Ejecute como administrador para guardar."
+  },
+  "✔ Valid configuration": {
+    "tr": "✔ Geçerli yapılandırma",
+    "de": "✔ Gültige Konfiguration",
+    "fr": "✔ Configuration valide",
+    "es": "✔ Configuración válida"
+  },
+  "Service settings": {
+    "tr": "Servis ayarları",
+    "de": "Diensteinstellungen",
+    "fr": "Paramètres du service",
+    "es": "Ajustes del servicio"
+  },
+  "Advanced: edit config.toml": {
+    "tr": "Gelişmiş: config.toml düzenle",
+    "de": "Erweitert: config.toml bearbeiten",
+    "fr": "Avancé : modifier config.toml",
+    "es": "Avanzado: editar config.toml"
+  },
+  "Rules, app limits, the kill list and every other option. See docs/configuration.md.": {
+    "tr": "Kurallar, uygulama sınırları, sonlandırma listesi ve diğer ayarlar. Bkz. docs/configuration.md.",
+    "de": "Regeln, App-Grenzen, Beendigungsliste und weitere Optionen. Siehe docs/configuration.md.",
+    "fr": "Règles, limites, liste d'arrêt et autres options. Voir docs/configuration.md.",
+    "es": "Reglas, límites, lista de finalización y otras opciones. Consulte docs/configuration.md."
+  },
+  "Monitoring only": {
+    "tr": "Yalnızca izleme",
+    "de": "Nur Überwachung",
+    "fr": "Surveillance seule",
+    "es": "Solo supervisión"
+  },
+  "Logs what it would do without touching any process": {
+    "tr": "Hiçbir işleme dokunmadan yapacağı eylemleri kaydeder",
+    "de": "Protokolliert Aktionen, ohne Prozesse zu ändern",
+    "fr": "Journalise les actions prévues sans toucher aux processus",
+    "es": "Registra acciones previstas sin modificar procesos"
+  },
+  "CPU governor": {
+    "tr": "CPU yöneticisi",
+    "de": "CPU-Steuerung",
+    "fr": "Régulateur CPU",
+    "es": "Regulador de CPU"
+  },
+  "Slow down the busiest apps when the CPU is overloaded": {
+    "tr": "CPU aşırı yüklendiğinde yoğun uygulamaları yavaşlat",
+    "de": "Starke Verbraucher bei CPU-Überlast drosseln",
+    "fr": "Ralentir les applications gourmandes en cas de surcharge CPU",
+    "es": "Reducir aplicaciones exigentes ante sobrecarga de CPU"
+  },
+  "Act when the CPU stays above": {
+    "tr": "CPU şu değerin üzerinde kalınca uygula",
+    "de": "Eingreifen bei CPU-Last über",
+    "fr": "Agir si le CPU reste au-dessus de",
+    "es": "Actuar si la CPU permanece por encima de"
+  },
+  "Undo once it stays below": {
+    "tr": "Şu değerin altında kalınca geri al",
+    "de": "Zurücknehmen bei Last unter",
+    "fr": "Restaurer si la charge reste sous",
+    "es": "Revertir si permanece por debajo de"
+  },
+  "Slow down up to": {
+    "tr": "Aynı anda en fazla",
+    "de": "Gleichzeitig bis zu",
+    "fr": "Limiter jusqu'à",
+    "es": "Limitar hasta"
+  },
+  "apps at a time": {
+    "tr": "uygulamayı yavaşlat",
+    "de": "Apps drosseln",
+    "fr": "applications à la fois",
+    "es": "aplicaciones a la vez"
+  },
+  "Memory guard": {
+    "tr": "Bellek koruması",
+    "de": "Speicherschutz",
+    "fr": "Protection mémoire",
+    "es": "Protección de memoria"
+  },
+  "Free memory of the largest apps when RAM runs out": {
+    "tr": "RAM azaldığında büyük uygulamaların belleğini boşalt",
+    "de": "Bei RAM-Mangel Speicher großer Apps freigeben",
+    "fr": "Libérer la mémoire des grosses applications si la RAM manque",
+    "es": "Liberar memoria de aplicaciones grandes si falta RAM"
+  },
+  "Moves their pages to the standby list; nothing is lost": {
+    "tr": "Sayfaları bekleme listesine taşır; veri kaybolmaz",
+    "de": "Verschiebt Seiten in die Standby-Liste; kein Datenverlust",
+    "fr": "Déplace les pages vers la liste d'attente ; aucune perte",
+    "es": "Mueve páginas a la lista de espera; sin pérdida de datos"
+  },
+  "When memory use stays above": {
+    "tr": "Bellek kullanımı şu değerin üzerinde kalınca",
+    "de": "Bei anhaltendem Speicherbedarf über",
+    "fr": "Si la mémoire reste au-dessus de",
+    "es": "Si la memoria permanece por encima de"
+  },
+  "Swarm warning": {
+    "tr": "İşlem çoğalma uyarısı",
+    "de": "Prozessschwarm-Warnung",
+    "fr": "Alerte de prolifération",
+    "es": "Alerta de proliferación"
+  },
+  "Warn when one program runs": {
+    "tr": "Bir programın şu kadar kopyası çalışınca uyar",
+    "de": "Warnen ab",
+    "fr": "Alerter si un programme exécute",
+    "es": "Avisar si un programa ejecuta"
+  },
+  "copies or more": {
+    "tr": "veya daha fazla",
+    "de": "Kopien eines Programms",
+    "fr": "copies ou plus",
+    "es": "copias o más"
+  },
+  "End copies that run longer than": {
+    "tr": "Şu süreden uzun çalışan kopyaları sonlandır",
+    "de": "Kopien beenden nach",
+    "fr": "Terminer les copies après",
+    "es": "Finalizar copias tras"
+  },
+  " min": {
+    "tr": " dk",
+    "de": " Min.",
+    "fr": " min",
+    "es": " min"
+  },
+  "With what they started. A helper that should take seconds is stuck by then. 0 only warns.": {
+    "tr": "Başlattıklarıyla birlikte. Saniyeler sürmesi gereken yardımcı artık takılmıştır. 0 yalnızca uyarır.",
+    "de": "Samt Unterprozessen. Kurzlebige Helfer gelten dann als hängend. 0 warnt nur.",
+    "fr": "Avec leurs enfants. Un assistant censé durer quelques secondes est alors bloqué. 0 avertit seulement.",
+    "es": "Con sus hijos. Un auxiliar que debería durar segundos está bloqueado para entonces. 0 solo avisa."
+  },
+  "(off: only warn)": {
+    "tr": "(kapalı: yalnızca uyar)",
+    "de": "(aus: nur warnen)",
+    "fr": "(désactivé : alerte seule)",
+    "es": "(desactivado: solo aviso)"
+  },
+  "(and what they started)": {
+    "tr": "(başlattıklarıyla birlikte)",
+    "de": "(samt Unterprozessen)",
+    "fr": "(avec leurs enfants)",
+    "es": "(con sus hijos)"
+  },
+  "History": {
+    "tr": "Geçmiş",
+    "de": "Verlauf",
+    "fr": "Historique",
+    "es": "Historial"
+  },
+  "Keep per-app usage for": {
+    "tr": "Uygulama kullanımını şu süre sakla",
+    "de": "App-Nutzung speichern für",
+    "fr": "Conserver l'utilisation pendant",
+    "es": "Guardar uso de aplicaciones durante"
+  },
+  " days": {
+    "tr": " gün",
+    "de": " Tage",
+    "fr": " jours",
+    "es": " días"
+  },
+  "Flag apps with constant CPU use or steadily growing memory": {
+    "tr": "Sürekli CPU kullanımı veya artan belleği olan uygulamaları işaretle",
+    "de": "Apps mit dauerhafter CPU-Last oder wachsendem Speicher markieren",
+    "fr": "Signaler le CPU constant ou la mémoire croissante",
+    "es": "Marcar uso constante de CPU o memoria creciente"
+  },
+  "Sort": {
+    "tr": "Sırala",
+    "de": "Sortieren",
+    "fr": "Trier",
+    "es": "Ordenar"
+  },
+  "🔔 Telegram bot": {
+    "tr": "🔔 Telegram botu",
+    "de": "🔔 Telegram-Bot",
+    "fr": "🔔 Bot Telegram",
+    "es": "🔔 Bot de Telegram"
+  },
+  "Check on this PC and control it from your phone: status, busiest processes, ports and services; end, suspend and resume processes; get alerts when the CPU is overloaded or a program runs hundreds of copies.": {
+    "tr": "Telefondan durumu, yoğun işlemleri, portları ve servisleri görün; işlemleri sonlandırın, askıya alın veya sürdürün. CPU yükü ve aşırı işlem kopyaları için uyarı alın.",
+    "de": "PC vom Handy prüfen und steuern: Status, Prozesse, Ports und Dienste; Prozesse beenden, anhalten, fortsetzen und Warnungen bei Überlast oder Prozessschwärmen erhalten.",
+    "fr": "Consultez et contrôlez le PC depuis votre téléphone : état, processus, ports, services et alertes de surcharge ou de prolifération.",
+    "es": "Consulte y controle el equipo desde el móvil: estado, procesos, puertos, servicios y alertas de sobrecarga o proliferación."
+  },
+  "Setting up the bot needs administrator rights.": {
+    "tr": "Bot kurulumu yönetici hakları gerektirir.",
+    "de": "Bot-Einrichtung erfordert Administratorrechte.",
+    "fr": "La configuration du bot exige les droits administrateur.",
+    "es": "Configurar el bot requiere derechos de administrador."
+  },
+  "The bot runs in the RustWTM service, which is not running. Install RustWTM with the MSI to use it.": {
+    "tr": "Bot RustWTM servisinde çalışır; servis çalışmıyor. Kullanmak için MSI ile kurun.",
+    "de": "Der Bot läuft im RustWTM-Dienst, der nicht aktiv ist. Mit MSI installieren.",
+    "fr": "Le bot utilise le service RustWTM, actuellement arrêté. Installez avec le MSI.",
+    "es": "El bot usa el servicio RustWTM, que no está activo. Instale mediante MSI."
+  },
+  "Bot token": {
+    "tr": "Bot anahtarı",
+    "de": "Bot-Token",
+    "fr": "Jeton du bot",
+    "es": "Token del bot"
+  },
+  "123456789:ABC… from @BotFather": {
+    "tr": "@BotFather'dan 123456789:ABC…",
+    "de": "123456789:ABC… von @BotFather",
+    "fr": "123456789:ABC… de @BotFather",
+    "es": "123456789:ABC… de @BotFather"
+  },
+  "Hide": {
+    "tr": "Gizle",
+    "de": "Verbergen",
+    "fr": "Masquer",
+    "es": "Ocultar"
+  },
+  "Show or hide the token": {
+    "tr": "Anahtarı göster veya gizle",
+    "de": "Token anzeigen oder verbergen",
+    "fr": "Afficher ou masquer le jeton",
+    "es": "Mostrar u ocultar token"
+  },
+  "Allowed chat IDs": {
+    "tr": "İzinli sohbet kimlikleri",
+    "de": "Erlaubte Chat-IDs",
+    "fr": "Identifiants de chat autorisés",
+    "es": "IDs de chat permitidos"
+  },
+  "Only these chats may use the bot; separate several with commas": {
+    "tr": "Yalnızca bu sohbetler kullanabilir; birden fazlasını virgülle ayırın",
+    "de": "Nur diese Chats sind erlaubt; mehrere mit Kommas trennen",
+    "fr": "Seuls ces chats sont autorisés ; séparez-les par des virgules",
+    "es": "Solo estos chats pueden usarlo; separe varios con comas"
+  },
+  "Send alerts (CPU overload, swarms, programs ended by the kill list)": {
+    "tr": "Uyarı gönder (CPU yükü, işlem çoğalması, listeden sonlandırma)",
+    "de": "Warnungen senden (CPU, Prozessschwärme, Beendigungsliste)",
+    "fr": "Envoyer des alertes (CPU, prolifération, liste d'arrêt)",
+    "es": "Enviar alertas (CPU, proliferación, lista de finalización)"
+  },
+  "Allow ending, suspending and resuming processes and services": {
+    "tr": "İşlem ve servisleri sonlandırmaya, askıya almaya ve sürdürmeye izin ver",
+    "de": "Beenden, Anhalten und Fortsetzen von Prozessen und Diensten erlauben",
+    "fr": "Autoriser arrêt, suspension et reprise des processus et services",
+    "es": "Permitir finalizar, suspender y reanudar procesos y servicios"
+  },
+  "Without it the bot only reports; protected Windows processes are never ended": {
+    "tr": "Kapalıysa bot yalnızca raporlar; korunan Windows işlemleri asla sonlandırılmaz",
+    "de": "Sonst meldet der Bot nur; geschützte Windows-Prozesse werden nie beendet",
+    "fr": "Sinon le bot informe seulement ; les processus Windows protégés ne sont jamais arrêtés",
+    "es": "Si no, el bot solo informa; nunca finaliza procesos protegidos de Windows"
+  },
+  "This does not look like a bot token (123456789:ABC…).": {
+    "tr": "Bu geçerli bir bot anahtarına benzemiyor (123456789:ABC…).",
+    "de": "Kein gültiges Bot-Token (123456789:ABC…).",
+    "fr": "Ce jeton ne semble pas valide (123456789:ABC…).",
+    "es": "No parece un token válido (123456789:ABC…)."
+  },
+  "Send test message": {
+    "tr": "Test iletisi gönder",
+    "de": "Testnachricht senden",
+    "fr": "Envoyer un test",
+    "es": "Enviar mensaje de prueba"
+  },
+  "Checks the saved token and messages every allowed chat": {
+    "tr": "Kayıtlı anahtarı denetler ve izinli her sohbete ileti gönderir",
+    "de": "Prüft das gespeicherte Token und schreibt an alle erlaubten Chats",
+    "fr": "Vérifie le jeton enregistré et contacte tous les chats autorisés",
+    "es": "Verifica el token guardado y envía a todos los chats permitidos"
+  },
+  "Save a bot token first": {
+    "tr": "Önce bot anahtarını kaydedin",
+    "de": "Zuerst Bot-Token speichern",
+    "fr": "Enregistrez d'abord un jeton",
+    "es": "Guarde primero un token"
+  },
+  "On, but no chat is allowed yet: message the bot to get your ID.": {
+    "tr": "Açık, ancak izinli sohbet yok: kimliğiniz için bota ileti gönderin.",
+    "de": "Aktiv, aber keine Chats erlaubt: Bot anschreiben, um Ihre ID zu erhalten.",
+    "fr": "Actif, mais aucun chat autorisé : écrivez au bot pour obtenir votre ID.",
+    "es": "Activo, pero sin chats permitidos: escriba al bot para obtener su ID."
+  },
+  "Off": {
+    "tr": "Kapalı",
+    "de": "Aus",
+    "fr": "Désactivé",
+    "es": "Desactivado"
+  },
+  "How to set it up": {
+    "tr": "Nasıl kurulur",
+    "de": "Einrichtung",
+    "fr": "Comment configurer",
+    "es": "Cómo configurarlo"
+  },
+  "1. In Telegram, open @BotFather, send /newbot and follow the questions.": {
+    "tr": "1. Telegram'da @BotFather'ı açın, /newbot gönderip yönergeleri izleyin.",
+    "de": "1. @BotFather öffnen, /newbot senden und Anweisungen folgen.",
+    "fr": "1. Ouvrez @BotFather, envoyez /newbot et suivez les étapes.",
+    "es": "1. Abra @BotFather, envíe /newbot y siga las instrucciones."
+  },
+  "2. Paste the token it gives you below, tick Enabled and Save.": {
+    "tr": "2. Anahtarı aşağıya yapıştırın, Etkin'i seçin ve kaydedin.",
+    "de": "2. Token unten einfügen, Aktiviert wählen und speichern.",
+    "fr": "2. Collez le jeton ci-dessous, cochez Activé et enregistrez.",
+    "es": "2. Pegue el token abajo, marque Activado y guarde."
+  },
+  "3. Send your new bot any message: it answers with your chat ID.": {
+    "tr": "3. Yeni bota herhangi bir ileti gönderin; sohbet kimliğinizle yanıtlar.",
+    "de": "3. Dem neuen Bot schreiben; er antwortet mit Ihrer Chat-ID.",
+    "fr": "3. Écrivez au nouveau bot ; il répond avec votre identifiant de chat.",
+    "es": "3. Escriba al nuevo bot; responderá con su ID de chat."
+  },
+  "4. Add that ID to Allowed chat IDs and Save. Send /help to the bot.": {
+    "tr": "4. Kimliği izinli sohbetlere ekleyip kaydedin. Bota /help gönderin.",
+    "de": "4. ID zu erlaubten Chats hinzufügen und speichern. /help senden.",
+    "fr": "4. Ajoutez l'ID aux chats autorisés et enregistrez. Envoyez /help.",
+    "es": "4. Añada el ID a chats permitidos y guarde. Envíe /help al bot."
+  },
+  "The token is stored in %ProgramData%\\RustWTM\\telegram.toml, readable only by administrators. Anyone with the token can read what the bot sends, so keep it private; chats not on the list cannot give commands.": {
+    "tr": "Anahtar %ProgramData%\\RustWTM\\telegram.toml içinde yalnızca yöneticilerin okuyabileceği şekilde saklanır. Anahtarı bilenler botun iletilerini okuyabilir; gizli tutun. Listede olmayan sohbetler komut veremez.",
+    "de": "Das Token liegt unter %ProgramData%\\RustWTM\\telegram.toml, nur für Administratoren lesbar. Token-Inhaber können Botnachrichten lesen; geheim halten. Nicht erlaubte Chats können keine Befehle senden.",
+    "fr": "Le jeton est dans %ProgramData%\\RustWTM\\telegram.toml, lisible seulement par les administrateurs. Quiconque le possède peut lire les messages du bot ; gardez-le secret. Les chats absents de la liste ne peuvent pas commander.",
+    "es": "El token está en %ProgramData%\\RustWTM\\telegram.toml, legible solo por administradores. Quien lo tenga puede leer los mensajes; manténgalo privado. Chats fuera de la lista no pueden dar órdenes."
+  },
+  "Show RustWTM": {
+    "tr": "RustWTM'yi göster",
+    "de": "RustWTM anzeigen",
+    "fr": "Afficher RustWTM",
+    "es": "Mostrar RustWTM"
+  },
+  "Notifications": {
+    "tr": "Bildirimler",
+    "de": "Benachrichtigungen",
+    "fr": "Notifications",
+    "es": "Notificaciones"
+  },
+  "Exit": {
+    "tr": "Çıkış",
+    "de": "Beenden",
+    "fr": "Quitter",
+    "es": "Salir"
+  },
+  "User": {
+    "tr": "Kullanıcı",
+    "de": "Benutzer",
+    "fr": "Utilisateur",
+    "es": "Usuario"
+  },
+  "Station": {
+    "tr": "İstasyon",
+    "de": "Station",
+    "fr": "Station",
+    "es": "Estación"
+  },
+  "State": {
+    "tr": "Durum",
+    "de": "Zustand",
+    "fr": "État",
+    "es": "Estado"
+  },
+  "Programs keep running; the user can sign in again": {
+    "tr": "Programlar çalışır; kullanıcı yeniden oturum açabilir",
+    "de": "Programme laufen weiter; erneute Anmeldung möglich",
+    "fr": "Les programmes continuent ; reconnexion possible",
+    "es": "Los programas siguen; el usuario puede volver a entrar"
+  },
+  "Closes the user's programs": {
+    "tr": "Kullanıcının programlarını kapatır",
+    "de": "Schließt die Programme des Benutzers",
+    "fr": "Ferme les programmes de l'utilisateur",
+    "es": "Cierra los programas del usuario"
+  },
+  "process, address or port": {
+    "tr": "işlem, adres veya port",
+    "de": "Prozess, Adresse oder Port",
+    "fr": "processus, adresse ou port",
+    "es": "proceso, dirección o puerto"
+  },
+  "Local": {
+    "tr": "Yerel",
+    "de": "Lokal",
+    "fr": "Local",
+    "es": "Local"
+  },
+  "Remote": {
+    "tr": "Uzak",
+    "de": "Entfernt",
+    "fr": "Distant",
+    "es": "Remoto"
+  },
+  "name or description": {
+    "tr": "ad veya açıklama",
+    "de": "Name oder Beschreibung",
+    "fr": "nom ou description",
+    "es": "nombre o descripción"
+  },
+  "Description": {
+    "tr": "Açıklama",
+    "de": "Beschreibung",
+    "fr": "Description",
+    "es": "Descripción"
+  },
+  "Status": {
+    "tr": "Durum",
+    "de": "Status",
+    "fr": "État",
+    "es": "Estado"
+  },
+  "Startup": {
+    "tr": "Başlangıç",
+    "de": "Autostart",
+    "fr": "Démarrage",
+    "es": "Inicio"
+  },
+  "Account": {
+    "tr": "Hesap",
+    "de": "Konto",
+    "fr": "Compte",
+    "es": "Cuenta"
+  },
+  "Window:": {
+    "tr": "Dönem:",
+    "de": "Zeitraum:",
+    "fr": "Période :",
+    "es": "Período:"
+  },
+  "7 days": {
+    "tr": "7 gün",
+    "de": "7 Tage",
+    "fr": "7 jours",
+    "es": "7 días"
+  },
+  "30 days": {
+    "tr": "30 gün",
+    "de": "30 Tage",
+    "fr": "30 jours",
+    "es": "30 días"
+  },
+  "Click a column header to sort.": {
+    "tr": "Sıralamak için sütun başlığına tıklayın.",
+    "de": "Zum Sortieren auf eine Spaltenüberschrift klicken.",
+    "fr": "Cliquez sur un en-tête pour trier.",
+    "es": "Pulse una cabecera para ordenar."
+  },
+  "No long-term findings in the analysis window.": {
+    "tr": "Analiz döneminde uzun vadeli bulgu yok.",
+    "de": "Keine langfristigen Befunde im Analysezeitraum.",
+    "fr": "Aucun constat à long terme sur cette période.",
+    "es": "Sin hallazgos a largo plazo en este período."
+  },
+  "Seen": {
+    "tr": "Görülen",
+    "de": "Erfasst",
+    "fr": "Observé",
+    "es": "Observado"
+  },
+  "Avg CPU": {
+    "tr": "Ort. CPU",
+    "de": "Ø CPU",
+    "fr": "CPU moy.",
+    "es": "CPU media"
+  },
+  "p95 CPU": {
+    "tr": "p95 CPU",
+    "de": "p95 CPU",
+    "fr": "CPU p95",
+    "es": "CPU p95"
+  },
+  "Peak CPU": {
+    "tr": "Tepe CPU",
+    "de": "CPU-Spitze",
+    "fr": "Pic CPU",
+    "es": "CPU máxima"
+  },
+  "Avg GPU": {
+    "tr": "Ort. GPU",
+    "de": "Ø GPU",
+    "fr": "GPU moy.",
+    "es": "GPU media"
+  },
+  "Avg mem": {
+    "tr": "Ort. bellek",
+    "de": "Ø Speicher",
+    "fr": "Mémoire moy.",
+    "es": "Memoria media"
+  },
+  "Peak mem": {
+    "tr": "Tepe bellek",
+    "de": "Speicherspitze",
+    "fr": "Pic mémoire",
+    "es": "Memoria máxima"
+  },
+  "Growth/h": {
+    "tr": "Artış/saat",
+    "de": "Zuwachs/h",
+    "fr": "Croissance/h",
+    "es": "Crecimiento/h"
+  },
+  "Finding": {
+    "tr": "Bulgu",
+    "de": "Befund",
+    "fr": "Constat",
+    "es": "Hallazgo"
+  },
+  "MiB": {
+    "tr": "MiB",
+    "de": "MiB",
+    "fr": "Mio",
+    "es": "MiB"
+  },
+  "Disable": {
+    "tr": "Devre dışı bırak",
+    "de": "Deaktivieren",
+    "fr": "Désactiver",
+    "es": "Desactivar"
+  },
+  "Enable": {
+    "tr": "Etkinleştir",
+    "de": "Aktivieren",
+    "fr": "Activer",
+    "es": "Activar"
+  },
+  "Select an entry to enable or disable it at sign-in.": {
+    "tr": "Oturum açılışında etkinleştirmek veya kapatmak için bir girdi seçin.",
+    "de": "Eintrag wählen, um Autostart zu aktivieren oder deaktivieren.",
+    "fr": "Sélectionnez une entrée pour activer ou désactiver son démarrage.",
+    "es": "Seleccione una entrada para activar o desactivar su inicio de sesión."
+  },
+  "Scope": {
+    "tr": "Kapsam",
+    "de": "Bereich",
+    "fr": "Portée",
+    "es": "Ámbito"
+  },
+  "Command": {
+    "tr": "Komut",
+    "de": "Befehl",
+    "fr": "Commande",
+    "es": "Comando"
+  },
+  "Never stuck at 100% CPU": {
+    "tr": "CPU hiçbir zaman %100'de takılmaz",
+    "de": "Nie bei 100 % CPU stecken bleiben",
+    "fr": "Ne restez plus à 100 % de CPU",
+    "es": "Sin bloqueos al 100 % de CPU"
+  },
+  "A background governor eases off the heaviest apps step by step — priority, efficiency mode, then hard caps — and gives everything back once the machine recovers.": {
+    "tr": "Arka plandaki yönetici, ağır uygulamaları öncelik, verimlilik modu ve kesin sınırlarla kademeli olarak yavaşlatır; sistem rahatlayınca tümünü geri alır.",
+    "de": "Die Hintergrundsteuerung entlastet schrittweise: Priorität, Effizienzmodus und feste Grenzen. Nach der Erholung wird alles zurückgesetzt.",
+    "fr": "Le régulateur réduit progressivement la priorité, active l'efficacité puis limite les applications lourdes. Il restaure tout après récupération.",
+    "es": "El regulador reduce la prioridad, activa la eficiencia y limita las aplicaciones pesadas. Restaura todo cuando el equipo se recupera."
+  },
+  "Budgets per app": {
+    "tr": "Uygulama başına bütçeler",
+    "de": "Budgets pro App",
+    "fr": "Budgets par application",
+    "es": "Presupuestos por aplicación"
+  },
+  "Two cores for node.exe, 8 GB for every browser window: limits follow an app and everything it starts, enforced by Windows job objects.": {
+    "tr": "node.exe için iki çekirdek, her tarayıcı penceresi için 8 GB: Windows iş nesneleri uygulamayı ve başlattığı her şeyi sınırlar.",
+    "de": "Zwei Kerne für node.exe, 8 GB je Browserfenster: Windows-Auftragsobjekte begrenzen die App und alle gestarteten Prozesse.",
+    "fr": "Deux cœurs pour node.exe, 8 Go par fenêtre : les objets travaux Windows limitent l'application et ses processus enfants.",
+    "es": "Dos núcleos para node.exe, 8 GB por ventana: los objetos de trabajo de Windows limitan la aplicación y sus procesos hijos."
+  },
+  "The app you use stays fast": {
+    "tr": "Kullandığınız uygulama hızlı kalır",
+    "de": "Die aktive App bleibt schnell",
+    "fr": "L'application utilisée reste rapide",
+    "es": "La aplicación activa sigue rápida"
+  },
+  "The window in front of you is never throttled, so protection never gets in your way.": {
+    "tr": "Öndeki pencere yavaşlatılmaz; koruma çalışmanızı engellemez.",
+    "de": "Das aktive Fenster wird nie gedrosselt. Der Schutz behindert Ihre Arbeit nicht.",
+    "fr": "La fenêtre active n'est jamais ralentie : la protection ne vous gêne pas.",
+    "es": "La ventana activa nunca se ralentiza; la protección no interrumpe su trabajo."
+  },
+  "Learns from history": {
+    "tr": "Geçmişten öğrenir",
+    "de": "Lernt aus dem Verlauf",
+    "fr": "Apprend de l'historique",
+    "es": "Aprende del historial"
+  },
+  "Per-minute usage is kept for weeks; chronic hogs and memory leaks are found and handled automatically.": {
+    "tr": "Dakikalık kullanım haftalarca saklanır; sürekli kaynak tüketimi ve bellek sızıntıları otomatik bulunur ve yönetilir.",
+    "de": "Minutenwerte bleiben wochenlang erhalten. Dauerhafte Ressourcenfresser und Speicherlecks werden automatisch erkannt und behandelt.",
+    "fr": "Les relevés par minute sont conservés des semaines ; consommations excessives et fuites mémoire sont traitées automatiquement.",
+    "es": "Guarda el uso por minuto durante semanas; detecta y gestiona automáticamente el consumo excesivo y las fugas de memoria."
+  },
+  "Stops what must not run": {
+    "tr": "Çalışmaması gerekeni durdurur",
+    "de": "Stoppt unerwünschte Programme",
+    "fr": "Arrête les programmes indésirables",
+    "es": "Detiene lo que no debe ejecutarse"
+  },
+  "Blocked programs never start; rules end, suspend or cap anything you describe.": {
+    "tr": "Engellenen programlar başlamaz; kurallar eşleşen işlemleri sonlandırır, askıya alır veya sınırlar.",
+    "de": "Blockierte Programme starten nicht. Regeln beenden, pausieren oder begrenzen passende Prozesse.",
+    "fr": "Les programmes bloqués ne démarrent pas ; les règles arrêtent, suspendent ou limitent les processus correspondants.",
+    "es": "Los programas bloqueados no se inician; las reglas finalizan, suspenden o limitan los procesos indicados."
+  },
+  "Safe by design": {
+    "tr": "Güvenli tasarım",
+    "de": "Sicher konzipiert",
+    "fr": "Conçu pour la sécurité",
+    "es": "Seguridad desde el diseño"
+  },
+  "Dry-run first, core Windows processes are untouchable, and every change is rolled back when the service stops.": {
+    "tr": "Önce deneme modu; temel Windows işlemlerine dokunulmaz ve servis durduğunda tüm değişiklikler geri alınır.",
+    "de": "Zuerst der Testmodus: Windows-Kernprozesse bleiben geschützt. Beim Dienstende werden alle Änderungen zurückgesetzt.",
+    "fr": "Mode simulation d'abord, processus Windows essentiels protégés et annulation des changements à l'arrêt du service.",
+    "es": "Primero simulación, procesos esenciales de Windows protegidos y cambios revertidos al detener el servicio."
+  },
+  "The Windows task manager that keeps your PC responsive": {
+    "tr": "Bilgisayarınızın akıcı çalışmasını sağlayan Windows görev yöneticisi",
+    "de": "Der Windows-Taskmanager für einen reaktionsschnellen PC",
+    "fr": "Le gestionnaire des tâches Windows qui préserve la réactivité",
+    "es": "El administrador de tareas de Windows que mantiene la fluidez"
+  },
+  "Checking for updates…": {
+    "tr": "Güncellemeler denetleniyor…",
+    "de": "Updates werden gesucht…",
+    "fr": "Recherche de mises à jour…",
+    "es": "Buscando actualizaciones…"
+  },
+  "You have the latest version.": {
+    "tr": "En güncel sürümü kullanıyorsunuz.",
+    "de": "Sie verwenden die aktuelle Version.",
+    "fr": "Vous utilisez la dernière version.",
+    "es": "Tiene la última versión."
+  },
+  "Check for updates": {
+    "tr": "Güncellemeleri denetle",
+    "de": "Nach Updates suchen",
+    "fr": "Rechercher des mises à jour",
+    "es": "Buscar actualizaciones"
+  },
+  "RustWTM is the work of Ersin KOÇ, who set out to build the task manager Windows never had: one that does not just show you what is slowing the machine down, but quietly fixes it — fast, safe and free for everyone.": {
+    "tr": "RustWTM, bilgisayarı yavaşlatan sorunları yalnızca göstermek yerine sessizce çözen; hızlı, güvenli ve herkes için ücretsiz bir görev yöneticisi geliştirmek isteyen Ersin KOÇ'un eseridir.",
+    "de": "Ersin KOÇ entwickelte RustWTM als schnellen, sicheren und kostenlosen Taskmanager, der Bremsen nicht nur anzeigt, sondern leise behebt.",
+    "fr": "Ersin KOÇ a créé RustWTM : un gestionnaire rapide, sûr et gratuit qui ne montre pas seulement les ralentissements, mais les corrige discrètement.",
+    "es": "Ersin KOÇ creó RustWTM: un administrador rápido, seguro y gratuito que no solo muestra lo que ralentiza el equipo, sino que lo corrige discretamente."
+  },
+  "★ Star RustWTM on GitHub": {
+    "tr": "★ GitHub'da RustWTM'ye yıldız verin",
+    "de": "★ RustWTM auf GitHub markieren",
+    "fr": "★ Ajouter une étoile sur GitHub",
+    "es": "★ Dar una estrella en GitHub"
+  },
+  "Releases": {
+    "tr": "Sürümler",
+    "de": "Versionen",
+    "fr": "Versions",
+    "es": "Versiones"
+  },
+  "Report a problem or request a feature": {
+    "tr": "Sorun bildirin veya özellik isteyin",
+    "de": "Problem melden oder Funktion vorschlagen",
+    "fr": "Signaler un problème ou suggérer une fonction",
+    "es": "Informar de un problema o solicitar una función"
+  },
+  "Configuration reference": {
+    "tr": "Yapılandırma başvurusu",
+    "de": "Konfigurationsreferenz",
+    "fr": "Référence de configuration",
+    "es": "Referencia de configuración"
+  },
+  "License (MIT)": {
+    "tr": "Lisans (MIT)",
+    "de": "Lizenz (MIT)",
+    "fr": "Licence (MIT)",
+    "es": "Licencia (MIT)"
+  },
+  "The load is back to normal.": {
+    "tr": "Yük normale döndü.",
+    "de": "Die Last ist wieder normal.",
+    "fr": "La charge est revenue à la normale.",
+    "es": "La carga volvió a la normalidad."
+  },
+  "These apps use the most CPU. One click brings them down; nothing is lost.": {
+    "tr": "En çok CPU kullanan uygulamalar bunlar. Tek tıkla yükü azaltabilirsiniz; veriler kaybolmaz.",
+    "de": "Diese Apps benötigen am meisten CPU. Ein Klick senkt die Last ohne Datenverlust.",
+    "fr": "Ces applications consomment le plus de CPU. Un clic réduit la charge sans perte de données.",
+    "es": "Estas aplicaciones consumen más CPU. Un clic reduce la carga sin perder datos."
+  },
+  "⚡ Calm them all down": {
+    "tr": "⚡ Hepsinin yükünü azalt",
+    "de": "⚡ Alle entlasten",
+    "fr": "⚡ Réduire toute la charge",
+    "es": "⚡ Reducir la carga de todas"
+  },
+  "Efficiency mode and lower priority for these apps (except the one you are using): they keep running, but stop crowding out everything else.": {
+    "tr": "Kullandığınız uygulama dışındakilere verimlilik modu ve düşük öncelik uygular; çalışmaya devam ederler.",
+    "de": "Effizienzmodus und niedrigere Priorität, außer für die aktive App. Die Apps laufen weiter.",
+    "fr": "Mode efficacité et priorité réduite, sauf pour l'application active. Elles continuent de fonctionner.",
+    "es": "Modo de eficiencia y prioridad reducida, salvo la aplicación activa. Siguen funcionando."
+  },
+  "The app you are using": {
+    "tr": "Kullandığınız uygulama",
+    "de": "Die aktive App",
+    "fr": "L'application active",
+    "es": "La aplicación activa"
+  },
+  "Efficiency mode": {
+    "tr": "Verimlilik modu",
+    "de": "Effizienzmodus",
+    "fr": "Mode efficacité",
+    "es": "Modo de eficiencia"
+  },
+  "Runs it on efficient cores at lower priority": {
+    "tr": "Verimli çekirdeklerde düşük öncelikle çalıştırır",
+    "de": "Auf effizienten Kernen mit niedriger Priorität ausführen",
+    "fr": "Exécuter sur les cœurs efficaces avec une priorité réduite",
+    "es": "Ejecutar en núcleos eficientes con prioridad reducida"
+  },
+  "Limit to 1 core": {
+    "tr": "1 çekirdekle sınırla",
+    "de": "Auf 1 Kern begrenzen",
+    "fr": "Limiter à 1 cœur",
+    "es": "Limitar a 1 núcleo"
+  },
+  "A hard cap for each of its processes, until you remove it": {
+    "tr": "Kaldırana kadar her işlemine kesin sınır uygular",
+    "de": "Feste Grenze für jeden Prozess, bis sie entfernt wird",
+    "fr": "Plafond strict par processus jusqu'à sa suppression",
+    "es": "Límite estricto por proceso hasta que lo quite"
+  },
+  "Pause": {
+    "tr": "Duraklat",
+    "de": "Pausieren",
+    "fr": "Suspendre",
+    "es": "Pausar"
+  },
+  "Stops it completely; right-click → Resume brings it back": {
+    "tr": "Tamamen duraklatır; sağ tık → Sürdür ile devam eder",
+    "de": "Vollständig pausieren; Rechtsklick → Fortsetzen setzt fort",
+    "fr": "Suspend totalement ; clic droit → Reprendre pour continuer",
+    "es": "Pausa por completo; clic derecho → Reanudar para continuar"
+  },
+  "End": {
+    "tr": "Sonlandır",
+    "de": "Beenden",
+    "fr": "Terminer",
+    "es": "Finalizar"
+  },
+  "No single app stands out; many small ones add up.": {
+    "tr": "Tek bir uygulama öne çıkmıyor; küçük yükler birikiyor.",
+    "de": "Keine einzelne App dominiert; viele kleine Lasten summieren sich.",
+    "fr": "Aucune application ne domine ; les petites charges s'accumulent.",
+    "es": "Ninguna aplicación destaca; muchas cargas pequeñas se acumulan."
+  },
+  "Shows them first": {
+    "tr": "Önce listeyi gösterir",
+    "de": "Zeigt zuerst die Liste",
+    "fr": "Affiche d'abord la liste",
+    "es": "Muestra primero la lista"
+  },
+  "Automatic protection is off.": {
+    "tr": "Otomatik koruma kapalı.",
+    "de": "Automatischer Schutz ist aus.",
+    "fr": "La protection automatique est désactivée.",
+    "es": "La protección automática está desactivada."
+  },
+  "Turn it on": {
+    "tr": "Etkinleştir",
+    "de": "Aktivieren",
+    "fr": "Activer",
+    "es": "Activar"
+  },
+  "RustWTM then steps in by itself next time": {
+    "tr": "Bir sonraki sefer RustWTM otomatik müdahale eder",
+    "de": "RustWTM greift beim nächsten Mal automatisch ein",
+    "fr": "RustWTM interviendra automatiquement la prochaine fois",
+    "es": "RustWTM intervendrá automáticamente la próxima vez"
+  },
+  "Install the RustWTM service and it steps in automatically next time.": {
+    "tr": "Otomatik müdahale için RustWTM servisini kurun.",
+    "de": "Installieren Sie den RustWTM-Dienst für automatische Eingriffe.",
+    "fr": "Installez le service RustWTM pour une intervention automatique.",
+    "es": "Instale el servicio RustWTM para la intervención automática."
+  },
+  "Close": {
+    "tr": "Kapat",
+    "de": "Schließen",
+    "fr": "Fermer",
+    "es": "Cerrar"
+  },
+  "Snooze for 1 hour": {
+    "tr": "1 saat ertele",
+    "de": "1 Stunde pausieren",
+    "fr": "Reporter d'une heure",
+    "es": "Posponer 1 hora"
+  },
+  "Turn off these alerts": {
+    "tr": "Bu uyarıları kapat",
+    "de": "Diese Warnungen deaktivieren",
+    "fr": "Désactiver ces alertes",
+    "es": "Desactivar estas alertas"
+  },
+  "Overview": {
+    "tr": "Genel bakış",
+    "de": "Übersicht",
+    "fr": "Vue d'ensemble",
+    "es": "Resumen"
+  },
+  "Processes": {
+    "tr": "İşlemler",
+    "de": "Prozesse",
+    "fr": "Processus",
+    "es": "Procesos"
+  },
+  "Performance": {
+    "tr": "Performans",
+    "de": "Leistung",
+    "fr": "Performances",
+    "es": "Rendimiento"
+  },
+  "Sensors & cooling": {
+    "tr": "Sensörler ve soğutma",
+    "de": "Sensoren und Kühlung",
+    "fr": "Capteurs et refroidissement",
+    "es": "Sensores y refrigeración"
+  },
+  "App history": {
+    "tr": "Uygulama geçmişi",
+    "de": "App-Verlauf",
+    "fr": "Historique des applications",
+    "es": "Historial de aplicaciones"
+  },
+  "Governor": {
+    "tr": "Kaynak yöneticisi",
+    "de": "Ressourcensteuerung",
+    "fr": "Régulateur",
+    "es": "Regulador"
+  },
+  "Limits": {
+    "tr": "Sınırlar",
+    "de": "Grenzen",
+    "fr": "Limites",
+    "es": "Límites"
+  },
+  "Kill list": {
+    "tr": "Sonlandırma listesi",
+    "de": "Beendigungsliste",
+    "fr": "Liste d'arrêt",
+    "es": "Lista de finalización"
+  },
+  "Events": {
+    "tr": "Olaylar",
+    "de": "Ereignisse",
+    "fr": "Événements",
+    "es": "Eventos"
+  },
+  "Startup apps": {
+    "tr": "Başlangıç uygulamaları",
+    "de": "Autostart-Apps",
+    "fr": "Applications au démarrage",
+    "es": "Aplicaciones de inicio"
+  },
+  "Services": {
+    "tr": "Servisler",
+    "de": "Dienste",
+    "fr": "Services",
+    "es": "Servicios"
+  },
+  "Users": {
+    "tr": "Kullanıcılar",
+    "de": "Benutzer",
+    "fr": "Utilisateurs",
+    "es": "Usuarios"
+  },
+  "Network": {
+    "tr": "Ağ",
+    "de": "Netzwerk",
+    "fr": "Réseau",
+    "es": "Red"
+  },
+  "Ports": {
+    "tr": "Portlar",
+    "de": "Ports",
+    "fr": "Ports",
+    "es": "Puertos"
+  },
+  "Settings": {
+    "tr": "Ayarlar",
+    "de": "Einstellungen",
+    "fr": "Paramètres",
+    "es": "Configuración"
+  },
+  "About": {
+    "tr": "Hakkında",
+    "de": "Info",
+    "fr": "À propos",
+    "es": "Acerca de"
+  },
+  "Your machine at a glance": {
+    "tr": "Bilgisayarınıza hızlı bir bakış",
+    "de": "Ihr PC auf einen Blick",
+    "fr": "Votre PC en un coup d'œil",
+    "es": "Su equipo de un vistazo"
+  },
+  "Find what is busy. Keep what matters running.": {
+    "tr": "Yoğun işlemleri bulun. Önemli uygulamaları çalışır tutun.",
+    "de": "Auslastung finden. Wichtige Apps am Laufen halten.",
+    "fr": "Repérez la charge. Préservez les applications essentielles.",
+    "es": "Encuentre la carga. Mantenga activas las aplicaciones importantes."
+  },
+  "Live resource usage and recent trends": {
+    "tr": "Canlı kaynak kullanımı ve son eğilimler",
+    "de": "Live-Ressourcennutzung und aktuelle Trends",
+    "fr": "Utilisation des ressources et tendances récentes",
+    "es": "Uso de recursos en directo y tendencias recientes"
+  },
+  "Temperatures, fan speeds and thermal control": {
+    "tr": "Sıcaklıklar, fan hızları ve ısıl kontrol",
+    "de": "Temperaturen, Lüfterdrehzahlen und Temperaturregelung",
+    "fr": "Températures, vitesses des ventilateurs et contrôle thermique",
+    "es": "Temperaturas, velocidades de ventiladores y control térmico"
+  },
+  "Understand resource usage over time": {
+    "tr": "Zaman içindeki kaynak kullanımını inceleyin",
+    "de": "Ressourcennutzung im Zeitverlauf verstehen",
+    "fr": "Comprendre l'utilisation des ressources dans le temps",
+    "es": "Comprenda el uso de recursos a lo largo del tiempo"
+  },
+  "How automatic protection keeps your PC responsive": {
+    "tr": "Otomatik koruma bilgisayarınızı nasıl akıcı tutar",
+    "de": "Wie automatischer Schutz Ihren PC reaktionsschnell hält",
+    "fr": "Comment la protection préserve la réactivité du PC",
+    "es": "Cómo la protección mantiene la fluidez del equipo"
+  },
+  "Give each app a predictable resource budget": {
+    "tr": "Her uygulamaya öngörülebilir kaynak bütçesi verin",
+    "de": "Jeder App ein planbares Ressourcenbudget geben",
+    "fr": "Attribuer un budget de ressources prévisible par application",
+    "es": "Asigne un presupuesto predecible a cada aplicación"
+  },
+  "Choose which background tasks may be ended": {
+    "tr": "Sonlandırılabilecek arka plan görevlerini seçin",
+    "de": "Beendbare Hintergrundaufgaben auswählen",
+    "fr": "Choisir les tâches de fond pouvant être arrêtées",
+    "es": "Elija las tareas de fondo que se pueden finalizar"
+  },
+  "A record of decisions and actions": {
+    "tr": "Karar ve eylemlerin kaydı",
+    "de": "Protokoll der Entscheidungen und Aktionen",
+    "fr": "Journal des décisions et actions",
+    "es": "Registro de decisiones y acciones"
+  },
+  "Choose what starts when you sign in": {
+    "tr": "Oturum açıldığında başlayacakları seçin",
+    "de": "Autostart beim Anmelden auswählen",
+    "fr": "Choisir les applications lancées à la connexion",
+    "es": "Elija qué se inicia al entrar en la sesión"
+  },
+  "Inspect and manage Windows services": {
+    "tr": "Windows servislerini inceleyin ve yönetin",
+    "de": "Windows-Dienste prüfen und verwalten",
+    "fr": "Examiner et gérer les services Windows",
+    "es": "Examine y gestione los servicios de Windows"
+  },
+  "Sessions and the people using this machine": {
+    "tr": "Oturumlar ve bu bilgisayarı kullananlar",
+    "de": "Sitzungen und Benutzer dieses PCs",
+    "fr": "Sessions et utilisateurs de cet ordinateur",
+    "es": "Sesiones y usuarios de este equipo"
+  },
+  "Connections and the processes behind them": {
+    "tr": "Bağlantılar ve ilgili işlemler",
+    "de": "Verbindungen und zugehörige Prozesse",
+    "fr": "Connexions et processus associés",
+    "es": "Conexiones y procesos asociados"
+  },
+  "Find listeners, developer tools and available ports": {
+    "tr": "Dinleyen portları, araçları ve boş portları bulun",
+    "de": "Listener, Entwicklertools und freie Ports finden",
+    "fr": "Trouver les ports en écoute, outils et ports libres",
+    "es": "Encuentre puertos en escucha, herramientas y puertos libres"
+  },
+  "Make RustWTM work the way you do": {
+    "tr": "RustWTM'yi kendinize göre ayarlayın",
+    "de": "RustWTM nach Ihren Wünschen einrichten",
+    "fr": "Adapter RustWTM à vos besoins",
+    "es": "Adapte RustWTM a sus necesidades"
+  },
+  "Built for a responsive Windows PC": {
+    "tr": "Akıcı bir Windows deneyimi için geliştirildi",
+    "de": "Für einen reaktionsschnellen Windows-PC",
+    "fr": "Conçu pour un PC Windows réactif",
+    "es": "Diseñado para un PC Windows fluido"
+  },
+  "SYSTEM MONITOR": {
+    "tr": "SİSTEM İZLEYİCİ",
+    "de": "SYSTEMMONITOR",
+    "fr": "MONITEUR SYSTÈME",
+    "es": "MONITOR DEL SISTEMA"
+  },
+  "Show labels": {
+    "tr": "Etiketleri göster",
+    "de": "Beschriftungen anzeigen",
+    "fr": "Afficher les libellés",
+    "es": "Mostrar etiquetas"
+  },
+  "Icons only": {
+    "tr": "Yalnızca simgeler",
+    "de": "Nur Symbole",
+    "fr": "Icônes seules",
+    "es": "Solo iconos"
+  },
+  "MONITOR": {
+    "tr": "İZLEME",
+    "de": "ÜBERWACHEN",
+    "fr": "SURVEILLER",
+    "es": "SUPERVISAR"
+  },
+  "PROTECT": {
+    "tr": "KORUMA",
+    "de": "SCHÜTZEN",
+    "fr": "PROTÉGER",
+    "es": "PROTEGER"
+  },
+  "SYSTEM": {
+    "tr": "SİSTEM",
+    "de": "SYSTEM",
+    "fr": "SYSTÈME",
+    "es": "SISTEMA"
+  },
+  "Right-click a process for actions.": {
+    "tr": "Eylemler için bir işleme sağ tıklayın.",
+    "de": "Für Aktionen auf einen Prozess rechtsklicken.",
+    "fr": "Clic droit sur un processus pour les actions.",
+    "es": "Clic derecho en un proceso para ver acciones."
+  },
+  "🚨 Panic": {
+    "tr": "🚨 Acil sonlandır",
+    "de": "🚨 Not-Aus",
+    "fr": "🚨 Arrêt d'urgence",
+    "es": "🚨 Emergencia"
+  },
+  "End everything on the kill list (Ctrl+Shift+K)": {
+    "tr": "Listedeki her şeyi sonlandır (Ctrl+Shift+K)",
+    "de": "Alle Einträge der Beendigungsliste beenden (Strg+Umschalt+K)",
+    "fr": "Terminer toute la liste (Ctrl+Maj+K)",
+    "es": "Finalizar toda la lista (Ctrl+Mayús+K)"
+  },
+  "Run new task": {
+    "tr": "Yeni görev çalıştır",
+    "de": "Neuen Task ausführen",
+    "fr": "Exécuter une nouvelle tâche",
+    "es": "Ejecutar nueva tarea"
+  },
+  "Start a program, folder, document or website": {
+    "tr": "Program, klasör, belge veya web sitesi açın",
+    "de": "Programm, Ordner, Dokument oder Website öffnen",
+    "fr": "Ouvrir un programme, dossier, document ou site",
+    "es": "Abrir un programa, carpeta, documento o sitio web"
+  },
+  "Restart as administrator": {
+    "tr": "Yönetici olarak yeniden başlat",
+    "de": "Als Administrator neu starten",
+    "fr": "Redémarrer en administrateur",
+    "es": "Reiniciar como administrador"
+  },
+  "Control every process, including those of other users and services": {
+    "tr": "Diğer kullanıcıların ve servislerin işlemlerini de yönetin",
+    "de": "Auch Prozesse anderer Benutzer und Dienste steuern",
+    "fr": "Contrôler aussi les processus des autres utilisateurs et services",
+    "es": "Controle también procesos de otros usuarios y servicios"
+  },
+  "Close details": {
+    "tr": "Ayrıntıları kapat",
+    "de": "Details schließen",
+    "fr": "Fermer les détails",
+    "es": "Cerrar detalles"
+  },
+  "This window": {
+    "tr": "Bu pencere",
+    "de": "Dieses Fenster",
+    "fr": "Cette fenêtre",
+    "es": "Esta ventana"
+  },
+  "Service configuration": {
+    "tr": "Servis yapılandırması",
+    "de": "Dienstkonfiguration",
+    "fr": "Configuration du service",
+    "es": "Configuración del servicio"
+  },
+  "Cancel": {
+    "tr": "İptal",
+    "de": "Abbrechen",
+    "fr": "Annuler",
+    "es": "Cancelar"
+  },
+  "Disconnect": {
+    "tr": "Bağlantıyı kes",
+    "de": "Trennen",
+    "fr": "Déconnecter",
+    "es": "Desconectar"
+  },
+  "Their programs keep running; they can sign in again to continue.": {
+    "tr": "Programları çalışmaya devam eder; tekrar oturum açarak sürdürebilirler.",
+    "de": "Programme laufen weiter. Eine erneute Anmeldung setzt die Sitzung fort.",
+    "fr": "Les programmes continuent ; une reconnexion permet de reprendre.",
+    "es": "Los programas siguen activos; se puede continuar al volver a entrar."
+  },
+  "Sign off": {
+    "tr": "Oturumu kapat",
+    "de": "Abmelden",
+    "fr": "Fermer la session",
+    "es": "Cerrar sesión"
+  },
+  "Their programs close and unsaved work is lost.": {
+    "tr": "Programları kapanır ve kaydedilmemiş çalışmalar kaybolur.",
+    "de": "Programme werden geschlossen; ungespeicherte Arbeit geht verloren.",
+    "fr": "Les programmes se ferment et le travail non enregistré est perdu.",
+    "es": "Se cierran los programas y se pierde el trabajo sin guardar."
+  },
+  "Type the name of a program, folder, document or website.": {
+    "tr": "Program, klasör, belge veya web sitesi adını yazın.",
+    "de": "Geben Sie ein Programm, einen Ordner, ein Dokument oder eine Website an.",
+    "fr": "Saisissez un programme, dossier, document ou site web.",
+    "es": "Escriba un programa, carpeta, documento o sitio web."
+  },
+  "Create this task with administrator rights": {
+    "tr": "Bu görevi yönetici haklarıyla oluştur",
+    "de": "Mit Administratorrechten ausführen",
+    "fr": "Créer cette tâche avec les droits administrateur",
+    "es": "Crear esta tarea con derechos de administrador"
+  },
+  "Run": {
+    "tr": "Çalıştır",
+    "de": "Ausführen",
+    "fr": "Exécuter",
+    "es": "Ejecutar"
+  },
+  "Release page": {
+    "tr": "Sürüm sayfası",
+    "de": "Versionsseite",
+    "fr": "Page de version",
+    "es": "Página de la versión"
+  },
+  "Dismiss": {
+    "tr": "Gizle",
+    "de": "Ausblenden",
+    "fr": "Masquer",
+    "es": "Descartar"
+  },
+  "Update now": {
+    "tr": "Şimdi güncelle",
+    "de": "Jetzt aktualisieren",
+    "fr": "Mettre à jour",
+    "es": "Actualizar ahora"
+  },
+  "Downloads the installer, checks it against its published SHA-256, installs it (Windows asks for administrator rights) and restarts RustWTM": {
+    "tr": "Kurulumu indirir, yayımlanan SHA-256 ile doğrular, yönetici izniyle kurar ve RustWTM'yi yeniden başlatır",
+    "de": "Lädt das Installationspaket, prüft SHA-256, installiert mit Administratorfreigabe und startet RustWTM neu",
+    "fr": "Télécharge l'installateur, vérifie SHA-256, installe avec autorisation administrateur et redémarre RustWTM",
+    "es": "Descarga el instalador, verifica SHA-256, instala con autorización administrativa y reinicia RustWTM"
+  },
+  "Download": {
+    "tr": "İndir",
+    "de": "Herunterladen",
+    "fr": "Télécharger",
+    "es": "Descargar"
+  },
+  "This copy was not installed with the installer": {
+    "tr": "Bu kopya kurulum paketiyle kurulmamış",
+    "de": "Diese Kopie wurde nicht per Installationspaket installiert",
+    "fr": "Cette copie n'a pas été installée avec l'installateur",
+    "es": "Esta copia no se instaló con el instalador"
+  },
+  "What's new": {
+    "tr": "Yenilikler",
+    "de": "Neuerungen",
+    "fr": "Nouveautés",
+    "es": "Novedades"
+  },
+  "Later": {
+    "tr": "Daha sonra",
+    "de": "Später",
+    "fr": "Plus tard",
+    "es": "Más tarde"
+  },
+  "Skip this version": {
+    "tr": "Bu sürümü atla",
+    "de": "Diese Version überspringen",
+    "fr": "Ignorer cette version",
+    "es": "Omitir esta versión"
+  },
+  "Theme:": {
+    "tr": "Tema:",
+    "de": "Design:",
+    "fr": "Thème :",
+    "es": "Tema:"
+  },
+  "System": {
+    "tr": "Sistem",
+    "de": "System",
+    "fr": "Système",
+    "es": "Sistema"
+  },
+  "Light": {
+    "tr": "Açık",
+    "de": "Hell",
+    "fr": "Clair",
+    "es": "Claro"
+  },
+  "Dark": {
+    "tr": "Koyu",
+    "de": "Dunkel",
+    "fr": "Sombre",
+    "es": "Oscuro"
+  },
+  "Pop up when the CPU stays above": {
+    "tr": "CPU şu değerin üzerinde kalırsa uyar",
+    "de": "Warnen bei anhaltender CPU-Last über",
+    "fr": "Alerter si le CPU reste au-dessus de",
+    "es": "Avisar si la CPU permanece por encima de"
+  },
+  "Shows the busiest apps with one-click fixes before the PC becomes unusable": {
+    "tr": "Bilgisayar kullanılmaz hale gelmeden yoğun uygulamaları ve hızlı çözümleri gösterir",
+    "de": "Zeigt starke Verbraucher und schnelle Lösungen, bevor der PC unbenutzbar wird",
+    "fr": "Affiche les applications gourmandes et des solutions rapides avant le blocage du PC",
+    "es": "Muestra las aplicaciones más exigentes y soluciones rápidas antes de que el equipo se bloquee"
+  },
+  "Keep running in the tray when the window is closed": {
+    "tr": "Pencere kapatıldığında sistem tepsisinde çalışmaya devam et",
+    "de": "Beim Schließen im Infobereich weiterlaufen",
+    "fr": "Continuer dans la zone de notification à la fermeture",
+    "es": "Seguir en la bandeja al cerrar la ventana"
+  },
+  "Check for updates automatically": {
+    "tr": "Güncellemeleri otomatik denetle",
+    "de": "Automatisch nach Updates suchen",
+    "fr": "Rechercher automatiquement les mises à jour",
+    "es": "Buscar actualizaciones automáticamente"
+  },
+  "Asks GitHub for a newer release at start and twice a day": {
+    "tr": "Açılışta ve günde iki kez GitHub'da yeni sürüm arar",
+    "de": "Sucht beim Start und zweimal täglich auf GitHub",
+    "fr": "Interroge GitHub au démarrage et deux fois par jour",
+    "es": "Consulta GitHub al iniciar y dos veces al día"
+  },
+  "Start RustWTM in the tray when I sign in": {
+    "tr": "Oturum açtığımda RustWTM'yi tepside başlat",
+    "de": "RustWTM bei der Anmeldung im Infobereich starten",
+    "fr": "Lancer RustWTM dans la zone de notification à la connexion",
+    "es": "Iniciar RustWTM en la bandeja al entrar en la sesión"
+  },
+  "○ Starting": {
+    "tr": "○ Başlatılıyor",
+    "de": "○ Startet",
+    "fr": "○ Démarrage",
+    "es": "○ Iniciando"
+  },
+  "Collecting data…": {
+    "tr": "Veriler toplanıyor…",
+    "de": "Daten werden erfasst…",
+    "fr": "Collecte des données…",
+    "es": "Recopilando datos…"
+  },
+  "● Console instance": {
+    "tr": "● Konsol örneği",
+    "de": "● Konsoleninstanz",
+    "fr": "● Instance console",
+    "es": "● Instancia de consola"
+  },
+  "Connected to a RustWTM engine that is not the installed service (e.g. `wtm-service console`).": {
+    "tr": "Kurulu servis olmayan bir RustWTM motoruna bağlı (ör. `wtm-service console`).",
+    "de": "Mit einer RustWTM-Instanz verbunden, die nicht der installierte Dienst ist (z. B. `wtm-service console`).",
+    "fr": "Connecté à un moteur RustWTM distinct du service installé (p. ex. `wtm-service console`).",
+    "es": "Conectado a un motor RustWTM distinto del servicio instalado (p. ej. `wtm-service console`)."
+  },
+  "● Service": {
+    "tr": "● Servis",
+    "de": "● Dienst",
+    "fr": "● Service",
+    "es": "● Servicio"
+  },
+  "Connected to the RustWTM service with full control.": {
+    "tr": "RustWTM servisine tam kontrolle bağlı.",
+    "de": "Mit voller Kontrolle am RustWTM-Dienst verbunden.",
+    "fr": "Connecté au service RustWTM avec contrôle complet.",
+    "es": "Conectado al servicio RustWTM con control completo."
+  },
+  "● Service (read-only)": {
+    "tr": "● Servis (salt okunur)",
+    "de": "● Dienst (nur Lesen)",
+    "fr": "● Service (lecture seule)",
+    "es": "● Servicio (solo lectura)"
+  },
+  "Connected to the service. Run RustWTM as administrator to send commands through it; until then actions use your own rights.": {
+    "tr": "Servise bağlı. Komut göndermek için yönetici olarak çalıştırın; şimdilik işlemler kendi haklarınızla uygulanır.",
+    "de": "Mit dem Dienst verbunden. Als Administrator starten, um Befehle zu senden; sonst gelten Ihre eigenen Rechte.",
+    "fr": "Connecté au service. Exécutez en administrateur pour envoyer des commandes ; sinon vos droits s'appliquent.",
+    "es": "Conectado al servicio. Ejecute como administrador para enviar órdenes; mientras tanto se usan sus propios permisos."
+  },
+  "○ Local": {
+    "tr": "○ Yerel",
+    "de": "○ Lokal",
+    "fr": "○ Local",
+    "es": "○ Local"
+  },
+  "The RustWTM service is not running. Monitoring and actions use this window's own rights.": {
+    "tr": "RustWTM servisi çalışmıyor. İzleme ve eylemler bu pencerenin haklarıyla yürütülüyor.",
+    "de": "Der RustWTM-Dienst läuft nicht. Überwachung und Aktionen nutzen die Rechte dieses Fensters.",
+    "fr": "Le service RustWTM est arrêté. La surveillance et les actions utilisent les droits de cette fenêtre.",
+    "es": "El servicio RustWTM no está activo. La supervisión y acciones usan los permisos de esta ventana."
+  },
+  "This process has exited.": {
+    "tr": "Bu işlem sonlandı.",
+    "de": "Dieser Prozess wurde beendet.",
+    "fr": "Ce processus s'est terminé.",
+    "es": "Este proceso ha terminado."
+  },
+  "Parent PID": {
+    "tr": "Üst PID",
+    "de": "Übergeordnete PID",
+    "fr": "PID parent",
+    "es": "PID padre"
+  },
+  "Session": {
+    "tr": "Oturum",
+    "de": "Sitzung",
+    "fr": "Session",
+    "es": "Sesión"
+  },
+  "Uptime": {
+    "tr": "Çalışma süresi",
+    "de": "Laufzeit",
+    "fr": "Durée d'activité",
+    "es": "Tiempo activo"
+  },
+  "CPU time": {
+    "tr": "CPU süresi",
+    "de": "CPU-Zeit",
+    "fr": "Temps CPU",
+    "es": "Tiempo de CPU"
+  },
+  "Private working set": {
+    "tr": "Özel çalışma kümesi",
+    "de": "Privater Arbeitssatz",
+    "fr": "Ensemble de travail privé",
+    "es": "Conjunto de trabajo privado"
+  },
+  "Working set": {
+    "tr": "Çalışma kümesi",
+    "de": "Arbeitssatz",
+    "fr": "Ensemble de travail",
+    "es": "Conjunto de trabajo"
+  },
+  "Commit": {
+    "tr": "Taahhüt",
+    "de": "Zugesichert",
+    "fr": "Mémoire engagée",
+    "es": "Memoria comprometida"
+  },
+  "Disk read": {
+    "tr": "Disk okuma",
+    "de": "Lesen",
+    "fr": "Lecture disque",
+    "es": "Lectura de disco"
+  },
+  "Disk write": {
+    "tr": "Disk yazma",
+    "de": "Schreiben",
+    "fr": "Écriture disque",
+    "es": "Escritura de disco"
+  },
+  "Threads": {
+    "tr": "İş parçacıkları",
+    "de": "Threads",
+    "fr": "Threads",
+    "es": "Subprocesos"
+  },
+  "Handles": {
+    "tr": "Tanıtıcılar",
+    "de": "Handles",
+    "fr": "Handles",
+    "es": "Identificadores"
+  },
+  "Priority": {
+    "tr": "Öncelik",
+    "de": "Priorität",
+    "fr": "Priorité",
+    "es": "Prioridad"
+  },
+  "Efficiency": {
+    "tr": "Verimlilik",
+    "de": "Effizienz",
+    "fr": "Efficacité",
+    "es": "Eficiencia"
+  },
+  "Affinity": {
+    "tr": "Çekirdek ilişkisi",
+    "de": "Affinität",
+    "fr": "Affinité",
+    "es": "Afinidad"
+  },
+  "Critical": {
+    "tr": "Kritik",
+    "de": "Kritisch",
+    "fr": "Critique",
+    "es": "Crítico"
+  },
+  "Protected": {
+    "tr": "Korumalı",
+    "de": "Geschützt",
+    "fr": "Protégé",
+    "es": "Protegido"
+  },
+  "Details": {
+    "tr": "Ayrıntılar",
+    "de": "Details",
+    "fr": "Détails",
+    "es": "Detalles"
+  },
+  "loading…": {
+    "tr": "yükleniyor…",
+    "de": "wird geladen…",
+    "fr": "chargement…",
+    "es": "cargando…"
+  },
+  "Copy command line": {
+    "tr": "Komut satırını kopyala",
+    "de": "Befehlszeile kopieren",
+    "fr": "Copier la ligne de commande",
+    "es": "Copiar línea de comandos"
+  },
+  "Listening on": {
+    "tr": "Dinlediği portlar",
+    "de": "Lauscht auf",
+    "fr": "Écoute sur",
+    "es": "Escuchando en"
+  },
+  "Show in Ports": {
+    "tr": "Portlarda göster",
+    "de": "In Ports anzeigen",
+    "fr": "Afficher dans Ports",
+    "es": "Mostrar en Puertos"
+  },
+  "Last two minutes": {
+    "tr": "Son iki dakika",
+    "de": "Letzte zwei Minuten",
+    "fr": "Deux dernières minutes",
+    "es": "Últimos dos minutos"
+  },
+  "Memory": {
+    "tr": "Bellek",
+    "de": "Arbeitsspeicher",
+    "fr": "Mémoire",
+    "es": "Memoria"
+  },
+  "End task": {
+    "tr": "Görevi sonlandır",
+    "de": "Task beenden",
+    "fr": "Terminer la tâche",
+    "es": "Finalizar tarea"
+  },
+  "More actions": {
+    "tr": "Diğer eylemler",
+    "de": "Weitere Aktionen",
+    "fr": "Autres actions",
+    "es": "Más acciones"
+  },
+  "Open file location": {
+    "tr": "Dosya konumunu aç",
+    "de": "Dateipfad öffnen",
+    "fr": "Ouvrir l'emplacement",
+    "es": "Abrir ubicación del archivo"
+  },
+  "Refresh": {
+    "tr": "Yenile",
+    "de": "Aktualisieren",
+    "fr": "Actualiser",
+    "es": "Actualizar"
+  },
+  "Relative Windows CPU performance tiers; not vendor model identifiers.": {
+    "tr": "Göreli Windows performans sınıflarıdır; üretici model adları değildir.",
+    "de": "Relative Windows-Leistungsklassen, keine Herstellermodellnamen.",
+    "fr": "Classes de performances relatives de Windows, pas des modèles constructeur.",
+    "es": "Clases de rendimiento relativas de Windows, no modelos del fabricante."
+  },
+  "Per-core tier labels are unavailable across multiple processor groups.": {
+    "tr": "Birden fazla işlemci grubunda çekirdek sınıfı etiketleri kullanılamıyor.",
+    "de": "Kernklassen sind über mehrere Prozessorgruppen nicht verfügbar.",
+    "fr": "Les classes par cœur ne sont pas disponibles sur plusieurs groupes de processeurs.",
+    "es": "Las clases por núcleo no están disponibles con varios grupos de procesadores."
+  },
+  "Receive": {
+    "tr": "Alınan",
+    "de": "Empfangen",
+    "fr": "Réception",
+    "es": "Recepción"
+  },
+  "Send": {
+    "tr": "Gönderilen",
+    "de": "Senden",
+    "fr": "Envoi",
+    "es": "Envío"
+  },
+  "Read": {
+    "tr": "Okuma",
+    "de": "Lesen",
+    "fr": "Lecture",
+    "es": "Lectura"
+  },
+  "Write": {
+    "tr": "Yazma",
+    "de": "Schreiben",
+    "fr": "Écriture",
+    "es": "Escritura"
+  },
+  "Logical processors": {
+    "tr": "Mantıksal işlemciler",
+    "de": "Logische Prozessoren",
+    "fr": "Processeurs logiques",
+    "es": "Procesadores lógicos"
+  },
+  "Committed": {
+    "tr": "Taahhüt edilen",
+    "de": "Zugesichert",
+    "fr": "Engagée",
+    "es": "Comprometida"
+  },
+  "Service not running": {
+    "tr": "Servis çalışmıyor",
+    "de": "Dienst läuft nicht",
+    "fr": "Service arrêté",
+    "es": "Servicio detenido"
+  },
+  "The governor runs inside the RustWTM service. Install and start it from an elevated prompt:": {
+    "tr": "Kaynak yöneticisi RustWTM servisinde çalışır. Yönetici terminalinden kurup başlatın:",
+    "de": "Die Ressourcensteuerung läuft im RustWTM-Dienst. In einer Administratorkonsole installieren und starten:",
+    "fr": "Le régulateur fonctionne dans le service RustWTM. Installez et démarrez depuis une console administrateur :",
+    "es": "El regulador funciona en el servicio RustWTM. Instale e inicie desde una consola de administrador:"
+  },
+  "Mode": {
+    "tr": "Mod",
+    "de": "Modus",
+    "fr": "Mode",
+    "es": "Modo"
+  },
+  "Dry-run (decisions are only logged)": {
+    "tr": "Deneme (kararlar yalnızca kaydedilir)",
+    "de": "Testmodus (Entscheidungen nur protokolliert)",
+    "fr": "Simulation (décisions uniquement journalisées)",
+    "es": "Simulación (solo registra decisiones)"
+  },
+  "Enforcing": {
+    "tr": "Uygulanıyor",
+    "de": "Aktiv",
+    "fr": "Actif",
+    "es": "Aplicando"
+  },
+  "Thresholds": {
+    "tr": "Eşikler",
+    "de": "Schwellenwerte",
+    "fr": "Seuils",
+    "es": "Umbrales"
+  },
+  "Rules": {
+    "tr": "Kurallar",
+    "de": "Regeln",
+    "fr": "Règles",
+    "es": "Reglas"
+  },
+  "Config": {
+    "tr": "Yapılandırma",
+    "de": "Konfiguration",
+    "fr": "Configuration",
+    "es": "Configuración"
+  },
+  "No process is currently limited.": {
+    "tr": "Şu an sınırlanan işlem yok.",
+    "de": "Aktuell ist kein Prozess begrenzt.",
+    "fr": "Aucun processus n'est limité.",
+    "es": "Ningún proceso está limitado actualmente."
+  },
+  "Name": {
+    "tr": "Ad",
+    "de": "Name",
+    "fr": "Nom",
+    "es": "Nombre"
+  },
+  "Source": {
+    "tr": "Kaynak",
+    "de": "Quelle",
+    "fr": "Source",
+    "es": "Origen"
+  },
+  "Effective limits": {
+    "tr": "Etkin sınırlar",
+    "de": "Wirksame Grenzen",
+    "fr": "Limites effectives",
+    "es": "Límites efectivos"
+  },
+  "No events yet.": {
+    "tr": "Henüz olay yok.",
+    "de": "Noch keine Ereignisse.",
+    "fr": "Aucun événement.",
+    "es": "Aún no hay eventos."
+  },
+  "Time": {
+    "tr": "Zaman",
+    "de": "Zeit",
+    "fr": "Heure",
+    "es": "Hora"
+  },
+  "Level": {
+    "tr": "Düzey",
+    "de": "Stufe",
+    "fr": "Niveau",
+    "es": "Nivel"
+  },
+  "Process": {
+    "tr": "İşlem",
+    "de": "Prozess",
+    "fr": "Processus",
+    "es": "Proceso"
+  },
+  "Message": {
+    "tr": "İleti",
+    "de": "Meldung",
+    "fr": "Message",
+    "es": "Mensaje"
+  },
+  "Select a service to start, stop or change its startup type.": {
+    "tr": "Başlatmak, durdurmak veya başlangıç türünü değiştirmek için servis seçin.",
+    "de": "Dienst zum Starten, Stoppen oder Ändern des Starttyps auswählen.",
+    "fr": "Sélectionnez un service pour le démarrer, l'arrêter ou modifier son démarrage.",
+    "es": "Seleccione un servicio para iniciarlo, detenerlo o cambiar su tipo de inicio."
+  },
+  "Start": {
+    "tr": "Başlat",
+    "de": "Starten",
+    "fr": "Démarrer",
+    "es": "Iniciar"
+  },
+  "Stop": {
+    "tr": "Durdur",
+    "de": "Stoppen",
+    "fr": "Arrêter",
+    "es": "Detener"
+  },
+  "Restart": {
+    "tr": "Yeniden başlat",
+    "de": "Neu starten",
+    "fr": "Redémarrer",
+    "es": "Reiniciar"
+  },
+  "Startup type": {
+    "tr": "Başlangıç türü",
+    "de": "Starttyp",
+    "fr": "Type de démarrage",
+    "es": "Tipo de inicio"
+  },
+  "Version {0}  ·  MIT license  ·  written in Rust": {
+    "tr": "Sürüm {0}  ·  MIT lisansı  ·  Rust ile yazıldı",
+    "de": "Version {0}  ·  MIT-Lizenz  ·  in Rust geschrieben",
+    "fr": "Version {0}  ·  licence MIT  ·  écrit en Rust",
+    "es": "Versión {0}  ·  licencia MIT  ·  escrito en Rust"
+  },
+  "Version {0} is available (see the bar at the top).": {
+    "tr": "{0} sürümü hazır (üstteki çubuğa bakın).",
+    "de": "Version {0} ist verfügbar (siehe Leiste oben).",
+    "fr": "La version {0} est disponible (voir la barre en haut).",
+    "es": "La versión {0} está disponible (vea la barra superior)."
+  },
+  "Installing {0}…": {
+    "tr": "{0} kuruluyor…",
+    "de": "{0} wird installiert…",
+    "fr": "Installation de {0}…",
+    "es": "Instalando {0}…"
+  },
+  "Update check failed: {0}": {
+    "tr": "Güncelleme denetimi başarısız: {0}",
+    "de": "Updatesuche fehlgeschlagen: {0}",
+    "fr": "Échec de la recherche : {0}",
+    "es": "Error al buscar actualizaciones: {0}"
+  },
+  "Crafted by {0}": {
+    "tr": "Geliştirici: {0}",
+    "de": "Entwickelt von {0}",
+    "fr": "Créé par {0}",
+    "es": "Creado por {0}"
+  },
+  "{0} on GitHub": {
+    "tr": "GitHub'da {0}",
+    "de": "{0} auf GitHub",
+    "fr": "{0} sur GitHub",
+    "es": "{0} en GitHub"
+  },
+  "© {0}. Free and open source software. If RustWTM saves your day, a star on GitHub is the best way to say thanks.": {
+    "tr": "© {0}. Ücretsiz ve açık kaynaklı yazılım. RustWTM işinize yarıyorsa GitHub'da yıldız vererek destek olabilirsiniz.",
+    "de": "© {0}. Freie und quelloffene Software. Hilft Ihnen RustWTM, freuen wir uns über einen Stern auf GitHub.",
+    "fr": "© {0}. Logiciel libre et gratuit. Si RustWTM vous aide, une étoile sur GitHub est le meilleur remerciement.",
+    "es": "© {0}. Software libre y gratuito. Si RustWTM le ayuda, una estrella en GitHub es la mejor forma de agradecerlo."
+  },
+  "⚠ Your PC is overloaded: CPU {0}%": {
+    "tr": "⚠ Bilgisayarınız aşırı yüklü: CPU %{0}",
+    "de": "⚠ Ihr PC ist überlastet: CPU {0}%",
+    "fr": "⚠ Votre PC est surchargé : CPU {0}%",
+    "es": "⚠ Su PC está sobrecargado: CPU {0}%"
+  },
+  "🚨 End the kill list ({0} processes)": {
+    "tr": "🚨 Sonlandırma listesini bitir ({0} işlem)",
+    "de": "🚨 Beendigungsliste ausführen ({0} Prozesse)",
+    "fr": "🚨 Terminer la liste ({0} processus)",
+    "es": "🚨 Finalizar la lista ({0} procesos)"
+  },
+  "RustWTM - CPU {0}%, memory {1}%": {
+    "tr": "RustWTM - CPU %{0}, bellek %{1}",
+    "de": "RustWTM - CPU {0}%, Speicher {1}%",
+    "fr": "RustWTM - CPU {0}%, mémoire {1}%",
+    "es": "RustWTM - CPU {0}%, memoria {1}%"
+  },
+  "CPU {0}%   Memory {1} / {2}": {
+    "tr": "CPU %{0}   Bellek {1} / {2}",
+    "de": "CPU {0}%   Speicher {1} / {2}",
+    "fr": "CPU {0}%   Mémoire {1} / {2}",
+    "es": "CPU {0}%   Memoria {1} / {2}"
+  },
+  "{0} \"{1}\" (PID {2})? Unsaved data in that program will be lost.": {
+    "tr": "{0} \"{1}\" (PID {2})? Programdaki kaydedilmemiş veriler kaybolacak.",
+    "de": "{0} \"{1}\" (PID {2})? Nicht gespeicherte Daten gehen verloren.",
+    "fr": "{0} \"{1}\" (PID {2}) ? Les données non enregistrées seront perdues.",
+    "es": "¿{0} \"{1}\" (PID {2})? Se perderán los datos sin guardar."
+  },
+  "{0} {1} (session {2})? {3}": {
+    "tr": "{0}: {1} (oturum {2})? {3}",
+    "de": "{0}: {1} (Sitzung {2})? {3}",
+    "fr": "{0} : {1} (session {2}) ? {3}",
+    "es": "¿{0}: {1} (sesión {2})? {3}"
+  },
+  "{0} all {1} processes of \"{2}\"? Unsaved data in that program will be lost.": {
+    "tr": "{0}: \"{2}\" uygulamasının {1} işleminin tümü? Kaydedilmemiş veriler kaybolacak.",
+    "de": "{0} alle {1} Prozesse von \"{2}\"? Ungespeicherte Daten gehen verloren.",
+    "fr": "{0} les {1} processus de \"{2}\" ? Les données non enregistrées seront perdues.",
+    "es": "¿{0} todos los {1} procesos de \"{2}\"? Se perderán los datos sin guardar."
+  },
+  "{0} these {1} processes: {2}? Unsaved data in them will be lost.": {
+    "tr": "{0}: şu {1} işlem: {2}? Kaydedilmemiş veriler kaybolacak.",
+    "de": "{0} diese {1} Prozesse: {2}? Ungespeicherte Daten gehen verloren.",
+    "fr": "{0} ces {1} processus : {2} ? Les données non enregistrées seront perdues.",
+    "es": "¿{0} estos {1} procesos: {2}? Se perderán los datos sin guardar."
+  },
+  "{0} all": {
+    "tr": "Tümünü {0}",
+    "de": "Alle {0}",
+    "fr": "Tout {0}",
+    "es": "{0} todos"
+  },
+  "The update failed: {0}": {
+    "tr": "Güncelleme başarısız: {0}",
+    "de": "Update fehlgeschlagen: {0}",
+    "fr": "Échec de la mise à jour : {0}",
+    "es": "Error de actualización: {0}"
+  },
+  "Downloading and verifying RustWTM {0}; the installer starts next and RustWTM restarts by itself.": {
+    "tr": "RustWTM {0} indiriliyor ve doğrulanıyor; ardından kurulum başlayıp RustWTM yeniden açılacak.",
+    "de": "RustWTM {0} wird geladen und geprüft. Danach startet die Installation und RustWTM wird neu gestartet.",
+    "fr": "Téléchargement et vérification de RustWTM {0} ; l'installation puis le redémarrage suivront.",
+    "es": "Descargando y verificando RustWTM {0}; después se instalará y reiniciará."
+  },
+  "⬆ RustWTM {0} is available (you have {1}).": {
+    "tr": "⬆ RustWTM {0} hazır (mevcut {1}).",
+    "de": "⬆ RustWTM {0} ist verfügbar (installiert: {1}).",
+    "fr": "⬆ RustWTM {0} est disponible (version actuelle : {1}).",
+    "es": "⬆ RustWTM {0} disponible (actual: {1})."
+  },
+  "{0} of {1} CPUs": {
+    "tr": "{0} / {1} CPU",
+    "de": "{0} von {1} CPUs",
+    "fr": "{0} CPU sur {1}",
+    "es": "{0} de {1} CPU"
+  },
+  "User: {0}": {
+    "tr": "Kullanıcı: {0}",
+    "de": "Benutzer: {0}",
+    "fr": "Utilisateur : {0}",
+    "es": "Usuario: {0}"
+  },
+  "CPU {0}": {
+    "tr": "CPU {0}",
+    "de": "CPU {0}",
+    "fr": "CPU {0}",
+    "es": "CPU {0}"
+  },
+  "CPU {0} · {1}": {
+    "tr": "CPU {0} · {1}",
+    "de": "CPU {0} · {1}",
+    "fr": "CPU {0} · {1}",
+    "es": "CPU {0} · {1}"
+  },
+  " · Group {0}, physical core {1}, Windows class {2}": {
+    "tr": " · Grup {0}, fiziksel çekirdek {1}, Windows sınıfı {2}",
+    "de": " · Gruppe {0}, physischer Kern {1}, Windows-Klasse {2}",
+    "fr": " · Groupe {0}, cœur physique {1}, classe Windows {2}",
+    "es": " · Grupo {0}, núcleo físico {1}, clase de Windows {2}"
+  },
+  "Per logical processor ({0})": {
+    "tr": "Mantıksal işlemci başına ({0})",
+    "de": "Pro logischem Prozessor ({0})",
+    "fr": "Par processeur logique ({0})",
+    "es": "Por procesador lógico ({0})"
+  },
+  "{0}: {1} threads": {
+    "tr": "{0}: {1} iş parçacığı",
+    "de": "{0}: {1} Threads",
+    "fr": "{0} : {1} threads",
+    "es": "{0}: {1} subprocesos"
+  },
+  "In use {0}": {
+    "tr": "Kullanılan {0}",
+    "de": "Verwendet {0}",
+    "fr": "Utilisée {0}",
+    "es": "En uso {0}"
+  },
+  "Available {0}": {
+    "tr": "Kullanılabilir {0}",
+    "de": "Verfügbar {0}",
+    "fr": "Disponible {0}",
+    "es": "Disponible {0}"
+  },
+  "Committed {0} of {1}": {
+    "tr": "Taahhüt {0} / {1}",
+    "de": "Zugesichert {0} von {1}",
+    "fr": "Engagée {0} sur {1}",
+    "es": "Comprometida {0} de {1}"
+  },
+  "{0}%  busiest engine": {
+    "tr": "%{0}  en yoğun motor",
+    "de": "{0}%  stärkste Engine",
+    "fr": "{0}%  moteur le plus actif",
+    "es": "{0}%  motor más activo"
+  },
+  "+ {0} more engines": {
+    "tr": "+ {0} motor daha",
+    "de": "+ {0} weitere Engines",
+    "fr": "+ {0} autres moteurs",
+    "es": "+ {0} motores más"
+  },
+  "Network  ↓ {0}/s  ↑ {1}/s": {
+    "tr": "Ağ  ↓ {0}/s  ↑ {1}/s",
+    "de": "Netzwerk  ↓ {0}/s  ↑ {1}/s",
+    "fr": "Réseau  ↓ {0}/s  ↑ {1}/s",
+    "es": "Red  ↓ {0}/s  ↑ {1}/s"
+  },
+  "Disk & I/O  read {0}/s  write {1}/s": {
+    "tr": "Disk ve G/Ç  okuma {0}/s  yazma {1}/s",
+    "de": "Datenträger und E/A  Lesen {0}/s  Schreiben {1}/s",
+    "fr": "Disque et E/S  lecture {0}/s  écriture {1}/s",
+    "es": "Disco y E/S  lectura {0}/s  escritura {1}/s"
+  },
+  "Disk {0}": {
+    "tr": "Disk {0}",
+    "de": "Datenträger {0}",
+    "fr": "Disque {0}",
+    "es": "Disco {0}"
+  },
+  "{0}% active   read {1}/s   write {2}/s": {
+    "tr": "%{0} etkin   okuma {1}/s   yazma {2}/s",
+    "de": "{0}% aktiv   Lesen {1}/s   Schreiben {2}/s",
+    "fr": "{0}% actif   lecture {1}/s   écriture {2}/s",
+    "es": "{0}% activo   lectura {1}/s   escritura {2}/s"
+  },
+  "act at ≥ {0}% CPU, roll back at ≤ {1}%": {
+    "tr": "CPU ≥ %{0} iken uygula, ≤ %{1} iken geri al",
+    "de": "Eingriff ab {0}% CPU, Rücknahme bis {1}%",
+    "fr": "Agir à ≥ {0}% CPU, restaurer à ≤ {1}%",
+    "es": "Actuar con CPU ≥ {0}%, restaurar con ≤ {1}%"
+  },
+  "Managed processes ({0})": {
+    "tr": "Yönetilen işlemler ({0})",
+    "de": "Verwaltete Prozesse ({0})",
+    "fr": "Processus gérés ({0})",
+    "es": "Procesos gestionados ({0})"
+  },
+  "{0}, but the installed service is a different version ({1}). Update it with the installer of version {2}.": {
+    "tr": "{0}, ancak kurulu servis farklı sürümde ({1}). {2} sürümünün kurulum paketiyle güncelleyin.",
+    "de": "{0}, aber der installierte Dienst hat eine andere Version ({1}). Mit Version {2} aktualisieren.",
+    "fr": "{0}, mais le service installé utilise une autre version ({1}). Installez la version {2}.",
+    "es": "{0}, pero el servicio instalado tiene otra versión ({1}). Actualice con el instalador de la versión {2}."
+  },
+  "{0}, which is not running.": {
+    "tr": "{0}, ancak servis çalışmıyor.",
+    "de": "{0}, dieser läuft jedoch nicht.",
+    "fr": "{0}, mais il est arrêté.",
+    "es": "{0}, pero no está activo."
+  },
+  "unexpected response: {0}": {
+    "tr": "beklenmeyen yanıt: {0}",
+    "de": "Unerwartete Antwort: {0}",
+    "fr": "Réponse inattendue : {0}",
+    "es": "Respuesta inesperada: {0}"
+  },
+  "Lost connection to service: {0}": {
+    "tr": "Servis bağlantısı kesildi: {0}",
+    "de": "Dienstverbindung verloren: {0}",
+    "fr": "Connexion au service perdue : {0}",
+    "es": "Conexión con el servicio perdida: {0}"
+  },
+  "{0} has exited (watched for {1}).": {
+    "tr": "{0} sonlandı (izleme süresi {1}).",
+    "de": "{0} wurde beendet ({1} überwacht).",
+    "fr": "{0} s'est terminé (surveillé pendant {1}).",
+    "es": "{0} terminó (supervisado durante {1})."
+  },
+  "No longer watching {0}": {
+    "tr": "{0} artık izlenmiyor",
+    "de": "{0} wird nicht mehr überwacht",
+    "fr": "{0} n'est plus surveillé",
+    "es": "Ya no se supervisa {0}"
+  },
+  "You will be notified when {0} ({1}) exits": {
+    "tr": "{0} ({1}) sonlandığında bildirim alacaksınız",
+    "de": "Benachrichtigung beim Ende von {0} ({1}) aktiviert",
+    "fr": "Vous serez averti à la fin de {0} ({1})",
+    "es": "Recibirá un aviso cuando termine {0} ({1})"
+  },
+  "Memory dump of {0} written to {1}": {
+    "tr": "{0} bellek dökümü {1} konumuna yazıldı",
+    "de": "Speicherabbild von {0} nach {1} geschrieben",
+    "fr": "Image mémoire de {0} écrite dans {1}",
+    "es": "Volcado de memoria de {0} guardado en {1}"
+  },
+  "Cannot dump {0}: {1}": {
+    "tr": "{0} dökümü alınamadı: {1}",
+    "de": "Speicherabbild von {0} fehlgeschlagen: {1}",
+    "fr": "Impossible de créer l'image mémoire de {0} : {1}",
+    "es": "No se pudo crear el volcado de {0}: {1}"
+  },
+  "{0} session {1}": {
+    "tr": "{0}: oturum {1}",
+    "de": "{0}: Sitzung {1}",
+    "fr": "{0} : session {1}",
+    "es": "{0}: sesión {1}"
+  },
+  "Session {0}: access denied (run RustWTM as administrator)": {
+    "tr": "Oturum {0}: erişim reddedildi (yönetici olarak çalıştırın)",
+    "de": "Sitzung {0}: Zugriff verweigert (als Administrator starten)",
+    "fr": "Session {0} : accès refusé (exécutez en administrateur)",
+    "es": "Sesión {0}: acceso denegado (ejecute como administrador)"
+  },
+  "Session {0}: {1}": {
+    "tr": "Oturum {0}: {1}",
+    "de": "Sitzung {0}: {1}",
+    "fr": "Session {0} : {1}",
+    "es": "Sesión {0}: {1}"
+  },
+  "Cannot open the location of {0}: {1}": {
+    "tr": "{0} konumu açılamadı: {1}",
+    "de": "Pfad von {0} konnte nicht geöffnet werden: {1}",
+    "fr": "Impossible d'ouvrir l'emplacement de {0} : {1}",
+    "es": "No se pudo abrir la ubicación de {0}: {1}"
+  },
+  "Started {0}": {
+    "tr": "Başlatıldı: {0}",
+    "de": "Gestartet: {0}",
+    "fr": "Démarré : {0}",
+    "es": "Iniciado: {0}"
+  },
+  "Cannot run {0}: {1}": {
+    "tr": "Çalıştırılamadı: {0}: {1}",
+    "de": "Start von {0} fehlgeschlagen: {1}",
+    "fr": "Impossible d'exécuter {0} : {1}",
+    "es": "No se pudo ejecutar {0}: {1}"
+  },
+  "Cannot restart as administrator: {0}": {
+    "tr": "Yönetici olarak yeniden başlatılamadı: {0}",
+    "de": "Neustart als Administrator fehlgeschlagen: {0}",
+    "fr": "Échec du redémarrage en administrateur : {0}",
+    "es": "No se pudo reiniciar como administrador: {0}"
+  },
+  "Saving the configuration failed: {0}": {
+    "tr": "Yapılandırma kaydedilemedi: {0}",
+    "de": "Konfiguration konnte nicht gespeichert werden: {0}",
+    "fr": "Échec de l'enregistrement de la configuration : {0}",
+    "es": "Error al guardar la configuración: {0}"
+  },
+  "Saving the Telegram settings failed: {0}": {
+    "tr": "Telegram ayarları kaydedilemedi: {0}",
+    "de": "Telegram-Einstellungen konnten nicht gespeichert werden: {0}",
+    "fr": "Échec de l'enregistrement Telegram : {0}",
+    "es": "Error al guardar los ajustes de Telegram: {0}"
+  },
+  "Telegram test failed: {0}": {
+    "tr": "Telegram testi başarısız: {0}",
+    "de": "Telegram-Test fehlgeschlagen: {0}",
+    "fr": "Échec du test Telegram : {0}",
+    "es": "Prueba de Telegram fallida: {0}"
+  },
+  "{0} failed for {1} ({2}): {3}": {
+    "tr": "{0} başarısız: {1} ({2}): {3}",
+    "de": "{0} fehlgeschlagen für {1} ({2}): {3}",
+    "fr": "Échec de {0} pour {1} ({2}) : {3}",
+    "es": "Error de {0} para {1} ({2}): {3}"
+  },
+  "Local: {0}": {
+    "tr": "Yerel: {0}",
+    "de": "Lokal: {0}",
+    "fr": "Local : {0}",
+    "es": "Local: {0}"
+  },
+  "Local: {0} failed: {1}": {
+    "tr": "Yerel: {0} başarısız: {1}",
+    "de": "Lokal: {0} fehlgeschlagen: {1}",
+    "fr": "Local : échec de {0} : {1}",
+    "es": "Local: error de {0}: {1}"
+  },
+  "{0} startup entry {1}": {
+    "tr": "{0}: başlangıç girdisi {1}",
+    "de": "{0}: Autostart-Eintrag {1}",
+    "fr": "{0} : entrée de démarrage {1}",
+    "es": "{0}: entrada de inicio {1}"
+  },
+  "{0}: access denied (all-users entries need administrator)": {
+    "tr": "{0}: erişim reddedildi (tüm kullanıcılar için yönetici gerekir)",
+    "de": "{0}: Zugriff verweigert (für alle Benutzer sind Administratorrechte nötig)",
+    "fr": "{0} : accès refusé (droits administrateur requis pour tous les utilisateurs)",
+    "es": "{0}: acceso denegado (se requiere administrador para todos los usuarios)"
+  },
+  "{0} {1}: access denied (run RustWTM as administrator)": {
+    "tr": "{0} {1}: erişim reddedildi (yönetici olarak çalıştırın)",
+    "de": "{0} {1}: Zugriff verweigert (als Administrator starten)",
+    "fr": "{0} {1} : accès refusé (exécutez en administrateur)",
+    "es": "{0} {1}: acceso denegado (ejecute como administrador)"
+  },
+  "{0} {1} failed: {2}": {
+    "tr": "{0} {1} başarısız: {2}",
+    "de": "{0} {1} fehlgeschlagen: {2}",
+    "fr": "Échec de {0} {1} : {2}",
+    "es": "Error de {0} {1}: {2}"
+  },
+  "{0} processes": {
+    "tr": "{0} işlem",
+    "de": "{0} Prozesse",
+    "fr": "{0} processus",
+    "es": "{0} procesos"
+  },
+  "Priority {0}": {
+    "tr": "Öncelik {0}",
+    "de": "Priorität {0}",
+    "fr": "Priorité {0}",
+    "es": "Prioridad {0}"
+  },
+  "Affinity {0}": {
+    "tr": "Çekirdek ilişkisi {0}",
+    "de": "Affinität {0}",
+    "fr": "Affinité {0}",
+    "es": "Afinidad {0}"
+  },
+  "Run on {0}": {
+    "tr": "Şu çekirdeklerde çalıştır: {0}",
+    "de": "Ausführen auf {0}",
+    "fr": "Exécuter sur {0}",
+    "es": "Ejecutar en {0}"
+  },
+  "Efficiency mode {0}": {
+    "tr": "Verimlilik modu {0}",
+    "de": "Effizienzmodus {0}",
+    "fr": "Mode efficacité {0}",
+    "es": "Modo de eficiencia {0}"
+  },
+  "CPU ≤ {0}%": {
+    "tr": "CPU ≤ %{0}",
+    "de": "CPU ≤ {0}%",
+    "fr": "CPU ≤ {0}%",
+    "es": "CPU ≤ {0}%"
+  },
+  "memory ≤ {0}": {
+    "tr": "bellek ≤ {0}",
+    "de": "Speicher ≤ {0}",
+    "fr": "mémoire ≤ {0}",
+    "es": "memoria ≤ {0}"
+  },
+  "Limit {0}": {
+    "tr": "Sınırla: {0}",
+    "de": "Begrenzen: {0}",
+    "fr": "Limiter : {0}",
+    "es": "Limitar: {0}"
+  },
+  "Sampling failed: {0}": {
+    "tr": "Örnekleme başarısız: {0}",
+    "de": "Messung fehlgeschlagen: {0}",
+    "fr": "Échec de l'échantillonnage : {0}",
+    "es": "Error de muestreo: {0}"
+  },
+  "RustWTM prevented {0} from starting.": {
+    "tr": "RustWTM, {0} programının başlamasını engelledi.",
+    "de": "RustWTM hat den Start von {0} verhindert.",
+    "fr": "RustWTM a empêché le démarrage de {0}.",
+    "es": "RustWTM impidió el inicio de {0}."
+  },
+  "These {0} processes will be ended immediately. Unsaved work in them is lost.": {
+    "tr": "Bu {0} işlem hemen sonlanacak. Kaydedilmemiş çalışmalar kaybolur.",
+    "de": "Diese {0} Prozesse werden sofort beendet. Ungespeicherte Arbeit geht verloren.",
+    "fr": "Ces {0} processus seront arrêtés immédiatement. Le travail non enregistré sera perdu.",
+    "es": "Estos {0} procesos terminarán inmediatamente. Se perderá el trabajo sin guardar."
+  },
+  "End {0} processes now": {
+    "tr": "{0} işlemi şimdi sonlandır",
+    "de": "{0} Prozesse jetzt beenden",
+    "fr": "Terminer {0} processus maintenant",
+    "es": "Finalizar {0} procesos ahora"
+  },
+  "🚨 Panic: end {0} processes now": {
+    "tr": "🚨 Acil: {0} işlemi şimdi sonlandır",
+    "de": "🚨 Not-Aus: {0} Prozesse beenden",
+    "fr": "🚨 Urgence : terminer {0} processus",
+    "es": "🚨 Emergencia: finalizar {0} procesos"
+  },
+  "{0}% of this PC = {1} of its {2} logical processors (one fully busy core is {3}%)": {
+    "tr": "Bu bilgisayarın %{0}'ı = {2} mantıksal işlemcinin {1} tanesi (tam dolu bir çekirdek %{3})",
+    "de": "{0}% dieses PCs = {1} seiner {2} logischen Prozessoren (ein voller Kern: {3}%)",
+    "fr": "{0}% de ce PC = {1} de ses {2} processeurs logiques (un cœur occupé : {3}%)",
+    "es": "{0}% del equipo = {1} de sus {2} procesadores lógicos (un núcleo ocupado: {3}%)"
+  },
+  "Matches {0} running now: {1}": {
+    "tr": "Şu an {0} işlem eşleşiyor: {1}",
+    "de": "{0} aktive Treffer: {1}",
+    "fr": "{0} processus correspondants actifs : {1}",
+    "es": "{0} procesos activos coinciden: {1}"
+  },
+  "The configuration is invalid ({0}); fix it in Settings.": {
+    "tr": "Yapılandırma geçersiz ({0}); Ayarlar'dan düzeltin.",
+    "de": "Ungültige Konfiguration ({0}); in Einstellungen korrigieren.",
+    "fr": "Configuration invalide ({0}) ; corrigez-la dans les paramètres.",
+    "es": "Configuración no válida ({0}); corríjala en Configuración."
+  },
+  " ({0}% of machine)": {
+    "tr": " (bilgisayarın %{0}'ı)",
+    "de": " ({0}% des PCs)",
+    "fr": " ({0}% du PC)",
+    "es": " ({0}% del equipo)"
+  },
+  "{0} in {1} instances": {
+    "tr": "{0} / {1} örnek",
+    "de": "{0} in {1} Instanzen",
+    "fr": "{0} dans {1} instances",
+    "es": "{0} en {1} instancias"
+  },
+  "{0} ({1} outside)": {
+    "tr": "{0} ({1} kapsam dışı)",
+    "de": "{0} ({1} außerhalb)",
+    "fr": "{0} ({1} hors limite)",
+    "es": "{0} ({1} fuera)"
+  },
+  "{0} cores": {
+    "tr": "{0} çekirdek",
+    "de": "{0} Kerne",
+    "fr": "{0} cœurs",
+    "es": "{0} núcleos"
+  },
+  "{0}  ({1}% CPU, {2})": {
+    "tr": "{0}  (%{1} CPU, {2})",
+    "de": "{0}  ({1}% CPU, {2})",
+    "fr": "{0}  ({1}% CPU, {2})",
+    "es": "{0}  ({1}% CPU, {2})"
+  },
+  ": {0} uses {1}% of it": {
+    "tr": ": {0} bütçenin %{1}'ını kullanıyor",
+    "de": ": {0} nutzt {1}% davon",
+    "fr": " : {0} en utilise {1}%",
+    "es": ": {0} usa el {1}%"
+  },
+  ": {0} uses {1} of it": {
+    "tr": ": {0} bütçenin {1} kadarını kullanıyor",
+    "de": ": {0} nutzt {1} davon",
+    "fr": " : {0} en utilise {1}",
+    "es": ": {0} usa {1}"
+  },
+  "CPU is maxed out{0}": {
+    "tr": "CPU tamamen dolu{0}",
+    "de": "CPU voll ausgelastet{0}",
+    "fr": "CPU saturé{0}",
+    "es": "CPU saturada{0}"
+  },
+  "Memory is almost full{0}": {
+    "tr": "Bellek neredeyse dolu{0}",
+    "de": "Speicher fast voll{0}",
+    "fr": "Mémoire presque pleine{0}",
+    "es": "Memoria casi llena{0}"
+  },
+  "CPU is busy{0}": {
+    "tr": "CPU yoğun{0}",
+    "de": "CPU stark ausgelastet{0}",
+    "fr": "CPU chargé{0}",
+    "es": "CPU ocupada{0}"
+  },
+  "Memory is getting full{0}": {
+    "tr": "Bellek dolmaya başladı{0}",
+    "de": "Speicher wird knapp{0}",
+    "fr": "La mémoire se remplit{0}",
+    "es": "La memoria se está llenando{0}"
+  },
+  "{0} copies of {1} are running; see below.": {
+    "tr": "{0} adet {1} çalışıyor; aşağıya bakın.",
+    "de": "{0} Kopien von {1} laufen; siehe unten.",
+    "fr": "{0} copies de {1} sont actives ; voir ci-dessous.",
+    "es": "Hay {0} copias de {1} activas; vea abajo."
+  },
+  "{0} programs run hundreds of copies each; see below.": {
+    "tr": "{0} programın yüzlerce kopyası çalışıyor; aşağıya bakın.",
+    "de": "{0} Programme laufen mit hunderten Kopien; siehe unten.",
+    "fr": "{0} programmes exécutent des centaines de copies ; voir ci-dessous.",
+    "es": "{0} programas ejecutan cientos de copias; vea abajo."
+  },
+  "⚠ {0} copies of {1} are running": {
+    "tr": "⚠ {0} adet {1} çalışıyor",
+    "de": "⚠ {0} Kopien von {1} aktiv",
+    "fr": "⚠ {0} copies de {1} actives",
+    "es": "⚠ {0} copias de {1} activas"
+  },
+  "Started by {0}. Together {1} of memory and {2}% CPU. Usually a tool that keeps starting helpers and never waits for them.": {
+    "tr": "Başlatan: {0}. Toplam {1} bellek ve %{2} CPU. Genellikle alt işlemleri başlatıp bitmelerini beklemeyen bir araçtır.",
+    "de": "Gestartet von {0}. Insgesamt {1} Speicher und {2}% CPU. Meist ein Tool, das Hilfsprozesse startet, ohne auf sie zu warten.",
+    "fr": "Lancé par {0}. Total : {1} de mémoire et {2}% CPU. Souvent un outil qui lance des assistants sans les attendre.",
+    "es": "Iniciado por {0}. Total: {1} de memoria y {2}% CPU. Suele ser una herramienta que inicia auxiliares sin esperarlos."
+  },
+  "End all {0}": {
+    "tr": "Tümünü sonlandır: {0}",
+    "de": "Alle {0} beenden",
+    "fr": "Terminer les {0}",
+    "es": "Finalizar los {0}"
+  },
+  "End the {0} whose parent exited": {
+    "tr": "Üst işlemi sonlanmış {0} işlemi bitir",
+    "de": "{0} Prozesse ohne aktiven Elternprozess beenden",
+    "fr": "Terminer les {0} dont le parent est terminé",
+    "es": "Finalizar los {0} cuyo proceso padre terminó"
+  },
+  "End the {0} running over {1} min": {
+    "tr": "{1} dakikayı aşan {0} işlemi sonlandır",
+    "de": "{0} Prozesse über {1} Minuten beenden",
+    "fr": "Terminer les {0} actifs depuis plus de {1} min",
+    "es": "Finalizar los {0} activos más de {1} min"
+  },
+  "{0} logical CPUs": {
+    "tr": "{0} mantıksal CPU",
+    "de": "{0} logische CPUs",
+    "fr": "{0} CPU logiques",
+    "es": "{0} CPU lógicas"
+  },
+  "{0} of {1}": {
+    "tr": "{0} / {1}",
+    "de": "{0} von {1}",
+    "fr": "{0} sur {1}",
+    "es": "{0} de {1}"
+  },
+  "read {0} · write {1}": {
+    "tr": "okuma {0} · yazma {1}",
+    "de": "Lesen {0} · Schreiben {1}",
+    "fr": "lecture {0} · écriture {1}",
+    "es": "lectura {0} · escritura {1}"
+  },
+  "The installed RustWTM service is a different version ({0}), so nothing is limited automatically. Update it with the installer of version {1}.": {
+    "tr": "Kurulu servis farklı sürümde ({0}); otomatik sınırlama yapılmıyor. {1} sürümünün kurulum paketiyle güncelleyin.",
+    "de": "Der Dienst hat eine andere Version ({0}); keine automatische Begrenzung. Mit Version {1} aktualisieren.",
+    "fr": "Version du service différente ({0}) ; aucune limite automatique. Installez la version {1}.",
+    "es": "El servicio tiene otra versión ({0}); sin límites automáticos. Actualice con la versión {1}."
+  },
+  "{0} app limits covering {1} processes": {
+    "tr": "{0} uygulama sınırı, {1} işlemi kapsıyor",
+    "de": "{0} App-Grenzen für {1} Prozesse",
+    "fr": "{0} limites couvrant {1} processus",
+    "es": "{0} límites para {1} procesos"
+  },
+  "{0} is in use and never throttled": {
+    "tr": "{0} kullanılıyor ve yavaşlatılmıyor",
+    "de": "{0} ist aktiv und wird nie gedrosselt",
+    "fr": "{0} est utilisée et n'est jamais ralentie",
+    "es": "{0} está activa y nunca se limita"
+  },
+  "memory guard above {0}% RAM": {
+    "tr": "bellek koruması %{0} RAM üzerinde",
+    "de": "Speicherschutz über {0}% RAM",
+    "fr": "protection mémoire au-dessus de {0}% RAM",
+    "es": "protección de memoria por encima del {0}% RAM"
+  },
+  "{0} programs blocked": {
+    "tr": "{0} program engellendi",
+    "de": "{0} Programme blockiert",
+    "fr": "{0} programmes bloqués",
+    "es": "{0} programas bloqueados"
+  },
+  "{0} TCP ports listening": {
+    "tr": "{0} TCP portu dinliyor",
+    "de": "{0} TCP-Ports lauschen",
+    "fr": "{0} ports TCP en écoute",
+    "es": "{0} puertos TCP en escucha"
+  },
+  "{0} well-known tools and servers running": {
+    "tr": "{0} bilinen araç ve sunucu çalışıyor",
+    "de": "{0} bekannte Tools und Server aktiv",
+    "fr": "{0} outils et serveurs connus actifs",
+    "es": "{0} herramientas y servidores conocidos activos"
+  },
+  "{0} open to all networks": {
+    "tr": "{0} port tüm ağlara açık",
+    "de": "{0} für alle Netzwerke offen",
+    "fr": "{0} ouverts à tous les réseaux",
+    "es": "{0} abiertos a todas las redes"
+  },
+  "Port {0} is free.": {
+    "tr": "{0} portu boş.",
+    "de": "Port {0} ist frei.",
+    "fr": "Le port {0} est libre.",
+    "es": "El puerto {0} está libre."
+  },
+  "End what uses port {0}": {
+    "tr": "{0} portunu kullananı sonlandır",
+    "de": "Nutzer von Port {0} beenden",
+    "fr": "Terminer l'utilisateur du port {0}",
+    "es": "Finalizar lo que usa el puerto {0}"
+  },
+  "End {0} (frees port {1})": {
+    "tr": "{0} sonlandır ({1} portu boşalır)",
+    "de": "{0} beenden (gibt Port {1} frei)",
+    "fr": "Terminer {0} (libère le port {1})",
+    "es": "Finalizar {0} (libera el puerto {1})"
+  },
+  "Not here: {0}": {
+    "tr": "Burada yapılamaz: {0}",
+    "de": "Hier nicht möglich: {0}",
+    "fr": "Impossible ici : {0}",
+    "es": "No disponible aquí: {0}"
+  },
+  "Copy localhost:{0}": {
+    "tr": "localhost:{0} kopyala",
+    "de": "localhost:{0} kopieren",
+    "fr": "Copier localhost:{0}",
+    "es": "Copiar localhost:{0}"
+  },
+  "Active plan: {0}": {
+    "tr": "Etkin plan: {0}",
+    "de": "Aktiver Plan: {0}",
+    "fr": "Plan actif : {0}",
+    "es": "Plan activo: {0}"
+  },
+  "Class {0}": {
+    "tr": "Sınıf {0}",
+    "de": "Klasse {0}",
+    "fr": "Classe {0}",
+    "es": "Clase {0}"
+  },
+  "{0} MHz": {
+    "tr": "{0} MHz",
+    "de": "{0} MHz",
+    "fr": "{0} MHz",
+    "es": "{0} MHz"
+  },
+  "Original settings saved for plan {0}. Restore before applying another limit.": {
+    "tr": "{0} planının ilk ayarları kayıtlı. Yeni sınırdan önce geri yükleyin.",
+    "de": "Originalwerte für Plan {0} gespeichert. Vor einer neuen Grenze wiederherstellen.",
+    "fr": "Valeurs initiales du plan {0} enregistrées. Restaurez-les avant une nouvelle limite.",
+    "es": "Valores originales del plan {0} guardados. Restáurelos antes de otro límite."
+  },
+  "Backup unavailable: {0}": {
+    "tr": "Yedek kullanılamıyor: {0}",
+    "de": "Sicherung nicht verfügbar: {0}",
+    "fr": "Sauvegarde indisponible : {0}",
+    "es": "Copia no disponible: {0}"
+  },
+  "Windows policy class {0} · {1} · {2} MHz": {
+    "tr": "Windows ilke sınıfı {0} · {1} · {2} MHz",
+    "de": "Windows-Richtlinienklasse {0} · {1} · {2} MHz",
+    "fr": "Classe de politique Windows {0} · {1} · {2} MHz",
+    "es": "Clase de directiva Windows {0} · {1} · {2} MHz"
+  },
+  "{0} GB": {
+    "tr": "{0} GB",
+    "de": "{0} GB",
+    "fr": "{0} Go",
+    "es": "{0} GB"
+  },
+  "App limit: {0}": {
+    "tr": "Uygulama sınırı: {0}",
+    "de": "App-Grenze: {0}",
+    "fr": "Limite d'application : {0}",
+    "es": "Límite de aplicación: {0}"
+  },
+  "{0} of {1} processes": {
+    "tr": "{0} / {1} işlem",
+    "de": "{0} von {1} Prozessen",
+    "fr": "{0} processus sur {1}",
+    "es": "{0} de {1} procesos"
+  },
+  "Limit all {0}…": {
+    "tr": "{0} işlemin tümünü sınırla…",
+    "de": "Alle {0} begrenzen…",
+    "fr": "Limiter les {0}…",
+    "es": "Limitar los {0}…"
+  },
+  "End all {0} processes": {
+    "tr": "{0} işlemin tümünü sonlandır",
+    "de": "Alle {0} Prozesse beenden",
+    "fr": "Terminer les {0} processus",
+    "es": "Finalizar los {0} procesos"
+  },
+  "{0}  ({1}% of machine)": {
+    "tr": "{0}  (bilgisayarın %{1}'ı)",
+    "de": "{0}  ({1}% des PCs)",
+    "fr": "{0}  ({1}% du PC)",
+    "es": "{0}  ({1}% del equipo)"
+  },
+  "{0} · {1}s ago": {
+    "tr": "{0} · {1} sn önce",
+    "de": "{0} · vor {1} s",
+    "fr": "{0} · il y a {1} s",
+    "es": "{0} · hace {1} s"
+  },
+  "Channel: {0}. This changes a physical fan's requested speed. Fan duty and measured RPM are different values.": {
+    "tr": "Kanal: {0}. Fiziksel fanın istenen hızı değişir. Fan görev oranı ile ölçülen RPM farklı değerlerdir.",
+    "de": "Kanal: {0}. Ändert die angeforderte Drehzahl eines physischen Lüfters. Tastgrad und gemessene RPM sind verschieden.",
+    "fr": "Canal : {0}. Modifie la vitesse demandée d'un ventilateur physique. Le rapport cyclique et les tr/min mesurés sont différents.",
+    "es": "Canal: {0}. Cambia la velocidad solicitada de un ventilador físico. El ciclo de trabajo y las RPM medidas son distintos."
+  },
+  "The bot runs in the RustWTM service, and the installed one is a different version. Update it with the installer of version {0}.": {
+    "tr": "Bot serviste çalışır, ancak kurulu servis farklı sürümde. {0} kurulum paketiyle güncelleyin.",
+    "de": "Der Bot läuft im Dienst, dessen Version abweicht. Mit Version {0} aktualisieren.",
+    "fr": "Le bot dépend du service, dont la version diffère. Installez la version {0}.",
+    "es": "El bot depende del servicio, cuya versión es distinta. Actualice con la versión {0}."
+  },
+  "✔ On for {0} chat(s)": {
+    "tr": "✔ {0} sohbet için açık",
+    "de": "✔ Für {0} Chats aktiv",
+    "fr": "✔ Actif pour {0} chats",
+    "es": "✔ Activo para {0} chats"
+  },
+  "(selected process {0} only)": {
+    "tr": "(yalnızca seçili işlem {0})",
+    "de": "(nur ausgewählter Prozess {0})",
+    "fr": "(processus sélectionné {0} uniquement)",
+    "es": "(solo proceso seleccionado {0})"
+  },
+  "Findings ({0})": {
+    "tr": "Bulgular ({0})",
+    "de": "Befunde ({0})",
+    "fr": "Constats ({0})",
+    "es": "Hallazgos ({0})"
+  },
+  "{0} core-h": {
+    "tr": "{0} çekirdek-saat",
+    "de": "{0} Kernstunden",
+    "fr": "{0} heures-cœur",
+    "es": "{0} horas-núcleo"
+  },
+  "{0} MiB (R² {1})": {
+    "tr": "{0} MiB (R² {1})",
+    "de": "{0} MiB (R² {1})",
+    "fr": "{0} Mio (R² {1})",
+    "es": "{0} MiB (R² {1})"
+  },
+  "Limit {0}…": {
+    "tr": "{0} sınırla…",
+    "de": "{0} begrenzen…",
+    "fr": "Limiter {0}…",
+    "es": "Limitar {0}…"
+  },
+  "Create an app limit; suggested from its p95 usage: {0} cores.": {
+    "tr": "p95 kullanımından önerilen {0} çekirdekle uygulama sınırı oluşturur.",
+    "de": "App-Grenze erstellen; p95-Empfehlung: {0} Kerne.",
+    "fr": "Créer une limite ; suggestion selon le p95 : {0} cœurs.",
+    "es": "Crear límite; sugerencia según uso p95: {0} núcleos."
+  },
+  "{0} — per-minute usage (x: hours before latest sample)": {
+    "tr": "{0} — dakikalık kullanım (x: son örnekten önceki saatler)",
+    "de": "{0} — Nutzung pro Minute (x: Stunden vor letztem Messwert)",
+    "fr": "{0} — usage par minute (x : heures avant le dernier relevé)",
+    "es": "{0} — uso por minuto (x: horas antes de la última muestra)"
+  },
+  "Language": {
+    "tr": "Dil",
+    "de": "Sprache",
+    "fr": "Langue",
+    "es": "Idioma"
+  },
+  "Windows language": {
+    "tr": "Windows dili",
+    "de": "Windows-Sprache",
+    "fr": "Langue de Windows",
+    "es": "Idioma de Windows"
+  },
+  "Cannot save language: {0}": {
+    "tr": "Dil kaydedilemedi: {0}",
+    "de": "Sprache konnte nicht gespeichert werden: {0}",
+    "fr": "Impossible d'enregistrer la langue : {0}",
+    "es": "No se pudo guardar el idioma: {0}"
+  },
+  "for": {
+    "tr": "süreyle",
+    "de": "für",
+    "fr": "pendant",
+    "es": "durante"
+  },
+  "yes": {
+    "tr": "evet",
+    "de": "ja",
+    "fr": "oui",
+    "es": "sí"
+  },
+  "no": {
+    "tr": "hayır",
+    "de": "nein",
+    "fr": "non",
+    "es": "no"
+  },
+  "enabled": {
+    "tr": "etkin",
+    "de": "aktiviert",
+    "fr": "activé",
+    "es": "activado"
+  },
+  "disabled": {
+    "tr": "devre dışı",
+    "de": "deaktiviert",
+    "fr": "désactivé",
+    "es": "desactivado"
+  },
+  "Gentle": {
+    "tr": "Yumuşak",
+    "de": "Sanft",
+    "fr": "Doux",
+    "es": "Suave"
+  },
+  "Strict": {
+    "tr": "Sıkı",
+    "de": "Streng",
+    "fr": "Strict",
+    "es": "Estricto"
+  },
+  "No automatic CPU limiting.": {
+    "tr": "Otomatik CPU sınırlaması yok.",
+    "de": "Keine automatische CPU-Begrenzung.",
+    "fr": "Aucune limite CPU automatique.",
+    "es": "Sin límites automáticos de CPU."
+  },
+  "Above 95% CPU for 10 s: lower the priority and use efficiency mode for the top 2 apps.": {
+    "tr": "10 sn boyunca %95 üzeri: en yoğun 2 uygulamaya düşük öncelik ve verimlilik modu.",
+    "de": "Über 95 % CPU für 10 s: niedrigere Priorität und Effizienzmodus für die 2 stärksten Apps.",
+    "fr": "CPU > 95 % pendant 10 s : priorité réduite et efficacité pour les 2 applications les plus actives.",
+    "es": "CPU > 95 % durante 10 s: prioridad reducida y eficiencia para las 2 aplicaciones más activas."
+  },
+  "Above 90% CPU for 5 s: lower priority, efficiency mode, then cap the top 3 apps to half, then a quarter.": {
+    "tr": "5 sn boyunca %90 üzeri: en yoğun 3 uygulamaya düşük öncelik, verimlilik, ardından yarım ve çeyrek sınır.",
+    "de": "Über 90 % CPU für 5 s: Priorität, Effizienzmodus, dann halbe und viertel CPU für die 3 stärksten Apps.",
+    "fr": "CPU > 90 % pendant 5 s : priorité, efficacité, puis moitié et quart pour les 3 applications les plus actives.",
+    "es": "CPU > 90 % durante 5 s: prioridad, eficiencia y luego mitad y cuarto para las 3 aplicaciones más activas."
+  },
+  "Above 80% CPU for 3 s: idle priority, efficiency mode, then caps down to a tenth for the top 5 apps.": {
+    "tr": "3 sn boyunca %80 üzeri: en yoğun 5 uygulamaya boşta önceliği, verimlilik ve onda bire inen sınır.",
+    "de": "Über 80 % CPU für 3 s: Leerlaufpriorität, Effizienzmodus und bis zu einem Zehntel für die 5 stärksten Apps.",
+    "fr": "CPU > 80 % pendant 3 s : priorité inactive, efficacité et limites jusqu'au dixième pour les 5 applications les plus actives.",
+    "es": "CPU > 80 % durante 3 s: prioridad inactiva, eficiencia y límites hasta un décimo para las 5 aplicaciones más activas."
+  },
+  "Plugged in and battery": {
+    "tr": "Priz ve pil",
+    "de": "Netz und Akku",
+    "fr": "Secteur et batterie",
+    "es": "Conectado y batería"
+  },
+  "Running": {
+    "tr": "Çalışıyor",
+    "de": "Wird ausgeführt",
+    "fr": "En cours",
+    "es": "En ejecución"
+  },
+  "Stopped": {
+    "tr": "Durduruldu",
+    "de": "Gestoppt",
+    "fr": "Arrêté",
+    "es": "Detenido"
+  },
+  "StartPending": {
+    "tr": "Başlatılıyor",
+    "de": "Startet",
+    "fr": "Démarrage en cours",
+    "es": "Iniciando"
+  },
+  "StopPending": {
+    "tr": "Durduruluyor",
+    "de": "Stoppt",
+    "fr": "Arrêt en cours",
+    "es": "Deteniendo"
+  },
+  "ContinuePending": {
+    "tr": "Sürdürülüyor",
+    "de": "Wird fortgesetzt",
+    "fr": "Reprise en cours",
+    "es": "Reanudando"
+  },
+  "PausePending": {
+    "tr": "Duraklatılıyor",
+    "de": "Wird pausiert",
+    "fr": "Suspension en cours",
+    "es": "Pausando"
+  },
+  "Paused": {
+    "tr": "Duraklatıldı",
+    "de": "Pausiert",
+    "fr": "En pause",
+    "es": "En pausa"
+  },
+  "Automatic": {
+    "tr": "Otomatik",
+    "de": "Automatisch",
+    "fr": "Automatique",
+    "es": "Automático"
+  },
+  "Manual": {
+    "tr": "Elle",
+    "de": "Manuell",
+    "fr": "Manuel",
+    "es": "Manual"
+  },
+  "Boot": {
+    "tr": "Önyükleme",
+    "de": "Boot",
+    "fr": "Amorçage",
+    "es": "Arranque"
+  },
+  "Active": {
+    "tr": "Etkin",
+    "de": "Aktiv",
+    "fr": "Actif",
+    "es": "Activo"
+  },
+  "Connected": {
+    "tr": "Bağlı",
+    "de": "Verbunden",
+    "fr": "Connecté",
+    "es": "Conectado"
+  },
+  "ConnectQuery": {
+    "tr": "Bağlantı sorgusu",
+    "de": "Verbindungsanfrage",
+    "fr": "Demande de connexion",
+    "es": "Consulta de conexión"
+  },
+  "Shadow": {
+    "tr": "Gölge oturum",
+    "de": "Spiegelsitzung",
+    "fr": "Session miroir",
+    "es": "Sesión espejo"
+  },
+  "Listen": {
+    "tr": "Dinleniyor",
+    "de": "Lauscht",
+    "fr": "En écoute",
+    "es": "En escucha"
+  },
+  "Reset": {
+    "tr": "Sıfırlanıyor",
+    "de": "Wird zurückgesetzt",
+    "fr": "Réinitialisation",
+    "es": "Restableciendo"
+  },
+  "Down": {
+    "tr": "Kapalı",
+    "de": "Inaktiv",
+    "fr": "Inactif",
+    "es": "Inactivo"
+  },
+  "Init": {
+    "tr": "Başlatılıyor",
+    "de": "Initialisierung",
+    "fr": "Initialisation",
+    "es": "Inicializando"
+  },
+  "Unknown": {
+    "tr": "Bilinmiyor",
+    "de": "Unbekannt",
+    "fr": "Inconnu",
+    "es": "Desconocido"
+  },
+  "CurrentUser": {
+    "tr": "Geçerli kullanıcı",
+    "de": "Aktueller Benutzer",
+    "fr": "Utilisateur actuel",
+    "es": "Usuario actual"
+  },
+  "AllUsers": {
+    "tr": "Tüm kullanıcılar",
+    "de": "Alle Benutzer",
+    "fr": "Tous les utilisateurs",
+    "es": "Todos los usuarios"
+  },
+  "Registry": {
+    "tr": "Kayıt defteri",
+    "de": "Registrierung",
+    "fr": "Registre",
+    "es": "Registro"
+  },
+  "StartupFolder": {
+    "tr": "Başlangıç klasörü",
+    "de": "Autostart-Ordner",
+    "fr": "Dossier de démarrage",
+    "es": "Carpeta de inicio"
+  },
+  "Info": {
+    "tr": "Bilgi",
+    "de": "Info",
+    "fr": "Information",
+    "es": "Información"
+  },
+  "Warn": {
+    "tr": "Uyarı",
+    "de": "Warnung",
+    "fr": "Avertissement",
+    "es": "Aviso"
+  },
+  "Error": {
+    "tr": "Hata",
+    "de": "Fehler",
+    "fr": "Erreur",
+    "es": "Error"
+  },
+  "BelowNormal": {
+    "tr": "Normalin altında",
+    "de": "Niedriger als normal",
+    "fr": "Inférieure à la normale",
+    "es": "Inferior a normal"
+  },
+  "AboveNormal": {
+    "tr": "Normalin üstünde",
+    "de": "Höher als normal",
+    "fr": "Supérieure à la normale",
+    "es": "Superior a normal"
+  },
+  "Realtime": {
+    "tr": "Gerçek zamanlı",
+    "de": "Echtzeit",
+    "fr": "Temps réel",
+    "es": "Tiempo real"
+  },
+  "MemoryGrowth": {
+    "tr": "Bellek artışı",
+    "de": "Speicherzuwachs",
+    "fr": "Croissance mémoire",
+    "es": "Crecimiento de memoria"
+  },
+  "ChronicCpu": {
+    "tr": "Sürekli CPU",
+    "de": "Dauerhafte CPU-Last",
+    "fr": "CPU chronique",
+    "es": "CPU constante"
+  },
+  "P-cores": {
+    "tr": "P çekirdekler",
+    "de": "P-Kerne",
+    "fr": "Cœurs P",
+    "es": "Núcleos P"
+  },
+  "E-cores": {
+    "tr": "E çekirdekler",
+    "de": "E-Kerne",
+    "fr": "Cœurs E",
+    "es": "Núcleos E"
+  },
+  "LP-E cores": {
+    "tr": "LP-E çekirdekler",
+    "de": "LP-E-Kerne",
+    "fr": "Cœurs LP-E",
+    "es": "Núcleos LP-E"
+  },
+  "All cores": {
+    "tr": "Tüm çekirdekler",
+    "de": "Alle Kerne",
+    "fr": "Tous les cœurs",
+    "es": "Todos los núcleos"
+  },
+  "engine started (dry_run={0}, governor={1}, rules={2}, kill list={3})": {
+    "tr": "Motor başladı (deneme={0}, yönetici={1}, kural={2}, sonlandırma listesi={3})",
+    "de": "Engine gestartet (Testmodus={0}, Steuerung={1}, Regeln={2}, Beendigungsliste={3})",
+    "fr": "Moteur démarré (simulation={0}, régulateur={1}, règles={2}, liste d'arrêt={3})",
+    "es": "Motor iniciado (simulación={0}, regulador={1}, reglas={2}, lista={3})"
+  },
+  "stopping; restoring all processes": {
+    "tr": "Durduruluyor; tüm işlemler geri yükleniyor",
+    "de": "Wird gestoppt; alle Prozesse werden wiederhergestellt",
+    "fr": "Arrêt ; restauration de tous les processus",
+    "es": "Deteniendo; restaurando todos los procesos"
+  },
+  "config reload failed, keeping previous: {0}": {
+    "tr": "Yapılandırma yüklenemedi, önceki korunuyor: {0}",
+    "de": "Konfiguration nicht geladen, vorherige bleibt: {0}",
+    "fr": "Échec du rechargement, ancienne configuration conservée : {0}",
+    "es": "Error al recargar; se conserva la configuración anterior: {0}"
+  },
+  "{0} copies of {1} are running (started by {2}); end them from RustWTM's Overview": {
+    "tr": "{1} programının {0} kopyası çalışıyor (başlatan {2}); Genel bakıştan sonlandırabilirsiniz",
+    "de": "{0} Kopien von {1} aktiv (gestartet von {2}); in der Übersicht beenden",
+    "fr": "{0} copies de {1} actives (lancées par {2}) ; terminez-les dans la vue d'ensemble",
+    "es": "{0} copias de {1} activas (iniciadas por {2}); finalícelas desde Resumen"
+  },
+  "Ended {0} copies of {1} that ran longer than {2} min{3}{4}": {
+    "tr": "{2} dakikadan uzun çalışan {0} adet {1} sonlandırıldı{3}{4}",
+    "de": "{0} Kopien von {1} über {2} Min. beendet{3}{4}",
+    "fr": "{0} copies de {1} actives plus de {2} min terminées{3}{4}",
+    "es": "Finalizadas {0} copias de {1} activas más de {2} min{3}{4}"
+  },
+  "blocked from starting: {0}": {
+    "tr": "Başlaması engellendi: {0}",
+    "de": "Start blockiert: {0}",
+    "fr": "Démarrage bloqué : {0}",
+    "es": "Inicio bloqueado: {0}"
+  },
+  "no longer blocked: {0}": {
+    "tr": "Engeli kaldırıldı: {0}",
+    "de": "Nicht mehr blockiert: {0}",
+    "fr": "N'est plus bloqué : {0}",
+    "es": "Ya no está bloqueado: {0}"
+  },
+  "program blocking disabled: {0}": {
+    "tr": "Program engelleme kapalı: {0}",
+    "de": "Programmsperre deaktiviert: {0}",
+    "fr": "Blocage désactivé : {0}",
+    "es": "Bloqueo desactivado: {0}"
+  },
+  "updating blocked programs failed: {0}": {
+    "tr": "Engelli programlar güncellenemedi: {0}",
+    "de": "Programmsperren nicht aktualisiert: {0}",
+    "fr": "Échec de la mise à jour des blocages : {0}",
+    "es": "Error al actualizar programas bloqueados: {0}"
+  },
+  "usage history disabled: {0}": {
+    "tr": "Kullanım geçmişi kapalı: {0}",
+    "de": "Nutzungsverlauf deaktiviert: {0}",
+    "fr": "Historique désactivé : {0}",
+    "es": "Historial desactivado: {0}"
+  },
+  "Telegram bot unavailable: {0}": {
+    "tr": "Telegram botu kullanılamıyor: {0}",
+    "de": "Telegram-Bot nicht verfügbar: {0}",
+    "fr": "Bot Telegram indisponible : {0}",
+    "es": "Bot de Telegram no disponible: {0}"
+  },
+  "configuration replaced via IPC": {
+    "tr": "Yapılandırma IPC ile değiştirildi",
+    "de": "Konfiguration über IPC ersetzt",
+    "fr": "Configuration remplacée via IPC",
+    "es": "Configuración reemplazada por IPC"
+  },
+  "Telegram settings replaced via IPC": {
+    "tr": "Telegram ayarları IPC ile değiştirildi",
+    "de": "Telegram-Einstellungen über IPC ersetzt",
+    "fr": "Paramètres Telegram remplacés via IPC",
+    "es": "Ajustes de Telegram reemplazados por IPC"
+  },
+  "Telegram bot on ({0} allowed chat(s))": {
+    "tr": "Telegram botu açık ({0} izinli sohbet)",
+    "de": "Telegram-Bot aktiv ({0} erlaubte Chats)",
+    "fr": "Bot Telegram actif ({0} chats autorisés)",
+    "es": "Bot de Telegram activo ({0} chats permitidos)"
+  },
+  "Telegram bot off": {
+    "tr": "Telegram botu kapalı",
+    "de": "Telegram-Bot aus",
+    "fr": "Bot Telegram désactivé",
+    "es": "Bot de Telegram desactivado"
+  },
+  "Telegram settings invalid, bot off: {0}": {
+    "tr": "Telegram ayarları geçersiz, bot kapalı: {0}",
+    "de": "Telegram-Einstellungen ungültig, Bot aus: {0}",
+    "fr": "Paramètres Telegram invalides, bot désactivé : {0}",
+    "es": "Ajustes de Telegram no válidos, bot desactivado: {0}"
+  },
+  "limiting {0}: {1}": {
+    "tr": "Sınırlanıyor {0}: {1}",
+    "de": "Begrenze {0}: {1}",
+    "fr": "Limitation de {0} : {1}",
+    "es": "Limitando {0}: {1}"
+  },
+  "cannot create a job for {0}: {1}": {
+    "tr": "{0} için iş nesnesi oluşturulamadı: {1}",
+    "de": "Auftragsobjekt für {0} nicht erstellt: {1}",
+    "fr": "Impossible de créer un travail pour {0} : {1}",
+    "es": "No se pudo crear un objeto de trabajo para {0}: {1}"
+  },
+  "cannot apply the {0} limit: {1}": {
+    "tr": "{0} sınırı uygulanamadı: {1}",
+    "de": "Grenze für {0} nicht angewendet: {1}",
+    "fr": "Impossible d'appliquer la limite {0} : {1}",
+    "es": "No se pudo aplicar el límite {0}: {1}"
+  },
+  "cannot set the {0} limit: {1}": {
+    "tr": "{0} sınırı ayarlanamadı: {1}",
+    "de": "Grenze für {0} nicht gesetzt: {1}",
+    "fr": "Impossible de définir la limite {0} : {1}",
+    "es": "No se pudo establecer el límite {0}: {1}"
+  },
+  "lifted the {0} limit ({1})": {
+    "tr": "{0} sınırı kaldırıldı ({1})",
+    "de": "Grenze für {0} aufgehoben ({1})",
+    "fr": "Limite de {0} levée ({1})",
+    "es": "Límite de {0} retirado ({1})"
+  },
+  "cannot lift the {0} limit: {1}": {
+    "tr": "{0} sınırı kaldırılamadı: {1}",
+    "de": "Grenze für {0} nicht aufgehoben: {1}",
+    "fr": "Impossible de lever la limite {0} : {1}",
+    "es": "No se pudo retirar el límite {0}: {1}"
+  },
+  "{0} processes limited right now": {
+    "tr": "Şu an {0} işlem sınırlanıyor",
+    "de": "{0} Prozesse aktuell begrenzt",
+    "fr": "{0} processus actuellement limités",
+    "es": "{0} procesos limitados ahora"
+  },
+  "Rule": {
+    "tr": "Kural",
+    "de": "Regel",
+    "fr": "Règle",
+    "es": "Regla"
+  },
+  "Insight": {
+    "tr": "Analiz",
+    "de": "Analyse",
+    "fr": "Analyse",
+    "es": "Análisis"
+  },
+  "MemoryGuard": {
+    "tr": "Bellek koruması",
+    "de": "Speicherschutz",
+    "fr": "Protection mémoire",
+    "es": "Protección de memoria"
+  },
+  "ChronicGpu": {
+    "tr": "Sürekli GPU",
+    "de": "Dauerhafte GPU-Last",
+    "fr": "GPU chronique",
+    "es": "GPU constante"
+  },
+  "Run32": {
+    "tr": "32 bit kayıt defteri",
+    "de": "32-Bit-Registrierung",
+    "fr": "Registre 32 bits",
+    "es": "Registro de 32 bits"
+  },
+  "Folder": {
+    "tr": "Klasör",
+    "de": "Ordner",
+    "fr": "Dossier",
+    "es": "Carpeta"
+  },
+  "efficiency mode": {
+    "tr": "verimlilik modu",
+    "de": "Effizienzmodus",
+    "fr": "mode efficacité",
+    "es": "modo de eficiencia"
+  },
+  "suspend": {
+    "tr": "askıya al",
+    "de": "anhalten",
+    "fr": "suspendre",
+    "es": "suspender"
+  },
+  "kill": {
+    "tr": "sonlandır",
+    "de": "beenden",
+    "fr": "terminer",
+    "es": "finalizar"
+  },
+  "trim memory": {
+    "tr": "belleği boşalt",
+    "de": "Speicher freigeben",
+    "fr": "libérer la mémoire",
+    "es": "liberar memoria"
+  },
+  "priority {0}": {
+    "tr": "öncelik {0}",
+    "de": "Priorität {0}",
+    "fr": "priorité {0}",
+    "es": "prioridad {0}"
+  },
+  "CPU cap {0}%": {
+    "tr": "CPU sınırı %{0}",
+    "de": "CPU-Grenze {0}%",
+    "fr": "plafond CPU {0}%",
+    "es": "límite CPU {0}%"
+  },
+  "memory cap {0} MiB": {
+    "tr": "bellek sınırı {0} MiB",
+    "de": "Speichergrenze {0} MiB",
+    "fr": "plafond mémoire {0} Mio",
+    "es": "límite de memoria {0} MiB"
+  },
+  "rule '{0}'": {
+    "tr": "kural '{0}'",
+    "de": "Regel '{0}'",
+    "fr": "règle '{0}'",
+    "es": "regla '{0}'"
+  },
+  "system CPU {0}%, process at {1}% (step {2}/{3})": {
+    "tr": "sistem CPU %{0}, işlem %{1} (adım {2}/{3})",
+    "de": "System-CPU {0}%, Prozess {1}% (Schritt {2}/{3})",
+    "fr": "CPU système {0}%, processus {1}% (étape {2}/{3})",
+    "es": "CPU del sistema {0}%, proceso {1}% (paso {2}/{3})"
+  },
+  "memory {0}% in use, process holds {1} MiB": {
+    "tr": "belleğin %{0}'ı kullanımda, işlem {1} MiB tutuyor",
+    "de": "Speicher {0}% belegt, Prozess hält {1} MiB",
+    "fr": "mémoire utilisée à {0}%, processus : {1} Mio",
+    "es": "memoria al {0}%, el proceso usa {1} MiB"
+  },
+  "system CPU recovered to {0}%": {
+    "tr": "sistem CPU %{0} düzeyine indi",
+    "de": "System-CPU auf {0}% erholt",
+    "fr": "CPU système revenu à {0}%",
+    "es": "CPU del sistema recuperada al {0}%"
+  },
+  "in use (foreground app)": {
+    "tr": "kullanımda (öndeki uygulama)",
+    "de": "in Benutzung (aktive App)",
+    "fr": "utilisée (application active)",
+    "es": "en uso (aplicación activa)"
+  },
+  "long-term finding cleared": {
+    "tr": "uzun vadeli bulgu giderildi",
+    "de": "Langzeitbefund behoben",
+    "fr": "constat à long terme résolu",
+    "es": "hallazgo a largo plazo resuelto"
+  },
+  "kill list '{0}': {1}% CPU for {2} s": {
+    "tr": "sonlandırma listesi '{0}': {2} sn boyunca %{1} CPU",
+    "de": "Beendigungsliste '{0}': {1}% CPU für {2} s",
+    "fr": "liste d'arrêt '{0}' : {1}% CPU pendant {2} s",
+    "es": "lista de finalización '{0}': {1}% CPU durante {2} s"
+  },
+  "dry-run: would apply {0} ({1})": {
+    "tr": "deneme: {0} uygulanırdı ({1})",
+    "de": "Testmodus: würde {0} anwenden ({1})",
+    "fr": "simulation : appliquerait {0} ({1})",
+    "es": "simulación: aplicaría {0} ({1})"
+  },
+  "dry-run: would restore ({0})": {
+    "tr": "deneme: geri yüklenirdi ({0})",
+    "de": "Testmodus: würde wiederherstellen ({0})",
+    "fr": "simulation : restaurerait ({0})",
+    "es": "simulación: restauraría ({0})"
+  },
+  "average CPU {0}% (p95 {1}%) over {2} min": {
+    "tr": "{2} dk ortalama CPU %{0} (p95 %{1})",
+    "de": "durchschnittlich {0}% CPU (p95 {1}%) über {2} Min.",
+    "fr": "CPU moyen {0}% (p95 {1}%) sur {2} min",
+    "es": "CPU media {0}% (p95 {1}%) en {2} min"
+  },
+  "average GPU {0}% (p95 {1}%) over {2} min": {
+    "tr": "{2} dk ortalama GPU %{0} (p95 %{1})",
+    "de": "durchschnittlich {0}% GPU (p95 {1}%) über {2} Min.",
+    "fr": "GPU moyen {0}% (p95 {1}%) sur {2} min",
+    "es": "GPU media {0}% (p95 {1}%) en {2} min"
+  },
+  "process {0} is protected ({1})": {
+    "tr": "{0} işlemi korumalı ({1})",
+    "de": "Prozess {0} ist geschützt ({1})",
+    "fr": "Le processus {0} est protégé ({1})",
+    "es": "El proceso {0} está protegido ({1})"
+  },
+  "process {0} no longer exists": {
+    "tr": "{0} işlemi artık yok",
+    "de": "Prozess {0} existiert nicht mehr",
+    "fr": "Le processus {0} n'existe plus",
+    "es": "El proceso {0} ya no existe"
+  },
+  "process {0} exited and its PID was reused": {
+    "tr": "{0} sonlandı ve PID başka işleme verildi",
+    "de": "Prozess {0} wurde beendet, seine PID wurde wiederverwendet",
+    "fr": "Le processus {0} est terminé et son PID réutilisé",
+    "es": "El proceso {0} terminó y su PID fue reutilizado"
+  },
+  "access denied to process {0} (try an elevated prompt)": {
+    "tr": "{0} işlemine erişim reddedildi (yönetici olarak deneyin)",
+    "de": "Zugriff auf Prozess {0} verweigert (Administratorrechte nötig)",
+    "fr": "Accès au processus {0} refusé (essayez en administrateur)",
+    "es": "Acceso denegado al proceso {0} (pruebe como administrador)"
+  },
+  "Ended {0} copies of {1} that ran longer than {2} min{3}": {
+    "tr": "{2} dakikadan uzun çalışan {0} adet {1} sonlandırıldı{3}",
+    "de": "{0} Kopien von {1} über {2} Min. beendet{3}",
+    "fr": "{0} copies de {1} actives plus de {2} min terminées{3}",
+    "es": "Finalizadas {0} copias de {1} activas más de {2} min{3}"
+  },
+  "Governor: {0} ({1})": {
+    "tr": "Kaynak yöneticisi: {0} ({1})",
+    "de": "Ressourcensteuerung: {0} ({1})",
+    "fr": "Régulateur: {0} ({1})",
+    "es": "Regulador: {0} ({1})"
+  },
+  "Governor: restored ({0})": {
+    "tr": "Kaynak yöneticisi: geri yüklendi ({0})",
+    "de": "Ressourcensteuerung: wiederhergestellt ({0})",
+    "fr": "Régulateur: restauré ({0})",
+    "es": "Regulador: restaurado ({0})"
+  },
+  "Rule: {0} ({1})": {
+    "tr": "Kural: {0} ({1})",
+    "de": "Regel: {0} ({1})",
+    "fr": "Règle: {0} ({1})",
+    "es": "Regla: {0} ({1})"
+  },
+  "Rule: restored ({0})": {
+    "tr": "Kural: geri yüklendi ({0})",
+    "de": "Regel: wiederhergestellt ({0})",
+    "fr": "Règle: restauré ({0})",
+    "es": "Regla: restaurado ({0})"
+  },
+  "MemoryGuard: {0} ({1})": {
+    "tr": "Bellek koruması: {0} ({1})",
+    "de": "Speicherschutz: {0} ({1})",
+    "fr": "Protection mémoire: {0} ({1})",
+    "es": "Protección de memoria: {0} ({1})"
+  },
+  "MemoryGuard: restored ({0})": {
+    "tr": "Bellek koruması: geri yüklendi ({0})",
+    "de": "Speicherschutz: wiederhergestellt ({0})",
+    "fr": "Protection mémoire: restauré ({0})",
+    "es": "Protección de memoria: restaurado ({0})"
+  },
+  "Insight: {0} ({1})": {
+    "tr": "Analiz: {0} ({1})",
+    "de": "Analyse: {0} ({1})",
+    "fr": "Analyse: {0} ({1})",
+    "es": "Análisis: {0} ({1})"
+  },
+  "Insight: restored ({0})": {
+    "tr": "Analiz: geri yüklendi ({0})",
+    "de": "Analyse: wiederhergestellt ({0})",
+    "fr": "Analyse: restauré ({0})",
+    "es": "Análisis: restaurado ({0})"
+  },
+  "ready": {
+    "tr": "Hazır",
+    "de": "Bereit",
+    "fr": "Prêt",
+    "es": "Listo"
+  },
+  "e.g. 123456789, 987654321": {
+    "tr": "ör. 123456789, 987654321",
+    "de": "z. B. 123456789, 987654321",
+    "fr": "p. ex. 123456789, 987654321",
+    "es": "p. ej. 123456789, 987654321"
+  },
+  "Governor: {0}": {
+    "tr": "Kaynak yöneticisi: {0}",
+    "de": "Ressourcensteuerung: {0}",
+    "fr": "Régulateur: {0}",
+    "es": "Regulador: {0}"
+  },
+  "Rule: {0}": {
+    "tr": "Kural: {0}",
+    "de": "Regel: {0}",
+    "fr": "Règle: {0}",
+    "es": "Regla: {0}"
+  },
+  "Manual: {0}": {
+    "tr": "Elle: {0}",
+    "de": "Manuell: {0}",
+    "fr": "Manuel: {0}",
+    "es": "Manual: {0}"
+  },
+  "Insight: {0}": {
+    "tr": "Analiz: {0}",
+    "de": "Analyse: {0}",
+    "fr": "Analyse: {0}",
+    "es": "Análisis: {0}"
+  },
+  "MemoryGuard: {0}": {
+    "tr": "Bellek koruması: {0}",
+    "de": "Speicherschutz: {0}",
+    "fr": "Protection mémoire: {0}",
+    "es": "Protección de memoria: {0}"
+  }
+}

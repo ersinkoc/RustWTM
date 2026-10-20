@@ -50,28 +50,25 @@ pub fn panic_dialog(ctx: &egui::Context, data: &Data, open: &mut bool, intents: 
     let targets = targets(data);
     let modal = egui::Modal::new(egui::Id::unique("panic")).show(ctx, |ui| {
         ui.set_width(620.0);
-        ui.label(RichText::new("🚨 Panic: end the kill list").size(22.0).color(BAD));
+        ui.label(RichText::new(crate::i18n::tr("🚨 Panic: end the kill list")).size(22.0).color(BAD));
         if targets.is_empty() {
-            ui.label("Nothing on the kill list is running right now.");
+            ui.label(crate::i18n::tr("Nothing on the kill list is running right now."));
             if data.kill_list.is_empty() {
-                ui.weak("Add programs in the Kill list tab, or right-click a process → Add to kill list….");
+                ui.weak(crate::i18n::tr("Add programs in the Kill list tab, or right-click a process → Add to kill list…."));
             }
-            if ui.button("Close").clicked() {
+            if ui.button(crate::i18n::tr("Close")).clicked() {
                 *open = false;
             }
             return;
         }
-        ui.label(format!(
-            "These {} processes will be ended immediately. Unsaved work in them is lost.",
-            targets.len()
-        ));
+        ui.label({ let __wtm_i18n_0 = &(targets.len()); crate::i18n::format("These {0} processes will be ended immediately. Unsaved work in them is lost.", &[format!("{}", __wtm_i18n_0)]) });
         ui.add_space(6.0);
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             egui::Grid::new("panic_targets")
                 .num_columns(4)
                 .striped(true)
                 .show(ui, |ui| {
-                    for h in ["Process", "PID", "CPU", "Kill-list entry"] {
+                    for h in [crate::i18n::tr("Process"), "PID", "CPU", crate::i18n::tr("Kill-list entry")] {
                         ui.strong(h);
                     }
                     ui.end_row();
@@ -93,7 +90,7 @@ pub fn panic_dialog(ctx: &egui::Context, data: &Data, open: &mut bool, intents: 
         ui.horizontal(|ui| {
             if ui
                 .button(
-                    RichText::new(format!("End {} processes now", targets.len()))
+                    RichText::new({ let __wtm_i18n_0 = &(targets.len()); crate::i18n::format("End {0} processes now", &[format!("{}", __wtm_i18n_0)]) })
                         .strong()
                         .color(BAD),
                 )
@@ -106,7 +103,7 @@ pub fn panic_dialog(ctx: &egui::Context, data: &Data, open: &mut bool, intents: 
                 );
                 *open = false;
             }
-            if ui.button("Cancel").clicked() {
+            if ui.button(crate::i18n::tr("Cancel")).clicked() {
                 *open = false;
             }
         });
@@ -189,20 +186,28 @@ impl KillView {
 
 pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool) -> Vec<UiCommand> {
     let mut commands = Vec::new();
-    ui.label(
+    ui.label(crate::i18n::tr(
         "Programs that may be ended. With a CPU threshold the service ends them by itself \
          once they keep using that much and do not recover; the panic button ends everything \
          listed here at once.",
-    );
+    ));
     ui.add_space(6.0);
     let running = targets(data);
-    let panic_label = format!("🚨 Panic: end {} processes now", running.len());
+    let panic_label = {
+        let __wtm_i18n_0 = &(running.len());
+        crate::i18n::format(
+            "🚨 Panic: end {0} processes now",
+            &[format!("{}", __wtm_i18n_0)],
+        )
+    };
     if ui
         .add_enabled(
             !running.is_empty(),
             egui::Button::new(RichText::new(panic_label).strong().color(BAD)),
         )
-        .on_hover_text("Shows what will be ended first (Ctrl+Shift+K from anywhere)")
+        .on_hover_text(crate::i18n::tr(
+            "Shows what will be ended first (Ctrl+Shift+K from anywhere)",
+        ))
         .clicked()
     {
         *panic = true;
@@ -216,7 +221,7 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
         }
         Some(Err(e)) => {
             ui.colored_label(BAD, e);
-            if ui.button("Retry").clicked() {
+            if ui.button(crate::i18n::tr("Retry")).clicked() {
                 commands.push(UiCommand::Load(Panel::Config));
             }
             return commands;
@@ -227,13 +232,21 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
     if data.status.as_ref().is_some_and(|s| s.dry_run) {
         ui.colored_label(
             WARN,
-            "Dry-run mode: automatic ends are only logged. The panic button always works.",
+            crate::i18n::tr(
+                "Dry-run mode: automatic ends are only logged. The panic button always works.",
+            ),
         );
     }
     if !admin {
         ui.horizontal(|ui| {
-            ui.weak("Run RustWTM as administrator to change the kill list.");
-            if !data.elevated && ui.small_button("Restart as administrator").clicked() {
+            ui.weak(crate::i18n::tr(
+                "Run RustWTM as administrator to change the kill list.",
+            ));
+            if !data.elevated
+                && ui
+                    .small_button(crate::i18n::tr("Restart as administrator"))
+                    .clicked()
+            {
                 commands.push(UiCommand::RestartElevated);
             }
         });
@@ -244,22 +257,34 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
             .num_columns(5)
             .striped(true)
             .show(ui, |ui| {
-                for h in ["Program", "Ended", "Its children", "Running now", ""] {
+                for h in [
+                    crate::i18n::tr("Program"),
+                    crate::i18n::tr("Ended"),
+                    crate::i18n::tr("Its children"),
+                    crate::i18n::tr("Running now"),
+                    "",
+                ] {
                     ui.strong(h);
                 }
                 ui.end_row();
                 for (i, e) in data.kill_list.iter().enumerate() {
                     ui.label(e.label());
                     ui.label(e.describe());
-                    ui.label(if e.tree { "too" } else { "no" });
+                    ui.label(if e.tree { "too" } else { crate::i18n::tr("no") });
                     let label = e.label();
                     let n = running.iter().filter(|t| t.entry == label).count();
                     ui.label(n.to_string());
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(admin, egui::Button::new("Edit")).clicked() {
+                        if ui
+                            .add_enabled(admin, egui::Button::new(crate::i18n::tr("Edit")))
+                            .clicked()
+                        {
                             view.edit(i, e);
                         }
-                        if ui.add_enabled(admin, egui::Button::new("Remove")).clicked() {
+                        if ui
+                            .add_enabled(admin, egui::Button::new(crate::i18n::tr("Remove")))
+                            .clicked()
+                        {
                             match remove_kill_entry(text, i) {
                                 Ok(new) => commands.push(UiCommand::SaveConfig(new)),
                                 Err(e) => view.error = Some(e),
@@ -270,37 +295,42 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
                 }
             });
     } else {
-        ui.weak("The kill list is empty. Add a program below, or right-click a process → Add to kill list…");
+        ui.weak(crate::i18n::tr("The kill list is empty. Add a program below, or right-click a process → Add to kill list…"));
     }
 
     ui.add_space(12.0);
     ui.heading(if view.editing.is_some() {
-        "Change entry"
+        crate::i18n::tr("Change entry")
     } else {
-        "Add to the kill list"
+        crate::i18n::tr("Add to the kill list")
     });
     egui::Grid::new("kill_form").num_columns(2).show(ui, |ui| {
-        ui.label("Program");
+        ui.label(crate::i18n::tr("Program"));
         ui.add(
-            egui::TextEdit::singleline(&mut view.name).hint_text("e.g. node.exe or python*.exe"),
+            egui::TextEdit::singleline(&mut view.name)
+                .hint_text(crate::i18n::tr("e.g. node.exe or python*.exe")),
         );
         ui.end_row();
-        ui.label("Command line contains");
+        ui.label(crate::i18n::tr("Command line contains"));
         ui.add(
-            egui::TextEdit::singleline(&mut view.cmdline)
-                .hint_text("optional, e.g. vitest (only those node.exe)"),
+            egui::TextEdit::singleline(&mut view.cmdline).hint_text(crate::i18n::tr(
+                "optional, e.g. vitest (only those node.exe)",
+            )),
         );
         ui.end_row();
         ui.label("");
         ui.horizontal(|ui| {
-            ui.checkbox(&mut view.automatic, "End it automatically at");
+            ui.checkbox(
+                &mut view.automatic,
+                crate::i18n::tr("End it automatically at"),
+            );
             ui.add_enabled(
                 view.automatic,
                 egui::DragValue::new(&mut view.cpu)
                     .range(1.0..=100.0)
-                    .suffix("% CPU"),
+                    .suffix(crate::i18n::tr("% CPU")),
             );
-            ui.label("for");
+            ui.label(crate::i18n::tr("for"));
             ui.add_enabled(
                 view.automatic,
                 egui::DragValue::new(&mut view.seconds)
@@ -315,17 +345,28 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
             .snapshot
             .as_ref()
             .map_or(1, |s| s.system.logical_cpus.max(1));
-        ui.weak(format!(
-            "{:.0}% of this PC = {:.1} of its {cpus} logical processors (one fully busy core is {:.1}%)",
-            view.cpu,
-            view.cpu / 100.0 * cpus as f32,
-            100.0 / cpus as f32
-        ));
+        ui.weak({
+            let __wtm_i18n_0 = &(view.cpu);
+            let __wtm_i18n_1 = &(view.cpu / 100.0 * cpus as f32);
+            let __wtm_i18n_2 = &(100.0 / cpus as f32);
+            crate::i18n::format(
+                "{0}% of this PC = {1} of its {2} logical processors (one fully busy core is {3}%)",
+                &[
+                    format!("{:.0}", __wtm_i18n_0),
+                    format!("{:.1}", __wtm_i18n_1),
+                    format!("{}", cpus),
+                    format!("{:.1}", __wtm_i18n_2),
+                ],
+            )
+        });
         ui.end_row();
         ui.label("");
         ui.add_enabled_ui(view.automatic, |ui| {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut view.busy_pc, "only while the PC is above");
+                ui.checkbox(
+                    &mut view.busy_pc,
+                    crate::i18n::tr("only while the PC is above"),
+                );
                 ui.add_enabled(
                     view.busy_pc,
                     egui::DragValue::new(&mut view.system_cpu)
@@ -336,7 +377,10 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
         });
         ui.end_row();
         ui.label("");
-        ui.checkbox(&mut view.tree, "Also end the processes it started");
+        ui.checkbox(
+            &mut view.tree,
+            crate::i18n::tr("Also end the processes it started"),
+        );
         ui.end_row();
     });
 
@@ -352,20 +396,23 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
             .map(|p| format!("{} ({})", p.name, p.pid))
             .collect();
         ui.weak(if matching.is_empty() {
-            "Matches no running process right now.".to_owned()
+            crate::i18n::tr("Matches no running process right now.").to_owned()
         } else {
-            format!(
-                "Matches {} running now: {}",
-                matching.len(),
-                matching.join(", ")
-            )
+            {
+                let __wtm_i18n_0 = &(matching.len());
+                let __wtm_i18n_1 = &(matching.join(", "));
+                crate::i18n::format(
+                    "Matches {0} running now: {1}",
+                    &[format!("{}", __wtm_i18n_0), __wtm_i18n_1.to_string()],
+                )
+            }
         });
     }
     ui.horizontal(|ui| {
         let label = if view.editing.is_some() {
-            "Save entry"
+            crate::i18n::tr("Save entry")
         } else {
-            "Add entry"
+            crate::i18n::tr("Add entry")
         };
         if ui.add_enabled(admin, egui::Button::new(label)).clicked() {
             match set_kill_entry(text, &entry, view.editing) {
@@ -376,7 +423,7 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
                 Err(e) => view.error = Some(e),
             }
         }
-        if view.editing.is_some() && ui.button("Cancel").clicked() {
+        if view.editing.is_some() && ui.button(crate::i18n::tr("Cancel")).clicked() {
             *view = KillView::default();
         }
     });

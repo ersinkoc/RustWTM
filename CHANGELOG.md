@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-21
+
+### Added
+
+- GUI and desktop notifications in English, Turkish, German, French and Spanish.
+  The language selector applies immediately and persists per Windows user;
+  the default follows the Windows UI language. Missing translations fall back
+  to English, while unknown/native diagnostic details retain their source text.
+- Translation coverage and placeholder checks in the regular test suite,
+  five-language page/navigation tests and optional visual reviews in both themes
+  at wide and compact sizes.
+- 96 and 128 px sizes in the embedded product icon, alongside the existing
+  16, 20, 24, 32, 48, 64 and 256 px sizes; executable resource verification.
+
+### Changed
+
+- IPC remains protocol 11.
+- Navigation width follows translated labels; saved actions, process identities
+  and service configuration keys remain language-independent.
+
 ## [0.13.1] - 2026-10-21
 
 ### Added

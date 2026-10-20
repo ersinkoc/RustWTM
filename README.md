@@ -18,7 +18,7 @@ usage history.
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Status:** early release (0.13). Sensors and cooling controls are available
+> **Status:** early release (0.14). Sensors and cooling controls are available
 > through the optional hardware provider. Device support varies; physical fan
 > writes still require validation on each supported hardware configuration.
 > Enforcement is **off by default** (dry-run); review the event log first.
@@ -51,6 +51,9 @@ usage history.
   by itself.
 - Run new task (optionally as administrator) and one-click restart as
   administrator; the window remembers its size, tab, columns and sorts.
+- GUI and desktop notifications in English, Türkçe, Deutsch, Français and
+  Español, with immediate language selection and a saved per-user preference.
+  The first launch follows the Windows UI language. See [language support](docs/localization.md).
 - Settings: edit the service's configuration with live validation and a
   one-click switch between dry-run and enforcing.
 - **Overload alert**: when the CPU stays above 90%, RustWTM pops up over all

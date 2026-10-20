@@ -39,13 +39,18 @@ impl Sort {
 /// A header cell: clicking sorts by `col`, clicking again reverses. Numeric
 /// columns start with the largest value, text columns with A.
 pub fn header(ui: &mut Ui, label: &str, col: usize, numeric: bool, sort: &mut Sort) {
+    let label = crate::i18n::tr(label);
     let arrow = match (sort.col == col, sort.desc) {
         (true, true) => " ↓",
         (true, false) => " ↑",
         _ => "",
     };
     let button = egui::Button::new(RichText::new(format!("{label}{arrow}")).strong()).frame(false);
-    if ui.add(button).on_hover_text("Sort").clicked() {
+    if ui
+        .add(button)
+        .on_hover_text(crate::i18n::tr("Sort"))
+        .clicked()
+    {
         *sort = if sort.col == col {
             Sort::new(col, !sort.desc)
         } else {
