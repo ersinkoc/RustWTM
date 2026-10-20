@@ -10,6 +10,8 @@ use crate::processes::budget_label;
 use crate::sort::{Sort, header, num};
 
 const WARN: Color32 = Color32::from_rgb(230, 140, 40);
+const BAD: Color32 = Color32::from_rgb(220, 70, 70);
+const GOOD: Color32 = Color32::from_rgb(80, 180, 100);
 
 #[derive(Debug)]
 pub struct LimitsView {
@@ -168,6 +170,9 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         outside: usize,
         cpu: f32,
         mem: u64,
+        /// Fullest budget (instance) as a share of its limit, 0..=1.
+        cpu_fill: Option<f32>,
+        mem_fill: Option<f32>,
     }
     let mut rows: Vec<Row<'_>> = config
         .limits
@@ -184,6 +189,18 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 outside: groups.iter().map(|g| g.outside).sum(),
                 cpu: groups.iter().map(|g| g.cpu_percent).sum(),
                 mem: groups.iter().map(|g| g.memory_bytes).sum(),
+                cpu_fill: l.cpu_percent(cpus).filter(|&c| c > 0.0).map(|limit| {
+                    groups
+                        .iter()
+                        .map(|g| g.cpu_percent / limit)
+                        .fold(0.0, f32::max)
+                }),
+                mem_fill: l.memory_bytes().filter(|&m| m > 0).map(|limit| {
+                    groups
+                        .iter()
+                        .map(|g| g.memory_bytes as f32 / limit as f32)
+                        .fold(0.0, f32::max)
+                }),
             }
         })
         .collect();
@@ -246,8 +263,9 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 } else {
                     ui.label(count);
                 }
-                ui.label(format!("{:.2} cores", r.cpu / 100.0 * cpus as f32));
-                ui.label(format_bytes(r.mem as f64));
+                let cores = format!("{:.2} cores", r.cpu / 100.0 * cpus as f32);
+                usage_cell(ui, cores, r.cpu_fill);
+                usage_cell(ui, format_bytes(r.mem as f64), r.mem_fill);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(admin, egui::Button::new("Edit")).clicked() {
                         view.edit(l);
@@ -360,6 +378,29 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         ui.colored_label(Color32::RED, e);
     }
     commands
+}
+
+/// Current use, as a bar against the budget when there is one. Red from 95%
+/// (memory allocations start failing), orange from 75%.
+fn usage_cell(ui: &mut Ui, text: String, fill: Option<f32>) {
+    let Some(fill) = fill else {
+        ui.label(text);
+        return;
+    };
+    let color = if fill >= 0.95 {
+        BAD
+    } else if fill >= 0.75 {
+        WARN
+    } else {
+        GOOD
+    };
+    ui.add(
+        egui::ProgressBar::new(fill.clamp(0.0, 1.0))
+            .desired_width(150.0)
+            .fill(color.gamma_multiply(0.8))
+            .text(format!("{text} ({:.0}%)", fill * 100.0)),
+    )
+    .on_hover_text("Use of the budget; for one budget per instance, the fullest instance");
 }
 
 #[cfg(test)]

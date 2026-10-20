@@ -1729,6 +1729,9 @@ mod tests {
         h.run_steps(2);
         assert!(h.query_by_label_contains("2 cores, 8 GB").is_some());
         assert!(h.query_by_label("1 (1 outside)").is_some());
+        // 3.5% of 8 CPUs against a 2-core budget; 1 GiB of 8 GB.
+        assert!(h.query_by_label_contains("0.28 cores (14%)").is_some());
+        assert!(h.query_by_label_contains("1.0 GiB (12%)").is_some());
         assert!(h.query_by_label_contains("Dry-run mode").is_some());
         let saved = |rx: &std::sync::mpsc::Receiver<UiCommand>| {
             rx.try_iter().find_map(|c| match c {

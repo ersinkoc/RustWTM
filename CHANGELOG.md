@@ -18,6 +18,11 @@ All notable changes to this project are documented here. The format follows
   90%); its tooltip adds memory use.
 - Performance: activity, read and write rate of every physical disk, and the
   load of every GPU engine (3D, Copy, Video decode, ...).
+- App limits warn (event and desktop notification) when a budget uses 95% of
+  its memory, since its processes then fail to allocate memory; once more
+  only after it dropped below 85%.
+- The Limits tab shows CPU and memory use as bars against the budget (the
+  fullest instance for per-instance budgets), orange from 75%, red from 95%.
 
 ### Changed
 

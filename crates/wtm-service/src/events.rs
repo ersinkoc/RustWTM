@@ -24,6 +24,11 @@ impl EventLog {
         self.record(level, target, message.into(), false);
     }
 
+    /// A warning clients should surface as a desktop notification.
+    pub fn alert(&self, target: Option<&ProcessRef>, message: impl Into<String>) {
+        self.record(EventLevel::Warn, target, message.into(), true);
+    }
+
     /// An event clients should surface as a desktop notification.
     pub fn notable(&self, target: Option<&ProcessRef>, message: impl Into<String>) {
         self.record(EventLevel::Info, target, message.into(), true);

@@ -4,8 +4,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use wtm_core::ProcessInfo;
 use wtm_core::control::ProcessRef;
+use wtm_core::{ProcessInfo, format_bytes};
 use wtm_policy::{AppLimit, GroupId, GroupUsage, LimitPlanner, LimitScope};
 use wtm_sys::control::{Access, ProcessHandle};
 use wtm_sys::job::Job;
@@ -60,6 +60,8 @@ pub struct AppLimiter {
     outside: HashSet<(u32, i64)>,
     /// Apps whose outside members were already reported.
     reported_outside: HashSet<String>,
+    /// Budgets that were reported as (nearly) out of memory.
+    memory_full: HashSet<GroupId>,
     events: EventLog,
 }
 
@@ -72,6 +74,7 @@ impl AppLimiter {
             previewed: HashSet::new(),
             outside: HashSet::new(),
             reported_outside: HashSet::new(),
+            memory_full: HashSet::new(),
             events,
         }
     }
@@ -166,6 +169,10 @@ impl AppLimiter {
         }
         let live: HashSet<&GroupId> = usage.iter().map(|u| &u.group).collect();
         self.budgets.retain(|g, _| live.contains(g));
+        self.memory_full.retain(|g| live.contains(g));
+        for u in &usage {
+            self.check_memory(u);
+        }
         for u in &usage {
             if let Some(b) = self.budgets.get_mut(&u.group)
                 && let Err(e) = b.apply(u.limit.cpu_percent(logical_cpus), u.limit.memory_bytes())
@@ -175,6 +182,36 @@ impl AppLimiter {
             }
         }
         usage
+    }
+
+    /// Warns once when a budget's memory is nearly used up (its processes
+    /// then fail to allocate), and again only after it went below 85%.
+    fn check_memory(&mut self, u: &GroupUsage) {
+        let Some(limit) = u.limit.memory_bytes().filter(|&l| l > 0) else {
+            return;
+        };
+        let fill = u.memory_bytes as f64 / limit as f64;
+        if fill >= MEMORY_FULL {
+            if self.memory_full.insert(u.group.clone()) {
+                let instance = match u.group.root {
+                    Some((pid, _)) => format!(" (instance PID {pid})"),
+                    None => String::new(),
+                };
+                self.events.alert(
+                    None,
+                    format!(
+                        "{}{instance} uses {} of its {} memory budget; its processes may fail \
+                         to allocate memory. Raise the limit in the Limits tab if this is \
+                         expected.",
+                        u.limit.name,
+                        format_bytes(u.memory_bytes as f64),
+                        format_bytes(limit as f64)
+                    ),
+                );
+            }
+        } else if fill < MEMORY_OK {
+            self.memory_full.remove(&u.group);
+        }
     }
 
     /// Reports what would be limited without touching anything.
@@ -215,6 +252,11 @@ impl AppLimiter {
         }
     }
 }
+
+/// Share of a memory budget that counts as full, and the share below which
+/// it is reported again.
+const MEMORY_FULL: f64 = 0.95;
+const MEMORY_OK: f64 = 0.85;
 
 /// Puts `p` into `job` unless it is already there (children inherit it).
 fn add(job: &Job, p: &ProcessInfo) -> wtm_sys::Result<()> {
@@ -390,6 +432,62 @@ mod tests {
         assert!(limiter.budgets.is_empty());
         limiter.lift_all("test");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_nearly_full_memory_budget_is_reported_once() {
+        let events = EventLog::default();
+        let mut limiter = AppLimiter::new(Vec::new(), false, events.clone());
+        let usage = |memory_bytes: u64, root| GroupUsage {
+            group: GroupId {
+                app: "zen.exe".into(),
+                scope: LimitScope::Each,
+                root,
+            },
+            limit: limit("zen.exe", LimitScope::Each),
+            processes: 3,
+            members: Vec::new(),
+            outside: 0,
+            cpu_percent: 0.0,
+            memory_bytes,
+        };
+        let alerts = |events: &EventLog| {
+            events
+                .after(0)
+                .into_iter()
+                .filter(|e| e.notify && e.level == wtm_ipc::EventLevel::Warn)
+                .map(|e| e.message)
+                .collect::<Vec<_>>()
+        };
+        let gb = 1u64 << 30;
+        limiter.check_memory(&usage(gb / 2, Some((7, 1))));
+        assert!(alerts(&events).is_empty());
+        for _ in 0..3 {
+            limiter.check_memory(&usage(gb * 96 / 100, Some((7, 1))));
+        }
+        let a = alerts(&events);
+        assert_eq!(a.len(), 1, "{a:?}");
+        assert!(
+            a[0].starts_with("zen.exe (instance PID 7) uses "),
+            "{}",
+            a[0]
+        );
+        assert!(a[0].contains("of its 1.0 GiB memory budget"), "{}", a[0]);
+        // Still high (between 85% and 95%): no repeat; after recovering, again.
+        limiter.check_memory(&usage(gb * 90 / 100, Some((7, 1))));
+        limiter.check_memory(&usage(gb * 96 / 100, Some((7, 1))));
+        assert_eq!(alerts(&events).len(), 1);
+        limiter.check_memory(&usage(gb / 2, Some((7, 1))));
+        limiter.check_memory(&usage(gb, None));
+        limiter.check_memory(&usage(gb, Some((7, 1))));
+        let a = alerts(&events);
+        assert_eq!(a.len(), 3, "{a:?}");
+        assert!(a[1].starts_with("zen.exe uses "), "{}", a[1]);
+        // Budgets without a memory limit are never full.
+        let mut cpu_only = usage(u64::MAX, None);
+        cpu_only.limit.memory_gb = None;
+        limiter.check_memory(&cpu_only);
+        assert_eq!(alerts(&events).len(), 3);
     }
 
     #[test]
