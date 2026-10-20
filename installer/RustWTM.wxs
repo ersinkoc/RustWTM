@@ -5,7 +5,7 @@
     pwsh scripts/build-hardware.ps1 -OutputDir target/release/hardware
     dotnet tool restore
     dotnet wix extension add WixToolset.Util.wixext/5.0.2
-    dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.13.0 -d BinDir=target/release -o dist/RustWTM-0.13.0-x64.msi
+    dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.13.1 -d BinDir=target/release -o dist/RustWTM-0.13.1-x64.msi
   (XML comments cannot contain two consecutive hyphens, hence no flags here.)
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
@@ -45,6 +45,9 @@
           </Component>
           <Component Id="ReleaseDocumentation">
             <File Id="ReleaseReview" Source="docs\0.13.0-review.md" KeyPath="yes" />
+          </Component>
+          <Component Id="CpuDocumentation">
+            <File Id="CpuGuide" Source="docs\cpu-controls.md" KeyPath="yes" />
           </Component>
         </Directory>
 
@@ -109,6 +112,7 @@
       <ComponentRef Id="HardwareProvider" />
       <ComponentRef Id="HardwareDocumentation" />
       <ComponentRef Id="ReleaseDocumentation" />
+      <ComponentRef Id="CpuDocumentation" />
       <ComponentRef Id="Cli" />
       <ComponentRef Id="Service" />
       <ComponentRef Id="Readme" />

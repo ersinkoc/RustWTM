@@ -86,6 +86,75 @@ pub fn snapshot() -> Snapshot {
     }
 }
 
+pub(crate) fn hybrid_topology() -> wtm_core::cpu::Topology {
+    wtm_core::cpu::Topology {
+        cpus: (0..8)
+            .map(|index| wtm_core::cpu::LogicalCpu {
+                id: u32::from(index),
+                group: 0,
+                index,
+                core: index,
+                efficiency_class: if index < 2 {
+                    200
+                } else if index < 6 {
+                    100
+                } else {
+                    10
+                },
+                parked: false,
+                reserved_elsewhere: false,
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn cpu_type_menu_sends_tier_selection_and_hides_on_uniform_processors() {
+    struct State {
+        topology: wtm_core::cpu::Topology,
+        intents: Vec<Intent>,
+    }
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([600.0, 1200.0])
+        .build_ui_state(
+            |ui, s: &mut State| {
+                crate::processes::context_menu(
+                    ui,
+                    &ProcessRef {
+                        pid: 100,
+                        create_time: 1,
+                        name: "test.exe".into(),
+                    },
+                    8,
+                    Some(&s.topology),
+                    &mut s.intents,
+                );
+            },
+            State {
+                topology: hybrid_topology(),
+                intents: Vec::new(),
+            },
+        );
+    h.run();
+    h.get_by_label("CPU core type").click();
+    h.run();
+    h.get_by_label("P-cores only").click();
+    h.run();
+    assert!(h.state().intents.iter().any(|i| matches!(
+        i,
+        Intent::Command(
+            _,
+            Command::AffinityTier(wtm_core::cpu::CoreSelection::Performance)
+        )
+    )));
+    for c in &mut h.state_mut().topology.cpus {
+        c.efficiency_class = 0;
+    }
+    h.run();
+    assert!(h.query_by_label("CPU core type").is_none());
+}
+
 fn target(pid: u32, name: &str) -> ProcessRef {
     ProcessRef::from(&proc(pid, 0, name, 0.0))
 }
@@ -949,6 +1018,7 @@ fn icons() -> &'static (crate::backend::CommandLines, Icons) {
 
 fn extra(managed: &ManagedMap) -> crate::processes::Extra<'_> {
     crate::processes::Extra {
+        topology: None,
         labels: managed,
         command_lines: command_lines(),
         image_paths: &icons().0,

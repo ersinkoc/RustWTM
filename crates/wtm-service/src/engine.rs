@@ -593,6 +593,10 @@ fn handle_control(
         Command::Resume => vec![outcome(target, control::resume(target))],
         Command::Priority(p) => vec![outcome(target, control::set_priority(target, p))],
         Command::Affinity(mask) => vec![outcome(target, control::set_affinity(target, mask))],
+        Command::AffinityTier(selection) => vec![outcome(
+            target,
+            control::set_core_affinity(target, selection),
+        )],
         Command::EcoQos(mode) => vec![outcome(target, control::set_eco_qos(target, mode))],
         Command::TrimMemory => vec![outcome(target, control::trim_memory(target))],
         // Limits and unlimits go through the executor so they compose with
@@ -1348,6 +1352,7 @@ mod unit_tests {
         for command in [
             Command::Priority(PriorityClass::BelowNormal),
             Command::Affinity(1),
+            Command::AffinityTier(wtm_core::cpu::CoreSelection::All),
             Command::EcoQos(wtm_core::control::EcoQos::On),
             Command::Suspend,
             Command::Resume,

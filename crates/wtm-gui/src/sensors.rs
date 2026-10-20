@@ -8,6 +8,7 @@ use wtm_policy::{CoolingMode, CoolingProfile, CurvePoint};
 
 #[derive(Default)]
 pub struct SensorsView {
+    power: crate::power_controls::PowerView,
     pub profiles: HashMap<String, CoolingProfile>,
     search: String,
     filter: Option<SensorKind>,
@@ -411,6 +412,11 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
         );
         ui.add_space(8.0);
     }
+    commands.extend(crate::power_controls::power_controls(
+        ui,
+        data,
+        &mut view.power,
+    ));
     if let Some((channel, profile)) = view.confirm.clone() {
         let modal=egui::Modal::new(egui::Id::unique("confirm_cooling")).show(ui.ctx(),|ui| {
             ui.heading("Apply software fan control?");

@@ -42,6 +42,7 @@ foreach ($exe in 'rustwtm.exe', 'wtm.exe', 'wtm-service.exe') {
 Assert (Test-Path (Join-Path $InstallDir 'hardware/wtm-hardware.exe')) 'hardware provider installed'
 Assert (Test-Path (Join-Path $InstallDir 'hardware/PROVIDER-NOTICES.txt')) 'hardware provider license notices installed'
 Assert (Test-Path (Join-Path $InstallDir 'docs/hardware.md')) 'hardware guide installed'
+Assert (Test-Path (Join-Path $InstallDir 'docs/cpu-controls.md')) 'CPU topology and power guide installed'
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
 Assert ($machinePath -contains $InstallDir -or $machinePath -contains "$InstallDir\") 'install dir is on the machine PATH'
 $shortcut = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'RustWTM.lnk'

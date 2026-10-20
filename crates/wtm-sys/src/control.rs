@@ -379,6 +379,30 @@ impl ProcessHandle {
         Ok(())
     }
 
+    pub fn core_affinity(
+        &self,
+        selection: crate::cpu::CoreSelection,
+    ) -> std::result::Result<u64, String> {
+        let mut groups = vec![0u16; 64];
+        let mut count = 64u16;
+        // SAFETY: the group array is writable for count elements; handle is live.
+        unsafe {
+            windows::Win32::System::Threading::GetProcessGroupAffinity(
+                self.raw(),
+                &mut count,
+                groups.as_mut_ptr(),
+            )
+            .ok()
+        }
+        .map_err(|e| e.to_string())?;
+        if count != 1 {
+            return Err("Core-type affinity requires a process in one processor group; cross-group masks are not supported".into());
+        }
+        let topology = crate::cpu::query(Some(self.raw())).map_err(|e| e.to_string())?;
+        let (_, allowed) = self.affinity().map_err(|e| e.to_string())?;
+        topology.mask(selection, groups[0], allowed)
+    }
+
     pub fn eco_qos(&self) -> Result<EcoQos> {
         let mut state = PROCESS_POWER_THROTTLING_STATE {
             Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,

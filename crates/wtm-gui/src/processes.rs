@@ -113,6 +113,7 @@ pub fn app_icon(ui: &mut Ui, icon: Option<(&str, &wtm_core::IconImage)>) {
 
 /// Text shown per process besides its own fields.
 pub struct Extra<'a> {
+    pub topology: Option<&'a wtm_core::cpu::Topology>,
     pub labels: &'a ManagedMap,
     pub command_lines: &'a crate::backend::CommandLines,
     pub image_paths: &'a crate::backend::CommandLines,
@@ -693,7 +694,13 @@ impl ProcessView {
                                     intents.push(Intent::Select(target.clone()));
                                 }
                                 response.context_menu(|ui| {
-                                    context_menu(ui, &target, logical_cpus, &mut intents)
+                                    context_menu(
+                                        ui,
+                                        &target,
+                                        logical_cpus,
+                                        extra.topology,
+                                        &mut intents,
+                                    )
                                 });
                             }
                         });
@@ -797,7 +804,13 @@ pub fn search_url(name: &str) -> String {
     format!("https://www.bing.com/search?q={query}")
 }
 
-pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mut Vec<Intent>) {
+pub fn context_menu(
+    ui: &mut Ui,
+    t: &ProcessRef,
+    logical_cpus: u32,
+    topology: Option<&wtm_core::cpu::Topology>,
+    intents: &mut Vec<Intent>,
+) {
     let mut cmd = |ui: &mut Ui, label: &str, command: Command, confirm: bool| {
         if ui.button(label).clicked() {
             intents.push(if confirm {
@@ -835,6 +848,40 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
             false,
         );
     });
+    if let Some(topology) = topology.filter(|t| t.hybrid()) {
+        ui.menu_button("CPU core type", |ui| {
+            use wtm_core::cpu::CoreSelection as C;
+            cmd(
+                ui,
+                "P-cores only",
+                Command::AffinityTier(C::Performance),
+                false,
+            );
+            if topology.classes().len() <= 3 {
+                cmd(
+                    ui,
+                    "E-cores only",
+                    Command::AffinityTier(C::Efficient),
+                    false,
+                );
+            }
+            if topology.classes().len() == 3 {
+                cmd(
+                    ui,
+                    "LP-E cores only",
+                    Command::AffinityTier(C::LowPower),
+                    false,
+                );
+            }
+            cmd(
+                ui,
+                "All available cores",
+                Command::AffinityTier(C::All),
+                false,
+            );
+            ui.weak("Windows performance tiers. Cross-group processes are rejected.");
+        });
+    }
     ui.menu_button("Limit CPU", |ui| {
         for (label, cores) in [
             ("¼ core", 0.25),
@@ -959,6 +1006,7 @@ mod tests {
 
     fn no_extra() -> Extra<'static> {
         Extra {
+            topology: None,
             labels: Box::leak(Box::default()),
             command_lines: Box::leak(Box::default()),
             image_paths: Box::leak(Box::default()),

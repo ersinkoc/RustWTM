@@ -12,6 +12,7 @@ mod logo;
 mod navigation;
 mod overview;
 mod ports_tab;
+mod power_controls;
 mod processes;
 mod sensors;
 mod settings;

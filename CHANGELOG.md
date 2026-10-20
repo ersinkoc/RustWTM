@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-21
+
+### Added
+
+- Hybrid CPU topology from Windows CPU Sets: `wtm cores [--json]`, processor
+  group/core identifiers and relative P/E/LP-E tiers without hard-coded class values.
+- `wtm affinity <target> --pcores|--ecores|--lp-ecores|--all-cores` and a CPU core
+  type menu in Processes. PID identity/protection checks remain enforced;
+  processes spanning multiple groups are rejected rather than truncated.
+- Performance graphs label hybrid tiers; uniform CPUs omit the hybrid controls.
+- Explicit shared Windows frequency limits in Sensors & cooling and
+  `wtm power show|limit|restore`. Administrator access and confirmation are
+  required for writes. Original values are saved before mutation, partial
+  failures attempt rollback, and detected external changes are preserved.
+  These are power-plan settings, not per-PID MHz caps; class 1 is not assumed
+  to mean E-cores.
+
+### Changed
+
+- IPC protocol 11 adds core-tier requests.
+  Update the GUI and service together.
+
 ## [0.13.0] - 2026-10-20
 
 ### Added

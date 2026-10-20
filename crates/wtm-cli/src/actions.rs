@@ -163,6 +163,15 @@ pub fn affinity(specs: &[String], cpus: Option<&str>) -> anyhow::Result<ExitCode
     for_each(specs, "affinity", |t| control::set_affinity(t, mask))
 }
 
+pub fn core_affinity(
+    specs: &[String],
+    selection: wtm_core::cpu::CoreSelection,
+) -> anyhow::Result<ExitCode> {
+    for_each(specs, selection.label(), |t| {
+        control::set_core_affinity(t, selection)
+    })
+}
+
 /// Report line for `affinity` without a CPU list: `Ok` for stdout, `Err` for stderr.
 fn affinity_line(
     t: &ProcessRef,

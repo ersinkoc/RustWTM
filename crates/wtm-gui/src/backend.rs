@@ -85,6 +85,8 @@ pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory
 
 #[derive(Debug, Default)]
 pub struct Data {
+    pub frequency: Option<Result<wtm_core::power::FrequencyReport, String>>,
+    pub cpu_topology: Option<wtm_core::cpu::Topology>,
     pub hardware: wtm_core::hardware::HardwareReport,
     pub mode: Mode,
     pub snapshot: Option<Arc<Snapshot>>,
@@ -133,6 +135,8 @@ pub struct Data {
 }
 
 pub enum UiCommand {
+    SetFrequency(wtm_core::power::FrequencyRequest),
+    RestoreFrequency,
     SetCooling {
         channel: String,
         profile: wtm_policy::CoolingProfile,
@@ -373,6 +377,7 @@ impl Worker {
     }
 
     fn run(&mut self, rx: &Receiver<UiCommand>) {
+        self.data().cpu_topology = wtm_core::cpu::topology().ok();
         let mut next_tick = Instant::now();
         loop {
             match rx.recv_timeout(next_tick.saturating_duration_since(Instant::now())) {
@@ -528,6 +533,22 @@ impl Worker {
 
     fn handle(&mut self, cmd: UiCommand) {
         match cmd {
+            UiCommand::SetFrequency(request) => {
+                let result = wtm_core::power::set_frequency(&request);
+                self.data().message=Some(match result {Ok(())=>(EventLevel::Info,"Shared CPU frequency limit saved; original values are available in Restore".into()),Err(e)=>(EventLevel::Error,e)});
+                self.load(Panel::Sensors);
+            }
+            UiCommand::RestoreFrequency => {
+                let result = wtm_core::power::restore_frequency();
+                self.data().message = Some(match result {
+                    Ok(()) => (
+                        EventLevel::Info,
+                        "Original CPU frequency settings restored".into(),
+                    ),
+                    Err(e) => (EventLevel::Error, e),
+                });
+                self.load(Panel::Sensors);
+            }
             UiCommand::SetCooling { channel, profile } => {
                 let result = match self.client.as_mut() {
                     Some(client) if client.is_admin() => {
@@ -809,6 +830,8 @@ impl Worker {
     fn load(&mut self, panel: Panel) {
         match panel {
             Panel::Sensors => {
+                let frequency = wtm_core::power::frequency_report();
+                self.data().frequency = Some(frequency);
                 if let Some(client) = self.client.as_mut() {
                     match client.call(&Request::Hardware) {
                         Ok(Response::Hardware(report)) => {
@@ -899,6 +922,7 @@ impl Worker {
             Command::Resume => one(control::resume(t)),
             Command::Priority(p) => one(control::set_priority(t, p)),
             Command::Affinity(mask) => one(control::set_affinity(t, mask)),
+            Command::AffinityTier(selection) => one(control::set_core_affinity(t, selection)),
             Command::EcoQos(mode) => one(control::set_eco_qos(t, mode)),
             Command::Limit(limits) => one(self.limiter.apply(t, limits)),
             Command::Unlimit => one(self.limiter.lift(t)),
@@ -1002,6 +1026,7 @@ pub fn describe(command: Command) -> String {
         Command::Resume => "Resume".into(),
         Command::Priority(p) => format!("Priority {p:?}"),
         Command::Affinity(mask) => format!("Affinity {mask:#x}"),
+        Command::AffinityTier(selection) => format!("Run on {}", selection.label()),
         Command::EcoQos(mode) => format!("Efficiency mode {mode:?}"),
         Command::Limit(l) => {
             let mut parts = Vec::new();
@@ -1716,6 +1741,7 @@ mod tests {
             Command::Resume,
             Command::Priority(wtm_core::control::PriorityClass::BelowNormal),
             Command::Affinity(1),
+            Command::AffinityTier(wtm_core::cpu::CoreSelection::All),
             Command::EcoQos(wtm_core::control::EcoQos::On),
             Command::Limit(Limits {
                 cpu_percent: Some(50.0),

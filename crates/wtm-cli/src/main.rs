@@ -5,6 +5,7 @@ mod config;
 mod kill;
 mod parse;
 mod ports;
+mod power;
 mod table;
 mod top;
 
@@ -27,6 +28,16 @@ struct Cli {
 /// a name applies to every process with that name.
 #[derive(Subcommand)]
 enum Command {
+    /// Read or explicitly change shared Windows power-plan frequency limits
+    Power {
+        #[command(subcommand)]
+        action: Option<power::PowerCommand>,
+    },
+    /// List CPU Sets, processor groups and relative P/E/LP-E tiers
+    Cores {
+        #[arg(long)]
+        json: bool,
+    },
     /// Temperatures, fan RPM/duty, power, voltage and clocks (read-only)
     Sensors {
         #[arg(long)]
@@ -100,7 +111,16 @@ enum Command {
     /// Show or set the CPU affinity, e.g. `0-3,6` or `0xF`
     Affinity {
         target: String,
+        #[arg(conflicts_with_all=["pcores","ecores","lp_ecores","all_cores"])]
         cpus: Option<String>,
+        #[arg(long,conflicts_with_all=["ecores","lp_ecores","all_cores"])]
+        pcores: bool,
+        #[arg(long,conflicts_with_all=["lp_ecores","all_cores"])]
+        ecores: bool,
+        #[arg(long, conflicts_with = "all_cores")]
+        lp_ecores: bool,
+        #[arg(long)]
+        all_cores: bool,
     },
     /// Toggle efficiency mode (EcoQoS power throttling)
     Eco {
@@ -296,6 +316,40 @@ fn main() -> anyhow::Result<ExitCode> {
     control::enable_debug_privilege();
 
     match cli.command {
+        Command::Power { action } => {
+            power::run(action.unwrap_or(power::PowerCommand::Show { json: false }))
+        }
+        Command::Cores { json } => {
+            let topology = wtm_core::cpu::topology()?;
+            if json {
+                serde_json::to_writer_pretty(io::stdout().lock(), &topology)?;
+                println!();
+            } else {
+                println!("GROUP  CPU  CORE  CLASS  TIER     CPU SET  STATE");
+                for c in &topology.cpus {
+                    println!(
+                        "{:>5}  {:>3}  {:>4}  {:>5}  {:<7}  {:>7}  {}",
+                        c.group,
+                        c.index,
+                        c.core,
+                        c.efficiency_class,
+                        topology.tier(c.efficiency_class),
+                        c.id,
+                        if c.reserved_elsewhere {
+                            "reserved"
+                        } else if c.parked {
+                            "parked"
+                        } else {
+                            "available"
+                        }
+                    );
+                }
+                println!(
+                    "Tiers are relative Windows EfficiencyClass values; higher classes are faster. Indices are group-relative."
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::List {
             sort,
             limit,
@@ -378,7 +432,32 @@ fn main() -> anyhow::Result<ExitCode> {
         }
         Command::Resume { targets } => actions::resume(&targets),
         Command::Priority { target, class } => actions::priority(&[target], class.into()),
-        Command::Affinity { target, cpus } => actions::affinity(&[target], cpus.as_deref()),
+        Command::Affinity {
+            target,
+            cpus,
+            pcores,
+            ecores,
+            lp_ecores,
+            all_cores,
+        } => {
+            use wtm_core::cpu::CoreSelection as C;
+            let selection = if pcores {
+                Some(C::Performance)
+            } else if ecores {
+                Some(C::Efficient)
+            } else if lp_ecores {
+                Some(C::LowPower)
+            } else if all_cores {
+                Some(C::All)
+            } else {
+                None
+            };
+            if let Some(selection) = selection {
+                actions::core_affinity(&[target], selection)
+            } else {
+                actions::affinity(&[target], cpus.as_deref())
+            }
+        }
         Command::Eco { target, mode } => actions::eco(&[target], mode.into()),
         Command::Limit {
             targets,
@@ -496,6 +575,31 @@ mod tests {
 
     #[test]
     fn parses_commands() {
+        for flag in ["--pcores", "--ecores", "--lp-ecores", "--all-cores"] {
+            assert!(Cli::try_parse_from(["wtm", "affinity", "1234", flag]).is_ok());
+            assert!(Cli::try_parse_from(["wtm", "affinity", "1234", "0-3", flag]).is_err());
+        }
+        assert!(Cli::try_parse_from(["wtm", "affinity", "1234", "--pcores", "--ecores"]).is_err());
+        assert!(Cli::try_parse_from(["wtm", "cores", "--json"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "wtm", "power", "limit", "--class", "0", "--mhz", "1800", "--source", "both",
+                "--yes"
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "wtm", "power", "limit", "--class", "2", "--mhz", "1800", "--yes"
+            ])
+            .is_err()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "wtm", "power", "limit", "--class", "0", "--mhz", "0", "--yes"
+            ])
+            .is_err()
+        );
         let cli = Cli::try_parse_from(["wtm", "eco", "notepad"]).unwrap();
         assert!(matches!(
             cli.command,

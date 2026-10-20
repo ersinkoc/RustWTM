@@ -38,6 +38,8 @@ impl From<&ProcessInfo> for ProcessRef {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ControlError {
+    #[error("process {pid}: {reason}")]
+    Affinity { pid: u32, reason: String },
     #[error("process {pid} is protected ({reason})")]
     Protected { pid: u32, reason: &'static str },
     #[error("process {pid} no longer exists")]
@@ -168,6 +170,20 @@ pub fn set_priority(target: &ProcessRef, priority: PriorityClass) -> ControlResu
 
 pub fn set_affinity(target: &ProcessRef, mask: u64) -> ControlResult<()> {
     let h = open_controlled(target, Access::SET_INFORMATION)?;
+    sys(target.pid, h.set_affinity(mask))
+}
+
+pub fn set_core_affinity(
+    target: &ProcessRef,
+    selection: crate::cpu::CoreSelection,
+) -> ControlResult<()> {
+    let h = open_controlled(target, Access::SET_INFORMATION)?;
+    let mask = h
+        .core_affinity(selection)
+        .map_err(|reason| ControlError::Affinity {
+            pid: target.pid,
+            reason,
+        })?;
     sys(target.pid, h.set_affinity(mask))
 }
 

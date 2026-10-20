@@ -79,6 +79,10 @@ fn priority_affinity_and_eco_round_trip() {
     assert!(d.path.unwrap().to_lowercase().ends_with("cmd.exe"));
     assert_eq!(d.critical, Some(false));
 
+    control::set_core_affinity(&target, wtm_core::cpu::CoreSelection::All).unwrap();
+    let restored = control::inspect(&target).unwrap().affinity.unwrap();
+    assert_eq!(restored.0, restored.1);
+
     control::set_eco_qos(&target, EcoQos::SystemManaged).unwrap();
     assert_eq!(
         control::inspect(&target).unwrap().eco_qos,
@@ -112,6 +116,14 @@ fn refuses_protected_and_stale_targets() {
     assert!(matches!(
         control::kill(&stale),
         Err(ControlError::Stale { .. })
+    ));
+    assert!(matches!(
+        control::set_core_affinity(&stale, wtm_core::cpu::CoreSelection::All),
+        Err(ControlError::Stale { .. })
+    ));
+    assert!(matches!(
+        control::set_core_affinity(&me.into(), wtm_core::cpu::CoreSelection::All),
+        Err(ControlError::Protected { .. })
     ));
 }
 

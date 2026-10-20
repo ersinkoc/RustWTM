@@ -506,6 +506,7 @@ impl eframe::App for App {
                 Tab::Processes => match &data.snapshot {
                     Some(snap) => {
                         let extra = crate::processes::Extra {
+                            topology: data.cpu_topology.as_ref(),
                             labels: &managed,
                             command_lines: &data.command_lines,
                             image_paths: &data.image_paths,
@@ -1159,7 +1160,13 @@ fn details_panel(
             intents.push(Intent::Confirm(sel.clone(), Command::Kill));
         }
         ui.menu_button("More actions", |ui| {
-            context_menu(ui, sel, snap.system.logical_cpus, intents)
+            context_menu(
+                ui,
+                sel,
+                snap.system.logical_cpus,
+                data.cpu_topology.as_ref(),
+                intents,
+            )
         });
         if ui.button("Open file location").clicked() {
             intents.push(Intent::OpenLocation(sel.clone()));
@@ -1332,11 +1339,23 @@ fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, Str
 }
 
 /// One small history graph per logical processor, as Task Manager shows them.
-fn core_grid(ui: &mut Ui, cores: &[f32], history: &[std::collections::VecDeque<f32>]) {
-    const CELL: egui::Vec2 = egui::vec2(96.0, 46.0);
+fn core_grid(
+    ui: &mut Ui,
+    cores: &[f32],
+    history: &[std::collections::VecDeque<f32>],
+    topology: Option<&wtm_core::cpu::Topology>,
+) {
+    const CELL: egui::Vec2 = egui::vec2(124.0, 46.0);
+    let topology =
+        topology.filter(|t| t.hybrid() && t.groups().len() == 1 && t.cpus.len() == cores.len());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
         for (i, &load) in cores.iter().enumerate() {
+            let cpu = topology.and_then(|t| t.cpus.iter().find(|c| usize::from(c.index) == i));
+            let label = cpu.zip(topology).map_or_else(
+                || format!("CPU {i}"),
+                |(c, t)| format!("CPU {i} · {}", t.tier(c.efficiency_class)),
+            );
             let (rect, response) = ui.allocate_exact_size(CELL, egui::Sense::hover());
             let painter = ui.painter_at(rect);
             let visuals = ui.visuals();
@@ -1364,7 +1383,7 @@ fn core_grid(ui: &mut Ui, cores: &[f32], history: &[std::collections::VecDeque<f
             painter.text(
                 rect.left_top() + egui::vec2(6.0, 3.0),
                 egui::Align2::LEFT_TOP,
-                format!("CPU {i}"),
+                &label,
                 egui::FontId::proportional(11.0),
                 visuals.weak_text_color(),
             );
@@ -1375,7 +1394,13 @@ fn core_grid(ui: &mut Ui, cores: &[f32], history: &[std::collections::VecDeque<f
                 egui::FontId::proportional(12.0),
                 color,
             );
-            let text = format!("CPU {i}: {load:.1}%");
+            let mut text = format!("{label}: {load:.1}%");
+            if let Some(c) = cpu {
+                text.push_str(&format!(
+                    " · Group {}, physical core {}, Windows class {}",
+                    c.group, c.core, c.efficiency_class
+                ));
+            }
             response
                 .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, text.clone()));
             response.on_hover_text(text);
@@ -1465,7 +1490,36 @@ fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             if !s.core_percent.is_empty() {
                 ui.add_space(6.0);
                 ui.weak(format!("Per logical processor ({})", s.core_percent.len()));
-                core_grid(ui, &s.core_percent, &data.history.cores);
+                if let Some(t) = data.cpu_topology.as_ref().filter(|t| t.hybrid()) {
+                    let summary = t
+                        .classes()
+                        .iter()
+                        .rev()
+                        .map(|class| {
+                            format!(
+                                "{}: {} threads",
+                                t.tier(*class),
+                                t.cpus
+                                    .iter()
+                                    .filter(|c| c.efficiency_class == *class)
+                                    .count()
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    ui.label(summary).on_hover_text(
+                        "Relative Windows CPU performance tiers; not vendor model identifiers.",
+                    );
+                    if t.groups().len() > 1 {
+                        ui.weak("Per-core tier labels are unavailable across multiple processor groups.");
+                    }
+                }
+                core_grid(
+                    ui,
+                    &s.core_percent,
+                    &data.history.cores,
+                    data.cpu_topology.as_ref(),
+                );
             }
         },
     );
@@ -2101,6 +2155,10 @@ mod tests {
             UiCommand::SaveTelegram(c) => format!("save telegram {}", c.enabled),
             UiCommand::TestTelegram => "test telegram".into(),
             UiCommand::SetCooling { channel, .. } => format!("cooling {channel}"),
+            UiCommand::SetFrequency(request) => {
+                format!("frequency {} {}", request.class, request.mhz)
+            }
+            UiCommand::RestoreFrequency => "restore frequency".into(),
             UiCommand::CreateDump(t) => format!("dump {}", t.pid),
             UiCommand::WatchExit(t) => format!("watch exit {}", t.pid),
             UiCommand::Session { id, op } => format!("session {id} {op:?}"),
@@ -3249,6 +3307,7 @@ mod tests {
                 ] {
                     let mut d = data();
                     d.hardware = crate::sensors::fixture();
+                    d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
                     let sensors = crate::sensors::SensorsView::review_fixture(&d.hardware);
                     d.mode = Mode::Service {
                         admin: true,
@@ -3326,5 +3385,34 @@ mod tests {
                 }
             }
         }
+        // Keep native GPU review contexts in one test; parallel review tests
+        // exited with a native access violation on the development machine.
+        crate::power_controls::tests::render_power_review();
+    }
+
+    #[test]
+    fn performance_labels_relative_cpu_tiers_and_omits_ambiguous_group_labels() {
+        let mut d = data();
+        d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
+        let mut snap = d.snapshot.as_deref().unwrap().clone();
+        snap.system.core_percent = vec![10.0; 8];
+        d.snapshot = Some(std::sync::Arc::new(snap));
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1200.0, 1600.0])
+            .build_ui_state(|ui, d: &mut Data| performance(ui, d), d);
+        h.run();
+        assert!(h.query_by_label_contains("CPU 0 · P:").is_some());
+        assert!(h.query_by_label_contains("CPU 7 · LP-E:").is_some());
+        h.state_mut().cpu_topology.as_mut().unwrap().cpus[7].group = 1;
+        h.run();
+        assert!(h.query_by_label_contains("CPU 0 · P:").is_none());
+        for c in &mut h.state_mut().cpu_topology.as_mut().unwrap().cpus {
+            c.group = 0;
+            c.efficiency_class = 0;
+        }
+        h.run();
+        assert!(h.query_by_label_contains("CPU 0 ·").is_none());
+        assert!(h.query_by_label_contains("CPU 0:").is_some());
     }
 }

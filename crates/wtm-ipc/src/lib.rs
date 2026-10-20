@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 10;
+pub const PROTOCOL_VERSION: u32 = 11;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -99,6 +99,7 @@ pub enum Command {
     Unlimit,
     /// Move the working set to the standby list (frees RAM; nothing is lost).
     TrimMemory,
+    AffinityTier(wtm_core::cpu::CoreSelection),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,8 +375,12 @@ mod tests {
                 }),
             },
             Request::Control {
-                target,
+                target: target.clone(),
                 command: Command::Priority(PriorityClass::Idle),
+            },
+            Request::Control {
+                target,
+                command: Command::AffinityTier(wtm_core::cpu::CoreSelection::LowPower),
             },
         ];
         let mut buf = Vec::new();

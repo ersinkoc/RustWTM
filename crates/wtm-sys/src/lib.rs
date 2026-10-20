@@ -5,6 +5,7 @@
 #![cfg(windows)]
 
 pub mod control;
+pub mod cpu;
 pub mod disk;
 mod error;
 pub mod gpu;
@@ -15,6 +16,7 @@ pub mod job;
 pub mod net;
 mod ntapi;
 pub mod pipe;
+pub mod power;
 pub mod privilege;
 pub mod process;
 pub mod security;

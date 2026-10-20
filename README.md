@@ -110,6 +110,11 @@ an elevated GUI, the matching service and enforcing mode. Saved profiles are
 drafts; startup keeps hardware automatic control. See [hardware setup and
 validation limits](docs/hardware.md).
 
+Hybrid CPU discovery, P/E/LP-E process selection and shared Windows frequency
+limits are available in 0.13.1. See [CPU topology and
+power controls](docs/cpu-controls.md) for commands, scope and rollback behavior.
+Shared power-plan limits persist until you restore the saved settings.
+
 ## Requirements
 
 - Windows 10 1809 or later / Windows 11, 64-bit.
@@ -186,6 +191,9 @@ service; run it as administrator to send commands through the service.
 ```text
 wtm list --sort mem -n 20          one-shot listing
 wtm sensors --json                local read-only hardware readings
+wtm cores                         logical processors and relative P/E tiers
+wtm affinity 1234 --ecores         use the regular efficient tier
+wtm power show                    shared Windows frequency policy (read-only)
 wtm top                            live view (c/m/d/p/n to sort, q to quit)
 wtm info chrome                    details of every chrome.exe
 wtm kill 1234 --tree               end a process and its descendants

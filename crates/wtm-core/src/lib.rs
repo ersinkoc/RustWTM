@@ -3,10 +3,12 @@
 #![forbid(unsafe_code)]
 
 pub mod control;
+pub use wtm_sys::cpu;
 pub mod hardware;
 pub mod launch;
 mod model;
 pub mod ports;
+pub mod power;
 mod protection;
 mod sampler;
 pub mod startup;
