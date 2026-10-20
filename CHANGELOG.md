@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-20
+
 ### Added
 
 - **Overload alert**: when the CPU stays at or above 90% for 5 seconds,
@@ -239,7 +241,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ersinkoc/RustWTM/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ersinkoc/RustWTM/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ersinkoc/RustWTM/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/ersinkoc/RustWTM/compare/v0.3.0...v0.3.1
