@@ -762,6 +762,7 @@ impl eframe::App for App {
                 }
                 Intent::ShowPorts => state.tab = Tab::Ports,
                 Intent::Dump(target) => backend.send(UiCommand::CreateDump(target)),
+                Intent::WatchExit(target) => backend.send(UiCommand::WatchExit(target)),
             }
         }
     }
@@ -2005,6 +2006,7 @@ mod tests {
             UiCommand::SaveTelegram(c) => format!("save telegram {}", c.enabled),
             UiCommand::TestTelegram => "test telegram".into(),
             UiCommand::CreateDump(t) => format!("dump {}", t.pid),
+            UiCommand::WatchExit(t) => format!("watch exit {}", t.pid),
             UiCommand::Session { id, op } => format!("session {id} {op:?}"),
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),

@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Tell me when it exits**: right-click a process and pick *Notify me when
+  it exits* (a long build, a download, a test run) for a desktop
+  notification when it ends; in Telegram, `/wait 1234` or the button under
+  `/info` sends a message instead (`/unwait` cancels). Waiting works in a
+  report-only bot too.
+- Telegram: `/restartsvc NAME` restarts a service.
+
 ## [0.11.0] - 2026-10-20
 
 ### Added

@@ -12,7 +12,9 @@ pub mod startup;
 mod tree;
 pub mod update;
 
-pub use model::{ProcessInfo, Snapshot, SortKey, SystemStats, format_bytes, sort_processes};
+pub use model::{
+    ProcessInfo, Snapshot, SortKey, SystemStats, format_bytes, format_duration, sort_processes,
+};
 pub use protection::protection_reason;
 pub use sampler::{Sampler, StartWatcher};
 pub use tree::descendants;

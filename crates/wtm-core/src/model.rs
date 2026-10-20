@@ -119,6 +119,17 @@ pub fn sort_processes(procs: &mut [ProcessInfo], key: SortKey) {
 }
 
 /// Formats a byte count with binary units, e.g. `1.5 KiB`.
+/// `45s`, `3m 20s`, `1h 05m`, `2d 3h`.
+pub fn format_duration(d: Duration) -> String {
+    let s = d.as_secs();
+    match s {
+        0..60 => format!("{s}s"),
+        60..3600 => format!("{}m {:02}s", s / 60, s % 60),
+        3600..86400 => format!("{}h {:02}m", s / 3600, s % 3600 / 60),
+        _ => format!("{}d {}h", s / 86400, s % 86400 / 3600),
+    }
+}
+
 pub fn format_bytes(n: f64) -> String {
     const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
     let mut v = n;
@@ -197,6 +208,11 @@ mod tests {
     #[test]
     fn formats_bytes_with_binary_units() {
         assert_eq!(format_bytes(0.0), "0 B");
+        let d = Duration::from_secs;
+        assert_eq!(format_duration(d(45)), "45s");
+        assert_eq!(format_duration(d(200)), "3m 20s");
+        assert_eq!(format_duration(d(3900)), "1h 05m");
+        assert_eq!(format_duration(d(2 * 86400 + 3 * 3600 + 5)), "2d 3h");
         assert_eq!(format_bytes(1023.0), "1023 B");
         assert_eq!(format_bytes(1536.0), "1.5 KiB");
         assert_eq!(format_bytes(3.0 * 1024.0 * 1024.0 * 1024.0), "3.0 GiB");

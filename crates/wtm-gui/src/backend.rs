@@ -109,6 +109,9 @@ pub struct Data {
     pub icons: std::collections::HashMap<String, Option<Arc<wtm_core::IconImage>>>,
     /// The service's configuration file: (path, text).
     pub config: Option<Result<(String, String), String>>,
+    /// Processes to announce with a notification when they exit, and since
+    /// when.
+    pub exit_watches: Vec<(ProcessRef, Instant)>,
     /// The service's Telegram bot settings (admins only).
     pub telegram: Option<Result<wtm_policy::TelegramConfig, String>>,
     pub message: Option<(EventLevel, String)>,
@@ -159,6 +162,8 @@ pub enum UiCommand {
     TestTelegram,
     /// Write a full memory dump of the process to the Temp folder.
     CreateDump(ProcessRef),
+    /// Notify when the process exits; again to stop watching.
+    WatchExit(ProcessRef),
     /// Disconnect or sign out a logon session.
     Session {
         id: u32,
@@ -374,6 +379,7 @@ impl Worker {
             next_tick = Instant::now() + TICK;
             self.tick();
             self.watch_cpu();
+            self.check_exits();
             self.ctx.request_repaint();
         }
     }
@@ -433,6 +439,41 @@ impl Worker {
         let sample = self.sampler.sample();
         publish_local(&mut self.data(), sample);
         refresh_icons(&self.data);
+    }
+
+    /// Notifies about watched processes that are gone from the snapshot.
+    fn check_exits(&mut self) {
+        let gone: Vec<(ProcessRef, Instant)> = {
+            let mut data = self.data();
+            let Some(snap) = data.snapshot.clone() else {
+                return;
+            };
+            let live: std::collections::HashSet<(u32, i64)> = snap
+                .processes
+                .iter()
+                .map(|p| (p.pid, p.create_time))
+                .collect();
+            let (gone, kept) = std::mem::take(&mut data.exit_watches)
+                .into_iter()
+                .partition(|(t, _)| !live.contains(&(t.pid, t.create_time)));
+            data.exit_watches = kept;
+            gone
+        };
+        for (t, since) in gone {
+            (self.notify)(&Event {
+                id: 0,
+                unix_ms: 0,
+                level: EventLevel::Info,
+                pid: Some(t.pid),
+                name: Some(t.name.clone()),
+                message: format!(
+                    "{} has exited (watched for {}).",
+                    t.name,
+                    wtm_core::format_duration(since.elapsed())
+                ),
+                notify: true,
+            });
+        }
     }
 
     /// Raises the CPU alert when the load stays too high.
@@ -512,6 +553,22 @@ impl Worker {
                 };
                 self.data().message = Some(service_message(op, &name, result));
                 self.load(Panel::Services);
+            }
+            UiCommand::WatchExit(target) => {
+                let mut data = self.data();
+                let before = data.exit_watches.len();
+                data.exit_watches.retain(|(t, _)| *t != target);
+                let text = if data.exit_watches.len() < before {
+                    format!("No longer watching {}", target.name)
+                } else {
+                    let text = format!(
+                        "You will be notified when {} ({}) exits",
+                        target.name, target.pid
+                    );
+                    data.exit_watches.push((target, Instant::now()));
+                    text
+                };
+                data.message = Some((EventLevel::Info, text));
             }
             UiCommand::CreateDump(target) => {
                 self.in_background(move || {
@@ -1250,6 +1307,43 @@ mod tests {
         // b exits.
         update_process_history(&mut h, &[a.clone()]);
         assert_eq!(h.len(), 1);
+    }
+
+    #[test]
+    fn watched_processes_are_announced_once_when_they_exit() {
+        static EXITED: AtomicIsize = AtomicIsize::new(0);
+        let mut w = worker();
+        w.notify = |e| {
+            assert!(e.message.starts_with("b.exe has exited"), "{}", e.message);
+            EXITED.fetch_add(1, Ordering::Relaxed);
+        };
+        let a = crate::ui_tests::proc(10, 0, "a.exe", 5.0);
+        let b = crate::ui_tests::proc(11, 0, "b.exe", 1.0);
+        let snapshot = |procs: Vec<wtm_core::ProcessInfo>| {
+            Some(Arc::new(Snapshot {
+                interval: None,
+                system: wtm_core::SystemStats::default(),
+                processes: procs,
+            }))
+        };
+        w.data().snapshot = snapshot(vec![a.clone(), b.clone()]);
+        w.handle(UiCommand::WatchExit(ProcessRef::from(&a)));
+        w.handle(UiCommand::WatchExit(ProcessRef::from(&b)));
+        assert!(message(&w).1.contains("notified when b.exe (11) exits"));
+        w.check_exits();
+        assert_eq!(EXITED.load(Ordering::Relaxed), 0, "both still run");
+
+        w.data().snapshot = snapshot(vec![a.clone()]);
+        w.check_exits();
+        w.check_exits();
+        assert_eq!(EXITED.load(Ordering::Relaxed), 1);
+        assert_eq!(w.data().exit_watches.len(), 1, "a.exe is still watched");
+        w.handle(UiCommand::WatchExit(ProcessRef::from(&a)));
+        assert!(
+            w.data().exit_watches.is_empty(),
+            "a second request stops watching"
+        );
+        assert_eq!(message(&w).1, "No longer watching a.exe");
     }
 
     #[test]

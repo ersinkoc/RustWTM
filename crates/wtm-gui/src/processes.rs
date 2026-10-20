@@ -160,6 +160,8 @@ pub enum Intent {
     ShowPorts,
     /// Write a full memory dump of the process.
     Dump(ProcessRef),
+    /// Notify when the process exits.
+    WatchExit(ProcessRef),
 }
 
 /// How the process list is arranged.
@@ -790,6 +792,16 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
         ui.close();
     }
     ui.separator();
+    if ui
+        .button("Notify me when it exits")
+        .on_hover_text(
+            "A desktop notification when it ends, e.g. a long build or download; again to stop",
+        )
+        .clicked()
+    {
+        intents.push(Intent::WatchExit(t.clone()));
+        ui.close();
+    }
     if ui
         .button("Create memory dump file")
         .on_hover_text("A full dump in your Temp folder, for debugging a hang or crash")

@@ -31,7 +31,7 @@ const PENDING_TTL: Duration = Duration::from_secs(300);
 const TELL_ID_EVERY: Duration = Duration::from_secs(600);
 
 /// The menu Telegram shows next to the message box.
-const MENU: [(&str, &str); 16] = [
+const MENU: [(&str, &str); 19] = [
     ("status", "CPU, memory, disks and network"),
     ("top", "Busiest processes by CPU: /top 15"),
     ("mem", "Processes using the most memory"),
@@ -41,9 +41,12 @@ const MENU: [(&str, &str); 16] = [
     ("tree", "End a process and everything it started"),
     ("suspend", "Pause a process: /suspend 1234"),
     ("resume", "Let a paused process run again"),
+    ("wait", "Message me when a process exits: /wait 1234"),
+    ("unwait", "Stop every /wait of this chat"),
     ("ports", "Listening ports and the programs behind them"),
     ("free", "End what uses a port: /free 3000"),
     ("services", "Find services: /services sql"),
+    ("restartsvc", "Restart a service: /restartsvc Spooler"),
     ("swarms", "Hundreds of copies of one program"),
     ("panic", "End everything on the kill list (asks first)"),
     ("events", "Recent service events"),
@@ -122,7 +125,7 @@ pub trait Host {
     fn image_path(&self, p: &ProcessInfo) -> Option<String>;
     fn port_uses(&self) -> Result<Vec<PortUse>, String>;
     fn services(&self) -> Result<Vec<ServiceEntry>, String>;
-    fn set_service(&self, name: &str, start: bool) -> Result<(), String>;
+    fn set_service(&self, name: &str, op: ServiceOp) -> Result<(), String>;
     /// Records a line in the service event log.
     fn note(&self, message: String);
 }
@@ -202,11 +205,11 @@ impl Host for ServiceHost {
         wtm_core::list_services().map_err(|e| e.to_string())
     }
 
-    fn set_service(&self, name: &str, start: bool) -> Result<(), String> {
-        if start {
-            wtm_core::start_service(name)
-        } else {
-            wtm_core::stop_service(name)
+    fn set_service(&self, name: &str, op: ServiceOp) -> Result<(), String> {
+        match op {
+            ServiceOp::Start => wtm_core::start_service(name),
+            ServiceOp::Stop => wtm_core::stop_service(name),
+            ServiceOp::Restart => wtm_core::restart_service(name, Duration::from_secs(30)),
         }
         .map_err(|e| e.to_string())
     }
@@ -215,6 +218,23 @@ impl Host for ServiceHost {
         self.shared.events.info(None, message);
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceOp {
+    Start,
+    Stop,
+    Restart,
+}
+
+/// A process a chat wants to hear about when it exits.
+struct Wait {
+    chat: i64,
+    target: ProcessRef,
+    since: Instant,
+}
+
+/// At most this many `/wait`s across all chats.
+const MAX_WAITS: usize = 50;
 
 /// A message to send: HTML text and inline buttons (label, callback data).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -262,6 +282,7 @@ pub struct Bot<A, H> {
     next_pending: u64,
     muted_until: Option<Instant>,
     told: HashMap<i64, Instant>,
+    waits: Vec<Wait>,
 }
 
 /// `&`, `<` and `>` as HTML entities.
@@ -351,6 +372,7 @@ impl<A: Api, H: Host> Bot<A, H> {
             next_pending: 1,
             muted_until: None,
             told: HashMap::new(),
+            waits: Vec::new(),
         }
     }
 
@@ -382,6 +404,7 @@ impl<A: Api, H: Host> Bot<A, H> {
     /// One round: forward new alerts, then wait briefly for messages.
     pub fn tick(&mut self) -> Result<(), ApiError> {
         self.forward_alerts()?;
+        self.report_exits()?;
         let updates = self.api.call(
             "getUpdates",
             json!({
@@ -542,6 +565,7 @@ impl<A: Api, H: Host> Bot<A, H> {
                 | "stop_service"
                 | "startsvc"
                 | "stopsvc"
+                | "restartsvc"
         );
         if controls && !self.cfg.control {
             return Reply::text(CONTROL_OFF);
@@ -564,8 +588,15 @@ impl<A: Api, H: Host> Bot<A, H> {
             "ports" => self.ports(procs),
             "free" => self.free(chat, procs, &arg),
             "services" => self.services(&arg),
-            "startsvc" | "start_service" => self.service_cmd(&arg, true),
-            "stopsvc" | "stop_service" => self.service_cmd(&arg, false),
+            "startsvc" | "start_service" => self.service_cmd(&arg, ServiceOp::Start),
+            "stopsvc" | "stop_service" => self.service_cmd(&arg, ServiceOp::Stop),
+            "restartsvc" => self.service_cmd(&arg, ServiceOp::Restart),
+            "wait" => self.wait_cmd(chat, procs, &arg),
+            "unwait" => {
+                let before = self.waits.len();
+                self.waits.retain(|w| w.chat != chat);
+                Reply::text(format!("Stopped {} wait(s).", before - self.waits.len()))
+            }
             "swarms" => self.swarms(procs),
             "panic" => self.panic(chat, procs),
             "events" => self.events(count(&arg, 10, 50)),
@@ -814,9 +845,13 @@ impl<A: Api, H: Host> Bot<A, H> {
             lines.push(format!("Command  {}", clip(&cmd, 600)));
         }
         let mut reply = Reply::text(format!("<b>{}</b>\n{}", esc(&p.name), pre(&lines)));
+        let key = format!("{}:{}", p.pid, p.create_time);
+        reply.buttons = vec![vec![(
+            "🔔 Tell me when it exits".into(),
+            format!("x:{key}"),
+        )]];
         if self.cfg.control {
-            let key = format!("{}:{}", p.pid, p.create_time);
-            reply.buttons = vec![
+            reply.buttons.extend([
                 vec![
                     ("✖ End".into(), format!("e:{key}")),
                     ("🌳 End tree".into(), format!("t:{key}")),
@@ -825,9 +860,75 @@ impl<A: Api, H: Host> Bot<A, H> {
                     ("⏸ Suspend".into(), format!("s:{key}")),
                     ("▶ Resume".into(), format!("r:{key}")),
                 ],
-            ];
+            ]);
         }
         reply
+    }
+
+    /// Starts watching `target` for `chat`; the reply text.
+    fn add_wait(&mut self, chat: i64, target: ProcessRef) -> String {
+        if self
+            .waits
+            .iter()
+            .any(|w| w.chat == chat && w.target == target)
+        {
+            return format!("Already waiting for {}.", who(&target.name, target.pid));
+        }
+        if self.waits.len() >= MAX_WAITS {
+            return "Too many waits; /unwait some first.".into();
+        }
+        let text = format!(
+            "🔔 I will tell you when {} exits.",
+            who(&target.name, target.pid)
+        );
+        self.waits.push(Wait {
+            chat,
+            target,
+            since: Instant::now(),
+        });
+        text
+    }
+
+    fn wait_cmd(&mut self, chat: i64, procs: &[ProcessInfo], arg: &str) -> Reply {
+        let list = match Self::resolve(procs, arg) {
+            Ok(l) => l,
+            Err(e) => return Reply::text(e),
+        };
+        let lines: Vec<String> = list
+            .iter()
+            .take(10)
+            .map(|p| self.add_wait(chat, ProcessRef::from(*p)))
+            .collect();
+        Reply::text(esc(&lines.join("\n")))
+    }
+
+    /// Tells chats about the processes they wait for that have exited.
+    fn report_exits(&mut self) -> Result<(), ApiError> {
+        if self.waits.is_empty() {
+            return Ok(());
+        }
+        let Some(snap) = self.host.snapshot() else {
+            return Ok(());
+        };
+        let live: std::collections::HashSet<(u32, i64)> = snap
+            .processes
+            .iter()
+            .map(|p| (p.pid, p.create_time))
+            .collect();
+        let (gone, kept): (Vec<Wait>, Vec<Wait>) = std::mem::take(&mut self.waits)
+            .into_iter()
+            .partition(|w| !live.contains(&(w.target.pid, w.target.create_time)));
+        self.waits = kept;
+        for w in gone {
+            let text = format!(
+                "✅ <b>{}</b> has exited on {} (waited {}).",
+                esc(&who(&w.target.name, w.target.pid)),
+                esc(&self.computer),
+                wtm_core::format_duration(w.since.elapsed())
+            );
+            self.send(w.chat, &Reply::text(text))?;
+        }
+        Ok(())
     }
 
     /// Asks before ending `procs`; protected ones are left out with a reason.
@@ -1074,22 +1175,26 @@ impl<A: Api, H: Host> Bot<A, H> {
             format!("<b>{total}</b> services matching “{}”", esc(arg))
         };
         Reply::text(format!(
-            "{title}\n{}\n/startsvc NAME · /stopsvc NAME",
+            "{title}\n{}\n/startsvc NAME · /stopsvc NAME · /restartsvc NAME",
             pre(&lines)
         ))
     }
 
-    fn service_cmd(&mut self, name: &str, start: bool) -> Reply {
+    fn service_cmd(&mut self, name: &str, op: ServiceOp) -> Reply {
         if name.is_empty() {
             return Reply::text("Which service? Use its short name from /services.");
         }
-        if !start && name.eq_ignore_ascii_case(wtm_ipc::SERVICE_NAME) {
+        if op != ServiceOp::Start && name.eq_ignore_ascii_case(wtm_ipc::SERVICE_NAME) {
             return Reply::text(
                 "Stopping RustWTM itself would also stop this bot; do it on the PC.",
             );
         }
-        let verb = if start { "Started" } else { "Stopped" };
-        match self.host.set_service(name, start) {
+        let verb = match op {
+            ServiceOp::Start => "Started",
+            ServiceOp::Stop => "Stopped",
+            ServiceOp::Restart => "Restarted",
+        };
+        match self.host.set_service(name, op) {
             Ok(()) => {
                 self.host
                     .note(format!("Telegram: {} service {name}", verb.to_lowercase()));
@@ -1217,6 +1322,21 @@ impl<A: Api, H: Host> Bot<A, H> {
                 self.pending.remove(&id);
             }
             return Pressed::Edit(Reply::text("Cancelled; nothing was ended."));
+        }
+        if kind == "x" {
+            let mut parts = rest.split(':');
+            let pid = parts.next().and_then(|v| v.parse::<u32>().ok());
+            let created = parts.next().and_then(|v| v.parse::<i64>().ok());
+            let found = self.host.snapshot().and_then(|s| {
+                s.processes
+                    .iter()
+                    .find(|p| Some(p.pid) == pid && Some(p.create_time) == created)
+                    .map(ProcessRef::from)
+            });
+            return Pressed::Toast(match found {
+                Some(t) => self.add_wait(chat, t),
+                None => "That process has already exited.".into(),
+            });
         }
         if !self.cfg.control {
             return Pressed::Toast(CONTROL_OFF.into());
@@ -1533,7 +1653,7 @@ mod tests {
                 account: None,
             }])
         }
-        fn set_service(&self, name: &str, _: bool) -> Result<(), String> {
+        fn set_service(&self, name: &str, _: ServiceOp) -> Result<(), String> {
             if name == "Nope" {
                 Err("no such service".into())
             } else {
@@ -1862,6 +1982,72 @@ mod tests {
         assert!(sent[4].contains("would also stop this bot"), "{}", sent[4]);
         assert!(sent[5].contains("no such service"), "{}", sent[5]);
         assert!(sent[6].contains("End <b>node.exe (200)</b>"), "{}", sent[6]);
+    }
+
+    #[test]
+    fn waits_report_exits_once_even_in_read_only_mode() {
+        let (mut b, calls) = bot(false);
+        b.api.updates.extend([
+            message(1, ME, "/wait chrome"),
+            message(2, ME, "/wait 100"),
+            press(3, ME, "x:200:2000"),
+            press(4, ME, "x:200:1"),
+        ]);
+        b.tick().unwrap();
+        let sent = texts(&calls);
+        assert!(
+            sent[0].contains("when chrome.exe (100) exits") && sent[0].contains("(101)"),
+            "{}",
+            sent[0]
+        );
+        assert!(sent[1].contains("Already waiting"), "{}", sent[1]);
+        assert_eq!(b.waits.len(), 3);
+
+        // chrome.exe 100 and node.exe exit; 101 still runs.
+        b.host.procs.retain(|p| p.pid != 100 && p.pid != 200);
+        b.tick().unwrap();
+        b.tick().unwrap();
+        let sent = texts(&calls);
+        let exits: Vec<&String> = sent.iter().filter(|t| t.contains("has exited")).collect();
+        assert_eq!(exits.len(), 2, "{sent:?}");
+        assert!(
+            exits[0].contains("chrome.exe (100)") && exits[0].contains("DESK"),
+            "{}",
+            exits[0]
+        );
+        assert_eq!(b.waits.len(), 1);
+
+        b.api.updates.extend([
+            message(5, ME, "/unwait"),
+            message(6, ME, "/restartsvc Spooler"),
+        ]);
+        b.tick().unwrap();
+        let sent = texts(&calls);
+        assert!(sent[sent.len() - 2].contains("Stopped 1 wait"), "{sent:?}");
+        assert!(
+            sent[sent.len() - 1].contains("turned off"),
+            "restart is control: {sent:?}"
+        );
+        assert!(b.waits.is_empty());
+    }
+
+    #[test]
+    fn services_restart_but_rustwtm_does_not() {
+        let (mut b, calls) = bot(true);
+        b.api.updates.extend([
+            message(1, ME, "/restartsvc Spooler"),
+            message(2, ME, "/restartsvc rustwtm"),
+            message(3, ME, "/info 100"),
+        ]);
+        b.tick().unwrap();
+        let sent = texts(&calls);
+        assert_eq!(sent[0], "✅ Restarted Spooler.");
+        assert!(sent[1].contains("would also stop this bot"), "{}", sent[1]);
+        assert_eq!(
+            last_buttons(&calls)[0],
+            "x:100:1000",
+            "info offers a wait first"
+        );
     }
 
     #[test]

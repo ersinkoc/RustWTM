@@ -269,6 +269,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::ConfirmMany(ts, c) => format!("confirm {} processes {c:?}", ts.len()),
         Intent::ShowPorts => "show ports".into(),
         Intent::Dump(t) => format!("dump {}", t.pid),
+        Intent::WatchExit(t) => format!("watch exit {}", t.pid),
     }
 }
 
@@ -399,6 +400,7 @@ fn processes_row_click_and_context_menu_produce_intents() {
         ("Limit all beta.exe…", "limit app beta.exe"),
         ("Add to kill list…", "kill list beta.exe"),
         ("Create memory dump file", "dump 200"),
+        ("Notify me when it exits", "watch exit 200"),
         ("Properties", "select 200"),
     ] {
         h.get_by_label("beta.exe").click_secondary();
