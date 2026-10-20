@@ -18,7 +18,7 @@ usage history.
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Status:** early release (0.4). Everything works, but expect rough edges.
+> **Status:** early release (0.5). Everything works, but expect rough edges.
 > Enforcement is **off by default** (dry-run); review the event log first.
 
 ## Features
@@ -108,8 +108,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.4.0-x64.msi            # interactive
-msiexec /i RustWTM-0.4.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.5.0-x64.msi            # interactive
+msiexec /i RustWTM-0.5.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
