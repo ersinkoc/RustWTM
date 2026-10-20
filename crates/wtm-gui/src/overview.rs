@@ -35,22 +35,37 @@ fn app_color(cpu: f32, logical_cpus: u32) -> Color32 {
     }
 }
 
-fn gauge(ui: &mut Ui, title: &str, percent: f32, detail: String) {
-    ui.vertical(|ui| {
-        ui.set_width(260.0);
-        ui.label(RichText::new(title).strong());
-        ui.label(
-            RichText::new(format!("{percent:.0}%"))
-                .size(30.0)
-                .color(load_color(percent)),
-        );
-        ui.add(
-            egui::ProgressBar::new(percent / 100.0)
-                .fill(load_color(percent))
-                .desired_width(240.0),
-        );
-        ui.weak(detail);
-    });
+/// A ring filled to the load, in a card with the resource's name and detail.
+fn gauge(ui: &mut Ui, title: &str, percent: f32, detail: String, accent: Color32) {
+    let dark = ui.visuals().dark_mode;
+    egui::Frame::new()
+        .fill(if dark {
+            Color32::from_rgb(31, 34, 41)
+        } else {
+            Color32::WHITE
+        })
+        .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.45)))
+        .corner_radius(10)
+        .inner_margin(12)
+        .show(ui, |ui| {
+            ui.set_width(250.0);
+            ui.set_height(84.0);
+            ui.horizontal(|ui| {
+                crate::theme::ring_gauge(
+                    ui,
+                    84.0,
+                    percent,
+                    load_color(percent),
+                    &format!("{percent:.0}%"),
+                );
+                ui.add_space(6.0);
+                ui.vertical(|ui| {
+                    ui.add_space(10.0);
+                    ui.label(RichText::new(title).size(18.0).strong().color(accent));
+                    ui.weak(detail);
+                });
+            });
+        });
 }
 
 /// One app: all processes with the same image name.
@@ -125,7 +140,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         } else {
             0.0
         };
-        ui.horizontal(|ui| {
+        ui.horizontal_top(|ui| {
             gauge(
                 ui,
                 "CPU",
@@ -134,6 +149,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                     "{} logical processors, {} processes",
                     s.logical_cpus, s.process_count
                 ),
+                crate::theme::CPU,
             );
             gauge(
                 ui,
@@ -144,8 +160,15 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                     format_bytes(s.memory_used() as f64),
                     format_bytes(s.memory_total as f64)
                 ),
+                crate::theme::MEMORY,
             );
-            gauge(ui, "GPU", s.gpu_percent, "busiest engine".into());
+            gauge(
+                ui,
+                "GPU",
+                s.gpu_percent,
+                "busiest engine".into(),
+                crate::theme::GPU,
+            );
         });
         if let Some((color, text)) = verdict(data) {
             ui.add_space(6.0);

@@ -16,6 +16,16 @@ All notable changes to this project are documented here. The format follows
   and *Skip this version* are on the bar; *Check for updates* is in About,
   and automatic checks can be turned off in Settings → This window. Copies
   not installed with the MSI get a download link instead.
+- Theme choice (System / Light / Dark) in Settings → This window.
+
+### Changed
+
+- **A new look**: rounder, airier widgets in the logo's orange, refined
+  light and dark themes, sections on cards.
+- Performance: every resource in its own colour with filled graphs, a small
+  history graph for each logical processor (as Task Manager shows them),
+  coloured engine and disk bars, and a balanced two-column layout.
+- Overview: ring gauges for CPU, memory and GPU.
 
 ### Fixed
 

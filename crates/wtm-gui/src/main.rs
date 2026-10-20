@@ -13,6 +13,7 @@ mod overview;
 mod processes;
 mod settings;
 mod sort;
+mod theme;
 mod tray;
 #[cfg(test)]
 mod ui_tests;

@@ -149,6 +149,7 @@ impl App {
         // Effective only when started elevated; harmless otherwise.
         wtm_core::control::enable_debug_privilege();
         crate::backend::register_app_id();
+        crate::theme::apply(&cc.egui_ctx);
         let backend = Backend::start(cc.egui_ctx.clone());
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
         if let Ok(handle) = cc.window_handle()
@@ -759,6 +760,10 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
 /// Preferences of this window (the service's settings follow below them).
 fn window_settings(ui: &mut Ui, state: &mut UiState) {
     ui.heading("This window");
+    ui.horizontal(|ui| {
+        ui.label("Theme:");
+        egui::widgets::global_theme_preference_buttons(ui);
+    });
     let a = &mut state.alerts;
     ui.horizontal(|ui| {
         ui.checkbox(&mut a.enabled, "Pop up when the CPU stays above");
@@ -1000,58 +1005,89 @@ fn process_plot(
         });
 }
 
-fn history_plot(ui: &mut Ui, id: &str, label: &str, values: &std::collections::VecDeque<f32>) {
+/// Height of the large graphs on the Performance tab.
+const PLOT_HEIGHT: f32 = 120.0;
+
+fn series_points(values: &std::collections::VecDeque<f32>) -> PlotPoints<'static> {
     let len = values.len() as f64;
-    let points: PlotPoints = values
+    values
         .iter()
         .enumerate()
         .map(|(i, v)| [i as f64 - len, f64::from(*v)])
-        .collect();
-    Plot::new(id)
-        .height(130.0)
-        .include_y(0.0)
-        .include_y(100.0)
-        .include_x(-(HISTORY_LEN as f64))
-        .include_x(0.0)
-        .allow_drag(false)
-        .allow_zoom(false)
-        .allow_scroll(false)
-        .x_axis_label("seconds")
-        .y_axis_label("%")
-        .show(ui, |plot| plot.line(Line::new(label, points)));
+        .collect()
 }
 
-/// Two byte rates (for example download and upload) on an auto-scaled axis.
-fn rate_plot(ui: &mut Ui, id: &str, series: [(&str, &std::collections::VecDeque<f32>); 2]) {
-    let line = |label: &str, values: &std::collections::VecDeque<f32>| {
-        let len = values.len() as f64;
-        let points: PlotPoints = values
-            .iter()
-            .enumerate()
-            .map(|(i, v)| [i as f64 - len, f64::from(*v)])
-            .collect();
-        Line::new(label.to_owned(), points)
-    };
+/// The common look of the Performance graphs: no interaction, light grid,
+/// time axis without labels (the last five minutes).
+fn perf_plot(id: &str) -> Plot<'static> {
     Plot::new(id)
-        .height(130.0)
-        .include_y(0.0)
-        .include_y(1024.0)
+        .height(PLOT_HEIGHT)
         .include_x(-(HISTORY_LEN as f64))
         .include_x(0.0)
+        .include_y(0.0)
         .allow_drag(false)
         .allow_zoom(false)
         .allow_scroll(false)
-        .x_axis_label("seconds")
-        .y_axis_formatter(|mark, _| format_bytes(mark.value.max(0.0)) + "/s")
-        .label_formatter(rate_label)
-        .legend(egui_plot::Legend::default())
+        .allow_boxed_zoom(false)
+        .show_x(false)
+        .x_axis_formatter(|mark, _| format!("{:.0}s", mark.value))
+        .y_axis_min_width(44.0)
+}
+
+/// A 0..=100% history as a filled area.
+fn history_plot(
+    ui: &mut Ui,
+    id: &str,
+    label: &str,
+    values: &std::collections::VecDeque<f32>,
+    color: Color32,
+) {
+    perf_plot(id)
+        .include_y(100.0)
+        .y_axis_formatter(|mark, _| format!("{:.0}%", mark.value))
+        .label_formatter(|hover| match hover {
+            egui_plot::HoverPosition::NearDataPoint {
+                plot_name,
+                position,
+                ..
+            } => Some(format!("{plot_name}: {:.0}%", position.y)),
+            egui_plot::HoverPosition::Elsewhere { .. } => None,
+        })
         .show(ui, |plot| {
-            for (label, values) in series {
-                plot.line(line(label, values));
-            }
+            plot.line(
+                Line::new(label.to_owned(), series_points(values))
+                    .color(color)
+                    .width(2.0)
+                    .fill(0.0)
+                    .fill_alpha(0.25),
+            );
         });
 }
 
+/// Two byte rates (for example download and upload) on an auto-scaled axis.
+fn rate_plot(
+    ui: &mut Ui,
+    id: &str,
+    series: [(&str, &std::collections::VecDeque<f32>, Color32); 2],
+) {
+    perf_plot(id)
+        .include_y(1024.0)
+        .y_axis_formatter(|mark, _| format_bytes(mark.value.max(0.0)) + "/s")
+        .y_axis_min_width(64.0)
+        .label_formatter(rate_label)
+        .legend(egui_plot::Legend::default().position(egui_plot::Corner::LeftTop))
+        .show(ui, |plot| {
+            for (label, values, color) in series {
+                plot.line(
+                    Line::new(label.to_owned(), series_points(values))
+                        .color(color)
+                        .width(2.0)
+                        .fill(0.0)
+                        .fill_alpha(0.15),
+                );
+            }
+        });
+}
 pub(crate) fn rate_label(hover: &egui_plot::HoverPosition<'_>) -> Option<String> {
     match hover {
         egui_plot::HoverPosition::NearDataPoint {
@@ -1070,13 +1106,15 @@ pub(crate) fn rate_label(hover: &egui_plot::HoverPosition<'_>) -> Option<String>
 fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, String)>) {
     egui::Grid::new(id)
         .num_columns(2)
-        .spacing([12.0, 4.0])
+        .spacing([12.0, 6.0])
         .show(ui, |ui| {
             for (name, load, caption) in rows {
                 ui.label(name);
                 ui.add(
                     egui::ProgressBar::new(load.clamp(0.0, 100.0) / 100.0)
-                        .desired_width(320.0)
+                        .desired_width(300.0)
+                        .corner_radius(4)
+                        .fill(crate::theme::load_color(load).gamma_multiply(0.85))
                         .text(caption),
                 );
                 ui.end_row();
@@ -1084,32 +1122,49 @@ fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, Str
         });
 }
 
-/// One small box per logical processor, filled to its load.
-fn core_grid(ui: &mut Ui, cores: &[f32]) {
-    const CELL: egui::Vec2 = egui::vec2(64.0, 34.0);
+/// One small history graph per logical processor, as Task Manager shows them.
+fn core_grid(ui: &mut Ui, cores: &[f32], history: &[std::collections::VecDeque<f32>]) {
+    const CELL: egui::Vec2 = egui::vec2(96.0, 46.0);
     ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
         for (i, &load) in cores.iter().enumerate() {
             let (rect, response) = ui.allocate_exact_size(CELL, egui::Sense::hover());
             let painter = ui.painter_at(rect);
             let visuals = ui.visuals();
-            painter.rect_filled(rect, 3.0, visuals.extreme_bg_color);
-            let color = if load >= 90.0 {
-                BAD
-            } else if load >= 60.0 {
-                WARN
-            } else {
-                GOOD
-            };
-            let mut fill = rect;
-            fill.set_top(rect.bottom() - rect.height() * load.clamp(0.0, 100.0) / 100.0);
-            painter.rect_filled(fill, 3.0, color.gamma_multiply(0.7));
+            let color = crate::theme::load_color(load);
+            painter.rect_filled(rect, 6.0, visuals.extreme_bg_color);
+            painter.rect_stroke(
+                rect,
+                6.0,
+                egui::Stroke::new(1.0, crate::theme::CPU.gamma_multiply(0.35)),
+                egui::StrokeKind::Inside,
+            );
+            let graph = rect
+                .shrink2(egui::vec2(4.0, 4.0))
+                .with_min_y(rect.top() + 18.0);
+            if let Some(h) = history.get(i) {
+                crate::theme::sparkline(
+                    &painter,
+                    graph,
+                    h,
+                    100.0,
+                    crate::backend::CORE_HISTORY_LEN,
+                    crate::theme::CPU,
+                );
+            }
             painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
+                rect.left_top() + egui::vec2(6.0, 3.0),
+                egui::Align2::LEFT_TOP,
+                format!("CPU {i}"),
+                egui::FontId::proportional(11.0),
+                visuals.weak_text_color(),
+            );
+            painter.text(
+                rect.right_top() + egui::vec2(-6.0, 3.0),
+                egui::Align2::RIGHT_TOP,
                 format!("{load:.0}%"),
                 egui::FontId::proportional(12.0),
-                visuals.strong_text_color(),
+                color,
             );
             let text = format!("CPU {i}: {load:.1}%");
             response
@@ -1135,20 +1190,26 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
         perf_summary,
     ];
     egui::ScrollArea::vertical().show(ui, |ui| {
-        // Two sections side by side when there is room.
+        ui.add_space(4.0);
+        // Two columns of similar height when there is room: the tall CPU
+        // card with Disk on the left, the four shorter ones on the right.
         if ui.available_width() >= PERF_TWO_COLUMNS {
-            for pair in sections.chunks(2) {
-                ui.columns(2, |cols| {
-                    for (col, section) in cols.iter_mut().zip(pair) {
+            let [cpu, memory, gpu, network, disk, summary] = sections;
+            ui.columns(2, |cols| {
+                for (col, list) in cols
+                    .iter_mut()
+                    .zip([&[cpu, disk][..], &[memory, gpu, network, summary][..]])
+                {
+                    for section in list {
                         section(col, data, s);
+                        col.add_space(10.0);
                     }
-                });
-                ui.add_space(12.0);
-            }
+                }
+            });
         } else {
             for section in sections {
                 section(ui, data, s);
-                ui.add_space(12.0);
+                ui.add_space(10.0);
             }
         }
     });
@@ -1160,14 +1221,44 @@ const GPU_ENGINES_SHOWN: usize = 4;
 /// Width from which the Performance tab uses two columns.
 const PERF_TWO_COLUMNS: f32 = 900.0;
 
+/// A card title: the resource and its current value in its colour.
+fn title(ui: &Ui, name: &str, value: String, color: Color32) -> egui::WidgetText {
+    let mut job = egui::text::LayoutJob::default();
+    let font = |size| egui::TextFormat {
+        font_id: egui::FontId::proportional(size),
+        color: ui.visuals().strong_text_color(),
+        ..Default::default()
+    };
+    job.append(name, 0.0, font(18.0));
+    job.append(
+        &value,
+        10.0,
+        egui::TextFormat {
+            color,
+            ..font(18.0)
+        },
+    );
+    job.into()
+}
+
 fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    ui.heading(format!("CPU  {:.1}%", s.cpu_percent));
-    history_plot(ui, "cpu_plot", "CPU", &data.history.cpu);
-    if !s.core_percent.is_empty() {
-        ui.add_space(4.0);
-        ui.label(format!("Per logical processor ({})", s.core_percent.len()));
-        core_grid(ui, &s.core_percent);
-    }
+    crate::theme::card(
+        ui,
+        title(
+            ui,
+            "CPU",
+            format!("{:.0}%", s.cpu_percent),
+            crate::theme::load_color(s.cpu_percent),
+        ),
+        |ui| {
+            history_plot(ui, "cpu_plot", "CPU", &data.history.cpu, crate::theme::CPU);
+            if !s.core_percent.is_empty() {
+                ui.add_space(6.0);
+                ui.weak(format!("Per logical processor ({})", s.core_percent.len()));
+                core_grid(ui, &s.core_percent, &data.history.cores);
+            }
+        },
+    );
 }
 
 fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
@@ -1176,121 +1267,182 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
     } else {
         0.0
     };
-    ui.heading(format!(
-        "Memory  {} / {} ({mem_pct:.0}%)",
-        format_bytes(s.memory_used() as f64),
-        format_bytes(s.memory_total as f64)
-    ));
-    history_plot(ui, "mem_plot", "Memory", &data.history.memory);
+    crate::theme::card(
+        ui,
+        title(
+            ui,
+            "Memory",
+            format!(
+                "{} / {} ({mem_pct:.0}%)",
+                format_bytes(s.memory_used() as f64),
+                format_bytes(s.memory_total as f64)
+            ),
+            crate::theme::load_color(mem_pct as f32),
+        ),
+        |ui| {
+            history_plot(
+                ui,
+                "mem_plot",
+                "Memory",
+                &data.history.memory,
+                crate::theme::MEMORY,
+            );
+            ui.add_space(4.0);
+            let committed = s.commit_limit.saturating_sub(s.commit_available);
+            ui.horizontal_wrapped(|ui| {
+                ui.weak(format!("In use {}", format_bytes(s.memory_used() as f64)));
+                ui.weak("·");
+                ui.weak(format!(
+                    "Available {}",
+                    format_bytes(s.memory_available as f64)
+                ));
+                ui.weak("·");
+                ui.weak(format!(
+                    "Committed {} of {}",
+                    format_bytes(committed as f64),
+                    format_bytes(s.commit_limit as f64)
+                ));
+            });
+        },
+    );
 }
 
 fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    ui.heading(format!("GPU  {:.1}%  (busiest engine)", s.gpu_percent));
-    history_plot(ui, "gpu_plot", "GPU", &data.history.gpu);
-    if !s.gpu_engines.is_empty() {
-        // The busiest engines; most of the others idle at 0%.
-        let mut engines: Vec<&(String, f32)> = s.gpu_engines.iter().collect();
-        engines.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        ui.add_space(4.0);
-        load_bars(
+    crate::theme::card(
+        ui,
+        title(
             ui,
-            "gpu_engines",
-            engines
-                .iter()
-                .take(GPU_ENGINES_SHOWN)
-                .map(|(name, load)| (name.clone(), *load, format!("{load:.0}%"))),
-        );
-        if engines.len() > GPU_ENGINES_SHOWN {
-            let rest: Vec<String> = engines[GPU_ENGINES_SHOWN..]
-                .iter()
-                .map(|(name, load)| format!("{name} {load:.0}%"))
-                .collect();
-            ui.weak(format!(
-                "+ {} more engines",
-                engines.len() - GPU_ENGINES_SHOWN
-            ))
-            .on_hover_text(rest.join("\n"));
-        }
-    }
+            "GPU",
+            format!("{:.0}%  busiest engine", s.gpu_percent),
+            crate::theme::GPU,
+        ),
+        |ui| {
+            history_plot(ui, "gpu_plot", "GPU", &data.history.gpu, crate::theme::GPU);
+            if !s.gpu_engines.is_empty() {
+                // The busiest engines; most of the others idle at 0%.
+                let mut engines: Vec<&(String, f32)> = s.gpu_engines.iter().collect();
+                engines.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                ui.add_space(6.0);
+                load_bars(
+                    ui,
+                    "gpu_engines",
+                    engines
+                        .iter()
+                        .take(GPU_ENGINES_SHOWN)
+                        .map(|(name, load)| (name.clone(), *load, format!("{load:.0}%"))),
+                );
+                if engines.len() > GPU_ENGINES_SHOWN {
+                    let rest: Vec<String> = engines[GPU_ENGINES_SHOWN..]
+                        .iter()
+                        .map(|(name, load)| format!("{name} {load:.0}%"))
+                        .collect();
+                    ui.weak(format!(
+                        "+ {} more engines",
+                        engines.len() - GPU_ENGINES_SHOWN
+                    ))
+                    .on_hover_text(rest.join("\n"));
+                }
+            }
+        },
+    );
 }
 
 fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    ui.heading(format!(
-        "Network  ↓ {}/s  ↑ {}/s",
-        format_bytes(s.net_rx_rate),
-        format_bytes(s.net_tx_rate)
-    ));
-    rate_plot(
+    crate::theme::card(
         ui,
-        "net_plot",
-        [
-            ("Receive", &data.history.net_rx),
-            ("Send", &data.history.net_tx),
-        ],
+        egui::RichText::new(format!(
+            "Network  ↓ {}/s  ↑ {}/s",
+            format_bytes(s.net_rx_rate),
+            format_bytes(s.net_tx_rate)
+        ))
+        .size(18.0)
+        .strong(),
+        |ui| {
+            rate_plot(
+                ui,
+                "net_plot",
+                [
+                    ("Receive", &data.history.net_rx, crate::theme::NET_RX),
+                    ("Send", &data.history.net_tx, crate::theme::NET_TX),
+                ],
+            );
+        },
     );
 }
 
 fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    ui.heading(format!(
-        "Disk & I/O  read {}/s  write {}/s",
-        format_bytes(s.io_read_rate),
-        format_bytes(s.io_write_rate)
-    ));
-    rate_plot(
+    crate::theme::card(
         ui,
-        "io_plot",
-        [
-            ("Read", &data.history.io_read),
-            ("Write", &data.history.io_write),
-        ],
+        egui::RichText::new(format!(
+            "Disk & I/O  read {}/s  write {}/s",
+            format_bytes(s.io_read_rate),
+            format_bytes(s.io_write_rate)
+        ))
+        .size(18.0)
+        .strong(),
+        |ui| {
+            rate_plot(
+                ui,
+                "io_plot",
+                [
+                    ("Read", &data.history.io_read, crate::theme::DISK_READ),
+                    ("Write", &data.history.io_write, crate::theme::DISK_WRITE),
+                ],
+            );
+            if !s.disks.is_empty() {
+                ui.add_space(6.0);
+                load_bars(
+                    ui,
+                    "disks",
+                    s.disks.iter().map(|d| {
+                        (
+                            format!("Disk {}", d.name),
+                            d.active_percent,
+                            format!(
+                                "{:.0}% active   read {}/s   write {}/s",
+                                d.active_percent,
+                                format_bytes(d.read_rate),
+                                format_bytes(d.write_rate)
+                            ),
+                        )
+                    }),
+                );
+            }
+        },
     );
-    if !s.disks.is_empty() {
-        ui.add_space(4.0);
-        load_bars(
-            ui,
-            "disks",
-            s.disks.iter().map(|d| {
-                (
-                    format!("Disk {}", d.name),
-                    d.active_percent,
-                    format!(
-                        "{:.0}% active   read {}/s   write {}/s",
-                        d.active_percent,
-                        format_bytes(d.read_rate),
-                        format_bytes(d.write_rate)
-                    ),
-                )
-            }),
-        );
-    }
 }
 
 fn perf_summary(ui: &mut Ui, _data: &Data, s: &wtm_core::SystemStats) {
-    ui.heading("System");
-    egui::Grid::new("perf_grid")
-        .num_columns(2)
-        .striped(true)
-        .show(ui, |ui| {
-            let mut row = |k: &str, v: String| {
-                ui.label(k);
-                ui.label(v);
-                ui.end_row();
-            };
-            row("Logical processors", s.logical_cpus.to_string());
-            row("Processes", s.process_count.to_string());
-            row("Threads", s.thread_count.to_string());
-            row("Handles", s.handle_count.to_string());
-            row(
-                "Committed",
-                format!(
-                    "{} / {}",
-                    format_bytes(s.commit_limit.saturating_sub(s.commit_available) as f64),
-                    format_bytes(s.commit_limit as f64)
-                ),
-            );
-        });
+    crate::theme::card(
+        ui,
+        egui::RichText::new("System").size(18.0).strong(),
+        |ui| {
+            egui::Grid::new("perf_grid")
+                .num_columns(2)
+                .striped(true)
+                .spacing([24.0, 6.0])
+                .show(ui, |ui| {
+                    let mut row = |k: &str, v: String| {
+                        ui.weak(k);
+                        ui.strong(v);
+                        ui.end_row();
+                    };
+                    row("Logical processors", s.logical_cpus.to_string());
+                    row("Processes", s.process_count.to_string());
+                    row("Threads", s.thread_count.to_string());
+                    row("Handles", s.handle_count.to_string());
+                    row(
+                        "Committed",
+                        format!(
+                            "{} / {}",
+                            format_bytes(s.commit_limit.saturating_sub(s.commit_available) as f64),
+                            format_bytes(s.commit_limit as f64)
+                        ),
+                    );
+                });
+        },
+    );
 }
-
 fn governor(ui: &mut Ui, data: &Data) {
     let Some(status) = &data.status else {
         ui.heading("Service not running");

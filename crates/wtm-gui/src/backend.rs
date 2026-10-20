@@ -43,6 +43,8 @@ const RECONNECT: Duration = Duration::from_secs(5);
 pub const HISTORY_LEN: usize = 300;
 /// Seconds of CPU and memory kept for every running process.
 pub const PROCESS_HISTORY_LEN: usize = 120;
+/// Seconds of history in each logical processor's small graph.
+pub const CORE_HISTORY_LEN: usize = 60;
 const EVENTS_KEPT: usize = 2000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -66,6 +68,8 @@ pub struct History {
     pub net_tx: VecDeque<f32>,
     pub io_read: VecDeque<f32>,
     pub io_write: VecDeque<f32>,
+    /// Load of every logical processor, last `CORE_HISTORY_LEN` samples.
+    pub cores: Vec<VecDeque<f32>>,
 }
 
 /// Recent samples of one process, oldest first.
@@ -833,6 +837,11 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
             series.push_back(value);
             trim(series, HISTORY_LEN);
         }
+        h.cores.resize_with(s.core_percent.len(), VecDeque::new);
+        for (series, &load) in h.cores.iter_mut().zip(&s.core_percent) {
+            series.push_back(load);
+            trim(series, CORE_HISTORY_LEN);
+        }
         update_process_history(&mut data.process_history, &snapshot.processes);
     }
     trim(&mut data.events, EVENTS_KEPT);
@@ -1195,7 +1204,6 @@ mod tests {
         w.updater.latest = || Ok(release(0));
         w.handle(UiCommand::CheckUpdate);
         assert_eq!(settled(&w), UpdateState::UpToDate);
-        w.handle(UiCommand::CheckUpdate);
         w.updater.latest = || Err("offline".into());
         w.handle(UiCommand::CheckUpdate);
         assert_eq!(settled(&w), UpdateState::Failed("offline".into()));
@@ -1825,6 +1833,9 @@ mod tests {
         publish_local(&mut d, Ok(s));
         assert_eq!(d.mode, Mode::Local);
         assert_eq!(d.history.memory, [0.0]);
+        // One small history per logical processor of the sample.
+        assert_eq!(d.history.cores.len(), 4);
+        assert_eq!(d.history.cores[0], [95.0]);
 
         let mut q: VecDeque<u32> = (0..5).collect();
         trim(&mut q, 3);
