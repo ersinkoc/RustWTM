@@ -15,15 +15,17 @@ fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
     });
 }
 
-pub fn users(ui: &mut Ui, data: &Data) {
+/// Returns a session to disconnect or sign out once confirmed: (id, user, op).
+pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::SessionOp)> {
+    use crate::backend::SessionOp;
     let sessions = match &data.sessions {
         None => {
             ui.spinner();
-            return;
+            return None;
         }
         Some(Err(e)) => {
             ui.colored_label(Color32::RED, e);
-            return;
+            return None;
         }
         Some(Ok(s)) => s,
     };
@@ -61,8 +63,9 @@ pub fn users(ui: &mut Ui, data: &Data) {
         5 => num(f64::from(ta.1), f64::from(tb.1)),
         _ => ta.2.cmp(&tb.2),
     });
+    let mut request = None;
     egui::Grid::new("users_grid")
-        .num_columns(7)
+        .num_columns(8)
         .striped(true)
         .show(ui, |ui| {
             for (col, (h, numeric)) in [
@@ -88,10 +91,28 @@ pub fn users(ui: &mut Ui, data: &Data) {
                 ui.label(count.to_string());
                 ui.label(format!("{cpu:.1}%"));
                 ui.label(format_bytes(mem as f64));
+                ui.horizontal(|ui| {
+                    if s.state != wtm_core::SessionState::Disconnected
+                        && ui
+                            .small_button("Disconnect")
+                            .on_hover_text("Programs keep running; the user can sign in again")
+                            .clicked()
+                    {
+                        request = Some((s.id, account(s), SessionOp::Disconnect));
+                    }
+                    if ui
+                        .small_button("Sign off")
+                        .on_hover_text("Closes the user's programs")
+                        .clicked()
+                    {
+                        request = Some((s.id, account(s), SessionOp::SignOff));
+                    }
+                });
                 ui.end_row();
             }
         });
     sort.store(ui, "users");
+    request
 }
 
 pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u32>) {

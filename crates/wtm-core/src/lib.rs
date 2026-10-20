@@ -20,9 +20,11 @@ pub use wtm_sys::disk::DiskUsage;
 pub use wtm_sys::icon::{IconImage, small_icon};
 pub use wtm_sys::net::{Connection, Protocol, TcpState, connections};
 pub use wtm_sys::services::{
-    ServiceEntry, ServiceState, StartType, list_services, set_start_type, start_service,
-    stop_service,
+    ServiceEntry, ServiceState, StartType, list_services, restart_service, set_start_type,
+    start_service, stop_service,
 };
-pub use wtm_sys::sessions::{Session, SessionState, sessions};
+pub use wtm_sys::sessions::{
+    Session, SessionState, disconnect as disconnect_session, log_off as log_off_session, sessions,
+};
 pub use wtm_sys::window::{self, foreground_pid};
 pub use wtm_sys::{Error, Result};

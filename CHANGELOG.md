@@ -20,6 +20,10 @@ All notable changes to this project are documented here. The format follows
   `%ProgramData%\RustWTM\telegram.toml`, readable only by administrators,
   and control can be switched off for a report-only bot. Protected Windows
   processes and service hosts are never ended.
+- Everything Task Manager does is here too: **Create memory dump file** and
+  **Search online** in the process menu (`wtm dump 1234` writes a full
+  dump), **Restart** for services, and **Disconnect** / **Sign off** for
+  users, each asking first.
 - Processes: the details panel lists the ports the selected process listens
   on, with the tool they belong to and who can reach them, and opens the
   Ports tab.

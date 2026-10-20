@@ -190,6 +190,35 @@ pub struct ProcessDetails {
     pub protected: Option<String>,
 }
 
+/// `dir\name.DMP`, or `name (2).DMP` … when that exists already.
+fn dump_path(dir: &std::path::Path, image_name: &str) -> std::path::PathBuf {
+    let stem = std::path::Path::new(image_name)
+        .file_stem()
+        .map_or_else(|| "process".into(), |s| s.to_string_lossy().into_owned());
+    (1..)
+        .map(|n| {
+            dir.join(if n == 1 {
+                format!("{stem}.DMP")
+            } else {
+                format!("{stem} ({n}).DMP")
+            })
+        })
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| dir.join(format!("{stem}.DMP")))
+}
+
+/// Writes a full memory dump of `target` into `dir` (Task Manager's
+/// "Create memory dump file"); returns its path.
+pub fn create_dump(
+    target: &ProcessRef,
+    dir: &std::path::Path,
+) -> ControlResult<std::path::PathBuf> {
+    let h = open_verified(target, Access::DUMP)?;
+    let path = dump_path(dir, &target.name);
+    sys(target.pid, h.write_dump(&path))?;
+    Ok(path)
+}
+
 /// Full image path only; cheaper than [`inspect`].
 pub fn image_path(target: &ProcessRef) -> ControlResult<String> {
     let h = open_verified(target, Access::QUERY)?;
@@ -331,6 +360,23 @@ mod tests {
             ControlError::AccessDenied { pid: 7 }.to_string(),
             "access denied to process 7 (try an elevated prompt)"
         );
+    }
+
+    #[test]
+    fn dumps_get_free_names() {
+        let dir = std::env::temp_dir().join(format!("wtm-dump-names-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(dump_path(&dir, "app.exe"), dir.join("app.DMP"));
+        std::fs::write(dir.join("app.DMP"), b"").unwrap();
+        assert_eq!(dump_path(&dir, "app.exe"), dir.join("app (2).DMP"));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let gone = ProcessRef {
+            pid: 0xFFFF_FFF0,
+            create_time: 1,
+            name: "gone.exe".into(),
+        };
+        assert!(create_dump(&gone, &std::env::temp_dir()).is_err());
     }
 
     #[test]

@@ -114,6 +114,25 @@ pub fn resume(specs: &[String]) -> anyhow::Result<ExitCode> {
     for_each(specs, "resume", control::resume)
 }
 
+pub fn dump(specs: &[String], dir: &std::path::Path) -> anyhow::Result<ExitCode> {
+    let mut ok = true;
+    for t in resolve(specs, &snapshot()?)? {
+        match control::create_dump(&t, dir) {
+            Ok(path) => println!(
+                "OK    dump       {:>7}  {}: {}",
+                t.pid,
+                t.name,
+                path.display()
+            ),
+            Err(e) => {
+                eprintln!("FAIL  dump       {:>7}  {}: {e}", t.pid, t.name);
+                ok = false;
+            }
+        }
+    }
+    Ok(exit_code(ok))
+}
+
 pub fn trim(specs: &[String]) -> anyhow::Result<ExitCode> {
     for_each(specs, "free memory", control::trim_memory)
 }

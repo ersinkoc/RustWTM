@@ -62,6 +62,14 @@ enum Command {
         #[arg(long, short)]
         tree: bool,
     },
+    /// Write a full memory dump file of processes, for debugging
+    Dump {
+        #[arg(required = true)]
+        targets: Vec<String>,
+        /// Folder for the .DMP files (default: your Temp folder)
+        #[arg(long, short)]
+        dir: Option<std::path::PathBuf>,
+    },
     /// Free RAM: move working sets to the standby list (nothing is lost)
     Trim {
         #[arg(required = true)]
@@ -333,6 +341,9 @@ fn main() -> anyhow::Result<ExitCode> {
         Command::Kill { targets, tree } => actions::kill(&targets, tree),
         Command::Suspend { targets } => actions::suspend(&targets),
         Command::Trim { targets } => actions::trim(&targets),
+        Command::Dump { targets, dir } => {
+            actions::dump(&targets, &dir.unwrap_or_else(std::env::temp_dir))
+        }
         Command::Resume { targets } => actions::resume(&targets),
         Command::Priority { target, class } => actions::priority(&[target], class.into()),
         Command::Affinity { target, cpus } => actions::affinity(&[target], cpus.as_deref()),
@@ -470,6 +481,11 @@ mod tests {
             }
         ));
         assert!(Cli::try_parse_from(["wtm", "kill"]).is_err());
+        let cli = Cli::try_parse_from(["wtm", "dump", "app", "-d", "C:/dumps"]).unwrap();
+        assert!(
+            matches!(cli.command, Command::Dump { targets, dir: Some(d) } if targets == ["app"] && d.ends_with("dumps"))
+        );
+        assert!(Cli::try_parse_from(["wtm", "dump"]).is_err());
         let cli = Cli::try_parse_from(["wtm", "panic", "--yes"]).unwrap();
         assert!(matches!(cli.command, Command::Panic { yes: true }));
         let cli = Cli::try_parse_from(["wtm", "free-port", ":3000", "--yes"]).unwrap();

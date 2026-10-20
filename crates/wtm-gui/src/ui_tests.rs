@@ -268,6 +268,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::Reveal(t) => format!("reveal {}", t.pid),
         Intent::ConfirmMany(ts, c) => format!("confirm {} processes {c:?}", ts.len()),
         Intent::ShowPorts => "show ports".into(),
+        Intent::Dump(t) => format!("dump {}", t.pid),
     }
 }
 
@@ -397,6 +398,7 @@ fn processes_row_click_and_context_menu_produce_intents() {
         ("Open file location", "open 200"),
         ("Limit all beta.exe…", "limit app beta.exe"),
         ("Add to kill list…", "kill list beta.exe"),
+        ("Create memory dump file", "dump 200"),
         ("Properties", "select 200"),
     ] {
         h.get_by_label("beta.exe").click_secondary();

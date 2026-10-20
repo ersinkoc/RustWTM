@@ -1,6 +1,9 @@
-//! Per-process control: terminate, suspend, priority, affinity, EcoQoS.
+//! Per-process control: terminate, suspend, priority, affinity, EcoQoS,
+//! memory dumps.
 
 use std::ops::BitOr;
+use std::os::windows::io::AsRawHandle;
+use std::path::Path;
 use std::time::Duration;
 
 use windows::Win32::Foundation::{
@@ -8,6 +11,10 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Security::{
     GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER, TokenUser,
+};
+use windows::Win32::System::Diagnostics::Debug::{
+    MINIDUMP_TYPE, MiniDumpWithFullMemory, MiniDumpWithFullMemoryInfo, MiniDumpWithHandleData,
+    MiniDumpWithThreadInfo, MiniDumpWithUnloadedModules, MiniDumpWriteDump,
 };
 use windows::Win32::System::Memory::{
     SETPROCESSWORKINGSETSIZEEX_FLAGS, SetProcessWorkingSetSizeEx,
@@ -18,10 +25,11 @@ use windows::Win32::System::Threading::{
     IDLE_PRIORITY_CLASS, IsProcessCritical, NORMAL_PRIORITY_CLASS, OpenProcess, OpenProcessToken,
     PROCESS_ACCESS_RIGHTS, PROCESS_CREATION_FLAGS, PROCESS_NAME_WIN32,
     PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
-    PROCESS_POWER_THROTTLING_STATE, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_INFORMATION,
-    PROCESS_SET_QUOTA, PROCESS_SUSPEND_RESUME, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
-    ProcessPowerThrottling, QueryFullProcessImageNameW, REALTIME_PRIORITY_CLASS, SetPriorityClass,
-    SetProcessAffinityMask, SetProcessInformation, TerminateProcess, WaitForSingleObject,
+    PROCESS_POWER_THROTTLING_STATE, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SET_INFORMATION, PROCESS_SET_QUOTA, PROCESS_SUSPEND_RESUME, PROCESS_SYNCHRONIZE,
+    PROCESS_TERMINATE, PROCESS_VM_READ, ProcessPowerThrottling, QueryFullProcessImageNameW,
+    REALTIME_PRIORITY_CLASS, SetPriorityClass, SetProcessAffinityMask, SetProcessInformation,
+    TerminateProcess, WaitForSingleObject,
 };
 use windows::core::PWSTR;
 
@@ -53,6 +61,10 @@ impl Access {
     /// Required (with TERMINATE) to assign the process to a job object.
     pub const SET_QUOTA: Self = Self(PROCESS_SET_QUOTA);
     pub const SYNCHRONIZE: Self = Self(PROCESS_SYNCHRONIZE);
+    /// Required to write a memory dump.
+    pub const DUMP: Self = Self(PROCESS_ACCESS_RIGHTS(
+        PROCESS_QUERY_INFORMATION.0 | PROCESS_VM_READ.0,
+    ));
 }
 
 impl BitOr for Access {
@@ -283,6 +295,41 @@ impl ProcessHandle {
         }
     }
 
+    /// Writes a full memory dump (like Task Manager's "Create memory dump
+    /// file") to `path`, replacing it. Requires `Access::DUMP`.
+    pub fn write_dump(&self, path: &Path) -> Result<()> {
+        let file = std::fs::File::create(path).map_err(|e| {
+            let code = e.raw_os_error().unwrap_or(0) as u32;
+            Error::Win32(windows::core::HRESULT::from_win32(code).into())
+        })?;
+        let kind = MINIDUMP_TYPE(
+            MiniDumpWithFullMemory.0
+                | MiniDumpWithFullMemoryInfo.0
+                | MiniDumpWithHandleData.0
+                | MiniDumpWithThreadInfo.0
+                | MiniDumpWithUnloadedModules.0,
+        );
+        // SAFETY: valid process handle; `file` is open for writing and
+        // outlives the call.
+        let result = unsafe {
+            MiniDumpWriteDump(
+                self.raw(),
+                self.pid,
+                HANDLE(file.as_raw_handle()),
+                kind,
+                None,
+                None,
+                None,
+            )
+        };
+        drop(file);
+        if let Err(e) = result {
+            let _ = std::fs::remove_file(path);
+            return Err(e.into());
+        }
+        Ok(())
+    }
+
     pub fn terminate(&self, exit_code: u32) -> Result<()> {
         // SAFETY: valid handle owned by `self`.
         unsafe { TerminateProcess(self.raw(), exit_code)? };
@@ -425,6 +472,26 @@ mod tests {
         h.trim_working_set().unwrap();
         let weak = ProcessHandle::open(child.0.id(), Access::QUERY).unwrap();
         assert!(weak.trim_working_set().unwrap_err().is_access_denied());
+    }
+
+    #[test]
+    fn writes_a_memory_dump_of_a_child() {
+        let child = spawn_ping();
+        let path = std::env::temp_dir().join(format!("wtm-dump-test-{}.dmp", std::process::id()));
+        let h = ProcessHandle::open(child.0.id(), Access::DUMP).unwrap();
+        h.write_dump(&path).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(&bytes[..4], b"MDMP");
+        assert!(
+            bytes.len() > 100_000,
+            "a full dump holds the memory: {}",
+            bytes.len()
+        );
+
+        // A file that cannot be created fails before anything is dumped.
+        let bad = std::env::temp_dir().join("no-such-dir-wtm").join("x.dmp");
+        assert!(h.write_dump(&bad).is_err());
     }
 
     #[test]

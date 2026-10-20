@@ -158,6 +158,8 @@ pub enum Intent {
     ConfirmMany(Vec<ProcessRef>, Command),
     /// Open the Ports tab.
     ShowPorts,
+    /// Write a full memory dump of the process.
+    Dump(ProcessRef),
 }
 
 /// How the process list is arranged.
@@ -683,6 +685,19 @@ fn app_menu(ui: &mut Ui, g: &AppGroup<'_>, intents: &mut Vec<Intent>) {
     }
 }
 
+/// A web search for an image name, as Task Manager does it.
+pub fn search_url(name: &str) -> String {
+    let query: String = name
+        .bytes()
+        .map(|b| match b {
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'.' | b'-' | b'_' => (b as char).to_string(),
+            b' ' => "+".into(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
+    format!("https://www.bing.com/search?q={query}")
+}
+
 pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mut Vec<Intent>) {
     let mut cmd = |ui: &mut Ui, label: &str, command: Command, confirm: bool| {
         if ui.button(label).clicked() {
@@ -775,6 +790,19 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
         ui.close();
     }
     ui.separator();
+    if ui
+        .button("Create memory dump file")
+        .on_hover_text("A full dump in your Temp folder, for debugging a hang or crash")
+        .clicked()
+    {
+        intents.push(Intent::Dump(t.clone()));
+        ui.close();
+    }
+    if ui.button("Search online").clicked() {
+        ui.ctx()
+            .open_url(egui::OpenUrl::new_tab(search_url(&t.name)));
+        ui.close();
+    }
     if ui.button("Properties").clicked() {
         intents.push(Intent::Select(t.clone()));
         ui.close();
@@ -785,6 +813,18 @@ pub fn context_menu(ui: &mut Ui, t: &ProcessRef, logical_cpus: u32, intents: &mu
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn searches_are_url_encoded() {
+        assert_eq!(
+            search_url("chrome.exe"),
+            "https://www.bing.com/search?q=chrome.exe"
+        );
+        assert_eq!(
+            search_url("My App & Co.exe"),
+            "https://www.bing.com/search?q=My+App+%26+Co.exe"
+        );
+    }
 
     fn p(pid: u32, parent_pid: u32, cpu: f32, create_time: i64) -> ProcessInfo {
         ProcessInfo {

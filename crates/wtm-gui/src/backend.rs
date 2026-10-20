@@ -157,6 +157,13 @@ pub enum UiCommand {
     SaveTelegram(wtm_policy::TelegramConfig),
     /// Have the service send a test message to the allowed chats.
     TestTelegram,
+    /// Write a full memory dump of the process to the Temp folder.
+    CreateDump(ProcessRef),
+    /// Disconnect or sign out a logon session.
+    Session {
+        id: u32,
+        op: SessionOp,
+    },
     /// Show the process's executable in Explorer.
     OpenLocation(ProcessRef),
     /// Start a program like the Run dialog, optionally as administrator.
@@ -221,9 +228,16 @@ pub enum Panel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionOp {
+    Disconnect,
+    SignOff,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServiceOp {
     Start,
     Stop,
+    Restart,
     StartType(StartType),
 }
 
@@ -479,14 +493,62 @@ impl Worker {
                     self.data().series = Some((app, rows));
                 }
             }
+            UiCommand::Service {
+                name,
+                op: ServiceOp::Restart,
+            } => {
+                // Waits for the service to stop: off the worker thread.
+                self.in_background(move || {
+                    let result = wtm_core::restart_service(&name, Duration::from_secs(30));
+                    Some(service_message(ServiceOp::Restart, &name, result))
+                });
+            }
             UiCommand::Service { name, op } => {
                 let result = match op {
                     ServiceOp::Start => wtm_core::start_service(&name),
                     ServiceOp::Stop => wtm_core::stop_service(&name),
+                    ServiceOp::Restart => unreachable!("handled above"),
                     ServiceOp::StartType(t) => wtm_core::set_start_type(&name, t),
                 };
                 self.data().message = Some(service_message(op, &name, result));
                 self.load(Panel::Services);
+            }
+            UiCommand::CreateDump(target) => {
+                self.in_background(move || {
+                    Some(match control::create_dump(&target, &std::env::temp_dir()) {
+                        Ok(path) => (
+                            EventLevel::Info,
+                            format!(
+                                "Memory dump of {} written to {}",
+                                target.name,
+                                path.display()
+                            ),
+                        ),
+                        Err(e) => (
+                            EventLevel::Error,
+                            format!("Cannot dump {}: {e}", target.name),
+                        ),
+                    })
+                });
+            }
+            UiCommand::Session { id, op } => {
+                let result = match op {
+                    SessionOp::Disconnect => wtm_core::disconnect_session(id),
+                    SessionOp::SignOff => wtm_core::log_off_session(id),
+                };
+                let what = match op {
+                    SessionOp::Disconnect => "Disconnected",
+                    SessionOp::SignOff => "Signed out",
+                };
+                self.data().message = Some(match result {
+                    Ok(()) => (EventLevel::Info, format!("{what} session {id}")),
+                    Err(e) if e.is_access_denied() => (
+                        EventLevel::Warn,
+                        format!("Session {id}: access denied (run RustWTM as administrator)"),
+                    ),
+                    Err(e) => (EventLevel::Warn, format!("Session {id}: {e}")),
+                });
+                self.load(Panel::Users);
             }
             UiCommand::OpenLocation(target) => {
                 let opened = control::image_path(&target)

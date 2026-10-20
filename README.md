@@ -174,6 +174,7 @@ wtm info chrome                    details of every chrome.exe
 wtm kill 1234 --tree               end a process and its descendants
 wtm suspend notepad / wtm resume notepad
 wtm trim chrome                    free RAM held by every chrome.exe
+wtm dump 1234                      full memory dump file, for debugging
 wtm priority 1234 below-normal
 wtm affinity 1234 0-3,6
 wtm eco 1234 on

@@ -3,8 +3,9 @@
 use serde::{Deserialize, Serialize};
 use windows::Win32::System::RemoteDesktop::{
     WTS_CONNECTSTATE_CLASS, WTS_INFO_CLASS, WTS_SESSION_INFOW, WTSActive, WTSConnectQuery,
-    WTSConnected, WTSDisconnected, WTSDomainName, WTSDown, WTSEnumerateSessionsW, WTSFreeMemory,
-    WTSIdle, WTSInit, WTSListen, WTSQuerySessionInformationW, WTSReset, WTSShadow, WTSUserName,
+    WTSConnected, WTSDisconnectSession, WTSDisconnected, WTSDomainName, WTSDown,
+    WTSEnumerateSessionsW, WTSFreeMemory, WTSIdle, WTSInit, WTSListen, WTSLogoffSession,
+    WTSQuerySessionInformationW, WTSReset, WTSShadow, WTSUserName,
 };
 use windows::core::PWSTR;
 
@@ -92,9 +93,31 @@ pub fn sessions() -> Result<Vec<Session>> {
     Ok(out)
 }
 
+/// Disconnects `session`: its programs keep running and the user can sign
+/// in again to continue. Other users' sessions need administrator rights.
+pub fn disconnect(session: u32) -> Result<()> {
+    // SAFETY: local server; plain FFI call.
+    unsafe { WTSDisconnectSession(None, session, false)? };
+    Ok(())
+}
+
+/// Signs the user of `session` out; their programs close and unsaved work
+/// is lost. Other users' sessions need administrator rights.
+pub fn log_off(session: u32) -> Result<()> {
+    // SAFETY: local server; plain FFI call.
+    unsafe { WTSLogoffSession(None, session, false)? };
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_sessions_cannot_be_disconnected_or_signed_out() {
+        assert!(disconnect(0xFFFF_0000).is_err());
+        assert!(log_off(0xFFFF_0000).is_err());
+    }
 
     #[test]
     fn enumerates_sessions() {

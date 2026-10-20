@@ -110,6 +110,8 @@ struct UiState {
     tab: Tab,
     processes: ProcessView,
     confirm: Option<(ProcessRef, Command)>,
+    /// A session to disconnect or sign out, once confirmed: (id, user, op).
+    confirm_session: Option<(u32, String, crate::backend::SessionOp)>,
     /// A destructive command for every process of an app.
     confirm_many: Option<(Vec<ProcessRef>, Command)>,
     network_filter: String,
@@ -266,6 +268,7 @@ impl Default for UiState {
             tab: Tab::Overview,
             processes: ProcessView::default(),
             confirm: None,
+            confirm_session: None,
             confirm_many: None,
             network_filter: String::new(),
             services_filter: String::new(),
@@ -464,7 +467,11 @@ impl eframe::App for App {
                     service_cmds.push(cmd);
                 }
             }
-            Tab::Users => views::users(ui, &data),
+            Tab::Users => {
+                if let Some(request) = views::users(ui, &data) {
+                    state.confirm_session = Some(request);
+                }
+            }
             Tab::Overview => {
                 let (cmds, more) = crate::overview::overview(ui, &data);
                 service_cmds.extend(cmds);
@@ -541,6 +548,36 @@ impl eframe::App for App {
             });
             if modal.should_close() {
                 state.confirm = None;
+            }
+        }
+
+        if let Some((id, user, op)) = state.confirm_session.clone() {
+            use crate::backend::SessionOp;
+            let (title, warning) = match op {
+                SessionOp::Disconnect => (
+                    "Disconnect",
+                    "Their programs keep running; they can sign in again to continue.",
+                ),
+                SessionOp::SignOff => {
+                    ("Sign off", "Their programs close and unsaved work is lost.")
+                }
+            };
+            let modal = egui::Modal::new(egui::Id::unique("confirm_session")).show(&ctx, |ui| {
+                ui.heading(title);
+                ui.label(format!("{title} {user} (session {id})? {warning}"));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(RichText::new(title).color(BAD)).clicked() {
+                        service_cmds.push(UiCommand::Session { id, op });
+                        state.confirm_session = None;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        state.confirm_session = None;
+                    }
+                });
+            });
+            if modal.should_close() {
+                state.confirm_session = None;
             }
         }
 
@@ -724,6 +761,7 @@ impl eframe::App for App {
                     state.tab = Tab::Limits;
                 }
                 Intent::ShowPorts => state.tab = Tab::Ports,
+                Intent::Dump(target) => backend.send(UiCommand::CreateDump(target)),
             }
         }
     }
@@ -1688,6 +1726,12 @@ fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCom
         if ui.add_enabled(running, egui::Button::new("Stop")).clicked() {
             send(ServiceOp::Stop);
         }
+        if ui
+            .add_enabled(running, egui::Button::new("Restart"))
+            .clicked()
+        {
+            send(ServiceOp::Restart);
+        }
         ui.menu_button("Startup type", |ui| {
             for t in [
                 wtm_core::StartType::Automatic,
@@ -1960,6 +2004,8 @@ mod tests {
             UiCommand::SaveConfig(toml) => format!("save config {}", toml.len()),
             UiCommand::SaveTelegram(c) => format!("save telegram {}", c.enabled),
             UiCommand::TestTelegram => "test telegram".into(),
+            UiCommand::CreateDump(t) => format!("dump {}", t.pid),
+            UiCommand::Session { id, op } => format!("session {id} {op:?}"),
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
             UiCommand::RestartElevated => "restart elevated".into(),
@@ -2002,6 +2048,38 @@ mod tests {
                 tray: None,
             });
         (h, rx)
+    }
+
+    #[test]
+    fn users_are_signed_off_and_services_restarted_after_asking() {
+        let (mut h, rx) = kill_app(Tab::Users);
+        h.state().backend.data().sessions = Some(Ok(vec![wtm_core::Session {
+            id: 3,
+            station: "RDP-Tcp#1".into(),
+            user: "guest".into(),
+            domain: "DESK".into(),
+            state: wtm_core::SessionState::Active,
+        }]));
+        let sent = |h: &mut Harness<'_, App>| {
+            h.run_steps(2);
+            rx.try_iter().map(describe_command).collect::<Vec<_>>()
+        };
+        sent(&mut h);
+        h.get_by_label("Sign off").click();
+        h.run_steps(2);
+        assert!(
+            sent(&mut h).iter().all(|c| !c.starts_with("session")),
+            "asks first"
+        );
+        assert!(h.query_by_label_contains("unsaved work is lost").is_some());
+        h.get_all_by_label("Sign off").last().unwrap().click();
+        assert!(sent(&mut h).contains(&"session 3 SignOff".to_owned()));
+
+        h.get_by_label("Disconnect").click();
+        h.run_steps(2);
+        h.get_by_label("Cancel").click();
+        assert!(sent(&mut h).iter().all(|c| !c.starts_with("session")));
+        assert!(h.state().state.confirm_session.is_none());
     }
 
     #[test]

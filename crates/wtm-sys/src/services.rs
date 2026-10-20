@@ -1,7 +1,13 @@
-//! Service Control Manager: list services, start/stop, change start type.
+//! Service Control Manager: list services, start/stop/restart, change start
+//! type.
 
 use serde::{Deserialize, Serialize};
-use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA};
+use std::time::{Duration, Instant};
+
+use windows::Win32::Foundation::{
+    ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SERVICE_NOT_ACTIVE,
+    ERROR_SERVICE_REQUEST_TIMEOUT,
+};
 use windows::Win32::System::Services::{
     ChangeServiceConfigW, CloseServiceHandle, ControlService, ENUM_SERVICE_STATUS_PROCESSW,
     ENUM_SERVICE_TYPE, EnumServicesStatusExW, OpenSCManagerW, OpenServiceW, QUERY_SERVICE_CONFIGW,
@@ -229,9 +235,7 @@ fn query_config(name: &str) -> Result<Config> {
     Ok((StartType::from_raw(c.dwStartType), path, account))
 }
 
-/// PID of a running service, None if it is not installed or not running.
-pub fn service_pid(name: &str) -> Option<u32> {
-    let svc = open(name, SERVICE_QUERY_STATUS).ok()?;
+fn query_status(svc: &ScHandle) -> Option<SERVICE_STATUS_PROCESS> {
     let mut status = SERVICE_STATUS_PROCESS::default();
     let mut needed = 0u32;
     // SAFETY: the byte view covers exactly status.
@@ -244,7 +248,41 @@ pub fn service_pid(name: &str) -> Option<u32> {
     // SAFETY: valid handle and buffer.
     unsafe { QueryServiceStatusEx(svc.0, SC_STATUS_PROCESS_INFO, Some(bytes), &mut needed) }
         .ok()?;
+    Some(status)
+}
+
+/// PID of a running service, None if it is not installed or not running.
+pub fn service_pid(name: &str) -> Option<u32> {
+    let svc = open(name, SERVICE_QUERY_STATUS).ok()?;
+    let status = query_status(&svc)?;
     (status.dwProcessId != 0).then_some(status.dwProcessId)
+}
+
+/// Stops `name` (if it runs), waits up to `timeout` for it to stop, and
+/// starts it again.
+pub fn restart_service(name: &str, timeout: Duration) -> Result<()> {
+    let svc = open(name, SERVICE_STOP | SERVICE_START | SERVICE_QUERY_STATUS)?;
+    let mut status = SERVICE_STATUS::default();
+    // SAFETY: valid handle; `status` is writable.
+    if let Err(e) = unsafe { ControlService(svc.0, SERVICE_CONTROL_STOP, &mut status) }
+        && e.code() != ERROR_SERVICE_NOT_ACTIVE.to_hresult()
+    {
+        return Err(e.into());
+    }
+    let deadline = Instant::now() + timeout;
+    while query_status(&svc)
+        .is_some_and(|s| ServiceState::from_raw(s.dwCurrentState.0) != ServiceState::Stopped)
+    {
+        if Instant::now() >= deadline {
+            return Err(
+                windows::core::Error::from(ERROR_SERVICE_REQUEST_TIMEOUT.to_hresult()).into(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    // SAFETY: valid handle; no arguments.
+    unsafe { StartServiceW(svc.0, None)? };
+    Ok(())
 }
 
 pub fn start_service(name: &str) -> Result<()> {
@@ -312,6 +350,7 @@ mod error_tests {
     fn unknown_services_fail_cleanly() {
         assert!(start_service(MISSING).is_err());
         assert!(stop_service(MISSING).is_err());
+        assert!(restart_service(MISSING, Duration::from_secs(1)).is_err());
         assert!(set_start_type(MISSING, StartType::Manual).is_err());
         assert!(service_pid(MISSING).is_none());
         assert!(query_config(MISSING).is_err());
