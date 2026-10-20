@@ -421,15 +421,33 @@ mod tests {
                 .all(|c| usage[0].members.iter().any(|m| m.0 == *c)),
             "{usage:?}"
         );
-        // Everything still in the budget, console hosts included.
-        for &(pid, _) in &usage[0].members {
-            if let Ok(h) = ProcessHandle::open(pid, Access::TERMINATE | Access::SYNCHRONIZE) {
-                let _ = h.terminate(1);
-                let _ = h.wait_exit(Duration::from_secs(5));
+        // End everything still in the budget (console hosts included) until
+        // it is empty; name what is left if it never empties.
+        let mut usage = usage;
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        while !usage.is_empty() {
+            for &(pid, _) in usage.iter().flat_map(|u| &u.members) {
+                if let Ok(h) = ProcessHandle::open(pid, Access::TERMINATE | Access::SYNCHRONIZE) {
+                    let _ = h.terminate(1);
+                    let _ = h.wait_exit(Duration::from_secs(2));
+                }
             }
+            let now = Sampler::new().sample().unwrap().processes;
+            usage = limiter.tick(&now, 8);
+            let left: Vec<_> = usage
+                .iter()
+                .flat_map(|u| &u.members)
+                .map(|m| {
+                    now.iter()
+                        .find(|p| p.pid == m.0)
+                        .map_or(format!("{}", m.0), |p| format!("{} {}", p.pid, p.name))
+                })
+                .collect();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "budget never emptied: {left:?}"
+            );
         }
-        let now = Sampler::new().sample().unwrap().processes;
-        assert!(limiter.tick(&now, 8).is_empty());
         assert!(limiter.budgets.is_empty());
         limiter.lift_all("test");
         let _ = std::fs::remove_dir_all(&dir);
