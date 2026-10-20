@@ -676,6 +676,17 @@ impl eframe::App for App {
             state.last_load.insert(panel, Instant::now());
             backend.send(UiCommand::Load(panel));
         }
+        // The details panel lists the selected process's ports.
+        if state.tab == Tab::Processes
+            && state.processes.selected.is_some()
+            && state
+                .last_load
+                .get(&Panel::Network)
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(5))
+        {
+            state.last_load.insert(Panel::Network, Instant::now());
+            backend.send(UiCommand::Load(Panel::Network));
+        }
         for intent in intents {
             match intent {
                 Intent::Select(t) => {
@@ -703,6 +714,7 @@ impl eframe::App for App {
                     state.limits.prefill(&name);
                     state.tab = Tab::Limits;
                 }
+                Intent::ShowPorts => state.tab = Tab::Ports,
             }
         }
     }
@@ -960,6 +972,36 @@ fn details_panel(
             ui.label(RichText::new(cmd).small().monospace());
             if ui.small_button("Copy command line").clicked() {
                 ui.ctx().copy_text(cmd.to_owned());
+            }
+        }
+    }
+
+    if let Some(Ok(conns)) = &data.connections {
+        let uses: Vec<_> = wtm_core::ports::port_uses(conns)
+            .into_iter()
+            .filter(|u| u.pid == p.pid)
+            .collect();
+        if !uses.is_empty() {
+            ui.add_space(8.0);
+            ui.label(RichText::new("Listening on").strong());
+            for u in &uses {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "{} {}",
+                            format!("{:?}", u.protocol).to_uppercase(),
+                            u.port
+                        ))
+                        .monospace(),
+                    );
+                    if let Some(k) = u.known() {
+                        ui.weak(k.service);
+                    }
+                    ui.weak(u.exposure().label());
+                });
+            }
+            if ui.small_button("Show in Ports").clicked() {
+                intents.push(Intent::ShowPorts);
             }
         }
     }
@@ -1775,6 +1817,9 @@ mod tests {
         );
         assert!(h.query_by_label("Last two minutes").is_some());
         assert!(h.query_by_label(r"C:\Apps\alpha.exe").is_some());
+        // alpha.exe listens on 127.0.0.1:8080.
+        assert!(h.query_by_label("Listening on").is_some());
+        assert!(h.query_by_label("TCP 8080").is_some());
         drop(h);
 
         // Empty states.
@@ -2414,7 +2459,16 @@ mod tests {
         step(&mut h, &mut sent);
         h.get_by_label("Suspend").click();
         let s = step(&mut h, &mut sent);
-        assert_eq!(s, ["inspect 100", "inspect 100", "control 100 Suspend"]);
+        // A selection also loads the ports for the details panel.
+        assert_eq!(
+            s,
+            [
+                "inspect 100",
+                "load Network",
+                "inspect 100",
+                "control 100 Suspend"
+            ]
+        );
 
         // Account, command line and file location.
         assert!(h.query_by_label(r"User: PC\user").is_some());

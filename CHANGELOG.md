@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Processes: the details panel lists the ports the selected process listens
+  on, with the tool they belong to and who can reach them, and opens the
+  Ports tab.
+
 ## [0.10.0] - 2026-10-20
 
 ### Added

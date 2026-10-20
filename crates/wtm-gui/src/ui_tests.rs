@@ -267,6 +267,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::AddToKillList(name) => format!("kill list {name}"),
         Intent::Reveal(t) => format!("reveal {}", t.pid),
         Intent::ConfirmMany(ts, c) => format!("confirm {} processes {c:?}", ts.len()),
+        Intent::ShowPorts => "show ports".into(),
     }
 }
 

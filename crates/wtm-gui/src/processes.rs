@@ -156,6 +156,8 @@ pub enum Intent {
     AddToKillList(String),
     /// Destructive, for several processes (every instance of an app).
     ConfirmMany(Vec<ProcessRef>, Command),
+    /// Open the Ports tab.
+    ShowPorts,
 }
 
 /// How the process list is arranged.
