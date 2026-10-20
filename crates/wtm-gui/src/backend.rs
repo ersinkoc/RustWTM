@@ -20,8 +20,22 @@ pub type CommandLines = std::collections::HashMap<(u32, i64), String>;
 /// Per-app summaries plus the service's current long-term findings.
 pub type AppHistory = (Vec<AppStats>, Vec<Finding>);
 
-const NO_SERVICE: &str = "Usage history is recorded by the RustWTM service, which is not running.";
-const NO_CONFIG: &str = "The configuration belongs to the RustWTM service, which is not running.";
+const NO_SERVICE: &str = "Usage history is recorded by the RustWTM service";
+const NO_CONFIG: &str = "The configuration belongs to the RustWTM service";
+
+/// Why `what` (one of the constants above) is unavailable: the service is not
+/// running, or it is another version that this window cannot talk to.
+fn without_service(data: &Mutex<Data>, what: &str) -> String {
+    let data = data.lock().unwrap_or_else(PoisonError::into_inner);
+    match data.service_error.as_deref() {
+        Some(e) if e.contains("protocol") => format!(
+            "{what}, but the installed service is a different version ({e}). Update it with \
+             the installer of version {}.",
+            env!("CARGO_PKG_VERSION")
+        ),
+        _ => format!("{what}, which is not running."),
+    }
+}
 use wtm_ipc::{Client, Command, Event, EventLevel, Outcome, Request, Response, Status};
 
 const TICK: Duration = Duration::from_secs(1);
@@ -349,7 +363,7 @@ impl Worker {
             }
             UiCommand::LoadHistory { hours } => {
                 let r = match self.client.as_mut() {
-                    None => Err(NO_SERVICE.to_owned()),
+                    None => Err(without_service(&self.data, NO_SERVICE)),
                     Some(c) => match c.call(&Request::History { hours }) {
                         Ok(Response::History { stats, findings }) => Ok((stats, findings)),
                         Ok(other) => Err(unexpected(other).to_string()),
@@ -410,7 +424,7 @@ impl Worker {
             }
             UiCommand::SaveConfig(toml) => {
                 let result = match self.client.as_mut() {
-                    None => Err(NO_CONFIG.to_owned()),
+                    None => Err(without_service(&self.data, NO_CONFIG)),
                     Some(c) => match c.call(&Request::SetConfig { toml }) {
                         Ok(Response::Done) => Ok(()),
                         Ok(other) => Err(unexpected(other).to_string()),
@@ -475,7 +489,7 @@ impl Worker {
             Panel::History => {}
             Panel::Config => {
                 let r = match self.client.as_mut() {
-                    None => Err(NO_CONFIG.to_owned()),
+                    None => Err(without_service(&self.data, NO_CONFIG)),
                     Some(c) => match c.call(&Request::GetConfig) {
                         Ok(Response::Config { toml, path }) => Ok((path, toml)),
                         Ok(other) => Err(unexpected(other).to_string()),
@@ -1004,10 +1018,27 @@ mod tests {
             assert!(d.startup.is_some());
         }
         w.handle(UiCommand::LoadHistory { hours: 1 });
-        assert!(matches!(&w.data().app_history, Some(Err(e)) if e == NO_SERVICE));
+        let no_history = format!("{NO_SERVICE}, which is not running.");
+        let no_config = format!("{NO_CONFIG}, which is not running.");
+        assert!(matches!(&w.data().app_history, Some(Err(e)) if *e == no_history));
         w.handle(UiCommand::SaveConfig(String::new()));
-        assert!(message(&w).1.ends_with(NO_CONFIG));
-        assert!(matches!(&w.data().config, Some(Err(e)) if e == NO_CONFIG));
+        assert!(message(&w).1.ends_with(&no_config));
+        assert!(matches!(&w.data().config, Some(Err(e)) if *e == no_config));
+        // Another version of the service is named as the reason.
+        w.data().service_error = Some("service speaks protocol 6, client 7".into());
+        w.handle(UiCommand::Load(Panel::Config));
+        let text = match &w.data().config {
+            Some(Err(e)) => e.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert!(
+            text.starts_with(&format!(
+                "{NO_CONFIG}, but the installed service is a different version (service speaks \
+                 protocol 6, client 7). Update it with the installer of version"
+            )),
+            "{text}"
+        );
+        w.data().service_error = None;
         w.handle(UiCommand::LoadSeries {
             app: "x".into(),
             hours: 1,
