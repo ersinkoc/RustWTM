@@ -756,7 +756,7 @@ fn history_plot(ui: &mut Ui, id: &str, label: &str, values: &std::collections::V
         .map(|(i, v)| [i as f64 - len, f64::from(*v)])
         .collect();
     Plot::new(id)
-        .height(190.0)
+        .height(130.0)
         .include_y(0.0)
         .include_y(100.0)
         .include_x(-(HISTORY_LEN as f64))
@@ -781,7 +781,7 @@ fn rate_plot(ui: &mut Ui, id: &str, series: [(&str, &std::collections::VecDeque<
         Line::new(label.to_owned(), points)
     };
     Plot::new(id)
-        .height(140.0)
+        .height(130.0)
         .include_y(0.0)
         .include_y(1024.0)
         .include_x(-(HISTORY_LEN as f64))
@@ -873,110 +873,170 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
         return;
     };
     let s = &snap.system;
+    type Section = fn(&mut Ui, &Data, &wtm_core::SystemStats);
+    let sections: [Section; 6] = [
+        perf_cpu,
+        perf_memory,
+        perf_gpu,
+        perf_network,
+        perf_disk,
+        perf_summary,
+    ];
     egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.heading(format!("CPU  {:.1}%", s.cpu_percent));
-        history_plot(ui, "cpu_plot", "CPU", &data.history.cpu);
-        if !s.core_percent.is_empty() {
-            ui.add_space(4.0);
-            ui.label(format!("Per logical processor ({})", s.core_percent.len()));
-            core_grid(ui, &s.core_percent);
-        }
-        ui.add_space(10.0);
-        let mem_pct = if s.memory_total > 0 {
-            s.memory_used() as f64 / s.memory_total as f64 * 100.0
+        // Two sections side by side when there is room.
+        if ui.available_width() >= PERF_TWO_COLUMNS {
+            for pair in sections.chunks(2) {
+                ui.columns(2, |cols| {
+                    for (col, section) in cols.iter_mut().zip(pair) {
+                        section(col, data, s);
+                    }
+                });
+                ui.add_space(12.0);
+            }
         } else {
-            0.0
-        };
-        ui.heading(format!(
-            "Memory  {} / {} ({mem_pct:.0}%)",
-            format_bytes(s.memory_used() as f64),
-            format_bytes(s.memory_total as f64)
-        ));
-        history_plot(ui, "mem_plot", "Memory", &data.history.memory);
-        ui.add_space(10.0);
-        ui.heading(format!("GPU  {:.1}%  (busiest engine)", s.gpu_percent));
-        history_plot(ui, "gpu_plot", "GPU", &data.history.gpu);
-        if !s.gpu_engines.is_empty() {
-            ui.add_space(4.0);
-            load_bars(
-                ui,
-                "gpu_engines",
-                s.gpu_engines
-                    .iter()
-                    .map(|(name, load)| (name.clone(), *load, format!("{load:.0}%"))),
-            );
+            for section in sections {
+                section(ui, data, s);
+                ui.add_space(12.0);
+            }
         }
-        ui.add_space(10.0);
-        ui.heading(format!(
-            "Network  ↓ {}/s  ↑ {}/s",
-            format_bytes(s.net_rx_rate),
-            format_bytes(s.net_tx_rate)
-        ));
-        rate_plot(
-            ui,
-            "net_plot",
-            [
-                ("Receive", &data.history.net_rx),
-                ("Send", &data.history.net_tx),
-            ],
-        );
-        ui.add_space(10.0);
-        ui.heading(format!(
-            "Disk & I/O  read {}/s  write {}/s",
-            format_bytes(s.io_read_rate),
-            format_bytes(s.io_write_rate)
-        ));
-        rate_plot(
-            ui,
-            "io_plot",
-            [
-                ("Read", &data.history.io_read),
-                ("Write", &data.history.io_write),
-            ],
-        );
-        if !s.disks.is_empty() {
-            ui.add_space(4.0);
-            load_bars(
-                ui,
-                "disks",
-                s.disks.iter().map(|d| {
-                    (
-                        format!("Disk {}", d.name),
-                        d.active_percent,
-                        format!(
-                            "{:.0}% active   read {}/s   write {}/s",
-                            d.active_percent,
-                            format_bytes(d.read_rate),
-                            format_bytes(d.write_rate)
-                        ),
-                    )
-                }),
-            );
-        }
-        ui.add_space(10.0);
-        egui::Grid::new("perf_grid")
-            .num_columns(2)
-            .striped(true)
-            .show(ui, |ui| {
-                let mut row = |k: &str, v: String| {
-                    ui.label(k);
-                    ui.label(v);
-                    ui.end_row();
-                };
-                row("Logical processors", s.logical_cpus.to_string());
-                row("Processes", s.process_count.to_string());
-                row("Threads", s.thread_count.to_string());
-                row("Handles", s.handle_count.to_string());
-                row(
-                    "Committed",
-                    format!(
-                        "{} / {}",
-                        format_bytes(s.commit_limit.saturating_sub(s.commit_available) as f64),
-                        format_bytes(s.commit_limit as f64)
-                    ),
-                );
-            });
     });
+}
+
+/// GPU engines listed by load; the rest are summarised in one line.
+const GPU_ENGINES_SHOWN: usize = 4;
+
+/// Width from which the Performance tab uses two columns.
+const PERF_TWO_COLUMNS: f32 = 900.0;
+
+fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+    ui.heading(format!("CPU  {:.1}%", s.cpu_percent));
+    history_plot(ui, "cpu_plot", "CPU", &data.history.cpu);
+    if !s.core_percent.is_empty() {
+        ui.add_space(4.0);
+        ui.label(format!("Per logical processor ({})", s.core_percent.len()));
+        core_grid(ui, &s.core_percent);
+    }
+}
+
+fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+    let mem_pct = if s.memory_total > 0 {
+        s.memory_used() as f64 / s.memory_total as f64 * 100.0
+    } else {
+        0.0
+    };
+    ui.heading(format!(
+        "Memory  {} / {} ({mem_pct:.0}%)",
+        format_bytes(s.memory_used() as f64),
+        format_bytes(s.memory_total as f64)
+    ));
+    history_plot(ui, "mem_plot", "Memory", &data.history.memory);
+}
+
+fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+    ui.heading(format!("GPU  {:.1}%  (busiest engine)", s.gpu_percent));
+    history_plot(ui, "gpu_plot", "GPU", &data.history.gpu);
+    if !s.gpu_engines.is_empty() {
+        // The busiest engines; most of the others idle at 0%.
+        let mut engines: Vec<&(String, f32)> = s.gpu_engines.iter().collect();
+        engines.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        ui.add_space(4.0);
+        load_bars(
+            ui,
+            "gpu_engines",
+            engines
+                .iter()
+                .take(GPU_ENGINES_SHOWN)
+                .map(|(name, load)| (name.clone(), *load, format!("{load:.0}%"))),
+        );
+        if engines.len() > GPU_ENGINES_SHOWN {
+            let rest: Vec<String> = engines[GPU_ENGINES_SHOWN..]
+                .iter()
+                .map(|(name, load)| format!("{name} {load:.0}%"))
+                .collect();
+            ui.weak(format!(
+                "+ {} more engines",
+                engines.len() - GPU_ENGINES_SHOWN
+            ))
+            .on_hover_text(rest.join("\n"));
+        }
+    }
+}
+
+fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+    ui.heading(format!(
+        "Network  ↓ {}/s  ↑ {}/s",
+        format_bytes(s.net_rx_rate),
+        format_bytes(s.net_tx_rate)
+    ));
+    rate_plot(
+        ui,
+        "net_plot",
+        [
+            ("Receive", &data.history.net_rx),
+            ("Send", &data.history.net_tx),
+        ],
+    );
+}
+
+fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+    ui.heading(format!(
+        "Disk & I/O  read {}/s  write {}/s",
+        format_bytes(s.io_read_rate),
+        format_bytes(s.io_write_rate)
+    ));
+    rate_plot(
+        ui,
+        "io_plot",
+        [
+            ("Read", &data.history.io_read),
+            ("Write", &data.history.io_write),
+        ],
+    );
+    if !s.disks.is_empty() {
+        ui.add_space(4.0);
+        load_bars(
+            ui,
+            "disks",
+            s.disks.iter().map(|d| {
+                (
+                    format!("Disk {}", d.name),
+                    d.active_percent,
+                    format!(
+                        "{:.0}% active   read {}/s   write {}/s",
+                        d.active_percent,
+                        format_bytes(d.read_rate),
+                        format_bytes(d.write_rate)
+                    ),
+                )
+            }),
+        );
+    }
+}
+
+fn perf_summary(ui: &mut Ui, _data: &Data, s: &wtm_core::SystemStats) {
+    ui.heading("System");
+    egui::Grid::new("perf_grid")
+        .num_columns(2)
+        .striped(true)
+        .show(ui, |ui| {
+            let mut row = |k: &str, v: String| {
+                ui.label(k);
+                ui.label(v);
+                ui.end_row();
+            };
+            row("Logical processors", s.logical_cpus.to_string());
+            row("Processes", s.process_count.to_string());
+            row("Threads", s.thread_count.to_string());
+            row("Handles", s.handle_count.to_string());
+            row(
+                "Committed",
+                format!(
+                    "{} / {}",
+                    format_bytes(s.commit_limit.saturating_sub(s.commit_available) as f64),
+                    format_bytes(s.commit_limit as f64)
+                ),
+            );
+        });
 }
 
 fn governor(ui: &mut Ui, data: &Data) {

@@ -68,7 +68,13 @@ pub fn snapshot() -> Snapshot {
                 read_rate: 2048.0,
                 write_rate: 0.0,
             }],
-            gpu_engines: vec![("3D".into(), 12.0), ("Copy".into(), 0.0)],
+            gpu_engines: vec![
+                ("3D".into(), 12.0),
+                ("Copy".into(), 0.0),
+                ("Compute 0".into(), 0.0),
+                ("Video Decode".into(), 3.0),
+                ("OFA_0".into(), 0.0),
+            ],
         },
         processes: vec![
             proc(0, 0, "System Idle Process", 50.0),
@@ -491,13 +497,28 @@ fn performance_shows_cores_network_and_io() {
     assert!(h.query_by_label_contains("Disk & I/O  read").is_some());
     assert!(h.query_by_label("Disk 0 C:").is_some());
     assert!(h.query_by_label_contains("37% active").is_some());
-    assert!(h.query_by_label("3D").is_some() && h.query_by_label("Copy").is_some());
+    // The four busiest engines; the idle rest on one line.
+    for engine in ["3D", "Video Decode", "Compute 0", "Copy"] {
+        assert!(h.query_by_label(engine).is_some(), "{engine}");
+    }
+    assert!(h.query_by_label("OFA_0").is_none());
+    assert!(h.query_by_label("+ 1 more engines").is_some());
     h.get_by_label("CPU 1: 70.0%").hover();
     h.run();
     assert!(
         h.get_all_by_label("CPU 1: 70.0%").count() >= 2,
         "hover tooltip"
     );
+    drop(h);
+
+    // Narrow windows stack the sections.
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([700.0, 2400.0])
+        .build_ui(|ui| crate::app::performance(ui, &d));
+    h.run();
+    assert!(h.query_by_label("System").is_some());
+    assert!(h.query_by_label("Disk 0 C:").is_some());
 }
 
 #[test]

@@ -26,6 +26,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- The Performance tab is more compact: two sections side by side on wide
+  windows, shorter graphs, and only the four busiest GPU engines (the rest on
+  hover).
 - IPC protocol version 7 (system statistics carry disks and GPU engines);
   update the GUI, CLI and service together.
 
