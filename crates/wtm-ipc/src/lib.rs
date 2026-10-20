@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 10;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -78,6 +78,11 @@ pub enum Request {
     Foreground {
         pid: u32,
     },
+    Hardware,
+    SetCooling {
+        channel: String,
+        profile: wtm_policy::CoolingProfile,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -123,6 +128,7 @@ pub enum Response {
     /// The request succeeded; a line to show the user.
     Text(String),
     Error(String),
+    Hardware(wtm_core::hardware::HardwareReport),
 }
 
 /// System-wide load at one sample, for history graphs.
@@ -320,6 +326,35 @@ fn verify_server(pipe: &File, service: Option<u32>) -> io::Result<bool> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn hello_keeps_its_wire_tag_across_protocol_versions() {
+        let mut request = Vec::new();
+        write_frame(
+            &mut request,
+            &Request::Hello {
+                version: PROTOCOL_VERSION,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            request[4], 0,
+            "old services must understand the handshake before rejecting the version"
+        );
+        let mut response = Vec::new();
+        write_frame(
+            &mut response,
+            &Response::Hello {
+                version: 9,
+                admin: false,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            read_frame::<Response>(&mut Cursor::new(response)).unwrap(),
+            Response::Hello { version: 9, .. }
+        ));
+    }
 
     #[test]
     fn frames_round_trip() {

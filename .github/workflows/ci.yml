@@ -41,6 +41,10 @@ jobs:
           # install / uninstall.
           RUSTWTM_SCM_TESTS: '1'
 
+      - name: Hardware provider and watchdog checks
+        shell: pwsh
+        run: scripts/build-hardware.ps1
+
       - name: Lint PowerShell scripts
         shell: pwsh
         run: |
@@ -100,6 +104,7 @@ jobs:
       - name: Build MSI
         shell: pwsh
         run: |
+          ./scripts/build-hardware.ps1
           dotnet tool restore
           dotnet wix extension add WixToolset.Util.wixext/5.0.2
           dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.0.1 -d BinDir=target/debug -o dist/RustWTM-test.msi

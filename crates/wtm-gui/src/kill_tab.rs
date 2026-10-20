@@ -233,7 +233,7 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
     if !admin {
         ui.horizontal(|ui| {
             ui.weak("Run RustWTM as administrator to change the kill list.");
-            if !data.elevated && ui.small_button("🛡 Restart as administrator").clicked() {
+            if !data.elevated && ui.small_button("Restart as administrator").clicked() {
                 commands.push(UiCommand::RestartElevated);
             }
         });

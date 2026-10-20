@@ -173,6 +173,15 @@ pub enum ViewMode {
     Apps,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum QuickFilter {
+    #[default]
+    All,
+    Cpu,
+    Memory,
+    Managed,
+}
+
 pub struct ProcessView {
     pub search: String,
     pub mode: ViewMode,
@@ -185,6 +194,9 @@ pub struct ProcessView {
     pub visible: HashSet<Col>,
     /// Shade CPU, memory, disk and GPU cells by how much they use.
     pub heat: bool,
+    pub filter: QuickFilter,
+    /// Only the process table is frozen. Sampling, protection and alerts continue.
+    pub paused: Option<std::sync::Arc<Snapshot>>,
 }
 
 impl Default for ProcessView {
@@ -198,6 +210,8 @@ impl Default for ProcessView {
             selected: None,
             visible: COLUMNS.iter().filter(|c| c.4).map(|c| c.0).collect(),
             heat: true,
+            filter: QuickFilter::All,
+            paused: None,
         }
     }
 }
@@ -369,13 +383,13 @@ impl ProcessView {
         let mut intents = Vec::new();
         let logical_cpus = snap.system.logical_cpus.max(1);
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Search:");
             let search = ui.add(
                 egui::TextEdit::singleline(&mut self.search)
                     .id(egui::Id::unique("process_search"))
-                    .hint_text("name, PID or command line (Ctrl+F)")
-                    .desired_width(260.0),
+                    .hint_text("name, PID, path or command line (Ctrl+F)")
+                    .desired_width(240.0),
             );
             if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
                 search.request_focus();
@@ -411,16 +425,63 @@ impl ProcessView {
                     }
                 }
             });
-            ui.label(format!("{} processes", snap.processes.len()));
+            let toggle_key = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F6))
+                && !ui.ctx().text_edit_focused()
+                && !egui::Popup::is_any_open(ui.ctx())
+                && !ui.memory(|m| m.top_modal_layer().is_some());
+            if ui.button(if self.paused.is_some() { "Resume updates" } else { "Pause updates" })
+                .on_hover_text("Freeze this process list for inspection (F6). Monitoring, alerts and protection continue.")
+                .clicked() || toggle_key {
+                self.paused = if self.paused.is_some() { None } else { Some(std::sync::Arc::new(snap.clone())) };
+            }
+        });
+        let paused = self.paused.clone();
+        let snap = paused.as_deref().unwrap_or(snap);
+        ui.horizontal_wrapped(|ui| {
+            for (filter, label, hint) in [
+                (QuickFilter::All, "All processes", "Every process"),
+                (
+                    QuickFilter::Cpu,
+                    "High CPU",
+                    "At least 5% of the whole machine; excludes the idle process",
+                ),
+                (
+                    QuickFilter::Memory,
+                    "High memory",
+                    "At least 512 MiB of private working set",
+                ),
+                (
+                    QuickFilter::Managed,
+                    "Managed",
+                    "Processes with a governor action, manual limit or app budget",
+                ),
+            ] {
+                ui.selectable_value(&mut self.filter, filter, label)
+                    .on_hover_text(hint);
+            }
+            if paused.is_some() {
+                ui.label(RichText::new("Paused · monitoring continues").color(crate::theme::WARN));
+            }
         });
         ui.separator();
 
         let filter = self.search.trim().to_lowercase();
         let matches = |p: &ProcessInfo| {
-            filter.is_empty()
-                || p.name.to_lowercase().contains(&filter)
-                || p.pid.to_string().contains(&filter)
-                || extra.command_line(p).to_lowercase().contains(&filter)
+            let resource_matches = match self.filter {
+                QuickFilter::All => true,
+                QuickFilter::Cpu => p.pid != 0 && p.cpu_percent >= 5.0,
+                QuickFilter::Memory => p.private_working_set >= 512 * 1024 * 1024,
+                QuickFilter::Managed => !extra.label(p).is_empty(),
+            };
+            resource_matches
+                && (filter.is_empty()
+                    || p.name.to_lowercase().contains(&filter)
+                    || p.pid.to_string().contains(&filter)
+                    || extra.command_line(p).to_lowercase().contains(&filter)
+                    || extra
+                        .image_paths
+                        .get(&(p.pid, p.create_time))
+                        .is_some_and(|p| p.to_lowercase().contains(&filter)))
         };
         let order = |a: &ProcessInfo, b: &ProcessInfo| {
             let o = compare(a, b, self.sort, extra);
@@ -436,7 +497,7 @@ impl ProcessView {
         };
         // (process, depth, Some(group index) for an app row)
         let rows: Vec<(&ProcessInfo, usize, Option<usize>)> = match self.mode {
-            ViewMode::Tree if filter.is_empty() => {
+            ViewMode::Tree if filter.is_empty() && self.filter == QuickFilter::All => {
                 tree_rows(&snap.processes, self.sort, self.descending, extra)
                     .into_iter()
                     .map(|(p, d)| (p, d, None))
@@ -461,6 +522,22 @@ impl ProcessView {
                 v.into_iter().map(|p| (p, 0, None)).collect()
             }
         };
+        let shown = snap.processes.iter().filter(|p| matches(p)).count();
+        ui.label(
+            RichText::new(format!("{shown} of {} processes", snap.processes.len()))
+                .small()
+                .weak(),
+        );
+        if rows.is_empty() {
+            ui.add_space(24.0);
+            ui.label(RichText::new("No matching processes").size(18.0).strong());
+            ui.weak("Try another name, PID or resource filter.");
+            if ui.button("Clear filters").clicked() {
+                self.search.clear();
+                self.filter = QuickFilter::All;
+            }
+            return intents;
+        }
         let row_height = ui.spacing().interact_size.y;
         let memory_total = snap.system.memory_total.max(1) as f64;
         self.keyboard(ui, &rows, &mut intents);
@@ -473,134 +550,154 @@ impl ProcessView {
 
         // Selectable text would swallow clicks meant for the row.
         ui.style_mut().interaction.selectable_labels = false;
-        let mut table = TableBuilder::new(ui)
-            .striped(true)
-            .resizable(true)
-            .sense(Sense::click())
-            .cell_layout(Layout::left_to_right(Align::Center));
-        for (i, (col, _, width, ..)) in columns.iter().enumerate() {
-            table = table.column(match col {
-                Col::Name => Column::initial(*width).at_least(140.0).clip(true),
-                _ if i == columns.len() - 1 => Column::remainder().at_least(*width).clip(true),
-                _ => Column::initial(*width).clip(true),
-            });
-        }
-        table
-            .header(row_height, |mut header| {
-                for (col, label, _, numeric, _) in &columns {
-                    header.col(|ui| {
-                        let arrow = match (self.sort == *col, self.descending) {
-                            (true, true) => " ↓",
-                            (true, false) => " ↑",
-                            _ => "",
-                        };
-                        if ui
-                            .selectable_label(
-                                self.sort == *col,
-                                RichText::new(format!("{label}{arrow}")).strong(),
-                            )
-                            .clicked()
-                        {
-                            if self.sort == *col {
-                                self.descending = !self.descending;
-                            } else {
-                                self.sort = *col;
-                                self.descending = *numeric;
-                            }
+        egui::ScrollArea::horizontal()
+            .id_salt("process_columns")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let width: f32 = columns.iter().map(|c| c.2).sum();
+                ui.set_min_width(width + ui.spacing().item_spacing.x * columns.len() as f32);
+                let mut table = TableBuilder::new(ui)
+                    .striped(true)
+                    .resizable(true)
+                    .sense(Sense::click())
+                    .cell_layout(Layout::left_to_right(Align::Center));
+                for (i, (col, _, width, ..)) in columns.iter().enumerate() {
+                    table = table.column(match col {
+                        Col::Name => Column::initial(*width).at_least(140.0).clip(true),
+                        _ if i == columns.len() - 1 => {
+                            Column::remainder().at_least(*width).clip(true)
                         }
+                        _ => Column::initial(*width).clip(true),
                     });
                 }
-            })
-            .body(|body| {
-                body.rows(row_height, rows.len(), |mut row| {
-                    let (p, depth, group) = rows[row.index()];
-                    let group = group.map(|i| &groups[i]);
-                    let key = (p.pid, p.create_time);
-                    row.set_selected(group.is_none() && selected == Some(key));
-
-                    for (col, ..) in &columns {
-                        row.col(|ui| {
-                            let load = match col {
-                                Col::Cpu if p.pid != 0 => f64::from(p.cpu_percent) / 100.0,
-                                Col::Memory => p.private_working_set as f64 / memory_total,
-                                Col::Disk => p.io_rate() / DISK_HEAT_FULL,
-                                Col::Gpu => f64::from(p.gpu_percent) / 100.0,
-                                _ => 0.0,
-                            };
-                            if self.heat
-                                && let Some(color) = heat_color(load)
-                            {
-                                ui.painter()
-                                    .rect_filled(ui.max_rect().expand(2.0), 0.0, color);
-                            }
-                            match col {
-                                Col::Name => {
-                                    ui.add_space(depth as f32 * 14.0);
-                                    if let Some(g) = group {
-                                        let open = self.expanded.contains(&g.key);
-                                        ui.label(if open { "⏷" } else { "⏵" });
+                table
+                    .header(row_height, |mut header| {
+                        for (col, label, _, numeric, _) in &columns {
+                            header.col(|ui| {
+                                let arrow = match (self.sort == *col, self.descending) {
+                                    (true, true) => " ↓",
+                                    (true, false) => " ↑",
+                                    _ => "",
+                                };
+                                if ui
+                                    .selectable_label(
+                                        self.sort == *col,
+                                        RichText::new(format!("{label}{arrow}")).strong(),
+                                    )
+                                    .clicked()
+                                {
+                                    if self.sort == *col {
+                                        self.descending = !self.descending;
+                                    } else {
+                                        self.sort = *col;
+                                        self.descending = *numeric;
                                     }
-                                    app_icon(ui, extra.icon(p));
-                                    match group {
-                                        Some(g) => ui.label(
-                                            RichText::new(format!(
-                                                "{} ({})",
-                                                p.name,
-                                                g.members.len()
-                                            ))
-                                            .strong(),
-                                        ),
-                                        None => ui.label(&p.name),
+                                }
+                            });
+                        }
+                    })
+                    .body(|body| {
+                        body.rows(row_height, rows.len(), |mut row| {
+                            let (p, depth, group) = rows[row.index()];
+                            let group = group.map(|i| &groups[i]);
+                            let key = (p.pid, p.create_time);
+                            row.set_selected(group.is_none() && selected == Some(key));
+
+                            for (col, ..) in &columns {
+                                row.col(|ui| {
+                                    let load = match col {
+                                        Col::Cpu if p.pid != 0 => f64::from(p.cpu_percent) / 100.0,
+                                        Col::Memory => p.private_working_set as f64 / memory_total,
+                                        Col::Disk => p.io_rate() / DISK_HEAT_FULL,
+                                        Col::Gpu => f64::from(p.gpu_percent) / 100.0,
+                                        _ => 0.0,
                                     };
-                                }
-                                Col::Pid => right(ui, p.pid.to_string()),
-                                Col::Cpu => right(ui, format!("{:.1}%", p.cpu_percent)),
-                                Col::Memory => {
-                                    right(ui, format_bytes(p.private_working_set as f64))
-                                }
-                                Col::Commit => right(ui, format_bytes(p.private_bytes as f64)),
-                                Col::WorkingSet => right(ui, format_bytes(p.working_set as f64)),
-                                Col::Disk => right(ui, format!("{}/s", format_bytes(p.io_rate()))),
-                                Col::Gpu => right(ui, format!("{:.1}%", p.gpu_percent)),
-                                Col::GpuMemory => right(ui, format_bytes(p.gpu_memory as f64)),
-                                Col::Threads => right(ui, p.thread_count.to_string()),
-                                Col::Handles => right(ui, p.handle_count.to_string()),
-                                Col::Session => right(ui, p.session_id.to_string()),
-                                Col::Priority => right(ui, p.base_priority.to_string()),
-                                Col::Started => right(ui, running_for(p)),
-                                Col::Limits => {
-                                    if let Some(label) = extra.labels.get(&key) {
-                                        ui.label(
-                                            RichText::new(label)
-                                                .color(Color32::from_rgb(230, 140, 40)),
+                                    if self.heat
+                                        && let Some(color) = heat_color(load)
+                                    {
+                                        ui.painter().rect_filled(
+                                            ui.max_rect().expand(2.0),
+                                            0.0,
+                                            color,
                                         );
                                     }
+                                    match col {
+                                        Col::Name => {
+                                            ui.add_space(depth as f32 * 14.0);
+                                            if let Some(g) = group {
+                                                let open = self.expanded.contains(&g.key);
+                                                ui.label(if open { "⏷" } else { "⏵" });
+                                            }
+                                            app_icon(ui, extra.icon(p));
+                                            match group {
+                                                Some(g) => ui.label(
+                                                    RichText::new(format!(
+                                                        "{} ({})",
+                                                        p.name,
+                                                        g.members.len()
+                                                    ))
+                                                    .strong(),
+                                                ),
+                                                None => ui.label(&p.name),
+                                            };
+                                        }
+                                        Col::Pid => right(ui, p.pid.to_string()),
+                                        Col::Cpu => right(ui, format!("{:.1}%", p.cpu_percent)),
+                                        Col::Memory => {
+                                            right(ui, format_bytes(p.private_working_set as f64))
+                                        }
+                                        Col::Commit => {
+                                            right(ui, format_bytes(p.private_bytes as f64))
+                                        }
+                                        Col::WorkingSet => {
+                                            right(ui, format_bytes(p.working_set as f64))
+                                        }
+                                        Col::Disk => {
+                                            right(ui, format!("{}/s", format_bytes(p.io_rate())))
+                                        }
+                                        Col::Gpu => right(ui, format!("{:.1}%", p.gpu_percent)),
+                                        Col::GpuMemory => {
+                                            right(ui, format_bytes(p.gpu_memory as f64))
+                                        }
+                                        Col::Threads => right(ui, p.thread_count.to_string()),
+                                        Col::Handles => right(ui, p.handle_count.to_string()),
+                                        Col::Session => right(ui, p.session_id.to_string()),
+                                        Col::Priority => right(ui, p.base_priority.to_string()),
+                                        Col::Started => right(ui, running_for(p)),
+                                        Col::Limits => {
+                                            if let Some(label) = extra.labels.get(&key) {
+                                                ui.label(
+                                                    RichText::new(label)
+                                                        .color(Color32::from_rgb(230, 140, 40)),
+                                                );
+                                            }
+                                        }
+                                        Col::CommandLine => {
+                                            let cmd = extra.command_line(p);
+                                            ui.label(RichText::new(cmd).monospace().small())
+                                                .on_hover_text(cmd);
+                                        }
+                                    }
+                                });
+                            }
+
+                            let response = row.response();
+                            let target = ProcessRef::from(p);
+                            if let Some(g) = group {
+                                if response.clicked() && !self.expanded.remove(&g.key) {
+                                    self.expanded.insert(g.key.clone());
                                 }
-                                Col::CommandLine => {
-                                    let cmd = extra.command_line(p);
-                                    ui.label(RichText::new(cmd).monospace().small())
-                                        .on_hover_text(cmd);
+                                response.context_menu(|ui| app_menu(ui, g, &mut intents));
+                            } else {
+                                if response.clicked() {
+                                    intents.push(Intent::Select(target.clone()));
                                 }
+                                response.context_menu(|ui| {
+                                    context_menu(ui, &target, logical_cpus, &mut intents)
+                                });
                             }
                         });
-                    }
-
-                    let response = row.response();
-                    let target = ProcessRef::from(p);
-                    if let Some(g) = group {
-                        if response.clicked() && !self.expanded.remove(&g.key) {
-                            self.expanded.insert(g.key.clone());
-                        }
-                        response.context_menu(|ui| app_menu(ui, g, &mut intents));
-                    } else {
-                        if response.clicked() {
-                            intents.push(Intent::Select(target.clone()));
-                        }
-                        response.context_menu(|ui| {
-                            context_menu(ui, &target, logical_cpus, &mut intents)
-                        });
-                    }
-                });
+                    });
             });
         intents
     }

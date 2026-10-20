@@ -206,6 +206,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     }
 
     let shared = Arc::new(Shared::default());
+    shared.hardware.dry_run(config.dry_run);
     *shared
         .config
         .write()
@@ -350,6 +351,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                         .write()
                         .unwrap_or_else(PoisonError::into_inner) = new.clone();
                     config = new;
+                    shared.hardware.dry_run(config.dry_run);
                 }
                 Err(e) => shared
                     .events
@@ -468,6 +470,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     shared
         .events
         .info(None, "stopping; restoring all processes");
+    shared.hardware.stop();
     executor.restore_all("service stopping");
     app_limiter.lift_all("service stopping");
     let unblock = Config {

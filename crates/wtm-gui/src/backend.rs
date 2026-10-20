@@ -85,6 +85,7 @@ pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory
 
 #[derive(Debug, Default)]
 pub struct Data {
+    pub hardware: wtm_core::hardware::HardwareReport,
     pub mode: Mode,
     pub snapshot: Option<Arc<Snapshot>>,
     pub status: Option<Status>,
@@ -132,6 +133,10 @@ pub struct Data {
 }
 
 pub enum UiCommand {
+    SetCooling {
+        channel: String,
+        profile: wtm_policy::CoolingProfile,
+    },
     Control {
         target: ProcessRef,
         command: Command,
@@ -220,6 +225,7 @@ impl Default for Updater {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Panel {
+    Sensors,
     Services,
     Users,
     Network,
@@ -268,6 +274,7 @@ impl Backend {
         let notifications = Arc::new(AtomicBool::new(true));
         let window = Arc::new(AtomicIsize::new(0));
         let mut worker = Worker {
+            local_hardware: None,
             data: data.clone(),
             ctx,
             notifications: notifications.clone(),
@@ -323,6 +330,7 @@ impl Backend {
 }
 
 struct Worker {
+    local_hardware: Option<wtm_core::hardware::LocalHardware>,
     data: Arc<Mutex<Data>>,
     ctx: egui::Context,
     notifications: Arc<AtomicBool>,
@@ -520,6 +528,25 @@ impl Worker {
 
     fn handle(&mut self, cmd: UiCommand) {
         match cmd {
+            UiCommand::SetCooling { channel, profile } => {
+                let result = match self.client.as_mut() {
+                    Some(client) if client.is_admin() => {
+                        match client.call(&Request::SetCooling { channel, profile }) {
+                            Ok(Response::Done) => Ok(()),
+                            Ok(other) => Err(unexpected(other).to_string()),
+                            Err(e) => Err(e.to_string()),
+                        }
+                    }
+                    _ => Err(
+                        "Cooling needs the matching RustWTM service and an elevated window".into(),
+                    ),
+                };
+                self.data().message = Some(match result {
+                    Ok(()) => (EventLevel::Info, "Cooling request applied".into()),
+                    Err(e) => (EventLevel::Error, e),
+                });
+                self.load(Panel::Sensors);
+            }
             UiCommand::Load(panel) => self.load(panel),
             UiCommand::SetStartup { entry, enabled } => {
                 let result = wtm_core::startup::set_startup_enabled(&entry, enabled);
@@ -781,6 +808,24 @@ impl Worker {
 
     fn load(&mut self, panel: Panel) {
         match panel {
+            Panel::Sensors => {
+                if let Some(client) = self.client.as_mut() {
+                    match client.call(&Request::Hardware) {
+                        Ok(Response::Hardware(report)) => {
+                            self.data().hardware = report;
+                            self.local_hardware = None;
+                        }
+                        Ok(other) => self.data().hardware.notice = unexpected(other).to_string(),
+                        Err(e) => self.data().hardware.notice = e.to_string(),
+                    }
+                } else {
+                    let report = self
+                        .local_hardware
+                        .get_or_insert_with(wtm_core::hardware::LocalHardware::start)
+                        .snapshot();
+                    self.data().hardware = report;
+                }
+            }
             Panel::Services => {
                 let r = wtm_core::list_services().map_err(|e| e.to_string());
                 self.data().services = Some(r);
@@ -1290,6 +1335,7 @@ mod tests {
 
     fn worker() -> Worker {
         Worker {
+            local_hardware: None,
             data: Arc::new(Mutex::new(Data::default())),
             ctx: egui::Context::default(),
             notifications: Arc::new(AtomicBool::new(false)),
@@ -1826,6 +1872,8 @@ mod tests {
             Request::GetTelegram => Response::Telegram(wtm_policy::TelegramConfig::default()),
             Request::SetTelegram(_) => Response::Done,
             Request::TestTelegram => Response::Text("sent".into()),
+            Request::Hardware => Response::Hardware(wtm_core::hardware::HardwareReport::default()),
+            Request::SetCooling { .. } => Response::Done,
             Request::Foreground { .. } => Response::Done,
         })
     }
@@ -1964,6 +2012,8 @@ mod tests {
             Request::SetConfig { .. } => Response::Error("invalid configuration: x".into()),
             Request::Recent | Request::GetTelegram | Request::SetTelegram(_) => Response::Done,
             Request::TestTelegram => Response::Error("chat 1: chat not found".into()),
+            Request::Hardware => Response::Hardware(wtm_core::hardware::HardwareReport::default()),
+            Request::SetCooling { .. } => Response::Done,
             Request::Foreground { .. } => Response::Error("not a process of your session".into()),
         });
 

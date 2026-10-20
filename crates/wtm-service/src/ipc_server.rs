@@ -27,6 +27,7 @@ const CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
 /// State published by the engine for clients.
 #[derive(Debug, Default)]
 pub struct Shared {
+    pub hardware: crate::hardware::HardwareHub,
     pub snapshot: RwLock<Option<Arc<Snapshot>>>,
     pub status: RwLock<Status>,
     pub events: EventLog,
@@ -154,6 +155,25 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 None => Response::Error("no snapshot yet".into()),
             },
             Request::Status => Response::Status(read_lock(&shared.status)),
+            Request::Hardware => Response::Hardware(shared.hardware.snapshot()),
+            Request::SetCooling { .. } if !admin => {
+                Response::Error("administrator rights required".into())
+            }
+            Request::SetCooling { channel, profile } => {
+                let description = format!("Cooling {channel}: {:?}", profile.mode);
+                match shared.hardware.set(channel, profile) {
+                    Ok(()) => {
+                        shared.events.info(None, format!("{description} applied"));
+                        Response::Done
+                    }
+                    Err(e) => {
+                        shared
+                            .events
+                            .warn(None, format!("{description} rejected: {e}"));
+                        Response::Error(e)
+                    }
+                }
+            }
             Request::Recent => Response::Recent(read_lock(&shared.recent).into()),
             Request::Events { after } => Response::Events(shared.events.after(after)),
             // Inspected with the client's rights, not the service's.
@@ -464,6 +484,20 @@ mod tests {
             let refusal = error(call(&mut f, &request).unwrap());
             assert!(refusal.contains(expected), "{request:?}: {refusal}");
         }
+        let profile = wtm_policy::CoolingProfile {
+            mode: wtm_policy::CoolingMode::Manual(50.0),
+            sensor_id: "temp".into(),
+            ..Default::default()
+        };
+        let request = Request::SetCooling {
+            channel: "fan".into(),
+            profile,
+        };
+        let refusal = error(call(&mut f, &request).unwrap());
+        assert!(
+            refusal.contains(if admin { "monitoring" } else { "administrator" }),
+            "{refusal}"
+        );
 
         // A malformed frame ends the session.
         f.write_all(&u32::MAX.to_le_bytes()).unwrap();

@@ -13,6 +13,11 @@ cargo build --workspace
 cargo test --workspace
 ```
 
+For sensors, install the .NET 8 SDK or newer and run
+`./scripts/build-hardware.ps1`. It uses the committed NuGet lockfile and runs
+fake-control lease/range checks without changing physical fan speeds.
+See [hardware setup](docs/hardware.md) for packaging and live validation limits.
+
 Some tests spawn short-lived child processes (`cmd.exe`, `ping.exe`) and
 apply limits to them; they never touch other processes.
 

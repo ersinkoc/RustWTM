@@ -57,7 +57,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
     let dark = ui.visuals().dark_mode;
     egui::Frame::new()
         .fill(if dark {
-            Color32::from_rgb(31, 34, 41)
+            Color32::from_rgb(26, 31, 38)
         } else {
             Color32::WHITE
         })
@@ -73,7 +73,12 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
                     ui.add_space(6.0);
                 }
                 ui.vertical(|ui| {
-                    ui.label(RichText::new(s.title).size(15.0).strong().color(s.accent));
+                    ui.label(
+                        RichText::new(s.title)
+                            .size(15.0)
+                            .strong()
+                            .color(crate::theme::text_color(ui, s.accent)),
+                    );
                     if s.ring.is_none() {
                         ui.label(RichText::new(&s.value).size(20.0).strong());
                     }
@@ -106,7 +111,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
 /// The cards in as many equal columns as fit, wrapping to further rows.
 fn stat_row(ui: &mut Ui, stats: &[Stat<'_>]) {
     let width = ui.available_width();
-    let per_row = if width >= 1100.0 {
+    let per_row = if width >= 1000.0 {
         stats.len()
     } else if width >= 640.0 {
         3
@@ -114,7 +119,7 @@ fn stat_row(ui: &mut Ui, stats: &[Stat<'_>]) {
         2
     };
     for chunk in stats.chunks(per_row.max(1)) {
-        ui.columns(per_row, |cols| {
+        ui.columns(chunk.len(), |cols| {
             for (col, s) in cols.iter_mut().zip(chunk) {
                 stat_card(col, s);
             }
@@ -140,7 +145,7 @@ fn banner(ui: &mut Ui, color: Color32, text: &str) {
             ui.label(
                 RichText::new(format!("{icon}  {text}"))
                     .size(16.0)
-                    .color(color),
+                    .color(crate::theme::text_color(ui, color)),
             );
         });
 }
@@ -243,7 +248,7 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
             ))
             .size(16.0)
             .strong()
-            .color(WARN),
+            .color(crate::theme::text_color(ui, WARN)),
             |ui| {
                 ui.label(format!(
                     "Started by {}. Together {} of memory and {:.1}% CPU. Usually a tool that keeps starting helpers and never waits for them.",
@@ -255,7 +260,10 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
                     let all: Vec<ProcessRef> =
                         s.members.iter().map(|p| ProcessRef::from(*p)).collect();
                     if ui
-                        .button(RichText::new(format!("End all {}", all.len())).color(BAD))
+                        .button(
+                            RichText::new(format!("End all {}", all.len()))
+                                .color(crate::theme::text_color(ui, BAD)),
+                        )
                         .clicked()
                     {
                         intents.push(Intent::ConfirmMany(all, Command::Kill));
@@ -331,10 +339,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 accent: CPU,
                 ring: Some(s.cpu_percent),
                 value: String::new(),
-                detail: format!(
-                    "{} processors · {} processes",
-                    s.logical_cpus, s.process_count
-                ),
+                detail: format!("{} logical CPUs", s.logical_cpus),
                 series: vec![(&h.cpu, CPU)],
                 max: Some(100.0),
             },
@@ -456,7 +461,10 @@ fn busiest_table(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
                     ui.label(a.name);
                 });
                 let cpus = data.snapshot.as_ref().map_or(1, |s| s.system.logical_cpus);
-                ui.label(RichText::new(format!("{:.1}%", a.cpu)).color(app_color(a.cpu, cpus)));
+                ui.label(
+                    RichText::new(format!("{:.1}%", a.cpu))
+                        .color(crate::theme::text_color(ui, app_color(a.cpu, cpus))),
+                );
                 ui.label(format_bytes(a.memory as f64));
                 ui.label(a.instances.len().to_string());
                 ui.horizontal(|ui| {
@@ -555,7 +563,10 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
         return;
     };
     let Ok(config) = Config::from_toml(text) else {
-        ui.colored_label(BAD, "The configuration is invalid; fix it in Settings.");
+        ui.colored_label(
+            crate::theme::text_color(ui, BAD),
+            "The configuration is invalid; fix it in Settings.",
+        );
         return;
     };
 
@@ -564,7 +575,7 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             ui.label(
                 RichText::new("● Monitoring only — nothing is limited")
                     .size(18.0)
-                    .color(WARN),
+                    .color(crate::theme::text_color(ui, WARN)),
             );
             let turn_on = ui.add_enabled(
                 admin,
@@ -576,7 +587,11 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
                 commands.push(UiCommand::SaveConfig(new));
             }
         } else {
-            ui.label(RichText::new("● Protection is on").size(18.0).color(GOOD));
+            ui.label(
+                RichText::new("● Protection is on")
+                    .size(18.0)
+                    .color(crate::theme::text_color(ui, GOOD)),
+            );
             if ui
                 .add_enabled(admin, egui::Button::new("Switch to monitoring only"))
                 .clicked()
@@ -587,7 +602,7 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
         }
         if !admin {
             ui.weak("Changing it needs administrator rights.");
-            if ui.small_button("🛡 Restart as administrator").clicked() {
+            if ui.small_button("Restart as administrator").clicked() {
                 commands.push(UiCommand::RestartElevated);
             }
         }

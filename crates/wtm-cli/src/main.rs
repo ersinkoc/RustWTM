@@ -27,6 +27,11 @@ struct Cli {
 /// a name applies to every process with that name.
 #[derive(Subcommand)]
 enum Command {
+    /// Temperatures, fan RPM/duty, power, voltage and clocks (read-only)
+    Sensors {
+        #[arg(long)]
+        json: bool,
+    },
     /// Print a one-shot process listing
     List {
         #[arg(long, short, value_enum, default_value_t)]
@@ -319,6 +324,33 @@ fn main() -> anyhow::Result<ExitCode> {
             kill::kill_list(action, wtm_ipc::Client::connect, &mut io::stdout().lock())
         }
         Command::Panic { yes } => run_panic(yes),
+        Command::Sensors { json } => {
+            let mut reader = wtm_core::hardware::HardwareReader::new(false);
+            let report = reader.sample().map_err(anyhow::Error::msg)?;
+            let mut out = io::stdout().lock();
+            if json {
+                serde_json::to_writer_pretty(&mut out, &report)?;
+                writeln!(out)?;
+            } else {
+                writeln!(out, "{}", report.provider)?;
+                writeln!(out, "{}", report.notice)?;
+                for sensor in &report.sensors {
+                    let value = sensor.value.map_or_else(
+                        || "unavailable".into(),
+                        |v| format!("{v:.1} {}", sensor.kind.unit()),
+                    );
+                    writeln!(out, "{} | {} | {value}", sensor.device, sensor.name)?;
+                }
+                for channel in &report.channels {
+                    writeln!(
+                        out,
+                        "Control: {} | {} | {}",
+                        channel.device, channel.name, channel.reason
+                    )?;
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Ports { udp, known } => {
             let (uses, procs) = port_uses()?;
             ports::render(&uses, &procs, udp, known, &mut io::stdout().lock())?;

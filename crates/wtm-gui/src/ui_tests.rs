@@ -255,6 +255,7 @@ struct ProcState {
     view: ProcessView,
     snap: Snapshot,
     intents: Vec<String>,
+    managed: ManagedMap,
 }
 
 fn describe_intent(i: &Intent) -> String {
@@ -279,15 +280,15 @@ fn process_harness() -> Harness<'static, ProcState> {
         .with_size([1300.0, 700.0])
         .build_ui_state(
             |ui, st: &mut ProcState| {
-                let managed: ManagedMap = HashMap::new();
                 let snap = st.snap.clone();
-                let intents = st.view.ui(ui, &snap, &extra(&managed));
+                let intents = st.view.ui(ui, &snap, &extra(&st.managed));
                 st.intents.extend(intents.iter().map(describe_intent));
             },
             ProcState {
                 view: ProcessView::default(),
                 snap: snapshot(),
                 intents: Vec::new(),
+                managed: ManagedMap::new(),
             },
         )
 }
@@ -1022,4 +1023,81 @@ fn ctrl_f_focuses_the_search_and_escape_clears_it() {
     h.key_press(eframe::egui::Key::Escape);
     h.run();
     assert!(h.state().view.search.is_empty());
+}
+
+#[test]
+fn paused_process_list_keeps_its_snapshot_and_resumes_live_data() {
+    let mut h = process_harness();
+    h.run();
+    h.get_by_label("Pause updates").click();
+    h.run();
+    h.state_mut().snap.processes.retain(|p| p.pid != 100);
+    h.state_mut()
+        .snap
+        .processes
+        .push(proc(300, 4, "new.exe", 30.0));
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_some());
+    assert!(h.query_by_label("new.exe").is_none());
+    assert!(h.query_by_label("Paused · monitoring continues").is_some());
+    // Search and selection still work against the retained process identity.
+    h.state_mut().view.search = "alpha.exe".into();
+    h.run();
+    h.get_by_label("alpha.exe").click();
+    h.run();
+    assert!(h.state().intents.iter().any(|i| i == "select 100"));
+    h.get_by_label("Resume updates").click();
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_none());
+    assert!(h.query_by_label("No matching processes").is_some());
+    h.get_by_label("Clear filters").click();
+    h.run();
+    assert!(h.query_by_label("new.exe").is_some());
+    assert!(h.state().view.paused.is_none());
+    h.key_press(eframe::egui::Key::F6);
+    h.run();
+    assert!(h.state().view.paused.is_some());
+}
+
+#[test]
+fn quick_filters_combine_with_search_and_exclude_idle_cpu() {
+    let mut h = process_harness();
+    h.run();
+    h.get_by_label("High CPU").click();
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_some());
+    assert!(h.query_by_label("System Idle Process").is_none());
+    assert!(h.query_by_label("beta.exe").is_none());
+    h.state_mut().view.search = "beta".into();
+    h.run();
+    assert!(h.query_by_label("No matching processes").is_some());
+    h.get_by_label("Clear filters").click();
+    h.run();
+    h.get_by_label("High memory").click();
+    h.run();
+    assert!(h.query_by_label("No matching processes").is_some());
+    h.state_mut().snap.processes[2].private_working_set = 512 * 1024 * 1024;
+    h.run();
+    assert!(
+        h.query_by_label("alpha.exe").is_some(),
+        "includes the exact boundary"
+    );
+    h.get_by_label("Managed").click();
+    h.run();
+    assert!(h.query_by_label("No matching processes").is_some());
+    let p = h.state().snap.processes[2].clone();
+    h.state_mut()
+        .managed
+        .insert((p.pid, p.create_time), "App limit: 2 cores".into());
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_some());
+    assert!(h.query_by_label("beta.exe").is_none());
+    h.get_by_label("All processes").click();
+    h.state_mut().view.search = r"c:\apps\beta".into();
+    h.run();
+    assert!(
+        h.query_by_label("beta.exe").is_some(),
+        "search includes executable paths"
+    );
+    assert!(h.query_by_label("alpha.exe").is_none());
 }

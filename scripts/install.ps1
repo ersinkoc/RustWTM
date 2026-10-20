@@ -94,12 +94,16 @@ function Build-FromSource([string]$Path) {
     try {
         cargo build --release --workspace
         if ($LASTEXITCODE -ne 0) { throw 'cargo build failed.' }
+        & (Join-Path $root 'scripts/build-hardware.ps1') -OutputDir 'target/release/hardware' | Out-Host
     } finally {
         Pop-Location
     }
     $out = Join-Path $root 'target\release'
     # Ship the scripts with a source build too.
     Copy-Item (Join-Path $root 'scripts\uninstall.ps1') $out -Force
+    foreach ($name in 'README.md', 'LICENSE', 'CHANGELOG.md', 'docs') {
+        Copy-Item -LiteralPath (Join-Path $root $name) -Destination $out -Recurse -Force
+    }
     $out
 }
 
@@ -153,6 +157,14 @@ try {
     foreach ($f in $files) {
         $from = Join-Path $source $f
         if (Test-Path $from) { Copy-Item $from $InstallDir -Force }
+    }
+    $hardware = Join-Path $source 'hardware'
+    if (Test-Path -LiteralPath $hardware) {
+        Copy-Item -LiteralPath $hardware -Destination $InstallDir -Recurse -Force
+    }
+    $docs = Join-Path $source 'docs'
+    if (Test-Path -LiteralPath $docs) {
+        Copy-Item -LiteralPath $docs -Destination $InstallDir -Recurse -Force
     }
 
     if ($DownloadOnly) {

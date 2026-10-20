@@ -18,7 +18,9 @@ usage history.
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Status:** early release (0.8). Everything works, but expect rough edges.
+> **Status:** early release (0.13). Sensors and cooling controls are available
+> through the optional hardware provider. Device support varies; physical fan
+> writes still require validation on each supported hardware configuration.
 > Enforcement is **off by default** (dry-run); review the event log first.
 
 ## Features
@@ -32,6 +34,10 @@ usage history.
   processes), program icons, search (Ctrl+F), sort by any column, choose columns,
   details panel (path, command line, user, priority, affinity, efficiency
   mode, uptime, I/O), open file location.
+- Pause process-list updates (F6) to inspect a stable snapshot while monitoring
+  and protection continue. Quick filters for high CPU (5%+), high memory
+  (512 MiB+) and managed processes combine with name, PID, path and command-line
+  search. Wide tables scroll horizontally; the details panel scrolls and closes.
 - Actions: end task, end process tree, suspend / resume, priority, CPU
   affinity, efficiency mode (EcoQoS), hard CPU cap and memory cap (job objects).
 - Performance graphs (CPU with every logical processor, memory, GPU, network,
@@ -97,6 +103,13 @@ usage history.
   rules, insights, manual) is tracked separately and everything is rolled back
   when the service stops.
 
+**Sensors & cooling** shows device temperatures, RPM, power, voltage and clocks,
+with min/max and recent samples. Supported channels offer manual duty, editable
+curves and Quiet/Balanced/Performance presets. Applying software control requires
+an elevated GUI, the matching service and enforcing mode. Saved profiles are
+drafts; startup keeps hardware automatic control. See [hardware setup and
+validation limits](docs/hardware.md).
+
 ## Requirements
 
 - Windows 10 1809 or later / Windows 11, 64-bit.
@@ -135,8 +148,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.12.0-x64.msi            # interactive
-msiexec /i RustWTM-0.12.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.13.0-x64.msi            # interactive
+msiexec /i RustWTM-0.13.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
@@ -152,10 +165,13 @@ msiexec /i RustWTM-0.12.0-x64.msi /qn        # silent
 git clone https://github.com/ersinkoc/RustWTM
 cd RustWTM
 cargo build --release      # the toolchain is pinned in rust-toolchain.toml
+./scripts/build-hardware.ps1 -OutputDir target/release/hardware
 ```
 
 Binaries land in `target\release\`: `rustwtm.exe` (GUI), `wtm.exe` (CLI),
 `wtm-service.exe` (service).
+The optional provider build requires the .NET 8 SDK or newer. Release packages
+include a self-contained provider; users do not need to install .NET separately.
 
 ## Usage
 
@@ -169,6 +185,7 @@ service; run it as administrator to send commands through the service.
 
 ```text
 wtm list --sort mem -n 20          one-shot listing
+wtm sensors --json                local read-only hardware readings
 wtm top                            live view (c/m/d/p/n to sort, q to quit)
 wtm info chrome                    details of every chrome.exe
 wtm kill 1234 --tree               end a process and its descendants
@@ -269,6 +286,8 @@ cargo test --workspace
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the roadmap in [PLAN.md](PLAN.md).
+The [0.13.0 system review](docs/0.13.0-review.md) covers the current architecture,
+validation boundaries and the implemented sensors and cooling work.
 
 ## License
 

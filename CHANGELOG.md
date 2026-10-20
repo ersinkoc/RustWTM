@@ -6,8 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-20
+
 ### Added
 
+- **Sensors & cooling**: device-grouped temperatures, RPM, power, voltage and
+  clocks, current/min/max, recent samples, filtering and explicit stale/missing
+  values; `wtm sensors [--json]` provides local read-only telemetry.
+- Optional, packaged LibreHardwareMonitor 0.9.6 provider, with NVIDIA driver
+  telemetry as a read-only fallback when the helper is absent.
+- Capability-based manual duty and editable temperature curves, Quiet/Balanced/
+  Performance presets, thermal full-speed override and hardware-default mode.
+  Writes require administrator access, an enforcing service, fresh temperature
+  and explicit confirmation. Drafts persist without reapplying on startup.
+  Provider leases attempt default restoration after missed renewals/closed input;
+  physical write and failure-recovery validation remains pending per hardware.
+- **Pause process updates** (button or F6): inspect a stable process snapshot
+  while monitoring, history, protection and alerts continue. Search, sorting
+  and process actions remain available; actions retain PID-reuse checks.
+- **Quick process filters**: high CPU (at least 5%, excluding System Idle),
+  high memory (at least 512 MiB), and managed processes. Filters combine with
+  search, include a matching-process count and offer a clear-filter empty state.
+- Optional GPU visual review: `cargo test -p wtm-gui --features visual-tests
+  render_release_review -- --nocapture` renders five pages in two themes and
+  two window sizes to `target/visual-review` using synthetic data.
 - **Stuck swarms are cleaned up** (opt-in): with `[swarm] end_after_mins`
   (Settings → Service settings → Swarm warning) the service ends copies of a
   swarm that have run longer than that, together with what they started
@@ -15,9 +37,26 @@ All notable changes to this project are documented here. The format follows
   round; in dry run it only reports them. The swarm card offers the same by
   hand: *End the N running over 10 min*.
 
+### Changed
+
+- Navigation uses consistent vector icons with accessible names, labelled
+  groups and a clear active marker; page headings explain each view.
+- Refined typography and light/dark surfaces, Windows UI and symbol font
+  fallbacks, readable resource-text colours and named theme selectors.
+- Overview and configuration pages scroll in short windows; the last row of
+  overview metrics fills the available width. Processes supports horizontal
+  column scrolling and a scrollable, closeable details panel.
+- Process search also matches executable paths.
+- Named-pipe protocol is now version 10; update the GUI, CLI and service together.
+
 ### Fixed
 
+- Delete in a focused search field no longer opens an End task confirmation
+  for the selected process. The process table owns the shortcut and respects
+  text fields, menus and modals.
 - A process start time far in the future no longer overflows.
+- App-limit integration fixtures now wait for the ping child to be ready before
+  changing its jobs or ending its parent, avoiding an intermittent startup race.
 
 ## [0.12.0] - 2026-10-20
 

@@ -37,7 +37,7 @@ Enforcement lives in the service so it keeps working when the GUI is closed.
 |---|---|
 | `wtm-sys` | Thin, safe wrappers over Win32 / NT APIs. The only crate with `unsafe`. |
 | `wtm-core` | Process model, sampler (CPU %, rates), process tree, actions |
-| `wtm-rules` | Rule engine, TOML config, hot reload |
+| `wtm-policy` | Rule engine, TOML config, governor and pure decision logic |
 | `wtm-ipc` | Protocol types, named-pipe client/server |
 | `wtm-service` | Windows service, governor, watchdog |
 | `wtm-gui` | egui front-end |
@@ -117,6 +117,16 @@ Users · Details · Services · Rules & Governor · Event log · tray icon and
 toast notifications.
 
 ## Roadmap
+
+### 0.13.0 and the next product work
+
+The [system review](docs/0.13.0-review.md) records the current review, delivered
+interface improvements and remaining validation. The Sensors workspace and
+capability-based Cooling controls are implemented; see [hardware setup](docs/hardware.md).
+Next gates are physical fan/rollback validation, followed by timestamped chart
+history, general stale-data indicators and a measured large-process-list benchmark.
+
+### Implementation phases
 
 | Phase | Scope | Deliverable |
 |---|---|---|

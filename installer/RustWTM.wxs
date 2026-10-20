@@ -2,9 +2,10 @@
   RustWTM MSI package (WiX Toolset 5).
 
   Build after a release build of the workspace:
+    pwsh scripts/build-hardware.ps1 -OutputDir target/release/hardware
     dotnet tool restore
     dotnet wix extension add WixToolset.Util.wixext/5.0.2
-    dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.12.0 -d BinDir=target/release -o dist/RustWTM-0.12.0-x64.msi
+    dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.13.0 -d BinDir=target/release -o dist/RustWTM-0.13.0-x64.msi
   (XML comments cannot contain two consecutive hyphens, hence no flags here.)
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
@@ -30,6 +31,22 @@
         <Component Id="Gui">
           <File Id="GuiExe" Source="$(BinDir)\rustwtm.exe" KeyPath="yes" />
         </Component>
+
+        <Directory Id="HardwareFolder" Name="hardware">
+          <Component Id="HardwareProvider">
+            <File Id="HardwareProviderExe" Source="$(BinDir)\hardware\wtm-hardware.exe" KeyPath="yes" />
+            <File Id="HardwareProviderNotices" Source="$(BinDir)\hardware\PROVIDER-NOTICES.txt" />
+          </Component>
+        </Directory>
+
+        <Directory Id="DocumentationFolder" Name="docs">
+          <Component Id="HardwareDocumentation">
+            <File Id="HardwareGuide" Source="docs\hardware.md" KeyPath="yes" />
+          </Component>
+          <Component Id="ReleaseDocumentation">
+            <File Id="ReleaseReview" Source="docs\0.13.0-review.md" KeyPath="yes" />
+          </Component>
+        </Directory>
 
         <Component Id="Cli">
           <File Id="CliExe" Source="$(BinDir)\wtm.exe" KeyPath="yes" />
@@ -89,6 +106,9 @@
 
     <Feature Id="Main" Title="RustWTM">
       <ComponentRef Id="Gui" />
+      <ComponentRef Id="HardwareProvider" />
+      <ComponentRef Id="HardwareDocumentation" />
+      <ComponentRef Id="ReleaseDocumentation" />
       <ComponentRef Id="Cli" />
       <ComponentRef Id="Service" />
       <ComponentRef Id="Readme" />

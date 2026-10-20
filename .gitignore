@@ -2,6 +2,11 @@
 **/*.rs.bk
 /dist
 /.wix
+/hardware/**/bin/
+/hardware/**/obj/
 
 
+
+.temp_files/
+.claude/
 .dfmt/

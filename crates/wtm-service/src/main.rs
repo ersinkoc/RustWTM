@@ -16,6 +16,7 @@ mod blocker;
 mod engine;
 mod events;
 mod executor;
+mod hardware;
 mod history;
 mod ipc_server;
 mod logging;

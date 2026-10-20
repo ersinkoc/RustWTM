@@ -271,6 +271,7 @@ fn add(job: &Job, p: &ProcessInfo) -> wtm_sys::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::windows::process::CommandExt;
     use std::process::{Child, Command, Stdio};
     use std::time::Duration;
     use wtm_core::Sampler;
@@ -286,18 +287,41 @@ mod tests {
 
     /// A copy of cmd.exe with a unique name that starts a ping child.
     fn spawn_app(dir: &std::path::Path, name: &str) -> Guard {
+        static NEXT_OUTPUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let exe = dir.join(name);
         if !exe.exists() {
             std::fs::copy(r"C:\Windows\System32\cmd.exe", &exe).unwrap();
         }
-        Guard(
+        let output = dir.join(format!(
+            "ping-{}.log",
+            NEXT_OUTPUT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let log = std::fs::File::create(&output).unwrap();
+        let mut child = Guard(
             Command::new(exe)
-                .args(["/c", "ping -n 30 127.0.0.1 >nul"])
+                .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+                .args(["/d", "/c", "ping -n 30 127.0.0.1"])
                 .stdin(Stdio::null())
-                .stdout(Stdio::null())
+                .stdout(log)
+                .stderr(Stdio::null())
                 .spawn()
                 .unwrap(),
-        )
+        );
+        // A process can appear in a snapshot before its initialization has
+        // completed. Wait for an actual loopback reply before reassigning jobs
+        // or ending its parent; neither a console host nor a PID is readiness.
+        crate::test_util::wait_for("ping ready", || {
+            assert!(
+                child.0.try_wait().unwrap().is_none(),
+                "fixture parent exited"
+            );
+            std::fs::read(&output)
+                .unwrap_or_default()
+                .windows(4)
+                .any(|part| part == b"TTL=")
+                .then_some(())
+        });
+        child
     }
 
     fn limit(name: &str, scope: LimitScope) -> AppLimit {
@@ -313,9 +337,11 @@ mod tests {
         let mut sampler = Sampler::new();
         crate::test_util::wait_for("children in the snapshot", || {
             let snap = sampler.sample().unwrap();
-            let all = pids
-                .iter()
-                .all(|pid| snap.processes.iter().any(|p| p.parent_pid == *pid));
+            let all = pids.iter().all(|pid| {
+                snap.processes
+                    .iter()
+                    .any(|p| p.parent_pid == *pid && p.name.eq_ignore_ascii_case("ping.exe"))
+            });
             all.then_some(snap.processes)
         })
     }
@@ -411,15 +437,18 @@ mod tests {
             .filter(|p| p.name.eq_ignore_ascii_case("ping.exe"))
             .map(|p| p.pid)
             .collect();
+        assert_eq!(children.len(), 2, "both ping children must be ready");
         drop((a, b));
-        std::thread::sleep(Duration::from_millis(300));
         let now = Sampler::new().sample().unwrap().processes;
         let usage = limiter.tick(&now, 8);
         assert!(
             children
                 .iter()
                 .all(|c| usage[0].members.iter().any(|m| m.0 == *c)),
-            "{usage:?}"
+            "expected children {children:?}; actual {usage:?}; live children {:?}",
+            now.iter()
+                .filter(|p| children.contains(&p.pid))
+                .collect::<Vec<_>>()
         );
         // End everything still in the budget (console hosts included) until
         // it is empty; name what is left if it never empties.

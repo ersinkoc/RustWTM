@@ -18,6 +18,7 @@ enum Tab {
     Overview,
     Processes,
     Performance,
+    Sensors,
     Governor,
     Events,
     History,
@@ -32,43 +33,81 @@ enum Tab {
     About,
 }
 
-/// Navigation: tab, icon, label. Separators split monitoring, protection,
-/// system and the app itself.
-const NAV: [(Tab, &str, &str); 15] = [
-    (Tab::Overview, "🏠", "Overview"),
-    (Tab::Processes, "📋", "Processes"),
-    (Tab::Performance, "📈", "Performance"),
-    (Tab::History, "🕘", "App history"),
-    (Tab::Governor, "🛡", "Governor"),
-    (Tab::Limits, "⏱", "Limits"),
-    (Tab::KillList, "💀", "Kill list"),
-    (Tab::Events, "🔔", "Events"),
-    (Tab::Settings, "⚙", "Settings"),
-    (Tab::Startup, "🚀", "Startup apps"),
-    (Tab::Services, "🔧", "Services"),
-    (Tab::Users, "👤", "Users"),
-    (Tab::Network, "🌐", "Network"),
-    (Tab::Ports, "🔌", "Ports"),
-    (Tab::About, "ℹ", "About"),
-];
-const NAV_GROUP_STARTS: [usize; 3] = [4, 9, 14];
-/// Below this window width the navigation shows icons only by default.
+/// Navigation follows the task: observe, protect, inspect the system, configure.
+const NAV: [(Tab, crate::navigation::Icon, &str); 16] = {
+    use crate::navigation::Icon as I;
+    [
+        (Tab::Overview, I::Overview, "Overview"),
+        (Tab::Processes, I::Processes, "Processes"),
+        (Tab::Performance, I::Performance, "Performance"),
+        (Tab::Sensors, I::Sensors, "Sensors & cooling"),
+        (Tab::History, I::History, "App history"),
+        (Tab::Governor, I::Shield, "Governor"),
+        (Tab::Limits, I::Limits, "Limits"),
+        (Tab::KillList, I::Stop, "Kill list"),
+        (Tab::Events, I::Events, "Events"),
+        (Tab::Startup, I::Startup, "Startup apps"),
+        (Tab::Services, I::Services, "Services"),
+        (Tab::Users, I::Users, "Users"),
+        (Tab::Network, I::Network, "Network"),
+        (Tab::Ports, I::Ports, "Ports"),
+        (Tab::Settings, I::Settings, "Settings"),
+        (Tab::About, I::About, "About"),
+    ]
+};
 const NAV_AUTO_COLLAPSE: f32 = 1000.0;
+
+impl Tab {
+    fn label(self) -> &'static str {
+        NAV.iter().find(|n| n.0 == self).map_or("RustWTM", |n| n.2)
+    }
+
+    fn subtitle(self) -> &'static str {
+        match self {
+            Self::Overview => "Your machine at a glance",
+            Self::Processes => "Find what is busy. Keep what matters running.",
+            Self::Performance => "Live resource usage and recent trends",
+            Self::Sensors => "Temperatures, fan speeds and thermal control",
+            Self::History => "Understand resource usage over time",
+            Self::Governor => "How automatic protection keeps your PC responsive",
+            Self::Limits => "Give each app a predictable resource budget",
+            Self::KillList => "Choose which background tasks may be ended",
+            Self::Events => "A record of decisions and actions",
+            Self::Startup => "Choose what starts when you sign in",
+            Self::Services => "Inspect and manage Windows services",
+            Self::Users => "Sessions and the people using this machine",
+            Self::Network => "Connections and the processes behind them",
+            Self::Ports => "Find listeners, developer tools and available ports",
+            Self::Settings => "Make RustWTM work the way you do",
+            Self::About => "Built for a responsive Windows PC",
+        }
+    }
+}
 
 fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        let logo = ui.ctx().load_texture(
-            "nav-logo",
-            egui::ColorImage::from_rgba_unmultiplied([32, 32], &crate::logo::rgba(32)),
-            egui::TextureOptions::LINEAR,
-        );
+        let id = egui::Id::unique("nav-logo-texture");
+        let logo = ui
+            .data(|d| d.get_temp::<egui::TextureHandle>(id))
+            .unwrap_or_else(|| {
+                let texture = ui.ctx().load_texture(
+                    "nav-logo",
+                    egui::ColorImage::from_rgba_unmultiplied([32, 32], &crate::logo::rgba(32)),
+                    egui::TextureOptions::LINEAR,
+                );
+                ui.data_mut(|d| d.insert_temp(id, texture.clone()));
+                texture
+            });
         ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(28.0, 28.0)));
         if !collapsed {
-            ui.label(RichText::new("RustWTM").size(18.0).strong());
+            ui.vertical(|ui| {
+                ui.label(RichText::new("RustWTM").size(18.0).strong());
+                ui.label(RichText::new("SYSTEM MONITOR").size(9.0).weak());
+            });
         }
     });
-    ui.add_space(6.0);
+    ui.add_space(8.0);
     let (arrow, hint) = if collapsed {
         ("»", "Show labels")
     } else {
@@ -77,25 +116,23 @@ fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
     if ui.small_button(arrow).on_hover_text(hint).clicked() {
         state.nav_collapsed = Some(!collapsed);
     }
-    ui.add_space(6.0);
     for (i, (tab, icon, label)) in NAV.iter().enumerate() {
-        if NAV_GROUP_STARTS.contains(&i) {
-            ui.separator();
+        let group = match i {
+            0 => Some("MONITOR"),
+            5 => Some("PROTECT"),
+            9 => Some("SYSTEM"),
+            14 => Some("RUSTWTM"),
+            _ => None,
+        };
+        if let Some(group) = group {
+            ui.add_space(10.0);
+            if collapsed {
+                ui.separator();
+            } else {
+                ui.label(RichText::new(group).size(10.0).weak());
+            }
         }
-        let selected = state.tab == *tab;
-        let (text, width) = if collapsed {
-            (RichText::new(*icon).size(18.0), 40.0)
-        } else {
-            (RichText::new(format!("{icon}  {label}")).size(15.0), 160.0)
-        };
-        let response =
-            ui.add(egui::Button::selectable(selected, text).min_size(egui::vec2(width, 28.0)));
-        let response = if collapsed {
-            response.on_hover_text(*label)
-        } else {
-            response
-        };
-        if response.clicked() {
+        if crate::navigation::row(ui, *icon, label, state.tab == *tab, collapsed).clicked() {
             state.tab = *tab;
         }
     }
@@ -109,6 +146,7 @@ pub struct App {
 struct UiState {
     tab: Tab,
     processes: ProcessView,
+    sensors: crate::sensors::SensorsView,
     confirm: Option<(ProcessRef, Command)>,
     /// A session to disconnect or sign out, once confirmed: (id, user, op).
     confirm_session: Option<(u32, String, crate::backend::SessionOp)>,
@@ -155,6 +193,7 @@ impl App {
         // Effective only when started elevated; harmless otherwise.
         wtm_core::control::enable_debug_privilege();
         crate::backend::register_app_id();
+        crate::theme::install_fonts(&cc.egui_ctx);
         crate::theme::apply(&cc.egui_ctx);
         let backend = Backend::start(cc.egui_ctx.clone());
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -201,6 +240,7 @@ struct Prefs {
     process_descending: bool,
     process_columns: std::collections::HashSet<crate::processes::Col>,
     process_heat: bool,
+    cooling_profiles: HashMap<String, wtm_policy::CoolingProfile>,
     alerts: crate::alert::AlertSettings,
     tray_on_close: bool,
     check_updates: bool,
@@ -227,6 +267,7 @@ impl UiState {
             process_descending: p.descending,
             process_columns: p.visible.clone(),
             process_heat: p.heat,
+            cooling_profiles: self.sensors.profiles.clone(),
             alerts: self.alerts,
             tray_on_close: self.tray_on_close,
             check_updates: self.check_updates,
@@ -254,6 +295,7 @@ impl UiState {
         p.descending = prefs.process_descending;
         p.visible = prefs.process_columns;
         p.heat = prefs.process_heat;
+        self.sensors.profiles = prefs.cooling_profiles;
         self.alerts = prefs.alerts;
         self.tray_on_close = prefs.tray_on_close;
         self.check_updates = prefs.check_updates;
@@ -267,6 +309,7 @@ impl Default for UiState {
         Self {
             tab: Tab::Overview,
             processes: ProcessView::default(),
+            sensors: crate::sensors::SensorsView::default(),
             confirm: None,
             confirm_session: None,
             confirm_many: None,
@@ -370,7 +413,7 @@ impl eframe::App for App {
             .unwrap_or(ui.ctx().content_rect().width() < NAV_AUTO_COLLAPSE);
         egui::Panel::left("nav")
             .resizable(false)
-            .exact_size(if collapsed { 52.0 } else { 176.0 })
+            .exact_size(if collapsed { 56.0 } else { 200.0 })
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .id_salt("nav_scroll")
@@ -397,7 +440,7 @@ impl eframe::App for App {
                         state.panic = true;
                     }
                     if ui
-                        .small_button("▶ Run new task")
+                        .small_button("Run new task")
                         .on_hover_text("Start a program, folder, document or website")
                         .clicked()
                     {
@@ -405,7 +448,7 @@ impl eframe::App for App {
                     }
                     if !data.elevated
                         && ui
-                            .small_button("🛡 Restart as administrator")
+                            .small_button("Restart as administrator")
                             .on_hover_text(
                                 "Control every process, including those of other users and services",
                             )
@@ -432,96 +475,140 @@ impl eframe::App for App {
             egui::Panel::right("details")
                 .resizable(true)
                 .default_size(330.0)
-                .show(ui, |ui| details_panel(ui, &data, snap, &sel, &mut intents));
+                .show(ui, |ui| {
+                    if ui.small_button("Close details").clicked() {
+                        state.processes.selected = None;
+                    }
+                    egui::ScrollArea::vertical()
+                        .id_salt("process_details")
+                        .show(ui, |ui| {
+                            details_panel(ui, &data, snap, &sel, &mut intents);
+                        });
+                });
         }
 
-        egui::CentralPanel::default().show(ui, |ui| match state.tab {
-            Tab::Processes => match &data.snapshot {
-                Some(snap) => {
-                    let extra = crate::processes::Extra {
-                        labels: &managed,
-                        command_lines: &data.command_lines,
-                        image_paths: &data.image_paths,
-                        icons: &data.icons,
-                    };
-                    intents.extend(state.processes.ui(ui, snap, &extra));
+        egui::CentralPanel::default().show(ui, |ui| {
+            ui.heading(RichText::new(state.tab.label()).size(25.0));
+            ui.label(RichText::new(state.tab.subtitle()).weak());
+            ui.add_space(12.0);
+            let scroll_page = matches!(
+                state.tab,
+                Tab::Overview
+                    | Tab::Sensors
+                    | Tab::Settings
+                    | Tab::Governor
+                    | Tab::About
+                    | Tab::Limits
+                    | Tab::KillList
+            );
+            let page_id = state.tab.label();
+            let mut content = |ui: &mut Ui| match state.tab {
+                Tab::Processes => match &data.snapshot {
+                    Some(snap) => {
+                        let extra = crate::processes::Extra {
+                            labels: &managed,
+                            command_lines: &data.command_lines,
+                            image_paths: &data.image_paths,
+                            icons: &data.icons,
+                        };
+                        intents.extend(state.processes.ui(ui, snap, &extra));
+                    }
+                    None => {
+                        ui.spinner();
+                    }
+                },
+                Tab::Performance => performance(ui, &data),
+                Tab::Sensors => {
+                    service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
                 }
-                None => {
-                    ui.spinner();
+                Tab::Governor => governor(ui, &data),
+                Tab::Events => events(ui, &data),
+                Tab::History => {
+                    if views::app_history(ui, &data, &mut state.history) {
+                        state.history_dirty = true;
+                    }
+                    if let Some((app, cores)) = state.history.limit_request.take() {
+                        state.limits.prefill_cores(&app, cores);
+                        state.tab = Tab::Limits;
+                    }
                 }
-            },
-            Tab::Performance => performance(ui, &data),
-            Tab::Governor => governor(ui, &data),
-            Tab::Events => events(ui, &data),
-            Tab::History => {
-                if views::app_history(ui, &data, &mut state.history) {
-                    state.history_dirty = true;
+                Tab::Startup => {
+                    if let Some(cmd) = views::startup(ui, &data, &mut state.selected_startup) {
+                        service_cmds.push(cmd);
+                    }
                 }
-                if let Some((app, cores)) = state.history.limit_request.take() {
-                    state.limits.prefill_cores(&app, cores);
-                    state.tab = Tab::Limits;
+                Tab::Users => {
+                    if let Some(request) = views::users(ui, &data) {
+                        state.confirm_session = Some(request);
+                    }
                 }
-            }
-            Tab::Startup => {
-                if let Some(cmd) = views::startup(ui, &data, &mut state.selected_startup) {
-                    service_cmds.push(cmd);
+                Tab::Overview => {
+                    let (cmds, more) = crate::overview::overview(ui, &data);
+                    service_cmds.extend(cmds);
+                    intents.extend(more);
                 }
-            }
-            Tab::Users => {
-                if let Some(request) = views::users(ui, &data) {
-                    state.confirm_session = Some(request);
+                Tab::About => {
+                    if crate::about::about(ui, &data.update) {
+                        state.last_update_check = Some(Instant::now());
+                        service_cmds.push(UiCommand::CheckUpdate);
+                    }
                 }
-            }
-            Tab::Overview => {
-                let (cmds, more) = crate::overview::overview(ui, &data);
-                service_cmds.extend(cmds);
-                intents.extend(more);
-            }
-            Tab::About => {
-                if crate::about::about(ui, &data.update) {
-                    state.last_update_check = Some(Instant::now());
-                    service_cmds.push(UiCommand::CheckUpdate);
+                Tab::Limits => {
+                    service_cmds.extend(crate::limits_tab::limits_tab(
+                        ui,
+                        &data,
+                        &mut state.limits,
+                    ));
                 }
-            }
-            Tab::Limits => {
-                service_cmds.extend(crate::limits_tab::limits_tab(ui, &data, &mut state.limits));
-            }
-            Tab::KillList => {
-                service_cmds.extend(crate::kill_tab::kill_tab(
-                    ui,
-                    &data,
-                    &mut state.kill,
-                    &mut state.panic,
-                ));
-            }
-            Tab::Settings => {
-                crate::theme::card(ui, RichText::new("This window").size(16.0).strong(), |ui| {
-                    window_settings(ui, state);
-                });
-                ui.add_space(6.0);
-                service_cmds.extend(crate::telegram_settings::telegram(
-                    ui,
-                    &data,
-                    &mut state.telegram,
-                ));
-                ui.add_space(8.0);
-                ui.heading("Service configuration");
-                service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
-            }
-            Tab::Services => {
-                if let Some(op) = service_bar(ui, &data, state.selected_service.as_deref()) {
-                    service_cmds.push(op);
+                Tab::KillList => {
+                    service_cmds.extend(crate::kill_tab::kill_tab(
+                        ui,
+                        &data,
+                        &mut state.kill,
+                        &mut state.panic,
+                    ));
                 }
-                if let Some(s) = views::services(ui, &data, &mut state.services_filter) {
-                    state.selected_service = Some(s.name);
+                Tab::Settings => {
+                    crate::theme::card(
+                        ui,
+                        RichText::new("This window").size(16.0).strong(),
+                        |ui| {
+                            window_settings(ui, state);
+                        },
+                    );
+                    ui.add_space(6.0);
+                    service_cmds.extend(crate::telegram_settings::telegram(
+                        ui,
+                        &data,
+                        &mut state.telegram,
+                    ));
+                    ui.add_space(8.0);
+                    ui.heading("Service configuration");
+                    service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
                 }
-            }
-            Tab::Network => {
-                let only = state.processes.selected.as_ref().map(|r| r.pid);
-                views::network(ui, &data, &mut state.network_filter, only);
-            }
-            Tab::Ports => {
-                crate::ports_tab::ports_tab(ui, &data, &mut state.ports, &mut intents);
+                Tab::Services => {
+                    if let Some(op) = service_bar(ui, &data, state.selected_service.as_deref()) {
+                        service_cmds.push(op);
+                    }
+                    if let Some(s) = views::services(ui, &data, &mut state.services_filter) {
+                        state.selected_service = Some(s.name);
+                    }
+                }
+                Tab::Network => {
+                    let only = state.processes.selected.as_ref().map(|r| r.pid);
+                    views::network(ui, &data, &mut state.network_filter, only);
+                }
+                Tab::Ports => {
+                    crate::ports_tab::ports_tab(ui, &data, &mut state.ports, &mut intents);
+                }
+            };
+            if scroll_page {
+                egui::ScrollArea::vertical()
+                    .id_salt(("page", page_id))
+                    .auto_shrink([false, false])
+                    .show(ui, &mut content);
+            } else {
+                content(ui);
             }
         });
 
@@ -675,14 +762,6 @@ impl eframe::App for App {
             }
         }
 
-        if state.tab == Tab::Processes
-            && state.confirm.is_none()
-            && let Some(sel) = &state.processes.selected
-            && ctx.input(|i| i.key_pressed(egui::Key::Delete))
-        {
-            intents.push(Intent::Confirm(sel.clone(), Command::Kill));
-        }
-
         drop(data);
         if state.tab == Tab::History {
             let stale = state
@@ -703,6 +782,7 @@ impl eframe::App for App {
             backend.send(cmd);
         }
         let due = match state.tab {
+            Tab::Sensors => Some((Panel::Sensors, Duration::from_secs(2))),
             Tab::Users => Some((Panel::Users, Duration::from_secs(5))),
             Tab::Network | Tab::Ports => Some((Panel::Network, Duration::from_secs(2))),
             Tab::Services => Some((Panel::Services, Duration::from_secs(5))),
@@ -848,7 +928,16 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
 fn window_settings(ui: &mut Ui, state: &mut UiState) {
     ui.horizontal(|ui| {
         ui.label("Theme:");
-        egui::widgets::global_theme_preference_buttons(ui);
+        let mut preference = ui.ctx().options(|o| o.theme_preference);
+        for (value, label) in [
+            (egui::ThemePreference::System, "System"),
+            (egui::ThemePreference::Light, "Light"),
+            (egui::ThemePreference::Dark, "Dark"),
+        ] {
+            if ui.selectable_value(&mut preference, value, label).changed() {
+                ui.ctx().set_theme(preference);
+            }
+        }
     });
     let a = &mut state.alerts;
     ui.horizontal(|ui| {
@@ -914,7 +1003,7 @@ fn mode_badge(ui: &mut Ui, mode: Mode) {
             "The RustWTM service is not running. Monitoring and actions use this window's own rights.",
         ),
     };
-    ui.label(RichText::new(text).color(color))
+    ui.label(RichText::new(text).color(crate::theme::text_color(ui, color)))
         .on_hover_text(hover);
 }
 
@@ -1251,7 +1340,7 @@ fn core_grid(ui: &mut Ui, cores: &[f32], history: &[std::collections::VecDeque<f
             let (rect, response) = ui.allocate_exact_size(CELL, egui::Sense::hover());
             let painter = ui.painter_at(rect);
             let visuals = ui.visuals();
-            let color = crate::theme::load_color(load);
+            let color = crate::theme::text_color(ui, crate::theme::load_color(load));
             painter.rect_filled(rect, 6.0, visuals.extreme_bg_color);
             painter.rect_stroke(
                 rect,
@@ -1355,7 +1444,7 @@ fn title(ui: &Ui, name: &str, value: String, color: Color32) -> egui::WidgetText
         &value,
         10.0,
         egui::TextFormat {
-            color,
+            color: crate::theme::text_color(ui, color),
             ..font(18.0)
         },
     );
@@ -2011,6 +2100,7 @@ mod tests {
             UiCommand::SaveConfig(toml) => format!("save config {}", toml.len()),
             UiCommand::SaveTelegram(c) => format!("save telegram {}", c.enabled),
             UiCommand::TestTelegram => "test telegram".into(),
+            UiCommand::SetCooling { channel, .. } => format!("cooling {channel}"),
             UiCommand::CreateDump(t) => format!("dump {}", t.pid),
             UiCommand::WatchExit(t) => format!("watch exit {}", t.pid),
             UiCommand::Session { id, op } => format!("session {id} {op:?}"),
@@ -2483,19 +2573,21 @@ mod tests {
         // The Overview loads the configuration first.
         sent(&mut h);
 
-        h.get_by_label("🛡 Restart as administrator").click();
+        h.get_by_label("Restart as administrator").click();
         assert_eq!(sent(&mut h), ["restart elevated"]);
 
         // Cancel closes the dialog without running anything.
-        h.get_by_label("▶ Run new task").click();
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Run new task")
+            .click();
         h.run_steps(2);
-        assert!(h.query_by_label("Run new task").is_some());
+        assert!(h.get_all_by_label("Run new task").count() >= 2);
         h.get_by_label("Cancel").click();
         assert!(sent(&mut h).is_empty());
         assert!(h.state().state.run_task.is_none());
 
         // Typing and Enter runs it; the checkbox asks for elevation.
-        h.get_by_label("▶ Run new task").click();
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Run new task")
+            .click();
         h.run_steps(2);
         h.get_by_label("Create this task with administrator rights")
             .click();
@@ -2511,14 +2603,15 @@ mod tests {
 
         // The Run button works too; elevated GUIs hide the restart button.
         h.state().backend.data().elevated = true;
-        h.get_by_label("▶ Run new task").click();
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Run new task")
+            .click();
         h.run_steps(2);
         h.get_by_role(egui::accesskit::Role::TextInput)
             .type_text("cmd");
         h.run_steps(2);
         h.get_by_label("Run").click();
         assert_eq!(sent(&mut h), ["run cmd false"]);
-        assert!(h.query_by_label("🛡 Restart as administrator").is_none());
+        assert!(h.query_by_label("Restart as administrator").is_none());
     }
 
     #[test]
@@ -3008,7 +3101,7 @@ mod tests {
                 .is_some()
         );
         rx.try_iter().for_each(drop);
-        h.get_by_label("🛡 Restart as administrator").click();
+        h.get_by_label("Restart as administrator").click();
         h.run_steps(2);
         assert!(
             rx.try_iter()
@@ -3049,6 +3142,59 @@ mod tests {
     }
 
     #[test]
+    fn delete_in_search_does_not_offer_to_end_the_selected_process() {
+        let (mut h, _rx) = kill_app(Tab::Processes);
+        h.state_mut().state.processes.selected = Some(ProcessRef::from(&crate::ui_tests::proc(
+            100,
+            4,
+            "alpha.exe",
+            20.0,
+        )));
+        h.run_steps(2);
+        // Control: Delete from the table still asks before ending anything.
+        h.key_press(egui::Key::Delete);
+        h.run_steps(2);
+        assert!(h.state().state.confirm.is_some());
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+        h.run_steps(2);
+        h.key_press(egui::Key::Delete);
+        h.run_steps(2);
+        assert!(
+            h.state().state.confirm.is_none(),
+            "Delete belongs to the search field while editing"
+        );
+    }
+
+    #[test]
+    fn process_details_can_be_closed_and_themes_can_be_changed() {
+        let (mut h, _rx) = kill_app(Tab::Processes);
+        h.run();
+        h.get_by_label("alpha.exe").click();
+        h.run_steps(2);
+        assert!(h.state().state.processes.selected.is_some());
+        h.get_by_label("Close details").click();
+        h.run_steps(2);
+        assert!(h.state().state.processes.selected.is_none());
+        nav_to(&mut h, "Settings");
+        h.run_steps(2);
+        h.get_by_label("Light").click();
+        h.run_steps(2);
+        assert_eq!(h.ctx.theme(), egui::Theme::Light);
+        h.get_by_label("Dark").click();
+        h.run_steps(2);
+        assert_eq!(h.ctx.theme(), egui::Theme::Dark);
+        h.get_by_label("System").click();
+        h.run_steps(2);
+        assert_eq!(
+            h.ctx.options(|o| o.theme_preference),
+            egui::ThemePreference::System
+        );
+    }
+
+    #[test]
     fn navigation_collapses_to_icons_by_choice_or_on_narrow_windows() {
         let (mut h, _rx) = overview_app(data());
         assert!(
@@ -3058,8 +3204,8 @@ mod tests {
         h.get_by_label("«").click();
         h.run_steps(2);
         assert_eq!(h.state().state.nav_collapsed, Some(true));
-        assert!(h.query_by_label("⚙").is_some(), "icon-only entries");
-        h.get_by_label("⚙").click();
+        // Painted icons retain their full accessible names when collapsed.
+        nav_to(&mut h, "Settings");
         h.run_steps(2);
         assert_eq!(h.state().state.tab, Tab::Settings);
         h.get_by_label("»").click();
@@ -3082,5 +3228,103 @@ mod tests {
             h.query_by_label("»").is_some(),
             "narrow windows start collapsed"
         );
+    }
+
+    /// Reproducible product screenshots, without connecting to or controlling
+    /// the host. Run with `--features visual-tests render_release_review`.
+    #[cfg(feature = "visual-tests")]
+    #[test]
+    fn render_release_review() {
+        let out =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visual-review");
+        std::fs::create_dir_all(&out).unwrap();
+        for (theme_name, theme) in [("dark", egui::Theme::Dark), ("light", egui::Theme::Light)] {
+            for (size_name, size) in [("wide", [1440.0, 1000.0]), ("compact", [820.0, 500.0])] {
+                for tab in [
+                    Tab::Overview,
+                    Tab::Processes,
+                    Tab::Performance,
+                    Tab::Sensors,
+                    Tab::Settings,
+                ] {
+                    let mut d = data();
+                    d.hardware = crate::sensors::fixture();
+                    let sensors = crate::sensors::SensorsView::review_fixture(&d.hardware);
+                    d.mode = Mode::Service {
+                        admin: true,
+                        verified: true,
+                    };
+                    d.elevated = true;
+                    d.config = Some(Ok((
+                        "config.toml".into(),
+                        wtm_policy::DEFAULT_CONFIG_TOML.into(),
+                    )));
+                    d.telegram = Some(Ok(wtm_policy::TelegramConfig::default()));
+                    let mut snap = d.snapshot.as_deref().unwrap().clone();
+                    snap.system.core_percent = vec![95.0, 70.0, 10.0, 0.0, 45.0, 8.0, 14.0, 4.0];
+                    d.history.cores = snap
+                        .system
+                        .core_percent
+                        .iter()
+                        .map(|&load| {
+                            (0..crate::backend::CORE_HISTORY_LEN)
+                                .map(|i| (load + (i as f32 * 0.2).sin() * 5.0).clamp(0.0, 100.0))
+                                .collect()
+                        })
+                        .collect();
+                    d.snapshot = Some(std::sync::Arc::new(snap));
+                    // Give every graph a full, deterministic history for review.
+                    for i in 0..HISTORY_LEN {
+                        d.history
+                            .cpu
+                            .push_back(30.0 + (i as f32 * 0.09).sin() * 18.0);
+                        d.history
+                            .memory
+                            .push_back(50.0 + (i as f32 * 0.02).sin() * 3.0);
+                        d.history
+                            .gpu
+                            .push_back(12.0 + (i as f32 * 0.12).sin() * 8.0);
+                        d.history
+                            .io_read
+                            .push_back(1000.0 + (i as f32 * 0.07).sin() * 800.0);
+                        d.history.io_write.push_back(400.0);
+                        d.history
+                            .net_rx
+                            .push_back(2048.0 + (i as f32 * 0.1).sin() * 1800.0);
+                        d.history.net_tx.push_back(512.0);
+                    }
+                    let (backend, _rx) = Backend::offline(d);
+                    let mut h = Harness::builder()
+                        .allow_missing_glyphs()
+                        .with_size(size)
+                        .with_theme(theme)
+                        .build_eframe(|cc| {
+                            crate::theme::install_fonts(&cc.egui_ctx);
+                            crate::theme::apply(&cc.egui_ctx);
+                            cc.egui_ctx.set_theme(theme);
+                            App {
+                                backend,
+                                state: UiState {
+                                    tab,
+                                    sensors,
+                                    autostart: Some(false),
+                                    check_updates: false,
+                                    ..UiState::default()
+                                },
+                                tray: None,
+                            }
+                        });
+                    h.run_steps(3);
+                    assert_eq!(
+                        h.ctx.global_style().visuals.dark_mode,
+                        theme == egui::Theme::Dark
+                    );
+                    assert!(h.query_by_label(tab.subtitle()).is_some());
+                    let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
+                    h.render().expect("GPU render").save(&path).unwrap();
+                    println!("Rendered {}", path.display());
+                }
+            }
+        }
     }
 }

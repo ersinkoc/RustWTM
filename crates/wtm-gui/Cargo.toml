@@ -13,6 +13,10 @@ repository.workspace = true
 name = "rustwtm"
 path = "src/main.rs"
 
+[features]
+# Opt-in GPU rendering for local visual review; regular tests stay headless.
+visual-tests = ["egui_kittest/wgpu"]
+
 [dependencies]
 wtm-core.workspace = true
 wtm-ipc.workspace = true

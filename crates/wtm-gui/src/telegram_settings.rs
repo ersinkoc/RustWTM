@@ -46,8 +46,11 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
             Mode::Service { admin: true, .. } => {}
             Mode::Service { admin: false, .. } => {
                 ui.horizontal(|ui| {
-                    ui.colored_label(WARN, "Setting up the bot needs administrator rights.");
-                    if ui.small_button("🛡 Restart as administrator").clicked() {
+                    ui.colored_label(
+                        crate::theme::text_color(ui, WARN),
+                        "Setting up the bot needs administrator rights.",
+                    );
+                    if ui.small_button("Restart as administrator").clicked() {
                         commands.push(UiCommand::RestartElevated);
                     }
                 });
@@ -59,7 +62,7 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
                     .as_deref()
                     .is_some_and(|e| e.contains("protocol"));
                 ui.colored_label(
-                    WARN,
+                    crate::theme::text_color(ui, WARN),
                     if other_version {
                         format!(
                             "The bot runs in the RustWTM service, and the installed one is a \
@@ -85,7 +88,7 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
                 return;
             }
             Some(Err(e)) => {
-                ui.colored_label(BAD, e);
+                ui.colored_label(crate::theme::text_color(ui, BAD), e);
                 if ui.button("Retry").clicked() {
                     commands.push(UiCommand::Load(Panel::Telegram));
                 }
@@ -189,10 +192,10 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
             }
             match (&edited, &view.original) {
                 (Some(Err(e)), _) => {
-                    ui.colored_label(BAD, format!("✖ {e}"));
+                    ui.colored_label(crate::theme::text_color(ui, BAD), format!("✖ {e}"));
                 }
                 (_, _) if dirty => {
-                    ui.colored_label(WARN, "● unsaved changes");
+                    ui.colored_label(crate::theme::text_color(ui, WARN), "● unsaved changes");
                 }
                 (_, Some(c)) if c.enabled && c.chats.is_empty() => {
                     ui.colored_label(
@@ -201,7 +204,10 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
                     );
                 }
                 (_, Some(c)) if c.enabled => {
-                    ui.colored_label(GOOD, format!("✔ On for {} chat(s)", c.chats.len()));
+                    ui.colored_label(
+                        crate::theme::text_color(ui, GOOD),
+                        format!("✔ On for {} chat(s)", c.chats.len()),
+                    );
                 }
                 _ => {
                     ui.weak("Off");
@@ -280,7 +286,7 @@ mod tests {
             telegram(ui, &data, &mut view);
         });
         harness.run();
-        harness.get_by_label("🛡 Restart as administrator");
+        harness.get_by_label("Restart as administrator");
     }
 
     #[test]

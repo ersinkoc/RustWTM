@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod control;
+pub mod hardware;
 pub mod launch;
 mod model;
 pub mod ports;
