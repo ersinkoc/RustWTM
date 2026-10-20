@@ -23,6 +23,8 @@ usage history.
 > writes still require validation on each supported hardware configuration.
 > Enforcement is **off by default** (dry-run); review the event log first.
 
+![RustWTM Performance view with CPU, memory, GPU, disk and network graphs](screenshots/performance.png)
+
 ## Features
 
 **Task manager (GUI `rustwtm`, CLI `wtm`)**
