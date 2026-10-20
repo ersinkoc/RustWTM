@@ -123,7 +123,8 @@ pub fn use_exe_icon(raw: isize) -> bool {
             let size = GetSystemMetrics(metric);
             match LoadImageW(
                 Some(HINSTANCE(module.0)),
-                PCWSTR(1 as *const u16),
+                // MAKEINTRESOURCE(1): an integer resource id, not a pointer.
+                PCWSTR(std::ptr::without_provenance(1)),
                 IMAGE_ICON,
                 size,
                 size,
