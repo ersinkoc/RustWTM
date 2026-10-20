@@ -120,20 +120,50 @@ struct UiState {
     nav_collapsed: Option<bool>,
     /// The Run new task dialog: command line and "as administrator".
     run_task: Option<(String, bool)>,
+    /// When to pop up on CPU overload.
+    alerts: crate::alert::AlertSettings,
+    /// The close button hides the window; the tray menu exits.
+    tray_on_close: bool,
+    /// Start in the tray at sign-in; read from the registry when needed.
+    autostart: Option<bool>,
+    /// Frames left in which the window is hidden (started in the tray).
+    hide_frames: u8,
     last_load: HashMap<Panel, Instant>,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    /// `background`: start hidden in the tray.
+    pub fn new(cc: &eframe::CreationContext<'_>, background: bool) -> Self {
         // Effective only when started elevated; harmless otherwise.
         wtm_core::control::enable_debug_privilege();
         crate::backend::register_app_id();
         let backend = Backend::start(cc.egui_ctx.clone());
-        let tray = Tray::new(&cc.egui_ctx, backend.notifications.clone());
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        if let Ok(handle) = cc.window_handle()
+            && let RawWindowHandle::Win32(w) = handle.as_raw()
+        {
+            backend
+                .window
+                .store(w.hwnd.get(), std::sync::atomic::Ordering::Relaxed);
+        }
+        let tray = Tray::new(
+            &cc.egui_ctx,
+            backend.notifications.clone(),
+            backend.window.clone(),
+        );
+        let first_run = cc.storage.is_none_or(|s| s.get_string(PREFS_KEY).is_none());
+        if first_run && !cfg!(test) {
+            // Ready to pop up on overload from the next sign-in on; the user
+            // can turn it off in Settings.
+            let _ = crate::backend::set_autostart(true);
+        }
+        let mut state = UiState::restored(cc.storage);
+        // eframe shows the window after its first frame; hide it again.
+        state.hide_frames = if background { 3 } else { 0 };
         Self {
             backend,
             tray,
-            state: UiState::restored(cc.storage),
+            state,
         }
     }
 }
@@ -152,6 +182,8 @@ struct Prefs {
     process_descending: bool,
     process_columns: std::collections::HashSet<crate::processes::Col>,
     process_heat: bool,
+    alerts: crate::alert::AlertSettings,
+    tray_on_close: bool,
 }
 
 impl Default for Prefs {
@@ -171,6 +203,8 @@ impl UiState {
             process_descending: p.descending,
             process_columns: p.visible.clone(),
             process_heat: p.heat,
+            alerts: self.alerts,
+            tray_on_close: self.tray_on_close,
         }
     }
 
@@ -193,6 +227,8 @@ impl UiState {
         p.descending = prefs.process_descending;
         p.visible = prefs.process_columns;
         p.heat = prefs.process_heat;
+        self.alerts = prefs.alerts;
+        self.tray_on_close = prefs.tray_on_close;
     }
 }
 
@@ -213,6 +249,10 @@ impl Default for UiState {
             limits: crate::limits_tab::LimitsView::default(),
             nav_collapsed: None,
             run_task: None,
+            alerts: crate::alert::AlertSettings::default(),
+            tray_on_close: true,
+            autostart: None,
+            hide_frames: 0,
             last_load: HashMap::new(),
         }
     }
@@ -242,7 +282,25 @@ impl eframe::App for App {
             state,
             tray,
         } = self;
-        let data = backend.data();
+        let mut data = backend.data();
+        data.alert_watch.settings = state.alerts;
+        if state.hide_frames > 0 && data.alert_watch.active.is_none() {
+            state.hide_frames -= 1;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            let window = backend.window.load(std::sync::atomic::Ordering::Relaxed);
+            if window != 0 {
+                wtm_core::window::hide(window);
+            }
+        }
+        // The close button keeps RustWTM watching from the tray.
+        if ctx.input(|i| i.viewport().close_requested())
+            && state.tray_on_close
+            && tray.is_some()
+            && !crate::tray::exit_requested(&ctx)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
         if let (Some(tray), Some(s)) = (tray.as_mut(), &data.snapshot) {
             let s = &s.system;
             let memory = s.memory_used() as f64 / s.memory_total.max(1) as f64 * 100.0;
@@ -361,6 +419,8 @@ impl eframe::App for App {
                 service_cmds.extend(crate::limits_tab::limits_tab(ui, &data, &mut state.limits));
             }
             Tab::Settings => {
+                window_settings(ui, state);
+                ui.separator();
                 service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
             }
             Tab::Services => {
@@ -404,6 +464,14 @@ impl eframe::App for App {
                 state.confirm = None;
             }
         }
+
+        crate::alert::dialog(
+            &ctx,
+            &data,
+            &mut state.alerts,
+            &mut service_cmds,
+            &mut intents,
+        );
 
         if let Some((line, elevated)) = &mut state.run_task {
             let mut run = false;
@@ -543,6 +611,45 @@ impl eframe::App for App {
             }
         }
     }
+}
+
+/// Preferences of this window (the service's settings follow below them).
+fn window_settings(ui: &mut Ui, state: &mut UiState) {
+    ui.heading("This window");
+    let a = &mut state.alerts;
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut a.enabled, "Pop up when the CPU stays above");
+        ui.add_enabled(
+            a.enabled,
+            egui::DragValue::new(&mut a.threshold)
+                .range(50.0..=100.0)
+                .suffix("%"),
+        );
+        ui.label("for");
+        ui.add_enabled(
+            a.enabled,
+            egui::DragValue::new(&mut a.seconds)
+                .range(1..=120)
+                .suffix(" s"),
+        );
+    })
+    .response
+    .on_hover_text("Shows the busiest apps with one-click fixes before the PC becomes unusable");
+    ui.checkbox(
+        &mut state.tray_on_close,
+        "Keep running in the tray when the window is closed",
+    );
+    let mut on = *state
+        .autostart
+        .get_or_insert_with(crate::backend::autostart_enabled);
+    if ui
+        .checkbox(&mut on, "Start RustWTM in the tray when I sign in")
+        .changed()
+        && crate::backend::set_autostart(on).is_ok()
+    {
+        state.autostart = Some(on);
+    }
+    ui.add_space(6.0);
 }
 
 fn mode_badge(ui: &mut Ui, mode: Mode) {
@@ -1239,7 +1346,7 @@ mod tests {
         let mut h = Harness::builder()
             .allow_missing_glyphs()
             .with_size([1300.0, 850.0])
-            .build_eframe(|cc| App::new(cc));
+            .build_eframe(|cc| App::new(cc, false));
         let sampled = (0..100).any(|_| {
             std::thread::sleep(Duration::from_millis(50));
             h.state().backend.data().snapshot.is_some()
@@ -1478,7 +1585,127 @@ mod tests {
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
             UiCommand::RestartElevated => "restart elevated".into(),
+            UiCommand::CloseAlert(quiet) => format!("close alert {}", quiet.as_secs()),
         }
+    }
+
+    #[test]
+    fn cpu_alert_offers_quick_fixes_and_closes() {
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        d.config = Some(Ok(("config.toml".into(), "dry_run = true\n".into())));
+        d.alert_watch.active = Some(crate::alert::Alert {
+            cpu: 97.0,
+            started: Instant::now(),
+        });
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Processes,
+                    ..Default::default()
+                },
+                tray: None,
+            });
+        let sent = |h: &mut Harness<'_, App>| {
+            h.run_steps(2);
+            rx.try_iter().map(describe_command).collect::<Vec<_>>()
+        };
+        sent(&mut h);
+        assert!(
+            h.query_by_label("⚠ Your PC is overloaded: CPU 97%")
+                .is_some()
+        );
+        // alpha.exe is in the foreground (see `data`), so only its child is
+        // calmed; System is protected and beta.exe is idle.
+        h.get_by_label("⚡ Calm them all down").click();
+        assert_eq!(
+            sent(&mut h),
+            [
+                "control 101 EcoQos(On)",
+                "control 101 Priority(BelowNormal)"
+            ]
+        );
+        h.get_all_by_label("Efficiency mode")
+            .next()
+            .unwrap()
+            .click();
+        assert_eq!(
+            sent(&mut h),
+            [
+                "control 100 EcoQos(On)",
+                "control 100 Priority(BelowNormal)"
+            ]
+        );
+        h.get_all_by_label("Limit to 1 core")
+            .next()
+            .unwrap()
+            .click();
+        let s = sent(&mut h);
+        assert_eq!(s.len(), 1);
+        assert!(
+            s[0].starts_with("control 100 Limit(Limits { cpu_percent: Some(12.5)"),
+            "{s:?}"
+        );
+        h.get_all_by_label("Pause").next().unwrap().click();
+        assert_eq!(sent(&mut h), ["control 100 Suspend"]);
+
+        // Automatic protection can be switched on right here.
+        h.get_by_label("Turn it on").click();
+        let s = sent(&mut h);
+        assert!(s.iter().any(|c| c.starts_with("save config")), "{s:?}");
+
+        h.get_by_label("Snooze for 1 hour").click();
+        assert_eq!(sent(&mut h), ["close alert 3600"]);
+        h.get_by_label("Turn off these alerts").click();
+        assert_eq!(sent(&mut h), ["close alert 300"]);
+        assert!(!h.state().state.alerts.enabled);
+
+        // End asks first.
+        h.get_all_by_label("End").next().unwrap().click();
+        h.run_steps(2);
+        assert!(h.state().state.confirm_many.is_some());
+
+        // Once closed by the backend, the dialog is gone.
+        h.state().backend.data().alert_watch.active = None;
+        h.state_mut().state.confirm_many = None;
+        h.run_steps(2);
+        assert!(h.query_by_label("Snooze for 1 hour").is_none());
+    }
+
+    #[test]
+    fn closing_the_window_hides_it_to_the_tray_setting() {
+        let (backend, _rx) = Backend::offline(data());
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Settings,
+                    ..Default::default()
+                },
+                tray: None,
+            });
+        h.run_steps(2);
+        assert!(h.query_by_label("This window").is_some());
+        h.get_by_label("Pop up when the CPU stays above").click();
+        h.get_by_label("Keep running in the tray when the window is closed")
+            .click();
+        h.run_steps(2);
+        let st = &h.state().state;
+        assert!(!st.alerts.enabled && !st.tray_on_close);
+        assert!(
+            !h.state().backend.data().alert_watch.settings.enabled,
+            "the backend follows the setting"
+        );
+        assert!(st.autostart.is_some(), "read once from the registry");
     }
 
     #[test]

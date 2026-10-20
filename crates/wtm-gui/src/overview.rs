@@ -54,14 +54,14 @@ fn gauge(ui: &mut Ui, title: &str, percent: f32, detail: String) {
 }
 
 /// One app: all processes with the same image name.
-struct App<'a> {
-    name: &'a str,
-    cpu: f32,
-    memory: u64,
-    instances: Vec<ProcessRef>,
+pub(crate) struct App<'a> {
+    pub name: &'a str,
+    pub cpu: f32,
+    pub memory: u64,
+    pub instances: Vec<ProcessRef>,
 }
 
-fn busiest_apps(data: &Data, n: usize) -> Vec<App<'_>> {
+pub(crate) fn busiest_apps(data: &Data, n: usize) -> Vec<App<'_>> {
     let mut apps: HashMap<String, App<'_>> = HashMap::new();
     for p in data.snapshot.iter().flat_map(|s| &s.processes) {
         if p.pid == 0 || wtm_core::protection_reason(p.pid, &p.name).is_some() {

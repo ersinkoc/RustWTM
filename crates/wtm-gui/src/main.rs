@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod about;
+mod alert;
 mod app;
 mod backend;
 mod limits_tab;
@@ -18,10 +19,12 @@ mod views;
 
 use eframe::egui;
 
-fn options() -> eframe::NativeOptions {
+/// `visible: false` starts hidden in the tray (`--background`, used at sign-in).
+fn options(visible: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("RustWTM")
+            .with_visible(visible)
             .with_inner_size([1240.0, 780.0])
             .with_min_inner_size([820.0, 500.0])
             .with_icon(std::sync::Arc::new(egui::IconData {
@@ -52,10 +55,23 @@ fn main() -> eframe::Result {
         backend::notify_blocked(&name);
         std::process::exit(1);
     }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let background = args.iter().any(|a| a == "--background");
+    // One RustWTM per user: a second start shows the first one's window
+    // (`--new-instance` starts another one anyway).
+    if !args.iter().any(|a| a == "--new-instance")
+        && let Some((window, _)) = wtm_core::window::find_other("RustWTM")
+    {
+        if !background {
+            wtm_core::window::bring_to_front(window);
+            wtm_core::window::release_topmost(window);
+        }
+        return Ok(());
+    }
     eframe::run_native(
         "RustWTM",
-        options(),
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
+        options(!background),
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, background)))),
     )
 }
 
@@ -83,7 +99,8 @@ mod tests {
 
     #[test]
     fn window_options() {
-        let viewport = super::options().viewport;
+        let viewport = super::options(true).viewport;
+        assert_eq!(super::options(false).viewport.visible, Some(false));
         assert_eq!(viewport.title.as_deref(), Some("RustWTM"));
         assert_eq!(viewport.inner_size, Some(eframe::egui::vec2(1240.0, 780.0)));
         assert_eq!(

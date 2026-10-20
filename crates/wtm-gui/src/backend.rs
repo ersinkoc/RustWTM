@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -107,6 +107,8 @@ pub struct Data {
     pub message: Option<(EventLevel, String)>,
     /// The GUI runs with administrator rights.
     pub elevated: bool,
+    /// Pops the window up when the CPU stays overloaded.
+    pub alert_watch: crate::alert::AlertWatch,
     /// Why the last attempt to reach the service failed.
     pub service_error: Option<String>,
 }
@@ -145,6 +147,8 @@ pub enum UiCommand {
     },
     /// Start RustWTM again with administrator rights and close this window.
     RestartElevated,
+    /// The user closed the CPU alert; stay quiet for this long.
+    CloseAlert(Duration),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -171,6 +175,9 @@ pub struct Backend {
     tx: Sender<UiCommand>,
     /// Show desktop notifications for notable service events.
     pub notifications: Arc<AtomicBool>,
+    /// Native handle of the main window (0 until known), so it can be shown
+    /// while the UI is hidden in the tray.
+    pub window: Arc<AtomicIsize>,
 }
 
 impl Backend {
@@ -181,10 +188,14 @@ impl Backend {
         }));
         let (tx, rx) = mpsc::channel();
         let notifications = Arc::new(AtomicBool::new(true));
+        let window = Arc::new(AtomicIsize::new(0));
         let mut worker = Worker {
             data: data.clone(),
             ctx,
             notifications: notifications.clone(),
+            window: window.clone(),
+            raise: raise_window,
+            calm: calm_window,
             client: None,
             pipe: wtm_ipc::PIPE_NAME.to_owned(),
             next_connect: Instant::now(),
@@ -205,6 +216,7 @@ impl Backend {
             data,
             tx,
             notifications,
+            window,
         }
     }
 
@@ -225,6 +237,7 @@ impl Backend {
             data: Arc::new(Mutex::new(data)),
             tx,
             notifications: Arc::new(AtomicBool::new(true)),
+            window: Arc::new(AtomicIsize::new(0)),
         };
         (backend, rx)
     }
@@ -234,6 +247,11 @@ struct Worker {
     data: Arc<Mutex<Data>>,
     ctx: egui::Context,
     notifications: Arc<AtomicBool>,
+    window: Arc<AtomicIsize>,
+    /// Puts the window in front of everything for an alert.
+    raise: fn(isize),
+    /// Undoes `raise` once the alert is closed.
+    calm: fn(isize),
     client: Option<Client>,
     /// Pipe of the service to connect to.
     pipe: String,
@@ -280,6 +298,7 @@ impl Worker {
             }
             next_tick = Instant::now() + TICK;
             self.tick();
+            self.watch_cpu();
             self.ctx.request_repaint();
         }
     }
@@ -339,6 +358,23 @@ impl Worker {
         let sample = self.sampler.sample();
         publish_local(&mut self.data(), sample);
         refresh_icons(&self.data);
+    }
+
+    /// Raises the CPU alert when the load stays too high.
+    fn watch_cpu(&mut self) {
+        let fired = {
+            let mut data = self.data();
+            match data.snapshot.as_ref() {
+                Some(s) if s.interval.is_some() => {
+                    let cpu = s.system.cpu_percent;
+                    data.alert_watch.update(Instant::now(), cpu)
+                }
+                _ => false,
+            }
+        };
+        if fired {
+            (self.raise)(self.window.load(Ordering::Relaxed));
+        }
     }
 
     /// Runs `job` on its own thread (it may wait for a UAC prompt) and shows
@@ -413,7 +449,7 @@ impl Worker {
                 let (restart, ctx) = (self.restart, self.ctx.clone());
                 self.in_background(move || match restart() {
                     Ok(()) => {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        crate::tray::request_exit(&ctx);
                         None
                     }
                     Err(e) => Some((
@@ -421,6 +457,10 @@ impl Worker {
                         format!("Cannot restart as administrator: {e}"),
                     )),
                 });
+            }
+            UiCommand::CloseAlert(quiet) => {
+                self.data().alert_watch.close(Instant::now(), quiet);
+                (self.calm)(self.window.load(Ordering::Relaxed));
             }
             UiCommand::SaveConfig(toml) => {
                 let result = match self.client.as_mut() {
@@ -713,6 +753,22 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     data.snapshot = Some(Arc::new(snapshot));
 }
 
+/// Shows the window above everything and keeps RustWTM responsive while
+/// the machine is overloaded.
+fn raise_window(window: isize) {
+    let _ = control::set_own_priority(wtm_core::control::PriorityClass::High);
+    if window != 0 {
+        wtm_core::window::bring_to_front(window);
+    }
+}
+
+fn calm_window(window: isize) {
+    let _ = control::set_own_priority(wtm_core::control::PriorityClass::Normal);
+    if window != 0 {
+        wtm_core::window::release_topmost(window);
+    }
+}
+
 /// Appends the latest sample of every process and forgets exited ones.
 fn update_process_history(histories: &mut ProcessHistories, procs: &[wtm_core::ProcessInfo]) {
     let live: std::collections::HashSet<(u32, i64)> =
@@ -844,6 +900,49 @@ pub fn register_app_id() {
     }
 }
 
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "RustWTM";
+
+/// The command Windows runs at sign-in: this program, hidden in the tray.
+fn autostart_command() -> io::Result<String> {
+    Ok(format!(
+        "\"{}\" --background",
+        std::env::current_exe()?.display()
+    ))
+}
+
+/// Whether RustWTM starts (in the tray) when the user signs in.
+pub fn autostart_enabled() -> bool {
+    autostart_enabled_in(RUN_KEY)
+}
+
+pub fn set_autostart(on: bool) -> io::Result<()> {
+    set_autostart_in(RUN_KEY, on)
+}
+
+fn autostart_enabled_in(key: &str) -> bool {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(key)
+        .and_then(|k| k.get_value::<String, _>(RUN_VALUE))
+        .is_ok()
+}
+
+fn set_autostart_in(key: &str, on: bool) -> io::Result<()> {
+    use winreg::RegKey;
+    use winreg::enums::HKEY_CURRENT_USER;
+    let (run, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(key)?;
+    if on {
+        run.set_value(RUN_VALUE, &autostart_command()?)
+    } else {
+        match run.delete_value(RUN_VALUE) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -880,6 +979,9 @@ mod tests {
             data: Arc::new(Mutex::new(Data::default())),
             ctx: egui::Context::default(),
             notifications: Arc::new(AtomicBool::new(false)),
+            window: Arc::new(AtomicIsize::new(0)),
+            raise: |_| {},
+            calm: |_| {},
             client: None,
             pipe: String::new(),
             // Never try the real service pipe from tests.
@@ -922,6 +1024,72 @@ mod tests {
         // b exits.
         update_process_history(&mut h, &[a.clone()]);
         assert_eq!(h.len(), 1);
+    }
+
+    #[test]
+    fn an_overload_raises_the_window_and_closing_calms_it() {
+        static RAISED: AtomicIsize = AtomicIsize::new(0);
+        static CALMED: AtomicIsize = AtomicIsize::new(0);
+        let mut w = worker();
+        w.window.store(42, Ordering::Relaxed);
+        w.raise = |h| RAISED.store(h, Ordering::Relaxed);
+        w.calm = |h| CALMED.store(h, Ordering::Relaxed);
+        w.data().alert_watch.settings.seconds = 0;
+
+        // No snapshot yet, then a first one without an interval: nothing.
+        w.watch_cpu();
+        let mut snap = crate::ui_tests::snapshot();
+        snap.interval = None;
+        snap.system.cpu_percent = 99.0;
+        w.data().snapshot = Some(Arc::new(snap.clone()));
+        w.watch_cpu();
+        assert_eq!(RAISED.load(Ordering::Relaxed), 0);
+
+        snap.interval = Some(Duration::from_secs(1));
+        w.data().snapshot = Some(Arc::new(snap));
+        w.watch_cpu();
+        assert_eq!(RAISED.load(Ordering::Relaxed), 42);
+        assert_eq!(w.data().alert_watch.active.map(|a| a.cpu), Some(99.0));
+
+        w.handle(UiCommand::CloseAlert(Duration::from_secs(60)));
+        assert!(w.data().alert_watch.active.is_none());
+        assert_eq!(CALMED.load(Ordering::Relaxed), 42);
+        // Quiet now, even though the load is still high.
+        RAISED.store(0, Ordering::Relaxed);
+        w.watch_cpu();
+        assert_eq!(RAISED.load(Ordering::Relaxed), 0);
+
+        // The real helpers: our own priority goes up and back; no window.
+        raise_window(0);
+        calm_window(0);
+    }
+
+    #[test]
+    fn autostart_is_written_and_removed() {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+        let key = format!(r"Software\RustWTM-test-autostart-{}", std::process::id());
+        assert!(!autostart_enabled_in(&key));
+        set_autostart_in(&key, true).unwrap();
+        assert!(autostart_enabled_in(&key));
+        let value: String = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey(&key)
+            .unwrap()
+            .get_value(RUN_VALUE)
+            .unwrap();
+        assert!(
+            value.ends_with("\" --background") && value.starts_with('"'),
+            "{value}"
+        );
+        set_autostart_in(&key, false).unwrap();
+        assert!(!autostart_enabled_in(&key));
+        // Turning off twice is fine.
+        set_autostart_in(&key, false).unwrap();
+        RegKey::predef(HKEY_CURRENT_USER)
+            .delete_subkey_all(&key)
+            .unwrap();
+        // The real key can be read without changing it.
+        let _ = autostart_enabled();
     }
 
     /// Waits for a message from a background job.

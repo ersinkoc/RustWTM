@@ -42,7 +42,12 @@ usage history.
   administrator; the window remembers its size, tab, columns and sorts.
 - Settings: edit the service's configuration with live validation and a
   one-click switch between dry-run and enforcing.
-- Tray icon and desktop notifications.
+- **Overload alert**: when the CPU stays above 90%, RustWTM pops up over all
+  windows with the busiest apps and one-click fixes (calm them all down,
+  efficiency mode, limit to one core, pause, end) before the PC becomes
+  unusable.
+- Tray icon with a live CPU bar, desktop notifications; keeps running in the
+  tray and starts there at sign-in (switchable in Settings).
 
 **Governor service (`wtm-service`)**
 

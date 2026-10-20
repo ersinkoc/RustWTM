@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Overload alert**: when the CPU stays at or above 90% for 5 seconds,
+  RustWTM pops up above all windows (also from the tray) with the busiest
+  apps and one-click fixes: *Calm them all down* (efficiency mode and lower
+  priority for everything but the app in use), efficiency mode, limit to one
+  core, pause or end per app, and turning on automatic protection. RustWTM
+  raises its own priority while the alert is open, so it stays responsive.
+  Close (quiet for 5 minutes), snooze for an hour, or turn alerts off;
+  threshold and duration are in Settings → This window.
+- The window's close button keeps RustWTM running in the tray (Exit is in the
+  tray menu); RustWTM starts in the tray at sign-in (`rustwtm --background`),
+  both switchable in Settings → This window.
+- Starting RustWTM again shows the running one instead of a second copy
+  (`--new-instance` starts another anyway).
+
 ## [0.5.0] - 2026-10-20
 
 ### Added

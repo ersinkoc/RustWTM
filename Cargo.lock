@@ -5663,6 +5663,7 @@ dependencies = [
  "egui_kittest",
  "egui_plot",
  "notify-rust",
+ "raw-window-handle",
  "serde",
  "tray-icon",
  "winreg",

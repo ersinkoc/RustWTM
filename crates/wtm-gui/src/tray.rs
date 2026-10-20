@@ -1,7 +1,7 @@
 //! Notification-area icon: show the window, toggle notifications, exit.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 use eframe::egui::{self, ViewportCommand};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
@@ -59,7 +59,27 @@ pub fn load_rgba(step: u8) -> Vec<u8> {
     rgba
 }
 
-fn show_window(ctx: &egui::Context) {
+/// Closes the app for real (the window's close button only hides it to the
+/// tray when the user chose so).
+pub fn request_exit(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("exit-requested"), true));
+    ctx.send_viewport_cmd(ViewportCommand::Close);
+    ctx.request_repaint();
+}
+
+pub fn exit_requested(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp(egui::Id::unique("exit-requested")))
+        .unwrap_or(false)
+}
+
+/// Shows the window; the native handle also works while egui is hidden and
+/// paints nothing.
+fn show_window(ctx: &egui::Context, window: &AtomicIsize) {
+    let hwnd = window.load(Ordering::Relaxed);
+    if hwnd != 0 {
+        wtm_core::window::bring_to_front(hwnd);
+        wtm_core::window::release_topmost(hwnd);
+    }
     ctx.send_viewport_cmd(ViewportCommand::Visible(true));
     ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
     ctx.send_viewport_cmd(ViewportCommand::Focus);
@@ -67,33 +87,42 @@ fn show_window(ctx: &egui::Context) {
 }
 
 /// Handles a click on one of the menu items `[show, notify, exit]`.
-fn on_menu(id: &MenuId, items: &[MenuId; 3], ctx: &egui::Context, notifications: &AtomicBool) {
+fn on_menu(
+    id: &MenuId,
+    items: &[MenuId; 3],
+    ctx: &egui::Context,
+    notifications: &AtomicBool,
+    window: &AtomicIsize,
+) {
     let [show_id, notify_id, exit_id] = items;
     if id == show_id {
-        show_window(ctx);
+        show_window(ctx, window);
     } else if id == notify_id {
         // The check item toggles itself; mirror it.
         notifications.fetch_xor(true, Ordering::Relaxed);
     } else if id == exit_id {
-        ctx.send_viewport_cmd(ViewportCommand::Close);
-        ctx.request_repaint();
+        request_exit(ctx);
     }
 }
 
 /// A left double-click on the icon brings the window back.
-fn on_icon(event: &TrayIconEvent, ctx: &egui::Context) {
+fn on_icon(event: &TrayIconEvent, ctx: &egui::Context, window: &AtomicIsize) {
     if let TrayIconEvent::DoubleClick {
         button: MouseButton::Left,
         ..
     } = event
     {
-        show_window(ctx);
+        show_window(ctx, window);
     }
 }
 
 impl Tray {
     /// Returns `None` if the shell refuses the icon; the app works without it.
-    pub fn new(ctx: &egui::Context, notifications: Arc<AtomicBool>) -> Option<Self> {
+    pub fn new(
+        ctx: &egui::Context,
+        notifications: Arc<AtomicBool>,
+        window: Arc<AtomicIsize>,
+    ) -> Option<Self> {
         let show = MenuItem::new("Show RustWTM", true, None);
         let notify = CheckMenuItem::new(
             "Notifications",
@@ -108,13 +137,14 @@ impl Tray {
 
         let items = [show.id().clone(), notify.id().clone(), exit.id().clone()];
         let menu_ctx = ctx.clone();
+        let menu_window = window.clone();
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
-            on_menu(&event.id, &items, &menu_ctx, &notifications);
+            on_menu(&event.id, &items, &menu_ctx, &notifications, &menu_window);
         }));
 
         let click_ctx = ctx.clone();
         TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
-            on_icon(&event, &click_ctx);
+            on_icon(&event, &click_ctx, &window);
         }));
 
         let icon = TrayIconBuilder::new()
@@ -204,35 +234,39 @@ mod tests {
     fn menu_items_show_toggle_and_exit() {
         let ctx = context();
         let notifications = AtomicBool::new(true);
+        let window = AtomicIsize::new(0);
         let items = [
             MenuId::new("show"),
             MenuId::new("notify"),
             MenuId::new("exit"),
         ];
 
-        on_menu(&items[1], &items, &ctx, &notifications);
+        on_menu(&items[1], &items, &ctx, &notifications, &window);
         assert!(!notifications.load(Ordering::Relaxed));
-        on_menu(&MenuId::new("other"), &items, &ctx, &notifications);
+        on_menu(&MenuId::new("other"), &items, &ctx, &notifications, &window);
         assert!(commands(&ctx).is_empty());
 
-        on_menu(&items[0], &items, &ctx, &notifications);
+        on_menu(&items[0], &items, &ctx, &notifications, &window);
         assert!(commands(&ctx).contains(&ViewportCommand::Visible(true)));
-        on_menu(&items[2], &items, &ctx, &notifications);
+        on_menu(&items[2], &items, &ctx, &notifications, &window);
+        assert!(!exit_requested(&context()));
         assert_eq!(commands(&ctx), [ViewportCommand::Close]);
+        assert!(exit_requested(&ctx), "a real exit, not hide-to-tray");
     }
 
     #[test]
     fn left_double_click_shows_the_window() {
         let ctx = context();
+        let window = AtomicIsize::new(0);
         let click = |button| TrayIconEvent::DoubleClick {
             id: TrayIconId::new("tray"),
             position: PhysicalPosition::new(0.0, 0.0),
             rect: Rect::default(),
             button,
         };
-        on_icon(&click(MouseButton::Right), &ctx);
+        on_icon(&click(MouseButton::Right), &ctx, &window);
         assert!(commands(&ctx).is_empty());
-        on_icon(&click(MouseButton::Left), &ctx);
+        on_icon(&click(MouseButton::Left), &ctx, &window);
         assert!(commands(&ctx).contains(&ViewportCommand::Focus));
         assert!(icon().is_some());
     }
