@@ -1,11 +1,16 @@
 //! The desktop's foreground window, and bringing our own window forward.
 
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, WPARAM};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     FLASHW_ALL, FLASHW_TIMERNOFG, FLASHWINFO, FindWindowW, FlashWindowEx, GetForegroundWindow,
     GetWindowThreadProcessId, HWND_NOTOPMOST, HWND_TOPMOST, IsIconic, IsWindowVisible, SW_HIDE,
     SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW,
     SetForegroundWindow, SetWindowPos, ShowWindow,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    GetSystemMetrics, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_DEFAULTCOLOR, LR_SHARED, LoadImageW,
+    SM_CXICON, SM_CXSMICON, SendMessageW, WM_SETICON,
 };
 use windows::core::PCWSTR;
 
@@ -103,6 +108,42 @@ pub fn hide(raw: isize) {
     }
 }
 
+/// Gives the window the executable's own icon (resource 1) in the taskbar,
+/// Alt+Tab and the title bar. Returns `false` when the executable has none.
+pub fn use_exe_icon(raw: isize) -> bool {
+    let h = hwnd(raw);
+    // SAFETY: the module handle of our own executable; LoadImageW returns
+    // shared icons owned by the system, so nothing needs freeing.
+    unsafe {
+        let Ok(module) = GetModuleHandleW(PCWSTR::null()) else {
+            return false;
+        };
+        let mut ok = true;
+        for (kind, metric) in [(ICON_BIG, SM_CXICON), (ICON_SMALL, SM_CXSMICON)] {
+            let size = GetSystemMetrics(metric);
+            match LoadImageW(
+                Some(HINSTANCE(module.0)),
+                PCWSTR(1 as *const u16),
+                IMAGE_ICON,
+                size,
+                size,
+                LR_DEFAULTCOLOR | LR_SHARED,
+            ) {
+                Ok(icon) => {
+                    SendMessageW(
+                        h,
+                        WM_SETICON,
+                        Some(WPARAM(kind as usize)),
+                        Some(LPARAM(icon.0 as isize)),
+                    );
+                }
+                Err(_) => ok = false,
+            }
+        }
+        ok
+    }
+}
+
 pub fn is_visible(raw: isize) -> bool {
     // SAFETY: see `bring_to_front`.
     unsafe { IsWindowVisible(hwnd(raw)).as_bool() }
@@ -154,6 +195,8 @@ mod tests {
         let _ = bring_to_front(raw);
         assert!(is_visible(raw));
         release_topmost(raw);
+        // Test binaries carry no icon resource.
+        assert!(!use_exe_icon(raw));
         hide(raw);
         assert!(!is_visible(raw));
         // SAFETY: created above.

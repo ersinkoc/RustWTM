@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The taskbar and Alt+Tab show the RustWTM logo instead of the default
+  window icon, also when RustWTM starts in the tray or as administrator.
+
 ## [0.7.0] - 2026-10-20
 
 ### Added
