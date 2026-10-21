@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Performance pass across every crate, measured with new ignored timing tests
+  (2000 synthetic processes):
+  - Policies: one tick of rules, limits, kill watch, insights and the other
+    policies costs about 2 ms instead of 55–70 ms. Wildcard matching no longer
+    allocates, and per-rule state is kept only for processes a rule matches.
+  - Window: the process table is filtered, grouped and sorted only when the
+    data, search, filters or sort change, not on every frame; a frame of the
+    Processes tab takes about 1 ms instead of 2–3.5 ms.
+  - Service: snapshot, status and recent-event replies are encoded straight
+    from shared state instead of copied first; history samples and queries
+    allocate far less (History tab query 3–4 times faster); the start watcher
+    runs only when a rule needs it.
+  - System queries: GPU and disk counters, process snapshots, connection
+    tables and the disk and network traces reuse their buffers and make fewer
+    calls; per-event maps use a faster hasher.
+  - Space analysis: workers share folders at every depth, so one huge folder
+    no longer runs on a single thread (about twice as fast there).
+  - Process tree lookups and sorting by name are 6–10 times faster.
+
 ## [0.17.0] - 2026-10-21
 
 ### Added
