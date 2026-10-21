@@ -62,7 +62,7 @@ pub fn text_matches(pattern: &str, text: &str) -> bool {
     if pattern.contains(['*', '?']) {
         glob_match(pattern, text)
     } else {
-        text.to_lowercase().contains(&pattern.to_lowercase())
+        crate::glob::contains_ignore_case(text, pattern)
     }
 }
 
@@ -212,22 +212,26 @@ impl KillWatch {
         command_line: &mut dyn FnMut(&ProcessInfo) -> Option<String>,
     ) -> Vec<Decision> {
         let mut out = Vec::new();
+        // Entry and process pairs over their threshold right now; every other
+        // timer is dropped at the end, which spares a removal per process.
+        let mut held: HashSet<(usize, Key)> = HashSet::new();
         for (i, e) in self.entries.iter().enumerate() {
             let Some(threshold) = e.cpu_above else {
                 continue;
             };
-            let busy_machine = e.system_cpu_above.is_none_or(|s| system_cpu >= s);
+            if !e.system_cpu_above.is_none_or(|s| system_cpu >= s) {
+                continue;
+            }
             for p in procs {
                 let key = (p.pid, p.create_time);
-                if !busy_machine
-                    || p.cpu_percent < threshold
+                if p.cpu_percent < threshold
                     || self.ended.contains(&key)
                     || protection_reason(p.pid, &p.name).is_some()
                     || !e.matches(p, command_line)
                 {
-                    self.since.remove(&(i, key));
                     continue;
                 }
+                held.insert((i, key));
                 let since = *self.since.entry((i, key)).or_insert(now);
                 if now - since < Duration::from_secs(e.for_secs) {
                     continue;
@@ -256,9 +260,11 @@ impl KillWatch {
                 }
             }
         }
-        let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
-        self.since.retain(|(_, k), _| live.contains(k));
-        self.ended.retain(|k| live.contains(k));
+        self.since.retain(|k, _| held.contains(k));
+        if !self.ended.is_empty() {
+            let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
+            self.ended.retain(|k| live.contains(k));
+        }
         out
     }
 }

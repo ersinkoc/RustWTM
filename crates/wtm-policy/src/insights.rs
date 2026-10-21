@@ -396,32 +396,53 @@ impl InsightPolicy {
     /// Applies actions to instances of flagged apps not yet handled. Call on
     /// every sample so newly started instances are covered too.
     pub fn tick(&mut self, procs: &[ProcessInfo], cfg: &InsightsConfig) -> Vec<Decision> {
-        let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
-        self.applied.retain(|k| live.contains(k));
-        self.targets.retain(|k, _| live.contains(k));
+        if !self.applied.is_empty() || !self.targets.is_empty() {
+            let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
+            self.applied.retain(|k| live.contains(k));
+            self.targets.retain(|k, _| live.contains(k));
+        }
 
+        // The few flagged apps with something to apply, with their actions
+        // in finding order; usually none, and then there is nothing to scan.
+        let mut wanted: Vec<(&str, Vec<(Action, &Finding)>)> = Vec::new();
+        for kind in [
+            FindingKind::ChronicCpu,
+            FindingKind::MemoryGrowth,
+            FindingKind::ChronicGpu,
+        ] {
+            let actions = actions_for(kind, cfg);
+            if actions.is_empty() {
+                continue;
+            }
+            for ((app, _), f) in self.flagged.iter().filter(|((_, k), _)| *k == kind) {
+                let i = match wanted.iter().position(|(a, _)| a == app) {
+                    Some(i) => i,
+                    None => {
+                        wanted.push((app, Vec::new()));
+                        wanted.len() - 1
+                    }
+                };
+                wanted[i].1.extend(actions.iter().map(|a| (*a, f)));
+            }
+        }
         let mut out = Vec::new();
+        if wanted.is_empty() {
+            return out;
+        }
         for p in procs {
             let key = (p.pid, p.create_time);
             if self.applied.contains(&key) || protection_reason(p.pid, &p.name).is_some() {
                 continue;
             }
-            let app = p.name.to_lowercase();
-            let mut actions: Vec<(Action, &Finding)> = Vec::new();
-            for kind in [
-                FindingKind::ChronicCpu,
-                FindingKind::MemoryGrowth,
-                FindingKind::ChronicGpu,
-            ] {
-                if let Some(f) = self.flagged.get(&(app.clone(), kind)) {
-                    actions.extend(actions_for(kind, cfg).iter().map(|a| (*a, f)));
-                }
-            }
-            if actions.is_empty() {
+            // Flagged apps are keyed lowercase.
+            let Some((_, actions)) = wanted
+                .iter()
+                .find(|(app, _)| crate::glob::eq_lowercase(&p.name, app))
+            else {
                 continue;
-            }
+            };
             let target = ProcessRef::from(p);
-            for (action, finding) in actions {
+            for &(action, finding) in actions {
                 out.push(Decision::Apply {
                     source: Source::Insight,
                     target: target.clone(),
@@ -641,6 +662,25 @@ mod tests {
         let mut pids: Vec<u32> = restores.iter().map(|d| d.target().pid).collect();
         pids.sort_unstable();
         assert_eq!(pids, [1, 2, 5]);
+    }
+
+    #[test]
+    fn policy_matches_non_ascii_names_by_lowercase() {
+        let cfg = InsightsConfig::default();
+        let mut p = InsightPolicy::new();
+        let finding = Finding {
+            app: "ÇAY.exe".into(),
+            kind: FindingKind::ChronicCpu,
+            detail: "x".into(),
+        };
+        p.update(vec![finding], &cfg);
+        let procs = [proc(1, "çay.EXE"), proc(2, "cay.exe")];
+        let pids: Vec<u32> = p
+            .tick(&procs, &cfg)
+            .iter()
+            .map(|d| d.target().pid)
+            .collect();
+        assert_eq!(pids, [1, 1]);
     }
 
     #[test]

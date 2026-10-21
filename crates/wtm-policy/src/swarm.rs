@@ -2,7 +2,9 @@
 //! keeps starting helpers and never waits for them (e.g. a status probe
 //! launching `powershell.exe` every few seconds).
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::time::{Duration, SystemTime};
 
 use serde::Deserialize;
@@ -111,14 +113,53 @@ pub fn live_parent<'a>(
         .filter(|parent| parent.pid != p.pid && parent.create_time <= p.create_time)
 }
 
+/// An image name that hashes and compares like its `to_lowercase()`, without
+/// allocating one for ASCII names (nearly all of them).
+#[derive(Debug)]
+struct NameKey<'a>(Cow<'a, str>);
+
+impl<'a> NameKey<'a> {
+    fn new(name: &'a str) -> Self {
+        Self(if name.is_ascii() {
+            Cow::Borrowed(name)
+        } else {
+            Cow::Owned(name.to_lowercase())
+        })
+    }
+}
+
+impl PartialEq for NameKey<'_> {
+    // Lowercased names hold no ASCII capitals, so ignoring ASCII case on
+    // both sides compares the lowercase forms.
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_bytes().eq_ignore_ascii_case(other.0.as_bytes())
+    }
+}
+
+impl Eq for NameKey<'_> {}
+
+impl Hash for NameKey<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Equal keys have equal lengths, so they are fed in the same chunks.
+        let mut buf = [0u8; 64];
+        for chunk in self.0.as_bytes().chunks(buf.len()) {
+            let lower = &mut buf[..chunk.len()];
+            lower.copy_from_slice(chunk);
+            lower.make_ascii_lowercase();
+            state.write(lower);
+        }
+        state.write_u8(0xff);
+    }
+}
+
 /// Programs with at least `cfg.min_count` running copies, largest first.
 pub fn find_swarms<'a>(procs: &'a [ProcessInfo], cfg: &SwarmConfig) -> Vec<Swarm<'a>> {
     if !cfg.enabled {
         return Vec::new();
     }
-    let mut groups: HashMap<String, Vec<&ProcessInfo>> = HashMap::new();
+    let mut groups: HashMap<NameKey, Vec<&ProcessInfo>> = HashMap::new();
     for p in procs.iter().filter(|p| p.pid > 4) {
-        groups.entry(p.name.to_lowercase()).or_default().push(p);
+        groups.entry(NameKey::new(&p.name)).or_default().push(p);
     }
     let by_pid: HashMap<u32, &ProcessInfo> = procs.iter().map(|p| (p.pid, p)).collect();
     let mut swarms: Vec<Swarm<'a>> = groups
@@ -131,12 +172,16 @@ pub fn find_swarms<'a>(procs: &'a [ProcessInfo], cfg: &SwarmConfig) -> Vec<Swarm
                 && wtm_core::protection_reason(m[0].pid, name).is_none()
         })
         .map(|members| {
-            let mut parents: HashMap<Option<String>, usize> = HashMap::new();
+            // Borrowed names while counting; one copy per distinct parent.
+            let mut parents: HashMap<Option<&str>, usize> = HashMap::new();
             for p in &members {
-                let parent = live_parent(p, &by_pid).map(|q| q.name.clone());
+                let parent = live_parent(p, &by_pid).map(|q| q.name.as_str());
                 *parents.entry(parent).or_default() += 1;
             }
-            let mut parents: Vec<_> = parents.into_iter().collect();
+            let mut parents: Vec<(Option<String>, usize)> = parents
+                .into_iter()
+                .map(|(p, n)| (p.map(str::to_owned), n))
+                .collect();
             parents.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
             Swarm {
                 name: members[0].name.clone(),
@@ -170,13 +215,16 @@ impl SwarmWatch {
         cfg: &SwarmConfig,
     ) -> Vec<(String, usize, String)> {
         let swarms = find_swarms(procs, cfg);
-        let mut counts: HashMap<String, usize> = HashMap::new();
-        for p in procs {
-            *counts.entry(p.name.to_lowercase()).or_default() += 1;
+        // Only the few already reported names need counting.
+        if !self.reported.is_empty() {
+            let rearm = (cfg.min_count / 2).max(1);
+            let mut counts: HashMap<NameKey, usize> = HashMap::new();
+            for p in procs {
+                *counts.entry(NameKey::new(&p.name)).or_default() += 1;
+            }
+            self.reported
+                .retain(|name| counts.get(&NameKey::new(name)).is_some_and(|n| *n >= rearm));
         }
-        let rearm = (cfg.min_count / 2).max(1);
-        self.reported
-            .retain(|name| counts.get(name).is_some_and(|n| *n >= rearm));
         swarms
             .into_iter()
             .filter(|s| self.reported.insert(s.name.to_lowercase()))
@@ -263,6 +311,33 @@ mod tests {
             ..cfg()
         };
         assert!(find_swarms(&procs, &off).is_empty());
+    }
+
+    #[test]
+    fn names_group_like_their_lowercase_forms() {
+        // The Kelvin sign lowercases to an ASCII `k`.
+        let mut procs: Vec<ProcessInfo> = (0..30)
+            .map(|i| {
+                proc(
+                    1000 + i,
+                    1,
+                    ["k.exe", "K.EXE", "\u{212A}.exe"][i as usize % 3],
+                    1,
+                )
+            })
+            .collect();
+        procs.extend((0..30).map(|i| proc(2000 + i, 1, ["ÇAY.exe", "çay.EXE"][i as usize % 2], 1)));
+        let mut swarms = find_swarms(&procs, &cfg());
+        swarms.sort_by(|a, b| a.name.cmp(&b.name));
+        let found: Vec<(&str, usize)> = swarms
+            .iter()
+            .map(|s| (s.name.as_str(), s.members.len()))
+            .collect();
+        assert_eq!(found, [("k.exe", 30), ("ÇAY.exe", 30)]);
+
+        let mut watch = SwarmWatch::new();
+        assert_eq!(watch.tick(&procs, &cfg()).len(), 2);
+        assert!(watch.tick(&procs, &cfg()).is_empty(), "still reported");
     }
 
     #[test]

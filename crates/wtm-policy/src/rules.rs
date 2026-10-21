@@ -72,24 +72,52 @@ impl Rule {
 }
 
 impl Matcher {
-    fn matches(
-        &self,
-        p: &ProcessInfo,
-        lookup: &mut dyn FnMut(&ProcessInfo, Detail) -> Option<String>,
-    ) -> bool {
-        if let Some(name) = &self.name
-            && !glob_match(name, &p.name)
-        {
-            return false;
-        }
+    /// The image-name part, which needs nothing but the snapshot entry.
+    fn name_matches(&self, p: &ProcessInfo) -> bool {
+        self.name
+            .as_deref()
+            .is_none_or(|name| glob_match(name, &p.name))
+    }
+
+    /// The path and command-line parts; `i` is the process's index.
+    fn details_match(&self, i: usize, p: &ProcessInfo, details: &mut Details<'_>) -> bool {
         if let Some(pattern) = &self.path
-            && !lookup(p, Detail::Path).is_some_and(|path| glob_match(pattern, &path))
+            && !details
+                .get(i, p, Detail::Path)
+                .is_some_and(|path| glob_match(pattern, path))
         {
             return false;
         }
         self.cmdline.as_deref().is_none_or(|pattern| {
-            lookup(p, Detail::CommandLine).is_some_and(|line| crate::text_matches(pattern, &line))
+            details
+                .get(i, p, Detail::CommandLine)
+                .is_some_and(|line| crate::text_matches(pattern, line))
         })
+    }
+}
+
+/// Paths and command lines resolved during one evaluation, so several rules
+/// looking at the same process ask (and allocate) only once.
+struct Details<'a> {
+    lookup: &'a mut dyn FnMut(&ProcessInfo, Detail) -> Option<String>,
+    procs: usize,
+    /// Per process: path, command line; `None` while not asked yet. Only
+    /// allocated once some rule needs a detail.
+    resolved: Vec<[Option<Option<String>>; 2]>,
+}
+
+impl Details<'_> {
+    fn get(&mut self, i: usize, p: &ProcessInfo, d: Detail) -> Option<&str> {
+        if self.resolved.is_empty() {
+            self.resolved.resize(self.procs, [None, None]);
+        }
+        let slot = match d {
+            Detail::Path => 0,
+            Detail::CommandLine => 1,
+        };
+        self.resolved[i][slot]
+            .get_or_insert_with(|| (self.lookup)(p, d))
+            .as_deref()
     }
 }
 
@@ -141,8 +169,10 @@ impl RuleEngine {
         lookup: &mut dyn FnMut(&ProcessInfo, Detail) -> Option<String>,
     ) -> Vec<Decision> {
         let out = self.evaluate(now, procs, lookup, false);
-        let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
-        self.state.retain(|(_, key), _| live.contains(key));
+        if !self.state.is_empty() {
+            let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
+            self.state.retain(|(_, key), _| live.contains(key));
+        }
         out
     }
 
@@ -167,18 +197,36 @@ impl RuleEngine {
         unconditional_only: bool,
     ) -> Vec<Decision> {
         let mut out = Vec::new();
+        if self.rules.is_empty() {
+            return out;
+        }
+        // Once per process, not once per rule and process.
+        let protected: Vec<bool> = procs
+            .iter()
+            .map(|p| protection_reason(p.pid, &p.name).is_some())
+            .collect();
+        let mut details = Details {
+            lookup,
+            procs: procs.len(),
+            resolved: Vec::new(),
+        };
         for (idx, rule) in self.rules.iter().enumerate() {
             if unconditional_only && rule.when.is_some() {
                 continue;
             }
-            for p in procs {
-                if protection_reason(p.pid, &p.name).is_some() {
+            for (i, (p, &protected)) in procs.iter().zip(&protected).enumerate() {
+                if protected || !rule.matcher.name_matches(p) {
                     continue;
                 }
-                let state = self.state.entry((idx, (p.pid, p.create_time))).or_default();
-                if state.fired || !rule.matcher.matches(p, lookup) {
+                let key = (idx, (p.pid, p.create_time));
+                // State is only kept for processes a rule matches, not for
+                // every rule and process pair.
+                if self.state.get(&key).is_some_and(|s| s.fired)
+                    || !rule.matcher.details_match(i, p, &mut details)
+                {
                     continue;
                 }
+                let state = self.state.entry(key).or_default();
                 let ready = match &rule.when {
                     None => true,
                     Some(c) if c.holds(p) => {
@@ -391,6 +439,24 @@ mod tests {
             ..Default::default()
         };
         assert!(rule(Some("a.exe"), None, Some(mem_only)).validate().is_ok());
+    }
+
+    #[test]
+    fn keeps_state_only_for_matches_and_resolves_details_once() {
+        let mut e = RuleEngine::new(vec![
+            rule(Some("a.exe"), None, None),
+            rule(None, Some("c:\\x\\*"), None),
+            rule(None, Some("c:\\y\\*"), None),
+        ]);
+        let procs: Vec<ProcessInfo> = (10..110).map(|pid| proc(pid, "b.exe", 0.0, 0)).collect();
+        let mut calls = 0;
+        let mut path_of = |_: &ProcessInfo, _: Detail| {
+            calls += 1;
+            Some("C:\\z\\b.exe".to_owned())
+        };
+        assert!(e.tick(Instant::now(), &procs, &mut path_of).is_empty());
+        assert_eq!(calls, 100, "two path rules, one lookup per process");
+        assert!(e.state.is_empty(), "nothing matched, nothing to remember");
     }
 
     #[test]
