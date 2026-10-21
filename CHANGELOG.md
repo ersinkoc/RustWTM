@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-21
+
 ### Changed
 
 - Performance pass across every crate, measured with new ignored timing tests
@@ -566,7 +568,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/ersinkoc/RustWTM/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/ersinkoc/RustWTM/compare/v0.15.0...v0.17.0
 [0.15.0]: https://github.com/ersinkoc/RustWTM/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/ersinkoc/RustWTM/compare/v0.13.1...v0.14.0
