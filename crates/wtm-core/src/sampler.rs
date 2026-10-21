@@ -98,18 +98,18 @@ impl StartWatcher {
     /// Processes that appeared since the previous call. The first call only
     /// records what is already running and returns nothing.
     pub fn poll(&mut self) -> crate::Result<Vec<ProcessInfo>> {
-        let raw = self.snapshotter.snapshot()?;
         let mut current = std::mem::take(&mut self.spare);
         current.clear();
-        current.reserve(raw.len());
-        let mut started = Vec::new();
-        for p in raw {
-            let key = (p.pid, p.create_time);
+        current.reserve(self.seen.len());
+        // Only new processes are converted and named; the rest are just
+        // recorded by key.
+        let (primed, seen) = (self.primed, &self.seen);
+        let raw = self.snapshotter.snapshot_where(|pid, create_time| {
+            let key = (pid, create_time);
             current.insert(key);
-            if self.primed && !self.seen.contains(&key) {
-                started.push(ProcessInfo::from_raw(p));
-            }
-        }
+            primed && !seen.contains(&key)
+        })?;
+        let started = raw.into_iter().map(ProcessInfo::from_raw).collect();
         self.spare = std::mem::replace(&mut self.seen, current);
         self.primed = true;
         Ok(started)
