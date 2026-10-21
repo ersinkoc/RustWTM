@@ -165,7 +165,21 @@ mod tests {
         crate::etw::stop_orphans("RustWTM-test-net");
         let name = format!("RustWTM-test-net-{}", std::process::id());
         let elevated = crate::shell::is_elevated().unwrap_or(false);
-        match NetTracer::start(&name) {
+        // Windows runs at most eight kernel loggers; in a full workspace run
+        // the other trace tests and the engine tests may hold them briefly.
+        let busy = windows::Win32::Foundation::ERROR_NO_SYSTEM_RESOURCES.to_hresult();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let started = loop {
+            match NetTracer::start(&name) {
+                Err(crate::Error::Win32(e))
+                    if e.code() == busy && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+                other => break other,
+            }
+        };
+        match started {
             Ok(tracer) => {
                 assert!(elevated);
                 // Real-time events reach us only once the consumer is
