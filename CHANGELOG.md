@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-21
+
+### Added
+
+- A monitoring-data receipt age on every GUI page, with a stale-data warning
+  after a sampling failure or a delayed update. The last received values remain
+  visible. The timeout allows slower sampling intervals; successful updates
+  clear the warning. All five interface languages are supported.
+- Resources reserved for RustWTM (`[reserve]`): while the CPU is overloaded a
+  rescue core is kept free for RustWTM and Windows by moving other programs off
+  it with CPU Sets, and handed back when the load recovers. The service keeps
+  `working_set_mb` resident and opts out of EcoQoS; the window runs above
+  normal priority with 64 MB resident. Shown on the Overview and in the status
+  bar, configurable in Settings.
+- Window drawing times on the About page, and `RUSTWTM_FRAME_REPORT=<file>`
+  to benchmark every page and write per-page frame timings.
+
+### Changed
+
+- The window reads command lines and image paths of new processes without
+  holding the data lock it needs for every frame, so a burst of new processes
+  no longer stalls drawing. The About logo is uploaded once instead of every
+  frame, and the Overview cards line up at equal height.
+- IPC protocol version 12 (status carries the rescue core).
+
 ## [0.14.0] - 2026-10-21
 
 ### Added
@@ -469,7 +494,11 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/ersinkoc/RustWTM/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/ersinkoc/RustWTM/compare/v0.13.1...v0.14.0
+[0.13.1]: https://github.com/ersinkoc/RustWTM/compare/v0.13.0...v0.13.1
+[0.13.0]: https://github.com/ersinkoc/RustWTM/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/ersinkoc/RustWTM/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ersinkoc/RustWTM/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/ersinkoc/RustWTM/compare/v0.9.0...v0.10.0

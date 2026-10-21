@@ -39,7 +39,11 @@ const HIGHLIGHTS: [(&str, &str); 6] = [
 ];
 
 /// Returns whether the user asked to check for updates.
-pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
+pub fn about(
+    ui: &mut Ui,
+    update: &crate::backend::UpdateState,
+    frames: Option<crate::frames::Summary>,
+) -> bool {
     use crate::backend::UpdateState;
     let mut check = false;
     egui::ScrollArea::vertical()
@@ -47,11 +51,22 @@ pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
         .show(ui, |ui| {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
-                let logo = ui.ctx().load_texture(
-                    "rustwtm-logo",
-                    egui::ColorImage::from_rgba_unmultiplied([128, 128], &crate::logo::rgba(128)),
-                    egui::TextureOptions::LINEAR,
-                );
+                // Drawn and uploaded once, not on every frame.
+                let id = egui::Id::unique("about-logo-texture");
+                let logo = ui
+                    .data(|d| d.get_temp::<egui::TextureHandle>(id))
+                    .unwrap_or_else(|| {
+                        let texture = ui.ctx().load_texture(
+                            "rustwtm-logo",
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [128, 128],
+                                &crate::logo::rgba(128),
+                            ),
+                            egui::TextureOptions::LINEAR,
+                        );
+                        ui.data_mut(|d| d.insert_temp(id, texture.clone()));
+                        texture
+                    });
                 ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(128.0, 128.0)));
                 ui.label(RichText::new("RustWTM").size(44.0).strong().color(ACCENT));
                 ui.label(
@@ -146,8 +161,21 @@ pub fn about(ui: &mut Ui, update: &crate::backend::UpdateState) -> bool {
             });
             ui.add_space(6.0);
             ui.weak(crate::i18n::format("© {0}. Free and open source software. If RustWTM saves your day, a star on GitHub is the best way to say thanks.", &[AUTHOR.to_string()]));
+            if let Some(f) = frames {
+                ui.add_space(6.0);
+                ui.weak(frame_timing(f));
+            }
         });
     check
+}
+
+/// How quickly the window draws, from the last few hundred frames.
+fn frame_timing(f: crate::frames::Summary) -> String {
+    let ms = |d: std::time::Duration| format!("{:.1}", d.as_secs_f64() * 1000.0);
+    crate::i18n::format(
+        "Window drawing: {0} ms on average, {1} ms for 95% of frames, {2} ms at worst",
+        &[ms(f.average), ms(f.p95), ms(f.slowest)],
+    )
 }
 
 #[cfg(test)]
@@ -161,7 +189,7 @@ mod tests {
             .allow_missing_glyphs()
             .with_size([1100.0, 900.0])
             .build_ui(|ui| {
-                about(ui, &crate::backend::UpdateState::UpToDate);
+                about(ui, &crate::backend::UpdateState::UpToDate, None);
             });
         h.run();
         assert!(h.query_by_label("Crafted by Ersin KOÇ").is_some());
@@ -188,7 +216,7 @@ mod tests {
                 .allow_missing_glyphs()
                 .with_size([1100.0, 900.0])
                 .build_ui(|ui| {
-                    about(ui, &state);
+                    about(ui, &state, None);
                 });
             h.run();
             assert!(h.query_by_label(text).is_some(), "{text}");
@@ -196,7 +224,7 @@ mod tests {
         let mut h = egui_kittest::Harness::builder()
             .allow_missing_glyphs()
             .build_ui(|ui| {
-                about(ui, &UpdateState::Unknown);
+                about(ui, &UpdateState::Unknown, None);
             });
         h.run();
         assert!(h.query_by_label("Check for updates").is_some());

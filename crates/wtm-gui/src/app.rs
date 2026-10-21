@@ -172,6 +172,7 @@ pub struct App {
     backend: Backend,
     state: UiState,
     tray: Option<Tray>,
+    frames: crate::frames::FrameStats,
 }
 
 struct UiState {
@@ -256,6 +257,7 @@ impl App {
             backend,
             tray,
             state,
+            frames: crate::frames::FrameStats::from_env(),
         }
     }
 }
@@ -404,8 +406,17 @@ impl eframe::App for App {
             backend,
             state,
             tray,
+            frames,
         } = self;
+        let frame_start = Instant::now();
         let mut data = backend.data();
+        let data_ready = Instant::now();
+        if let Some(page) = frames.bench_page() {
+            state.tab = NAV[page].0;
+            ctx.request_repaint();
+        }
+        // Freshness must age even if the worker is blocked or stops repainting.
+        ctx.request_repaint_after(Duration::from_secs(1));
         if let Some(tray) = tray.as_mut() {
             tray.localize();
         }
@@ -477,6 +488,14 @@ impl eframe::App for App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     mode_badge(ui, data.mode);
+                    if let Some(rescue) = data.status.as_ref().and_then(|s| s.rescue_core.as_ref()) {
+                        ui.label(
+                            RichText::new(crate::i18n::tr("⛨ Rescue core"))
+                                .color(crate::theme::text_color(ui, crate::theme::CPU))
+                                .strong(),
+                        )
+                        .on_hover_text(crate::overview::rescue_text(rescue));
+                    }
                     if !data.kill_list.is_empty()
                         && ui
                             .small_button(RichText::new(crate::i18n::tr("🚨 Panic")).strong().color(BAD))
@@ -531,6 +550,7 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ui, |ui| {
             ui.heading(RichText::new(state.tab.label()).size(25.0));
             ui.label(RichText::new(state.tab.subtitle()).weak());
+            sample_health(ui, &data, Instant::now());
             ui.add_space(12.0);
             let scroll_page = matches!(
                 state.tab,
@@ -590,7 +610,7 @@ impl eframe::App for App {
                     intents.extend(more);
                 }
                 Tab::About => {
-                    if crate::about::about(ui, &data.update) {
+                    if crate::about::about(ui, &data.update, frames.summary()) {
                         state.last_update_check = Some(Instant::now());
                         service_cmds.push(UiCommand::CheckUpdate);
                     }
@@ -909,6 +929,11 @@ impl eframe::App for App {
                 Intent::WatchExit(target) => backend.send(UiCommand::WatchExit(target)),
             }
         }
+        let pages: Vec<&str> = NAV.iter().map(|n| n.2).collect();
+        if frames.record(frame_start, data_ready, &pages) {
+            // Report mode is a benchmark run; nothing to save.
+            std::process::exit(0);
+        }
     }
 }
 
@@ -1087,6 +1112,30 @@ fn window_settings(ui: &mut Ui, state: &mut UiState) {
         state.autostart = Some(on);
     }
     ui.add_space(6.0);
+}
+
+fn sample_health(ui: &mut Ui, data: &Data, now: Instant) {
+    use crate::backend::SampleFreshness;
+    ui.horizontal_wrapped(|ui| {
+        let (age, stale) = match data.sample_freshness(now) {
+            SampleFreshness::Waiting => {
+                ui.weak(crate::i18n::tr("Waiting for monitoring data…"));
+                return;
+            }
+            SampleFreshness::Current(age) => (Some(age), false),
+            SampleFreshness::Stale(age) => (age, true),
+        };
+        if stale {
+            ui.colored_label(crate::theme::text_color(ui, WARN), crate::i18n::tr("Monitoring data is out of date"))
+                .on_hover_text(crate::i18n::tr("Displayed values remain from the last received sample. They do not indicate current activity."));
+        }
+        if let Some(age) = age {
+            ui.label(crate::i18n::format("Last data received {0}s ago", &[age.as_secs().to_string()]));
+        }
+        if let Some(error) = &data.sample_error {
+            ui.label(crate::i18n::message(error).as_ref());
+        }
+    });
 }
 
 fn mode_badge(ui: &mut Ui, mode: Mode) {
@@ -2467,6 +2516,7 @@ mod tests {
                     ..Default::default()
                 },
                 tray: None,
+                frames: Default::default(),
             });
         (h, rx)
     }
@@ -2697,6 +2747,7 @@ mod tests {
                     ..Default::default()
                 },
                 tray: None,
+                frames: Default::default(),
             });
         let sent = |h: &mut Harness<'_, App>| {
             h.run_steps(2);
@@ -2784,6 +2835,7 @@ mod tests {
                 backend,
                 state: UiState::default(),
                 tray: None,
+                frames: Default::default(),
             });
         let sent = |h: &mut Harness<'_, App>| {
             h.run_steps(2);
@@ -2861,6 +2913,7 @@ mod tests {
                     ..Default::default()
                 },
                 tray: None,
+                frames: Default::default(),
             });
         h.run_steps(2);
         assert!(h.query_by_label("This window").is_some());
@@ -2887,6 +2940,7 @@ mod tests {
                 backend,
                 state: UiState::default(),
                 tray: None,
+                frames: Default::default(),
             });
         h.run_steps(2);
         let sent = |h: &mut Harness<'_, App>| {
@@ -2952,6 +3006,7 @@ mod tests {
                     ..Default::default()
                 },
                 tray: None,
+                frames: Default::default(),
             });
         let mut sent = Vec::new();
         let step = |h: &mut Harness<'_, App>, sent: &mut Vec<String>| {
@@ -3112,6 +3167,7 @@ mod tests {
                 backend,
                 state: UiState::default(),
                 tray: None,
+                frames: Default::default(),
             });
         h.run_steps(2);
         nav_to(&mut h, "Settings");
@@ -3123,6 +3179,9 @@ mod tests {
         h.run_steps(2);
         assert!(h.query_by_label_contains("unsaved").is_some());
         h.get_by_label("Slow down the busiest apps when the CPU is overloaded")
+            .click();
+        h.run_steps(2);
+        h.get_by_label("Keep one core free for RustWTM when the CPU is overloaded")
             .click();
         h.run_steps(2);
         h.get_by_label("Save").click();
@@ -3139,6 +3198,7 @@ mod tests {
         let saved = saved.expect("Save sends the edited text");
         let parsed = wtm_policy::Config::from_toml(&saved).unwrap();
         assert!(!parsed.dry_run && !parsed.governor.enabled);
+        assert!(!parsed.reserve.rescue_core);
         assert!(
             saved.contains("# Log what would be done"),
             "comments are kept"
@@ -3169,6 +3229,7 @@ mod tests {
                 backend,
                 state,
                 tray: None,
+                frames: Default::default(),
             });
         h.run_steps(2);
         assert!(h.query_by_label("service not running").is_some());
@@ -3202,6 +3263,7 @@ mod tests {
                 backend,
                 state,
                 tray: None,
+                frames: Default::default(),
             });
         h.run_steps(2);
         assert!(h.query_by_label_contains("2 cores, 8 GB").is_some());
@@ -3285,6 +3347,7 @@ mod tests {
                     backend,
                     state,
                     tray: None,
+                    frames: Default::default(),
                 });
             h.run_steps(2);
             if let Some(retry) = h.query_by_label("Retry") {
@@ -3307,6 +3370,7 @@ mod tests {
                 backend,
                 state: UiState::default(),
                 tray: None,
+                frames: Default::default(),
             });
         h.run_steps(2);
         (h, rx)
@@ -3544,6 +3608,7 @@ mod tests {
                 backend,
                 state: UiState::default(),
                 tray: None,
+                frames: Default::default(),
             });
         let mut h = h;
         h.run_steps(2);
@@ -3617,6 +3682,7 @@ mod tests {
                             ..UiState::default()
                         },
                         tray: None,
+                        frames: Default::default(),
                     }
                 });
             for (tab, _, _) in NAV {
@@ -3626,7 +3692,19 @@ mod tests {
                     h.query_by_label(tab.subtitle()).is_some(),
                     "{language:?} {tab:?}"
                 );
+                let received = crate::i18n::tr("Last data received {0}s ago");
+                assert!(
+                    h.query_by_label_contains(received.split("{0}").next().unwrap())
+                        .is_some()
+                );
             }
+            h.state_mut().backend.data().sample_error =
+                Some("The service has not supplied a sample.".into());
+            h.run_steps(2);
+            assert!(
+                h.query_by_label(crate::i18n::tr("Monitoring data is out of date"))
+                    .is_some()
+            );
             assert!((200.0..=280.0).contains(&nav_width(&h.ctx)));
         }
     }
@@ -3728,6 +3806,7 @@ mod tests {
                                         ..UiState::default()
                                     },
                                     tray: None,
+                                    frames: Default::default(),
                                 }
                             });
                         h.run_steps(3);
@@ -3739,12 +3818,93 @@ mod tests {
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         h.render().expect("GPU render").save(&path).unwrap();
                         println!("Rendered {}", path.display());
+                        if tab == Tab::Performance {
+                            {
+                                let mut data = h.state().backend.data();
+                                data.sample_received_at =
+                                    Some(Instant::now() - Duration::from_secs(42));
+                                data.sample_error =
+                                    Some("The service has not supplied a sample.".into());
+                            }
+                            h.run_steps(2);
+                            assert!(
+                                h.query_by_label(crate::i18n::tr("Monitoring data is out of date"))
+                                    .is_some()
+                            );
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-MonitoringStale.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                        }
                     }
                 }
             }
             // Keep native GPU review contexts in one test; parallel review tests
             // exited with a native access violation on the development machine.
             crate::power_controls::tests::render_power_review(&out);
+        }
+    }
+
+    #[test]
+    fn monitoring_health_shows_waiting_age_failure_and_recovery_in_all_languages() {
+        use crate::i18n::{Language, scope};
+        for language in [
+            Language::English,
+            Language::Turkish,
+            Language::German,
+            Language::French,
+            Language::Spanish,
+        ] {
+            let now = Instant::now();
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([760.0, 150.0])
+                .build_ui_state(
+                    move |ui, state: &mut (Data, Instant)| {
+                        let _language = scope(language);
+                        sample_health(ui, &state.0, state.1);
+                    },
+                    (Data::default(), now),
+                );
+            let _language = scope(language);
+            assert!(
+                h.query_by_label(crate::i18n::tr("Waiting for monitoring data…"))
+                    .is_some()
+            );
+            h.state_mut().0 = data();
+            h.state_mut().0.sample_received_at = Some(now);
+            h.state_mut().1 = now + Duration::from_secs(2);
+            h.run();
+            assert!(
+                h.query_by_label(&crate::i18n::format(
+                    "Last data received {0}s ago",
+                    &["2".into()]
+                ))
+                .is_some()
+            );
+            assert!(
+                h.query_by_label(crate::i18n::tr("Monitoring data is out of date"))
+                    .is_none()
+            );
+            h.state_mut().1 = now + Duration::from_secs(6);
+            h.run();
+            assert!(
+                h.query_by_label(crate::i18n::tr("Monitoring data is out of date"))
+                    .is_some()
+            );
+            h.state_mut().0.sample_received_at = Some(now + Duration::from_secs(6));
+            h.state_mut().0.sample_error = Some("native diagnostic".into());
+            h.run();
+            assert!(h.query_by_label("native diagnostic").is_some());
+            assert!(
+                h.query_by_label(crate::i18n::tr("Monitoring data is out of date"))
+                    .is_some()
+            );
+            h.state_mut().0.sample_error = None;
+            h.run();
+            assert!(
+                h.query_by_label(crate::i18n::tr("Monitoring data is out of date"))
+                    .is_none()
+            );
         }
     }
 

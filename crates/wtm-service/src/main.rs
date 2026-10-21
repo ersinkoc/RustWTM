@@ -20,6 +20,7 @@ mod hardware;
 mod history;
 mod ipc_server;
 mod logging;
+mod rescue;
 mod service;
 mod telegram;
 

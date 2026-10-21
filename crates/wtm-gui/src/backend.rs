@@ -88,6 +88,10 @@ pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory
 
 #[derive(Debug, Default)]
 pub struct Data {
+    /// Receipt time in this GUI, not the service's measurement timestamp.
+    pub sample_received_at: Option<Instant>,
+    /// Latest sampling failure; cleared only by a successful snapshot.
+    pub sample_error: Option<String>,
     pub frequency: Option<Result<wtm_core::power::FrequencyReport, String>>,
     pub cpu_topology: Option<wtm_core::cpu::Topology>,
     pub hardware: wtm_core::hardware::HardwareReport,
@@ -135,6 +139,39 @@ pub struct Data {
     pub installable: bool,
     /// Why the last attempt to reach the service failed.
     pub service_error: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SampleFreshness {
+    Waiting,
+    Current(Duration),
+    Stale(Option<Duration>),
+}
+
+impl Data {
+    pub fn sample_freshness(&self, now: Instant) -> SampleFreshness {
+        let age = self
+            .sample_received_at
+            .map(|at| now.saturating_duration_since(at));
+        if self.sample_error.is_some() {
+            return SampleFreshness::Stale(age);
+        }
+        let Some(age) = age else {
+            return SampleFreshness::Waiting;
+        };
+        let allowance = self
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.interval)
+            .unwrap_or(Duration::from_secs(1))
+            .saturating_mul(3)
+            .max(Duration::from_secs(5));
+        if age >= allowance {
+            SampleFreshness::Stale(Some(age))
+        } else {
+            SampleFreshness::Current(age)
+        }
+    }
 }
 
 pub enum UiCommand {
@@ -440,7 +477,12 @@ impl Worker {
                     if let Some(last) = events.last() {
                         self.last_event = last.id;
                     }
+                    let lookups = snapshot
+                        .as_ref()
+                        .map(|s| Lookups::fetch(&self.data, &s.processes))
+                        .unwrap_or_default();
                     let mut data = self.data();
+                    lookups.apply(&mut data);
                     if let Some(points) = backfill
                         && data.history.cpu.len() < points.len()
                     {
@@ -451,6 +493,8 @@ impl Worker {
                     data.events.extend(events);
                     if let Some(s) = snapshot {
                         publish(&mut data, s);
+                    } else {
+                        data.sample_error = Some("The service has not supplied a sample.".into());
                     }
                     drop(data);
                     refresh_icons(&self.data);
@@ -467,7 +511,14 @@ impl Worker {
         }
 
         let sample = self.sampler.sample();
-        publish_local(&mut self.data(), sample);
+        let lookups = sample
+            .as_ref()
+            .map(|s| Lookups::fetch(&self.data, &s.processes))
+            .unwrap_or_default();
+        let mut data = self.data();
+        lookups.apply(&mut data);
+        publish_local(&mut data, sample);
+        drop(data);
         refresh_icons(&self.data);
     }
 
@@ -1171,16 +1222,14 @@ fn fetch(client: &mut Client, after: u64) -> io::Result<Fetched> {
 
 /// Shows a local sample, or why sampling failed.
 fn publish_local(data: &mut Data, sample: wtm_core::Result<Snapshot>) {
+    data.mode = Mode::Local;
+    data.status = None;
     match sample {
         Ok(s) => {
-            data.mode = Mode::Local;
-            data.status = None;
             publish(data, s);
         }
         Err(e) => {
-            data.message = Some((EventLevel::Error, {
-                crate::i18n::format("Sampling failed: {0}", &[format!("{}", e)])
-            }))
+            data.sample_error = Some(e.to_string());
         }
     }
 }
@@ -1209,6 +1258,8 @@ fn fill_history(h: &mut History, points: &[wtm_ipc::SystemPoint]) {
 }
 
 fn publish(data: &mut Data, snapshot: Snapshot) {
+    data.sample_received_at = Some(Instant::now());
+    data.sample_error = None;
     let s = &snapshot.system;
     let mem = if s.memory_total > 0 {
         s.memory_used() as f32 / s.memory_total as f32 * 100.0
@@ -1257,7 +1308,8 @@ fn raise_window(window: isize) {
 }
 
 fn calm_window(window: isize) {
-    let _ = control::set_own_priority(wtm_core::control::PriorityClass::Normal);
+    // Back to the standing priority set at startup, not below it.
+    let _ = control::set_own_priority(wtm_core::control::PriorityClass::AboveNormal);
     if window != 0 {
         wtm_core::window::release_topmost(window);
     }
@@ -1274,6 +1326,50 @@ fn update_process_history(histories: &mut ProcessHistories, procs: &[wtm_core::P
         h.memory.push_back(p.private_working_set as f32);
         trim(&mut h.cpu, PROCESS_HISTORY_LEN);
         trim(&mut h.memory, PROCESS_HISTORY_LEN);
+    }
+}
+
+/// Command lines and image paths of processes not seen before. Each one is a
+/// call into the process, so they are read without holding the data lock the
+/// window needs for every frame.
+#[derive(Debug, Default)]
+struct Lookups {
+    command_lines: Vec<((u32, i64), String)>,
+    image_paths: Vec<((u32, i64), String)>,
+}
+
+impl Lookups {
+    fn fetch(data: &Mutex<Data>, procs: &[wtm_core::ProcessInfo]) -> Self {
+        let (known_lines, known_paths): (
+            std::collections::HashSet<_>,
+            std::collections::HashSet<_>,
+        ) = {
+            let d = data.lock().unwrap_or_else(PoisonError::into_inner);
+            (
+                d.command_lines.keys().copied().collect(),
+                d.image_paths.keys().copied().collect(),
+            )
+        };
+        let mut lookups = Self::default();
+        for p in procs {
+            let key = (p.pid, p.create_time);
+            let target = || ProcessRef::from(p);
+            if !known_lines.contains(&key) {
+                let line = control::command_line(&target()).unwrap_or_default();
+                lookups.command_lines.push((key, line));
+            }
+            if !known_paths.contains(&key) {
+                let path = control::image_path(&target()).unwrap_or_default();
+                lookups.image_paths.push((key, path));
+            }
+        }
+        lookups
+    }
+
+    /// Stores the results; `publish` then finds every live process known.
+    fn apply(self, data: &mut Data) {
+        data.command_lines.extend(self.command_lines);
+        data.image_paths.extend(self.image_paths);
     }
 }
 
@@ -2162,6 +2258,10 @@ mod tests {
         w.tick();
         assert!(w.client.is_some(), "tick connects to the pipe");
         assert!(w.data().snapshot.is_none());
+        assert_eq!(
+            w.data().sample_freshness(Instant::now()),
+            SampleFreshness::Stale(None)
+        );
         // The backlog fetched right after connecting is not announced.
         assert_eq!(NOTIFIED.load(Ordering::Relaxed), 0);
         w.tick();
@@ -2320,6 +2420,75 @@ mod tests {
     }
 
     #[test]
+    fn sampling_failure_keeps_the_last_sample_and_recovers_on_success() {
+        let mut d = Data::default();
+        publish_local(&mut d, Ok(crate::ui_tests::snapshot()));
+        let received = d.sample_received_at;
+        assert!(received.is_some());
+        let snapshot = d.snapshot.clone().unwrap();
+        let history = d.history.cpu.clone();
+        let action_message = Some((EventLevel::Info, "Independent action result".into()));
+        d.message = action_message.clone();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        publish_local(
+            &mut d,
+            Err(wtm_core::Error::Nt {
+                call: "sample",
+                status: 1,
+            }),
+        );
+        assert_eq!(d.mode, Mode::Local);
+        assert!(d.sample_error.is_some());
+        assert_eq!(d.sample_received_at, received);
+        assert!(Arc::ptr_eq(d.snapshot.as_ref().unwrap(), &snapshot));
+        assert_eq!(d.history.cpu, history);
+        assert_eq!(d.message, action_message);
+        assert!(matches!(
+            d.sample_freshness(received.unwrap()),
+            SampleFreshness::Stale(Some(_))
+        ));
+        publish_local(&mut d, Ok(crate::ui_tests::snapshot()));
+        assert!(d.sample_error.is_none());
+        assert_eq!(d.message, action_message);
+        assert!(matches!(
+            d.sample_freshness(d.sample_received_at.unwrap()),
+            SampleFreshness::Current(_)
+        ));
+    }
+
+    #[test]
+    fn freshness_uses_elapsed_time_and_allows_slow_sampling() {
+        let now = Instant::now();
+        let mut d = Data::default();
+        assert_eq!(d.sample_freshness(now), SampleFreshness::Waiting);
+        d.sample_error = Some("unavailable".into());
+        assert_eq!(d.sample_freshness(now), SampleFreshness::Stale(None));
+        d.sample_error = None;
+        d.sample_received_at = Some(now);
+        d.snapshot = Some(Arc::new(crate::ui_tests::snapshot()));
+        assert_eq!(
+            d.sample_freshness(now + Duration::from_millis(4999)),
+            SampleFreshness::Current(Duration::from_millis(4999))
+        );
+        assert_eq!(
+            d.sample_freshness(now + Duration::from_secs(5)),
+            SampleFreshness::Stale(Some(Duration::from_secs(5)))
+        );
+        Arc::make_mut(d.snapshot.as_mut().unwrap()).interval = Some(Duration::from_secs(10));
+        assert_eq!(
+            d.sample_freshness(now + Duration::from_secs(29)),
+            SampleFreshness::Current(Duration::from_secs(29))
+        );
+        assert_eq!(
+            d.sample_freshness(now + Duration::from_secs(30)),
+            SampleFreshness::Stale(Some(Duration::from_secs(30)))
+        );
+    }
+
+    #[test]
     fn local_samples_history_and_notifications() {
         let mut d = Data::default();
         publish_local(
@@ -2329,7 +2498,7 @@ mod tests {
                 status: 1,
             }),
         );
-        assert_eq!(d.message.as_ref().unwrap().0, EventLevel::Error);
+        assert!(d.sample_error.as_ref().unwrap().contains('x'));
 
         let mut s = crate::ui_tests::snapshot();
         s.system.memory_total = 0;
@@ -2461,6 +2630,26 @@ mod tests {
         assert_eq!(cache[&(me.pid, me.create_time)], "cached");
         update_command_lines(&mut cache, &[]);
         assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn new_processes_are_looked_up_outside_the_lock_once() {
+        let snap = Sampler::new().sample().unwrap();
+        let data = Mutex::new(Data::default());
+        let lookups = Lookups::fetch(&data, &snap.processes);
+        assert_eq!(lookups.command_lines.len(), snap.processes.len());
+        assert_eq!(lookups.image_paths.len(), snap.processes.len());
+        lookups.apply(&mut data.lock().unwrap());
+        let me = (std::process::id(), {
+            let p = snap.processes.iter().find(|p| p.pid == std::process::id());
+            p.unwrap().create_time
+        });
+        let d = data.lock().unwrap();
+        assert!(d.image_paths[&me].to_lowercase().ends_with(".exe"));
+        assert!(!d.command_lines[&me].is_empty());
+        drop(d);
+        let again = Lookups::fetch(&data, &snap.processes);
+        assert!(again.command_lines.is_empty() && again.image_paths.is_empty());
     }
 
     #[test]

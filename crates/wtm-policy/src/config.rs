@@ -7,6 +7,7 @@ use crate::insights::InsightsConfig;
 use crate::kill::KillEntry;
 use crate::limits::AppLimit;
 use crate::memory_guard::MemoryGuardConfig;
+use crate::reserve::ReserveConfig;
 use crate::rules::Rule;
 use crate::swarm::SwarmConfig;
 
@@ -26,6 +27,8 @@ pub struct Config {
     pub memory_guard: MemoryGuardConfig,
     /// Warns about hundreds of copies of one program.
     pub swarm: SwarmConfig,
+    /// CPU and memory kept for RustWTM itself.
+    pub reserve: ReserveConfig,
     /// Image names (`xmrig.exe`) that are prevented from starting at all.
     pub block: Vec<String>,
     #[serde(rename = "rule")]
@@ -48,6 +51,7 @@ impl Default for Config {
             insights: InsightsConfig::default(),
             memory_guard: MemoryGuardConfig::default(),
             swarm: SwarmConfig::default(),
+            reserve: ReserveConfig::default(),
             block: Vec::new(),
             rules: Vec::new(),
             limits: Vec::new(),
@@ -160,6 +164,9 @@ impl Config {
             .validate()
             .map_err(|e| format!("memory_guard: {e}"))?;
         self.swarm.validate().map_err(|e| format!("swarm: {e}"))?;
+        self.reserve
+            .validate()
+            .map_err(|e| format!("reserve: {e}"))?;
         if self.history_days == 0 {
             return Err("history_days must be positive".into());
         }

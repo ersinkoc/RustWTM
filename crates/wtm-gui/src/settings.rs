@@ -334,6 +334,60 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
             });
             ui.end_row();
 
+            let r = &c.reserve;
+            ui.strong(crate::i18n::tr("Reserved for RustWTM"));
+            ui.vertical(|ui| {
+                let mut on = r.rescue_core;
+                if ui
+                    .checkbox(
+                        &mut on,
+                        crate::i18n::tr("Keep one core free for RustWTM when the CPU is overloaded"),
+                    )
+                    .on_hover_text(crate::i18n::tr(
+                        "Other apps are moved off that core until the load drops, so RustWTM always responds",
+                    ))
+                    .changed()
+                {
+                    set("reserve", "rescue_core", toml_edit_value::V::Bool(on));
+                }
+                ui.add_enabled_ui(r.rescue_core, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(crate::i18n::tr("When CPU stays above"));
+                        let mut high = r.trigger_cpu_percent;
+                        let range = (r.release_cpu_percent + 1.0).max(50.0)..=100.0;
+                        if ui
+                            .add(egui::DragValue::new(&mut high).range(range).suffix("%"))
+                            .changed()
+                        {
+                            set(
+                                "reserve",
+                                "trigger_cpu_percent",
+                                toml_edit_value::V::Float(high),
+                            );
+                        }
+                        ui.label(crate::i18n::tr("for"));
+                        let mut secs = r.sustain_secs;
+                        if ui
+                            .add(egui::DragValue::new(&mut secs).range(1..=120).suffix(" s"))
+                            .changed()
+                        {
+                            set("reserve", "sustain_secs", toml_edit_value::V::Int(secs));
+                        }
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.label(crate::i18n::tr("Service memory never paged out"));
+                    let mut mb = r.working_set_mb;
+                    if ui
+                        .add(egui::DragValue::new(&mut mb).range(0..=1024).suffix(" MB"))
+                        .changed()
+                    {
+                        set("reserve", "working_set_mb", toml_edit_value::V::Int(mb));
+                    }
+                });
+            });
+            ui.end_row();
+
             let s = &c.swarm;
             ui.strong(crate::i18n::tr("Swarm warning"));
             ui.vertical(|ui| {

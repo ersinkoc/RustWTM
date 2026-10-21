@@ -16,6 +16,7 @@ mod kill;
 mod limits;
 mod memory_guard;
 mod presets;
+mod reserve;
 mod rules;
 mod swarm;
 mod telegram;
@@ -37,6 +38,7 @@ pub use limits::{
 };
 pub use memory_guard::{MemoryGuard, MemoryGuardConfig};
 pub use presets::{Preset, set_preset};
+pub use reserve::{RescueCore, RescueStep, ReserveConfig};
 pub use rules::{Condition, Detail, Matcher, Rule, RuleEngine};
 pub use swarm::{Swarm, SwarmConfig, SwarmWatch, find_swarms, live_parent};
 pub use telegram::{TELEGRAM_SDDL, TelegramConfig, parse_chats, token_looks_valid};

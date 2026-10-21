@@ -24,6 +24,7 @@ use crate::events::EventLog;
 use crate::executor::Executor;
 use crate::history::{self, History};
 use crate::ipc_server::{self, EngineMsg, Shared};
+use crate::rescue::Rescue;
 
 #[derive(Debug, Clone)]
 pub struct Paths {
@@ -178,6 +179,7 @@ fn status(
     executor: &Executor,
     app_limits: &[wtm_policy::GroupUsage],
     foreground: Option<&str>,
+    rescue: &Rescue,
 ) -> Status {
     Status {
         dry_run: config.dry_run,
@@ -189,6 +191,7 @@ fn status(
         managed: executor.managed(),
         app_limits: app_limits.to_vec(),
         foreground: foreground.map(str::to_owned),
+        rescue_core: rescue.summary(),
     }
 }
 
@@ -201,8 +204,9 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     if !control::enable_debug_privilege() {
         warn!("SeDebugPrivilege unavailable; elevated and service processes cannot be controlled");
     }
-    if let Err(e) = control::set_own_priority(PriorityClass::High) {
-        warn!(error = %e, "could not raise own priority");
+    let floor = usize::try_from(config.reserve.working_set_mb << 20).unwrap_or(0);
+    for failure in control::harden_self(PriorityClass::High, floor) {
+        warn!(%failure, "could not reserve resources for the service");
     }
 
     let shared = Arc::new(Shared::default());
@@ -241,6 +245,11 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     // Dry run: when each swarm's cleanup was last reported.
     let mut swarm_previewed: HashMap<String, Instant> = HashMap::new();
     let mut executor = Executor::new(config.dry_run, shared.events.clone());
+    let mut rescue = Rescue::new(
+        config.reserve.clone(),
+        config.dry_run,
+        shared.events.clone(),
+    );
     let mut history = match History::open(&paths.history) {
         Ok(h) => {
             *shared
@@ -317,6 +326,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                         &executor,
                         &app_usage,
                         foreground_app.as_deref(),
+                        &rescue,
                     );
                 }
                 Ok(EngineMsg::Foreground(pid)) => foreground = Some((pid, Instant::now())),
@@ -336,6 +346,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     kill_watch.set_entries(new.kill.clone());
                     app_limiter.configure(new.limits.clone(), new.dry_run);
                     executor.set_dry_run(new.dry_run);
+                    rescue.configure(new.reserve.clone(), new.dry_run);
                     sync_blocks(blocker.as_ref(), &new, &shared.events);
                     shared.events.info(
                         None,
@@ -367,6 +378,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             }
         };
         executor.forget_exited(&snap);
+        rescue.tick(Instant::now(), &snap);
         if snap.interval.is_some() {
             let mut recent = shared
                 .recent
@@ -463,6 +475,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             &executor,
             &app_usage,
             foreground_app.as_deref(),
+            &rescue,
         );
         last_snapshot = Some(snap);
     }
@@ -472,6 +485,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         .info(None, "stopping; restoring all processes");
     shared.hardware.stop();
     executor.restore_all("service stopping");
+    rescue.release_all("service stopping");
     app_limiter.lift_all("service stopping");
     let unblock = Config {
         dry_run: true,
@@ -1544,8 +1558,10 @@ mod unit_tests {
         let config = Config::default();
         let paths = Paths::under(Path::new(r"C:\x"));
         let executor = Executor::new(true, Default::default());
-        let s = status(&config, &paths, &executor, &[], Some("game.exe"));
+        let rescue = Rescue::new(config.reserve.clone(), true, Default::default());
+        let s = status(&config, &paths, &executor, &[], Some("game.exe"), &rescue);
         assert_eq!(s.foreground.as_deref(), Some("game.exe"));
+        assert!(s.rescue_core.is_none());
         assert!(s.dry_run);
         assert_eq!(s.config_path, r"C:\x\config.toml");
         assert!(s.managed.is_empty());

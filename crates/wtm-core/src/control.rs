@@ -10,7 +10,7 @@ use std::collections::hash_map::Entry;
 use serde::{Deserialize, Serialize};
 
 use wtm_sys::control::{Access, ProcessHandle};
-pub use wtm_sys::control::{EcoQos, PriorityClass};
+pub use wtm_sys::control::{EcoQos, PriorityClass, raise_current_thread};
 use wtm_sys::job::Job;
 
 use crate::ProcessInfo;
@@ -86,6 +86,57 @@ pub fn set_own_priority(priority: PriorityClass) -> ControlResult<()> {
     let h = ProcessHandle::open(pid, Access::SET_INFORMATION)
         .map_err(|e| ControlError::from_open(pid, e))?;
     sys(pid, h.set_priority(priority))
+}
+
+/// Keeps the calling process responsive on an overloaded machine: raises its
+/// priority class, opts it out of EcoQoS, restores normal memory priority and
+/// keeps `working_set_bytes` of it resident. Every step is attempted; the
+/// returned messages describe the ones Windows refused.
+pub fn harden_self(priority: PriorityClass, working_set_bytes: usize) -> Vec<String> {
+    let pid = std::process::id();
+    let access = Access::SET_INFORMATION | Access::SET_QUOTA | Access::QUERY;
+    let h = match ProcessHandle::open(pid, access) {
+        Ok(h) => h,
+        Err(e) => return vec![format!("cannot open own process: {e}")],
+    };
+    let mut failures = Vec::new();
+    let mut step = |what: &str, r: wtm_sys::Result<()>| {
+        if let Err(e) = r {
+            failures.push(format!("{what}: {e}"));
+        }
+    };
+    step("priority", h.set_priority(priority));
+    step("EcoQoS opt-out", h.set_eco_qos(EcoQos::Off));
+    step("memory priority", h.set_normal_memory_priority());
+    if working_set_bytes > 0 {
+        step("working set floor", h.lock_working_set(working_set_bytes));
+    }
+    failures
+}
+
+/// Confines `target` to the CPU Sets `ids`. Returns `false`, changing
+/// nothing, when the process already chose CPU Sets of its own.
+pub fn confine_cpu_sets(target: &ProcessRef, ids: &[u32]) -> ControlResult<bool> {
+    let h = open_controlled(target, Access::SET_LIMITED_INFORMATION)?;
+    if !sys(target.pid, h.default_cpu_sets())?.is_empty() {
+        return Ok(false);
+    }
+    sys(target.pid, h.set_default_cpu_sets(ids))?;
+    Ok(true)
+}
+
+/// Undoes [`confine_cpu_sets`], unless the process has since chosen other
+/// CPU Sets itself.
+pub fn release_cpu_sets(target: &ProcessRef, ids: &[u32]) -> ControlResult<()> {
+    let h = open_verified(target, Access::SET_LIMITED_INFORMATION)?;
+    let mut current = sys(target.pid, h.default_cpu_sets())?;
+    current.sort_unstable();
+    let mut ours = ids.to_vec();
+    ours.sort_unstable();
+    if current == ours {
+        sys(target.pid, h.set_default_cpu_sets(&[]))?;
+    }
+    Ok(())
 }
 
 fn open_verified(target: &ProcessRef, access: Access) -> ControlResult<ProcessHandle> {
@@ -413,5 +464,67 @@ mod tests {
             command_line(&gone),
             Err(ControlError::NotFound { .. })
         ));
+    }
+
+    #[test]
+    fn confines_and_releases_cpu_sets_without_clobbering_foreign_ones() {
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let handle = ProcessHandle::open(child.id(), Access::QUERY).unwrap();
+        let target = ProcessRef {
+            pid: child.id(),
+            create_time: handle.create_time().unwrap(),
+            name: "PING.EXE".into(),
+        };
+        let ids: Vec<u32> = crate::cpu::topology()
+            .unwrap()
+            .cpus
+            .iter()
+            .map(|c| c.id)
+            .collect();
+        let ours = &ids[..1];
+        assert!(confine_cpu_sets(&target, ours).unwrap());
+        assert_eq!(handle.default_cpu_sets().unwrap(), ours);
+        // Already confined (by us or the app itself): left alone.
+        assert!(!confine_cpu_sets(&target, &ids).unwrap());
+        release_cpu_sets(&target, ours).unwrap();
+        assert!(handle.default_cpu_sets().unwrap().is_empty());
+
+        // A restriction we did not make survives our release.
+        let h = ProcessHandle::open(target.pid, Access::SET_LIMITED_INFORMATION).unwrap();
+        h.set_default_cpu_sets(&ids).unwrap();
+        release_cpu_sets(&target, ours).unwrap();
+        assert_eq!(handle.default_cpu_sets().unwrap().len(), ids.len());
+
+        let stale = ProcessRef {
+            create_time: target.create_time + 1,
+            ..target.clone()
+        };
+        assert!(matches!(
+            confine_cpu_sets(&stale, ours),
+            Err(ControlError::Stale { .. })
+        ));
+        let me = ProcessRef {
+            pid: std::process::id(),
+            create_time: 0,
+            name: "me.exe".into(),
+        };
+        assert!(matches!(
+            confine_cpu_sets(&me, ours),
+            Err(ControlError::Protected { .. })
+        ));
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn hardening_self_succeeds_for_an_ordinary_process() {
+        assert_eq!(
+            harden_self(PriorityClass::Normal, 16 << 20),
+            Vec::<String>::new()
+        );
     }
 }

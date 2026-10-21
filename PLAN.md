@@ -11,7 +11,7 @@ processes from running at all.
 |---|---|
 | Toolchain | Rust 1.99.1 (pinned in `rust-toolchain.toml`), edition 2024 |
 | GUI | `eframe` / `egui` + `egui_plot` + `egui_extras` |
-| UI language | English |
+| UI language | English, Turkish, German, French and Spanish |
 | Scope | Single local machine (no remote management) |
 | Process blocking | ETW start-trace + IFEO first; kernel driver deferred (optional, Phase 8) |
 | Win32 bindings | `windows` crate (official), all `unsafe` confined to `wtm-sys` |
@@ -123,8 +123,9 @@ toast notifications.
 The [system review](docs/0.13.0-review.md) records the current review, delivered
 interface improvements and remaining validation. The Sensors workspace and
 capability-based Cooling controls are implemented; see [hardware setup](docs/hardware.md).
-Next gates are physical fan/rollback validation, followed by timestamped chart
-history, general stale-data indicators and a measured large-process-list benchmark.
+Next gates are physical fan/rollback validation, timestamped chart history and
+a measured large-process-list benchmark. General GUI data receipt age and stale
+update warnings are implemented; service measurement timestamps remain pending.
 
 ### Implementation phases
 

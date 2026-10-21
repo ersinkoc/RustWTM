@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
@@ -172,6 +172,7 @@ pub fn data() -> Data {
     };
     let mut d = Data {
         mode: Mode::Local,
+        sample_received_at: Some(Instant::now()),
         snapshot: Some(Arc::new(snapshot())),
         status: Some(Status {
             dry_run: true,
@@ -204,6 +205,10 @@ pub fn data() -> Data {
                 memory_bytes: 1 << 30,
             }],
             foreground: Some("alpha.exe".into()),
+            rescue_core: Some(wtm_ipc::RescueStatus {
+                cpus: vec![14, 15],
+                moved: 42,
+            }),
         }),
         details: Some((
             alpha.clone(),

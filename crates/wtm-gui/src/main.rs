@@ -6,6 +6,7 @@ mod about;
 mod alert;
 mod app;
 mod backend;
+mod frames;
 mod i18n;
 mod kill_tab;
 mod limits_tab;
@@ -57,6 +58,21 @@ fn blocked_program(mut args: impl Iterator<Item = String>) -> Option<String> {
     Some(name)
 }
 
+/// Memory of the window that Windows never pages out, so it repaints at once
+/// even when RAM is exhausted.
+const UI_WORKING_SET: usize = 64 << 20;
+
+/// Keeps the window responsive on an overloaded machine: ahead of ordinary
+/// apps for CPU, with its memory resident and the UI thread ahead of the
+/// background workers. Best effort; Windows may refuse any step.
+fn harden() {
+    let _ = wtm_core::control::harden_self(
+        wtm_core::control::PriorityClass::AboveNormal,
+        UI_WORKING_SET,
+    );
+    let _ = wtm_core::control::raise_current_thread();
+}
+
 fn main() -> eframe::Result {
     i18n::initialize();
     if let Some(name) = blocked_program(std::env::args().skip(1)) {
@@ -77,6 +93,7 @@ fn main() -> eframe::Result {
         }
         return Ok(());
     }
+    harden();
     eframe::run_native(
         "RustWTM",
         options(!background),

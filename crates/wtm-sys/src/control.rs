@@ -6,6 +6,7 @@ use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use std::time::Duration;
 
+use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 use windows::Win32::Foundation::{
     FILETIME, HANDLE, NTSTATUS, UNICODE_STRING, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
@@ -17,6 +18,7 @@ use windows::Win32::System::Diagnostics::Debug::{
     MiniDumpWithThreadInfo, MiniDumpWithUnloadedModules, MiniDumpWriteDump,
 };
 use windows::Win32::System::Memory::{
+    GetProcessWorkingSetSizeEx, QUOTA_LIMITS_HARDWS_MAX_DISABLE, QUOTA_LIMITS_HARDWS_MIN_ENABLE,
     SETPROCESSWORKINGSETSIZEEX_FLAGS, SetProcessWorkingSetSizeEx,
 };
 use windows::Win32::System::Threading::{
@@ -30,6 +32,11 @@ use windows::Win32::System::Threading::{
     PROCESS_TERMINATE, PROCESS_VM_READ, ProcessPowerThrottling, QueryFullProcessImageNameW,
     REALTIME_PRIORITY_CLASS, SetPriorityClass, SetProcessAffinityMask, SetProcessInformation,
     TerminateProcess, WaitForSingleObject,
+};
+use windows::Win32::System::Threading::{
+    GetCurrentThread, GetProcessDefaultCpuSets, MEMORY_PRIORITY_INFORMATION,
+    MEMORY_PRIORITY_NORMAL, PROCESS_SET_LIMITED_INFORMATION, ProcessMemoryPriority,
+    SetProcessDefaultCpuSets, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
 };
 use windows::core::PWSTR;
 
@@ -58,6 +65,9 @@ impl Access {
     pub const TERMINATE: Self = Self(PROCESS_TERMINATE);
     pub const SUSPEND_RESUME: Self = Self(PROCESS_SUSPEND_RESUME);
     pub const SET_INFORMATION: Self = Self(PROCESS_SET_INFORMATION);
+    /// Enough to change default CPU Sets; granted for more processes than
+    /// `SET_INFORMATION`.
+    pub const SET_LIMITED_INFORMATION: Self = Self(PROCESS_SET_LIMITED_INFORMATION);
     /// Required (with TERMINATE) to assign the process to a job object.
     pub const SET_QUOTA: Self = Self(PROCESS_SET_QUOTA);
     pub const SYNCHRONIZE: Self = Self(PROCESS_SYNCHRONIZE);
@@ -427,6 +437,78 @@ impl ProcessHandle {
         )
     }
 
+    /// The process's default CPU Set IDs; empty when it may use every
+    /// processor. Requires `Access::QUERY`.
+    pub fn default_cpu_sets(&self) -> Result<Vec<u32>> {
+        let mut ids = vec![0u32; 64];
+        loop {
+            let mut required = 0u32;
+            // SAFETY: `ids` is writable for its length; `required` is writable.
+            let ok = unsafe {
+                GetProcessDefaultCpuSets(self.raw(), Some(&mut ids), &mut required).as_bool()
+            };
+            if ok {
+                ids.truncate(required as usize);
+                return Ok(ids);
+            }
+            let error = windows::core::Error::from_thread();
+            if error.code() != ERROR_INSUFFICIENT_BUFFER.to_hresult()
+                || required as usize <= ids.len()
+            {
+                return Err(error.into());
+            }
+            ids.resize(required as usize, 0);
+        }
+    }
+
+    /// Confines the process's threads that have no CPU Sets of their own to
+    /// `ids`; an empty slice lifts the restriction. Requires
+    /// `Access::SET_LIMITED_INFORMATION`.
+    pub fn set_default_cpu_sets(&self, ids: &[u32]) -> Result<()> {
+        let ids = (!ids.is_empty()).then_some(ids);
+        // SAFETY: valid handle; the slice, if any, outlives the call.
+        unsafe { SetProcessDefaultCpuSets(self.raw(), ids).ok()? };
+        Ok(())
+    }
+
+    /// Keeps at least `min_bytes` of the process resident: Windows will not
+    /// trim its working set below that, even under memory pressure. Requires
+    /// `Access::QUERY | Access::SET_QUOTA`.
+    pub fn lock_working_set(&self, min_bytes: usize) -> Result<()> {
+        let (mut min, mut max, mut flags) = (0usize, 0usize, 0u32);
+        // SAFETY: all out-pointers reference live locals.
+        unsafe { GetProcessWorkingSetSizeEx(self.raw(), &mut min, &mut max, &mut flags).ok()? };
+        let max = max.max(min_bytes.saturating_add(min_bytes / 2));
+        // SAFETY: valid handle; the sizes are plain values.
+        unsafe {
+            SetProcessWorkingSetSizeEx(
+                self.raw(),
+                min_bytes,
+                max,
+                QUOTA_LIMITS_HARDWS_MIN_ENABLE | QUOTA_LIMITS_HARDWS_MAX_DISABLE,
+            )?
+        };
+        Ok(())
+    }
+
+    /// Restores normal memory priority, so the process's pages are the last
+    /// to be repurposed from the standby list. Requires `Access::SET_INFORMATION`.
+    pub fn set_normal_memory_priority(&self) -> Result<()> {
+        let info = MEMORY_PRIORITY_INFORMATION {
+            MemoryPriority: MEMORY_PRIORITY_NORMAL,
+        };
+        // SAFETY: `info` is a correctly sized MEMORY_PRIORITY_INFORMATION.
+        unsafe {
+            SetProcessInformation(
+                self.raw(),
+                ProcessMemoryPriority,
+                (&raw const info).cast(),
+                size_of::<MEMORY_PRIORITY_INFORMATION>() as u32,
+            )?
+        };
+        Ok(())
+    }
+
     pub fn set_eco_qos(&self, mode: EcoQos) -> Result<()> {
         let bit = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
         let (control, state) = match mode {
@@ -450,6 +532,14 @@ impl ProcessHandle {
         };
         Ok(())
     }
+}
+
+/// Raises the calling thread above the other threads of its priority class,
+/// e.g. so a UI thread keeps painting while workers are busy.
+pub fn raise_current_thread() -> Result<()> {
+    // SAFETY: the pseudo handle of the current thread needs no closing.
+    unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL)? };
+    Ok(())
 }
 
 fn nt_ok(call: &'static str, status: NTSTATUS) -> Result<()> {
@@ -496,6 +586,34 @@ mod tests {
         h.trim_working_set().unwrap();
         let weak = ProcessHandle::open(child.0.id(), Access::QUERY).unwrap();
         assert!(weak.trim_working_set().unwrap_err().is_access_denied());
+    }
+
+    #[test]
+    fn default_cpu_sets_and_working_set_floor_apply_to_a_child() {
+        let child = spawn_ping();
+        let access = Access::QUERY | Access::SET_LIMITED_INFORMATION | Access::SET_QUOTA;
+        let h = ProcessHandle::open(child.0.id(), access).unwrap();
+        assert!(h.default_cpu_sets().unwrap().is_empty());
+        let split = crate::cpu::topology().unwrap();
+        let first = split.cpus[0].id;
+        h.set_default_cpu_sets(&[first]).unwrap();
+        assert_eq!(h.default_cpu_sets().unwrap(), [first]);
+        h.set_default_cpu_sets(&[]).unwrap();
+        assert!(h.default_cpu_sets().unwrap().is_empty());
+        h.lock_working_set(8 << 20).unwrap();
+
+        let weak = ProcessHandle::open(child.0.id(), Access::QUERY).unwrap();
+        assert!(weak.set_default_cpu_sets(&[first]).is_err());
+        assert!(weak.set_normal_memory_priority().is_err());
+    }
+
+    #[test]
+    fn hardens_the_current_process_and_thread() {
+        let access = Access::QUERY | Access::SET_INFORMATION | Access::SET_QUOTA;
+        let h = ProcessHandle::open(std::process::id(), access).unwrap();
+        h.set_normal_memory_priority().unwrap();
+        h.lock_working_set(16 << 20).unwrap();
+        raise_current_thread().unwrap();
     }
 
     #[test]

@@ -1,4 +1,34 @@
 {
+  "Waiting for monitoring data…": {
+    "tr": "İzleme verileri bekleniyor…",
+    "de": "Warte auf Überwachungsdaten…",
+    "fr": "En attente des données de surveillance…",
+    "es": "Esperando datos de supervisión…"
+  },
+  "Monitoring data is out of date": {
+    "tr": "İzleme verileri güncel değil",
+    "de": "Überwachungsdaten sind veraltet",
+    "fr": "Les données de surveillance sont obsolètes",
+    "es": "Los datos de supervisión están desactualizados"
+  },
+  "Displayed values remain from the last received sample. They do not indicate current activity.": {
+    "tr": "Gösterilen değerler son alınan ölçüme aittir. Güncel etkinliği göstermezler.",
+    "de": "Die angezeigten Werte stammen aus der zuletzt empfangenen Messung. Sie zeigen nicht die aktuelle Aktivität.",
+    "fr": "Les valeurs affichées proviennent du dernier échantillon reçu. Elles ne représentent pas l’activité actuelle.",
+    "es": "Los valores mostrados corresponden a la última muestra recibida. No indican la actividad actual."
+  },
+  "Last data received {0}s ago": {
+    "tr": "Son veri {0} sn önce alındı",
+    "de": "Letzte Daten vor {0} s empfangen",
+    "fr": "Dernières données reçues il y a {0} s",
+    "es": "Últimos datos recibidos hace {0} s"
+  },
+  "The service has not supplied a sample.": {
+    "tr": "Servis henüz bir ölçüm sağlamadı.",
+    "de": "Der Dienst hat noch keine Messung geliefert.",
+    "fr": "Le service n’a pas encore fourni d’échantillon.",
+    "es": "El servicio aún no ha proporcionado una muestra."
+  },
   "Usage history is recorded by the RustWTM service": {
     "tr": "Kullanım geçmişini RustWTM servisi kaydeder",
     "de": "Der RustWTM-Dienst zeichnet den Verlauf auf",
@@ -4744,5 +4774,53 @@
     "de": "Speicherschutz: {0}",
     "fr": "Protection mémoire: {0}",
     "es": "Protección de memoria: {0}"
+  },
+  "Window drawing: {0} ms on average, {1} ms for 95% of frames, {2} ms at worst": {
+    "tr": "Pencere çizimi: ortalama {0} ms, karelerin %95'inde {1} ms, en kötü {2} ms",
+    "de": "Fensteraufbau: im Schnitt {0} ms, {1} ms bei 95 % der Frames, höchstens {2} ms",
+    "fr": "Affichage de la fenêtre : {0} ms en moyenne, {1} ms pour 95 % des images, {2} ms au pire",
+    "es": "Dibujo de la ventana: {0} ms de media, {1} ms en el 95 % de los fotogramas, {2} ms en el peor caso"
+  },
+  "Rescue core active: CPU {0} kept free for RustWTM and Windows, {1} apps moved off it": {
+    "tr": "Kurtarma çekirdeği etkin: CPU {0} RustWTM ve Windows için boş tutuluyor, {1} uygulama oradan taşındı",
+    "de": "Rettungskern aktiv: CPU {0} bleibt für RustWTM und Windows frei, {1} Apps davon verschoben",
+    "fr": "Cœur de secours actif : CPU {0} gardé libre pour RustWTM et Windows, {1} applis déplacées",
+    "es": "Núcleo de rescate activo: CPU {0} reservada para RustWTM y Windows, {1} apps movidas fuera"
+  },
+  "⛨ Rescue core": {
+    "tr": "⛨ Kurtarma çekirdeği",
+    "de": "⛨ Rettungskern",
+    "fr": "⛨ Cœur de secours",
+    "es": "⛨ Núcleo de rescate"
+  },
+  "Reserved for RustWTM": {
+    "tr": "RustWTM için ayrılan",
+    "de": "Für RustWTM reserviert",
+    "fr": "Réservé à RustWTM",
+    "es": "Reservado para RustWTM"
+  },
+  "Keep one core free for RustWTM when the CPU is overloaded": {
+    "tr": "CPU aşırı yüklendiğinde bir çekirdeği RustWTM için boş tut",
+    "de": "Bei überlasteter CPU einen Kern für RustWTM freihalten",
+    "fr": "Garder un cœur libre pour RustWTM quand le processeur est saturé",
+    "es": "Mantener un núcleo libre para RustWTM cuando la CPU esté saturada"
+  },
+  "Other apps are moved off that core until the load drops, so RustWTM always responds": {
+    "tr": "Yük düşene kadar diğer uygulamalar o çekirdekten taşınır; böylece RustWTM her zaman yanıt verir",
+    "de": "Andere Apps werden von diesem Kern verschoben, bis die Last sinkt, damit RustWTM immer reagiert",
+    "fr": "Les autres applis quittent ce cœur jusqu'à ce que la charge baisse, pour que RustWTM réponde toujours",
+    "es": "Las demás apps salen de ese núcleo hasta que baje la carga, para que RustWTM responda siempre"
+  },
+  "When CPU stays above": {
+    "tr": "CPU şu değerin üzerinde kalınca",
+    "de": "Bei anhaltender CPU-Last über",
+    "fr": "Si le processeur reste au-dessus de",
+    "es": "Si la CPU permanece por encima de"
+  },
+  "Service memory never paged out": {
+    "tr": "Servisin asla diske atılmayan belleği",
+    "de": "Nie ausgelagerter Dienstspeicher",
+    "fr": "Mémoire du service jamais déchargée",
+    "es": "Memoria del servicio que nunca se pagina"
   }
 }

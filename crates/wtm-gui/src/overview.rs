@@ -49,7 +49,9 @@ struct Stat<'a> {
     max: Option<f32>,
 }
 
-const STAT_HEIGHT: f32 = 128.0;
+const STAT_HEIGHT: f32 = 136.0;
+/// Ring or value block at the top of every card, so all cards line up.
+const STAT_HEADER: f32 = 66.0;
 /// Seconds of history in a card's sparkline.
 const STAT_SECONDS: usize = 60;
 
@@ -67,24 +69,31 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.set_height(STAT_HEIGHT - 24.0);
-            ui.horizontal(|ui| {
-                if let Some(p) = s.ring {
-                    crate::theme::ring_gauge(ui, 60.0, p, load_color(p), &format!("{p:.0}%"));
-                    ui.add_space(6.0);
-                }
-                ui.vertical(|ui| {
-                    ui.label(
-                        RichText::new(s.title)
-                            .size(15.0)
-                            .strong()
-                            .color(crate::theme::text_color(ui, s.accent)),
-                    );
-                    if s.ring.is_none() {
-                        ui.label(RichText::new(&s.value).size(20.0).strong());
+            let header = egui::vec2(ui.available_width(), STAT_HEADER);
+            ui.allocate_ui_with_layout(
+                header,
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_height(STAT_HEADER);
+                    if let Some(p) = s.ring {
+                        crate::theme::ring_gauge(ui, 60.0, p, load_color(p), &format!("{p:.0}%"));
+                        ui.add_space(6.0);
                     }
-                    ui.add(egui::Label::new(RichText::new(&s.detail).weak()).truncate());
-                });
-            });
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(
+                            RichText::new(s.title)
+                                .size(15.0)
+                                .strong()
+                                .color(crate::theme::text_color(ui, s.accent)),
+                        );
+                        if s.ring.is_none() {
+                            ui.label(RichText::new(&s.value).size(20.0).strong());
+                        }
+                        ui.add(egui::Label::new(RichText::new(&s.detail).weak()).truncate());
+                    });
+                },
+            );
             ui.add_space(4.0);
             let height = ui.available_height().max(20.0);
             let (rect, _) = ui.allocate_exact_size(
@@ -135,6 +144,11 @@ fn rate(bytes_per_sec: f64) -> String {
 /// The verdict in a tinted strip.
 fn banner(ui: &mut Ui, color: Color32, text: &str) {
     let icon = if color == GOOD { "✔" } else { "⚠" };
+    strip(ui, color, icon, text);
+}
+
+/// A tinted full-width strip with an icon.
+fn strip(ui: &mut Ui, color: Color32, icon: &str, text: &str) {
     egui::Frame::new()
         .fill(color.gamma_multiply(0.14))
         .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.5)))
@@ -148,6 +162,15 @@ fn banner(ui: &mut Ui, color: Color32, text: &str) {
                     .color(crate::theme::text_color(ui, color)),
             );
         });
+}
+
+/// What the rescue core keeps free while the machine is overloaded.
+pub(crate) fn rescue_text(rescue: &wtm_ipc::RescueStatus) -> String {
+    let cpus: Vec<_> = rescue.cpus.iter().map(u8::to_string).collect();
+    crate::i18n::format(
+        "Rescue core active: CPU {0} kept free for RustWTM and Windows, {1} apps moved off it",
+        &[cpus.join(", "), rescue.moved.to_string()],
+    )
 }
 
 /// One app: all processes with the same image name.
@@ -451,6 +474,10 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         if let Some((color, text)) = verdict(data) {
             ui.add_space(4.0);
             banner(ui, color, &text);
+        }
+        if let Some(rescue) = data.status.as_ref().and_then(|s| s.rescue_core.as_ref()) {
+            ui.add_space(4.0);
+            strip(ui, crate::theme::CPU, "⛨", &rescue_text(rescue));
         }
         swarms(ui, data, &snap.processes, &mut intents);
     } else {

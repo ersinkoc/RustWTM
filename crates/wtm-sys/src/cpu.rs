@@ -110,6 +110,52 @@ impl Topology {
     }
 }
 
+/// The processors kept free for RustWTM while the machine is overloaded, and
+/// the CPU Set IDs everything else is confined to meanwhile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RescueSplit {
+    pub reserved: Vec<u32>,
+    pub others: Vec<u32>,
+    /// Group-relative logical processor numbers of `reserved`, for messages.
+    pub reserved_indices: Vec<u8>,
+}
+
+impl Topology {
+    /// Picks the last physical core of the fastest tier in group 0 (all of
+    /// its SMT siblings on machines with at least 8 logical processors, one
+    /// logical processor otherwise). Parking is transient, so parked
+    /// processors count as usable. `None` when fewer than two processors are
+    /// usable, since nothing could be left for everyone else.
+    pub fn rescue_split(&self) -> Option<RescueSplit> {
+        let usable: Vec<_> = self.cpus.iter().filter(|c| !c.reserved_elsewhere).collect();
+        if usable.len() < 2 {
+            return None;
+        }
+        let fastest = usable.iter().map(|c| c.efficiency_class).max()?;
+        let pick = usable
+            .iter()
+            .filter(|c| c.group == 0 && c.efficiency_class == fastest)
+            .max_by_key(|c| c.index)?;
+        let whole_core = usable.len() >= 8;
+        let (reserved, others): (Vec<&&LogicalCpu>, Vec<_>) = usable.iter().partition(|c| {
+            c.group == pick.group
+                && if whole_core {
+                    c.core == pick.core
+                } else {
+                    c.index == pick.index
+                }
+        });
+        if others.is_empty() {
+            return None;
+        }
+        Some(RescueSplit {
+            reserved: reserved.iter().map(|c| c.id).collect(),
+            others: others.iter().map(|c| c.id).collect(),
+            reserved_indices: reserved.iter().map(|c| c.index).collect(),
+        })
+    }
+}
+
 fn invalid() -> crate::Error {
     windows::core::Error::from_hresult(ERROR_INVALID_DATA.to_hresult()).into()
 }
@@ -282,6 +328,49 @@ mod tests {
                 .unwrap(),
             1 << 63
         );
+    }
+    fn cpu(id: u32, index: u8, core: u8, class: u8) -> LogicalCpu {
+        LogicalCpu {
+            id,
+            group: 0,
+            index,
+            core,
+            efficiency_class: class,
+            parked: false,
+            reserved_elsewhere: false,
+        }
+    }
+    #[test]
+    fn rescue_split_keeps_the_last_fast_core_free() {
+        // 4 P-threads (2 cores with SMT) and 4 E-cores: the whole last P-core.
+        let mut cpus: Vec<_> = (0..4)
+            .map(|i| cpu(100 + i, i as u8, i as u8 / 2 * 2, 1))
+            .collect();
+        cpus.extend((4..8).map(|i| cpu(100 + i, i as u8, i as u8, 0)));
+        let t = Topology { cpus };
+        let s = t.rescue_split().unwrap();
+        assert_eq!(s.reserved, [102, 103]);
+        assert_eq!(s.reserved_indices, [2, 3]);
+        assert_eq!(s.others, [100, 101, 104, 105, 106, 107]);
+
+        // Small machines give up one logical processor, not a whole core.
+        let t = Topology {
+            cpus: (0..4).map(|i| cpu(i, i as u8, i as u8 / 2, 0)).collect(),
+        };
+        let s = t.rescue_split().unwrap();
+        assert_eq!((s.reserved, s.others), (vec![3], vec![0, 1, 2]));
+
+        // Processors reserved by another app are never picked or used;
+        // parked ones only sleep for now.
+        let mut t = Topology {
+            cpus: (0..3).map(|i| cpu(i, i as u8, i as u8, 0)).collect(),
+        };
+        t.cpus[2].reserved_elsewhere = true;
+        t.cpus[0].parked = true;
+        let s = t.rescue_split().unwrap();
+        assert_eq!((s.reserved, s.others), (vec![1], vec![0]));
+        t.cpus[0].reserved_elsewhere = true;
+        assert!(t.rescue_split().is_none());
     }
     #[test]
     fn discovers_live_topology_without_changing_affinity() {

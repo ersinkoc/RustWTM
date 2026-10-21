@@ -125,6 +125,41 @@ trimmed. Manual equivalent: *Free memory* in the GUI, `wtm trim <target>`.
 | `exempt` | `[]` | Image-name wildcards never trimmed. |
 
 Applied only when `dry_run = false`.
+
+## `[reserve]`
+
+CPU and memory kept for RustWTM itself, so it stays usable on a machine that
+is pinned at 100% CPU or out of RAM.
+
+**Rescue core.** While system CPU stays at or above `trigger_cpu_percent` for
+`sustain_secs`, every other program is moved off one core with CPU Sets (the
+last physical core of the fastest tier; a single logical processor on machines
+with fewer than 8). RustWTM, core Windows processes (including `dwm.exe`, which
+draws the screen) and `exempt` keep every core. Programs that chose their own
+CPU Sets are left alone. Once CPU stays at or below `release_cpu_percent` for
+`release_secs`, the core is handed back; it is also handed back when the
+service stops. The GUI shows *Rescue core* in the status bar and on the
+Overview while it is engaged. In dry run it is only reported.
+
+**Always on.** The service runs at high priority, opted out of EcoQoS, with
+`working_set_mb` of memory that Windows never pages out. The window runs above
+normal priority with 64 MB kept resident and its UI thread ahead of its
+background workers.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `rescue_core` | `true` | Keep one core free while overloaded. |
+| `trigger_cpu_percent` | `95.0` | System CPU that engages the rescue core... |
+| `sustain_secs` | `3` | ...when it lasts this long. |
+| `release_cpu_percent` | `75.0` | System CPU that hands the core back... |
+| `release_secs` | `10` | ...when it lasts this long. |
+| `working_set_mb` | `48` | Service memory never paged out; `0` = none, at most `1024`. |
+| `exempt` | `[]` | Image-name wildcards that keep every core. |
+
+Windows has no hard CPU or memory reservation for ordinary programs; these
+are the strongest guarantees it offers. A machine that has run out of commit
+(RAM plus page file) can still refuse new allocations.
+
 ## `[[limit]]` — app limits
 
 ```toml

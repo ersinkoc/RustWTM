@@ -18,7 +18,7 @@ usage history.
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Status:** early release (0.14). Sensors and cooling controls are available
+> **Status:** early release (0.15). Sensors and cooling controls are available
 > through the optional hardware provider. Device support varies; physical fan
 > writes still require validation on each supported hardware configuration.
 > Enforcement is **off by default** (dry-run); review the event log first.
@@ -40,6 +40,13 @@ usage history.
   and protection continue. Quick filters for high CPU (5%+), high memory
   (512 MiB+) and managed processes combine with name, PID, path and command-line
   search. Wide tables scroll horizontally; the details panel scrolls and closes.
+- Monitoring data shows its last receipt age on every page. Sampling failures
+  and delayed updates display a warning while retaining the last values.
+- **Reserved for RustWTM**: when the CPU is pinned, a rescue core is kept free
+  for RustWTM and Windows by moving other programs off it until the load drops.
+  The service and the window keep memory resident and run ahead of ordinary
+  apps, so RustWTM stays usable on an overloaded machine. See
+  [`[reserve]`](docs/configuration.md#reserve).
 - Actions: end task, end process tree, suspend / resume, priority, CPU
   affinity, efficiency mode (EcoQoS), hard CPU cap and memory cap (job objects).
 - Performance graphs (CPU with every logical processor, memory, GPU, network,
@@ -158,8 +165,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.13.0-x64.msi            # interactive
-msiexec /i RustWTM-0.13.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.15.0-x64.msi            # interactive
+msiexec /i RustWTM-0.15.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall

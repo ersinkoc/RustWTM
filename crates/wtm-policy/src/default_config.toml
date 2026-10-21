@@ -107,6 +107,22 @@ exempt = []
 # started): a helper that should take seconds is stuck by then. 0 = only warn.
 end_after_mins = 0
 
+# Reserve: resources kept for RustWTM itself, so it stays usable when the
+# machine is pinned at 100% CPU or out of memory. While system CPU stays at or
+# above trigger_cpu_percent for sustain_secs, every other program (except core
+# Windows processes and `exempt`) is moved off one core with CPU Sets, leaving
+# it to RustWTM and Windows; it is handed back once CPU stays at or below
+# release_cpu_percent for release_secs. working_set_mb of the service is
+# never paged out.
+[reserve]
+rescue_core = true
+trigger_cpu_percent = 95.0
+sustain_secs = 3
+release_cpu_percent = 75.0
+release_secs = 10
+working_set_mb = 48
+exempt = []
+
 # App limits: every process of an app and everything it starts share a CPU
 # and/or memory budget (job object). scope = "each" gives every top-level
 # instance its own budget. Edit them in the GUI's Limits tab or with

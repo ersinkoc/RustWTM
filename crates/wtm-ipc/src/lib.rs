@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -182,6 +182,17 @@ pub struct Status {
     pub app_limits: Vec<wtm_policy::GroupUsage>,
     /// The foreground app protected from the governor, if any.
     pub foreground: Option<String>,
+    /// What the rescue core keeps free while it is engaged.
+    pub rescue_core: Option<RescueStatus>,
+}
+
+/// The rescue core while engaged: processors left to RustWTM and Windows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RescueStatus {
+    /// Group-relative logical processor numbers.
+    pub cpus: Vec<u8>,
+    /// Processes currently moved off them.
+    pub moved: usize,
 }
 
 /// A process the service currently holds limits on.
