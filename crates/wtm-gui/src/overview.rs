@@ -182,15 +182,35 @@ pub(crate) fn rescue_text(rescue: &wtm_ipc::RescueStatus) -> String {
 }
 
 /// One app: all processes with the same image name.
-pub(crate) struct App<'a> {
+pub(crate) struct App<'a, P = ProcessRef> {
     pub name: &'a str,
     pub cpu: f32,
     pub memory: u64,
-    pub instances: Vec<ProcessRef>,
+    pub instances: Vec<P>,
 }
 
 pub(crate) fn busiest_apps(data: &Data, n: usize) -> Vec<App<'_>> {
-    let mut apps: HashMap<String, App<'_>> = HashMap::new();
+    busiest(&app_totals(data), n)
+}
+
+/// The first `n` of `totals` with a reference to each of their processes.
+fn busiest<'a>(totals: &[App<'a, &'a ProcessInfo>], n: usize) -> Vec<App<'a>> {
+    totals
+        .iter()
+        .take(n)
+        .map(|a| App {
+            name: a.name,
+            cpu: a.cpu,
+            memory: a.memory,
+            instances: a.instances.iter().map(|p| ProcessRef::from(*p)).collect(),
+        })
+        .collect()
+}
+
+/// Every app, busiest first. Its processes are borrowed: only the few apps
+/// shown need their names copied into references.
+fn app_totals(data: &Data) -> Vec<App<'_, &ProcessInfo>> {
+    let mut apps: HashMap<String, App<'_, &ProcessInfo>> = HashMap::new();
     for p in data.snapshot.iter().flat_map(|s| &s.processes) {
         if p.pid == 0 || wtm_core::protection_reason(p.pid, &p.name).is_some() {
             continue;
@@ -203,19 +223,32 @@ pub(crate) fn busiest_apps(data: &Data, n: usize) -> Vec<App<'_>> {
         });
         a.cpu += p.cpu_percent;
         a.memory += p.private_working_set;
-        a.instances.push(ProcessRef::from(p));
+        a.instances.push(p);
     }
     let mut out: Vec<_> = apps.into_values().collect();
     out.sort_by(|a, b| b.cpu.total_cmp(&a.cpu).then(b.memory.cmp(&a.memory)));
-    out.truncate(n);
     out
 }
 
 /// One sentence on how the machine is doing and who is responsible.
+#[cfg(test)]
 fn verdict(data: &Data) -> Option<(Color32, String)> {
+    let swarms = data
+        .snapshot
+        .as_ref()
+        .map(|s| wtm_policy::find_swarms(&s.processes, &data.swarm))
+        .unwrap_or_default();
+    verdict_of(data, &app_totals(data), &swarms)
+}
+
+/// [`verdict`] from the apps and swarms the page already found.
+fn verdict_of(
+    data: &Data,
+    apps: &[App<'_, &ProcessInfo>],
+    swarms: &[wtm_policy::Swarm<'_>],
+) -> Option<(Color32, String)> {
     let s = &data.snapshot.as_ref()?.system;
     let mem = s.memory_used() as f32 / s.memory_total.max(1) as f32 * 100.0;
-    let apps = busiest_apps(data, usize::MAX);
     let top_cpu = apps.first();
     let top_mem = apps.iter().max_by_key(|a| a.memory);
     let cpu_blame = || {
@@ -265,7 +298,6 @@ fn verdict(data: &Data) -> Option<(Color32, String)> {
             )
         })
     } else {
-        let swarms = wtm_policy::find_swarms(&data.snapshot.as_ref()?.processes, &data.swarm);
         match swarms.len() {
             0 => (
                 GOOD,
@@ -334,13 +366,18 @@ fn not_responding(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut
     }
 }
 
-fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Intent>) {
-    let swarms = wtm_policy::find_swarms(procs, &data.swarm);
+fn swarms(
+    ui: &mut Ui,
+    data: &Data,
+    procs: &[ProcessInfo],
+    swarms: &[wtm_policy::Swarm<'_>],
+    intents: &mut Vec<Intent>,
+) {
     if swarms.is_empty() {
         return;
     }
     let by_pid: HashMap<u32, &ProcessInfo> = procs.iter().map(|p| (p.pid, p)).collect();
-    for s in &swarms {
+    for s in swarms {
         ui.add_space(6.0);
         crate::theme::card(
             ui,
@@ -443,8 +480,11 @@ fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Int
 pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     let mut commands = Vec::new();
     let mut intents = Vec::new();
+    // Found once per frame: the verdict, the swarm cards and the table share them.
+    let apps = app_totals(data);
 
     if let Some(snap) = &data.snapshot {
+        let swarm_list = wtm_policy::find_swarms(&snap.processes, &data.swarm);
         let s = &snap.system;
         let mem = if s.memory_total > 0 {
             s.memory_used() as f32 / s.memory_total as f32 * 100.0
@@ -518,7 +558,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
             },
         ];
         stat_row(ui, &stats);
-        if let Some((color, text)) = verdict(data) {
+        if let Some((color, text)) = verdict_of(data, &apps, &swarm_list) {
             ui.add_space(4.0);
             banner(ui, color, &text);
         }
@@ -531,7 +571,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
             strip(ui, crate::theme::GPU, "▶", &game_text(game));
         }
         not_responding(ui, data, &snap.processes, &mut intents);
-        swarms(ui, data, &snap.processes, &mut intents);
+        swarms(ui, data, &snap.processes, &swarm_list, &mut intents);
     } else {
         ui.spinner();
     }
@@ -554,7 +594,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 .size(16.0)
                 .strong(),
             |ui| {
-                busiest_table(ui, data, intents);
+                busiest_table(ui, data, &apps, intents);
             },
         );
     };
@@ -582,8 +622,13 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     (commands, intents)
 }
 
-fn busiest_table(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
-    let apps = busiest_apps(data, 8);
+fn busiest_table(
+    ui: &mut Ui,
+    data: &Data,
+    totals: &[App<'_, &ProcessInfo>],
+    intents: &mut Vec<Intent>,
+) {
+    let apps = busiest(totals, 8);
     egui::Grid::new("overview_apps")
         .num_columns(5)
         .striped(true)

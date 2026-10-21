@@ -109,6 +109,10 @@ pub struct Data {
     pub details: Option<(ProcessRef, Result<ProcessDetails, String>)>,
     /// Processes whose window does not respond, refreshed every sample.
     pub hung: HungMap,
+    /// Counts the updates of the snapshot, status, command lines, image
+    /// paths and hung windows, so the window can keep what it derives from
+    /// them until the next one instead of redoing it every frame.
+    pub revision: u64,
     /// The last wait chain analysis; `None` inside while it runs.
     pub wait_report: Option<(ProcessRef, Option<Result<wtm_core::WaitReport, String>>)>,
     /// The loaded modules of a process with their signatures; `None`
@@ -525,6 +529,7 @@ impl Worker {
                     let mut data = self.data();
                     lookups.apply(&mut data);
                     data.hung = hung;
+                    data.revision = data.revision.wrapping_add(1);
                     if let Some(points) = backfill
                         && data.history.cpu.len() < points.len()
                     {
@@ -561,6 +566,7 @@ impl Worker {
         let mut data = self.data();
         lookups.apply(&mut data);
         data.hung = hung;
+        data.revision = data.revision.wrapping_add(1);
         publish_local(&mut data, sample);
         drop(data);
         refresh_icons(&self.data);

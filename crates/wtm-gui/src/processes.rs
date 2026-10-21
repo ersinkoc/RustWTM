@@ -271,6 +271,43 @@ pub struct ProcessView {
     pub recent_minutes: u32,
     /// Only the process table is frozen. Sampling, protection and alerts continue.
     pub paused: Option<std::sync::Arc<Snapshot>>,
+    /// The filtered and sorted rows of an earlier frame. Every frame draws
+    /// the table, but the rows only change with the data or the settings.
+    cache: Option<RowCache>,
+}
+
+/// One table row: a process (index into the snapshot) at a tree depth, or
+/// an app (index into the groups).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Row {
+    Process(usize, usize),
+    App(usize),
+}
+
+/// Everything the rows are built from. `revision` stands for the data the
+/// window received (snapshot, labels, command lines, hung windows).
+#[derive(Debug, PartialEq)]
+struct RowKey {
+    revision: u64,
+    snapshot: usize,
+    processes: usize,
+    search: String,
+    mode: ViewMode,
+    sort: Col,
+    descending: bool,
+    filter: QuickFilter,
+    more: MoreFilters,
+    expanded: HashSet<String>,
+    /// The "started in the last" filter moves with the clock.
+    second: Option<u64>,
+}
+
+struct RowCache {
+    key: RowKey,
+    rows: Vec<Row>,
+    groups: Vec<AppGroup>,
+    /// Processes that match the filters.
+    shown: usize,
 }
 
 impl Default for ProcessView {
@@ -288,6 +325,7 @@ impl Default for ProcessView {
             more: MoreFilters::default(),
             recent_minutes: 5,
             paused: None,
+            cache: None,
         }
     }
 }
@@ -458,12 +496,26 @@ fn running_for(p: &ProcessInfo) -> String {
     }
 }
 /// Depth-first order with siblings sorted; orphans become roots.
+#[cfg(test)]
 fn tree_rows<'a>(
     procs: &'a [ProcessInfo],
     col: Col,
     descending: bool,
     extra: &Extra<'_>,
 ) -> Vec<(&'a ProcessInfo, usize)> {
+    tree_order(procs, col, descending, extra)
+        .into_iter()
+        .map(|(i, depth)| (&procs[i], depth))
+        .collect()
+}
+
+/// [`tree_rows`] as (index, depth) pairs.
+fn tree_order(
+    procs: &[ProcessInfo],
+    col: Col,
+    descending: bool,
+    extra: &Extra<'_>,
+) -> Vec<(usize, usize)> {
     let index: HashMap<u32, usize> = procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
     let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
     let mut roots = Vec::new();
@@ -485,16 +537,17 @@ fn tree_rows<'a>(
     children.values_mut().for_each(sort);
 
     let mut out = Vec::with_capacity(procs.len());
-    let mut seen = HashSet::new();
+    let mut seen = vec![false; procs.len()];
+    let mut stack = Vec::new();
     // Processes that are only reachable through a parent cycle (same create
     // time, PIDs reused) are appended as extra roots so none goes missing.
     for start in roots.into_iter().chain(0..procs.len()) {
-        let mut stack = vec![(start, 0)];
+        stack.push((start, 0));
         while let Some((i, depth)) = stack.pop() {
-            if !seen.insert(i) {
+            if std::mem::replace(&mut seen[i], true) {
                 continue;
             }
-            out.push((&procs[i], depth));
+            out.push((i, depth));
             if let Some(kids) = children.get(&i) {
                 stack.extend(kids.iter().rev().map(|&k| (k, depth + 1)));
             }
@@ -530,19 +583,7 @@ impl ProcessView {
     /// Up / Down move the selection, Delete asks to end the selected process.
     /// Ignored while a text field (the search), a menu or a dialog has the
     /// keyboard.
-    fn keyboard(
-        &self,
-        ui: &Ui,
-        rows: &[(&ProcessInfo, usize, Option<usize>)],
-        intents: &mut Vec<Intent>,
-    ) {
-        let ctx = ui.ctx();
-        if ctx.text_edit_focused()
-            || egui::Popup::is_any_open(ctx)
-            || ctx.memory(|m| m.top_modal_layer().is_some())
-        {
-            return;
-        }
+    fn keyboard(&self, ui: &Ui, rows: &[Row], all: &[ProcessInfo], intents: &mut Vec<Intent>) {
         let (up, down, delete) = ui.input(|i| {
             (
                 i.key_pressed(egui::Key::ArrowUp),
@@ -550,7 +591,21 @@ impl ProcessView {
                 i.key_pressed(egui::Key::Delete),
             )
         });
-        let procs: Vec<&ProcessInfo> = rows.iter().filter(|r| r.2.is_none()).map(|r| r.0).collect();
+        let ctx = ui.ctx();
+        if !(up || down || delete)
+            || ctx.text_edit_focused()
+            || egui::Popup::is_any_open(ctx)
+            || ctx.memory(|m| m.top_modal_layer().is_some())
+        {
+            return;
+        }
+        let procs: Vec<&ProcessInfo> = rows
+            .iter()
+            .filter_map(|r| match *r {
+                Row::Process(i, _) => Some(&all[i]),
+                Row::App(_) => None,
+            })
+            .collect();
         let current = self.selected.as_ref().and_then(|s| {
             procs
                 .iter()
@@ -572,7 +627,32 @@ impl ProcessView {
         }
     }
 
+    /// Shows the table, building its rows anew every frame (tests change the
+    /// data in place).
+    #[cfg(test)]
     pub fn ui(&mut self, ui: &mut Ui, snap: &Snapshot, extra: &Extra<'_>) -> Vec<Intent> {
+        self.show(ui, snap, extra, None)
+    }
+
+    /// Shows the table, reusing the rows of earlier frames until `revision`
+    /// (a count of the data updates the window received) or a setting changes.
+    pub fn ui_cached(
+        &mut self,
+        ui: &mut Ui,
+        snap: &Snapshot,
+        extra: &Extra<'_>,
+        revision: u64,
+    ) -> Vec<Intent> {
+        self.show(ui, snap, extra, Some(revision))
+    }
+
+    fn show(
+        &mut self,
+        ui: &mut Ui,
+        snap: &Snapshot,
+        extra: &Extra<'_>,
+        revision: Option<u64>,
+    ) -> Vec<Intent> {
         let mut intents = Vec::new();
         let logical_cpus = snap.system.logical_cpus.max(1);
 
@@ -689,69 +769,8 @@ impl ProcessView {
         });
         ui.separator();
 
-        let filter = self.search.trim().to_lowercase();
-        let now = std::time::SystemTime::now();
-        let matches = |p: &ProcessInfo| {
-            let resource_matches = match self.filter {
-                QuickFilter::All => true,
-                QuickFilter::Cpu => p.pid != 0 && p.cpu_percent >= 5.0,
-                QuickFilter::Memory => p.private_working_set >= 512 * 1024 * 1024,
-                QuickFilter::Managed => !extra.label(p).is_empty(),
-                QuickFilter::NotResponding => extra.hung.contains_key(&p.pid),
-            };
-            resource_matches
-                && self.more.matches(p, now)
-                && (filter.is_empty()
-                    || p.name.to_lowercase().contains(&filter)
-                    || p.pid.to_string().contains(&filter)
-                    || extra.command_line(p).to_lowercase().contains(&filter)
-                    || extra
-                        .image_paths
-                        .get(&(p.pid, p.create_time))
-                        .is_some_and(|p| p.to_lowercase().contains(&filter)))
-        };
-        let order = |a: &ProcessInfo, b: &ProcessInfo| {
-            let o = compare(a, b, self.sort, extra);
-            if self.descending { o.reverse() } else { o }
-        };
-        // Aggregated rows of the Apps view; the table borrows them.
-        let groups: Vec<AppGroup<'_>> = if self.mode == ViewMode::Apps {
-            let mut g = app_groups(snap.processes.iter().filter(|p| matches(p)));
-            g.sort_by(|a, b| order(&a.total, &b.total));
-            g
-        } else {
-            Vec::new()
-        };
-        // (process, depth, Some(group index) for an app row)
-        let rows: Vec<(&ProcessInfo, usize, Option<usize>)> = match self.mode {
-            ViewMode::Tree
-                if filter.is_empty() && self.filter == QuickFilter::All && self.more.is_empty() =>
-            {
-                tree_rows(&snap.processes, self.sort, self.descending, extra)
-                    .into_iter()
-                    .map(|(p, d)| (p, d, None))
-                    .collect()
-            }
-            ViewMode::Apps => {
-                let mut rows = Vec::new();
-                for (i, g) in groups.iter().enumerate() {
-                    rows.push((&g.total, 0, Some(i)));
-                    if self.expanded.contains(&g.key) {
-                        let mut members = g.members.clone();
-                        members.sort_by(|a, b| order(a, b));
-                        rows.extend(members.into_iter().map(|p| (p, 1, None)));
-                    }
-                }
-                rows
-            }
-            _ => {
-                let mut v: Vec<&ProcessInfo> =
-                    snap.processes.iter().filter(|p| matches(p)).collect();
-                v.sort_by(|a, b| order(a, b));
-                v.into_iter().map(|p| (p, 0, None)).collect()
-            }
-        };
-        let shown = snap.processes.iter().filter(|p| matches(p)).count();
+        let cache = self.rows(snap, extra, revision);
+        let (rows, groups, shown) = (&cache.rows, &cache.groups, cache.shown);
         ui.label(
             RichText::new({
                 let __wtm_i18n_0 = &(snap.processes.len());
@@ -776,11 +795,12 @@ impl ProcessView {
                 self.filter = QuickFilter::All;
                 self.more = MoreFilters::default();
             }
+            self.keep(cache, revision);
             return intents;
         }
         let row_height = ui.spacing().interact_size.y;
         let memory_total = snap.system.memory_total.max(1) as f64;
-        self.keyboard(ui, &rows, &mut intents);
+        self.keyboard(ui, rows, &snap.processes, &mut intents);
         let selected = self.selected.as_ref().map(|r| (r.pid, r.create_time));
 
         let columns: Vec<_> = COLUMNS
@@ -839,8 +859,10 @@ impl ProcessView {
                     })
                     .body(|body| {
                         body.rows(row_height, rows.len(), |mut row| {
-                            let (p, depth, group) = rows[row.index()];
-                            let group = group.map(|i| &groups[i]);
+                            let (p, depth, group) = match rows[row.index()] {
+                                Row::Process(i, depth) => (&snap.processes[i], depth, None),
+                                Row::App(i) => (&groups[i].total, 0, Some(&groups[i])),
+                            };
                             let key = (p.pid, p.create_time);
                             row.set_selected(group.is_none() && selected == Some(key));
 
@@ -941,7 +963,9 @@ impl ProcessView {
                                 if response.clicked() && !self.expanded.remove(&g.key) {
                                     self.expanded.insert(g.key.clone());
                                 }
-                                response.context_menu(|ui| app_menu(ui, g, &mut intents));
+                                response.context_menu(|ui| {
+                                    app_menu(ui, g, &snap.processes, &mut intents)
+                                });
                             } else {
                                 if response.clicked() {
                                     intents.push(Intent::Select(target.clone()));
@@ -959,31 +983,162 @@ impl ProcessView {
                         });
                     });
             });
+        self.keep(cache, revision);
         intents
+    }
+
+    /// Holds on to the rows for the next frame when the data has a revision.
+    fn keep(&mut self, cache: RowCache, revision: Option<u64>) {
+        self.cache = revision.map(|_| cache);
+    }
+
+    /// Whether `key` still describes these settings and data.
+    fn is_current(
+        &self,
+        key: &RowKey,
+        snap: &Snapshot,
+        revision: u64,
+        second: Option<u64>,
+    ) -> bool {
+        key.revision == revision
+            && key.snapshot == std::ptr::from_ref(snap) as usize
+            && key.processes == snap.processes.len()
+            && key.search == self.search
+            && key.mode == self.mode
+            && key.sort == self.sort
+            && key.descending == self.descending
+            && key.filter == self.filter
+            && key.more == self.more
+            && key.second == second
+            && (self.mode != ViewMode::Apps || key.expanded == self.expanded)
+    }
+
+    /// The rows to show: the cached ones while they are current, otherwise
+    /// filtered, grouped and sorted anew. Without a `revision` the data may
+    /// have changed in any way, so they are always rebuilt.
+    fn rows(&mut self, snap: &Snapshot, extra: &Extra<'_>, revision: Option<u64>) -> RowCache {
+        let now = std::time::SystemTime::now();
+        let second = self.more.started_within.map(|_| {
+            now.duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs())
+        });
+        if let Some(revision) = revision
+            && let Some(cache) = self.cache.take()
+            && self.is_current(&cache.key, snap, revision, second)
+        {
+            return cache;
+        }
+
+        let procs = &snap.processes;
+        let filter = self.search.trim().to_lowercase();
+        let matches = |p: &ProcessInfo| {
+            let resource_matches = match self.filter {
+                QuickFilter::All => true,
+                QuickFilter::Cpu => p.pid != 0 && p.cpu_percent >= 5.0,
+                QuickFilter::Memory => p.private_working_set >= 512 * 1024 * 1024,
+                QuickFilter::Managed => !extra.label(p).is_empty(),
+                QuickFilter::NotResponding => extra.hung.contains_key(&p.pid),
+            };
+            resource_matches
+                && self.more.matches(p, now)
+                && (filter.is_empty()
+                    || p.name.to_lowercase().contains(&filter)
+                    || p.pid.to_string().contains(&filter)
+                    || extra.command_line(p).to_lowercase().contains(&filter)
+                    || extra
+                        .image_paths
+                        .get(&(p.pid, p.create_time))
+                        .is_some_and(|p| p.to_lowercase().contains(&filter)))
+        };
+        let order = |a: &ProcessInfo, b: &ProcessInfo| {
+            let o = compare(a, b, self.sort, extra);
+            if self.descending { o.reverse() } else { o }
+        };
+        let unfiltered =
+            filter.is_empty() && self.filter == QuickFilter::All && self.more.is_empty();
+        let matching = || (0..procs.len()).filter(|&i| matches(&procs[i]));
+        let mut groups = Vec::new();
+        let (rows, shown) = match self.mode {
+            ViewMode::Tree if unfiltered => {
+                let rows = tree_order(procs, self.sort, self.descending, extra)
+                    .into_iter()
+                    .map(|(i, depth)| Row::Process(i, depth))
+                    .collect();
+                (rows, procs.len())
+            }
+            ViewMode::Apps => {
+                let members: Vec<usize> = matching().collect();
+                groups = app_groups(procs, &members);
+                groups.sort_by(|a, b| order(&a.total, &b.total));
+                let mut rows = Vec::with_capacity(groups.len());
+                for (i, g) in groups.iter().enumerate() {
+                    rows.push(Row::App(i));
+                    if self.expanded.contains(&g.key) {
+                        let mut members = g.members.clone();
+                        members.sort_by(|&a, &b| order(&procs[a], &procs[b]));
+                        rows.extend(members.into_iter().map(|i| Row::Process(i, 1)));
+                    }
+                }
+                (rows, members.len())
+            }
+            _ => {
+                let mut v: Vec<usize> = matching().collect();
+                v.sort_by(|&a, &b| order(&procs[a], &procs[b]));
+                let shown = v.len();
+                (v.into_iter().map(|i| Row::Process(i, 0)).collect(), shown)
+            }
+        };
+        RowCache {
+            key: RowKey {
+                revision: revision.unwrap_or_default(),
+                snapshot: std::ptr::from_ref(snap) as usize,
+                processes: procs.len(),
+                search: self.search.clone(),
+                mode: self.mode,
+                sort: self.sort,
+                descending: self.descending,
+                filter: self.filter,
+                more: self.more.clone(),
+                expanded: if self.mode == ViewMode::Apps {
+                    self.expanded.clone()
+                } else {
+                    HashSet::new()
+                },
+                second,
+            },
+            rows,
+            groups,
+            shown,
+        }
     }
 }
 
 /// All processes sharing an image name, with their totals.
-pub struct AppGroup<'a> {
+pub struct AppGroup {
     /// Lower-case image name.
     pub key: String,
     /// Sums of the members; PID and start time are the oldest member's, so
     /// icons and labels resolve.
     pub total: ProcessInfo,
-    pub members: Vec<&'a ProcessInfo>,
+    /// Indices into the snapshot's processes.
+    pub members: Vec<usize>,
 }
 
-fn app_groups<'a>(procs: impl Iterator<Item = &'a ProcessInfo>) -> Vec<AppGroup<'a>> {
-    let mut by_name: HashMap<String, Vec<&ProcessInfo>> = HashMap::new();
-    for p in procs {
-        by_name.entry(p.name.to_lowercase()).or_default().push(p);
+/// Groups the processes at `members` (indices into `procs`) by image name.
+fn app_groups(procs: &[ProcessInfo], members: &[usize]) -> Vec<AppGroup> {
+    let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+    for &i in members {
+        by_name
+            .entry(procs[i].name.to_lowercase())
+            .or_default()
+            .push(i);
     }
     by_name
         .into_iter()
         .map(|(key, mut members)| {
-            members.sort_by_key(|p| (p.create_time, p.pid));
-            let mut total = members[0].clone();
-            for p in &members[1..] {
+            members.sort_by_key(|&i| (procs[i].create_time, procs[i].pid));
+            let mut total = procs[members[0]].clone();
+            for p in members[1..].iter().map(|&i| &procs[i]) {
                 total.cpu_percent += p.cpu_percent;
                 total.cpu_time += p.cpu_time;
                 total.working_set += p.working_set;
@@ -1006,8 +1161,12 @@ fn app_groups<'a>(procs: impl Iterator<Item = &'a ProcessInfo>) -> Vec<AppGroup<
 }
 
 /// Actions for every process of an app.
-fn app_menu(ui: &mut Ui, g: &AppGroup<'_>, intents: &mut Vec<Intent>) {
-    let all: Vec<ProcessRef> = g.members.iter().map(|p| ProcessRef::from(*p)).collect();
+fn app_menu(ui: &mut Ui, g: &AppGroup, procs: &[ProcessInfo], intents: &mut Vec<Intent>) {
+    let all: Vec<ProcessRef> = g
+        .members
+        .iter()
+        .map(|&i| ProcessRef::from(&procs[i]))
+        .collect();
     let mut each = |ui: &mut Ui, label: &str, command: Command| {
         if ui.button(label).clicked() {
             intents.extend(all.iter().map(|t| Intent::Command(t.clone(), command)));
@@ -1415,5 +1574,51 @@ mod tests {
             .map(|(p, d)| (p.pid, d))
             .collect();
         assert_eq!(order, [(20, 0), (21, 1), (22, 2)]);
+    }
+
+    #[test]
+    fn cached_rows_last_until_the_data_or_a_setting_changes() {
+        let mut snap = crate::ui_tests::snapshot();
+        snap.processes = vec![p(10, 0, 1.0, 1), p(11, 0, 2.0, 2), p(12, 0, 3.0, 3)];
+        let extra = no_extra();
+        let mut view = ProcessView::default();
+        let pids = |view: &mut ProcessView, snap: &Snapshot, revision| {
+            let cache = view.rows(snap, &extra, revision);
+            let pids: Vec<u32> = cache
+                .rows
+                .iter()
+                .map(|r| match *r {
+                    Row::Process(i, _) => snap.processes[i].pid,
+                    Row::App(g) => cache.groups[g].total.pid,
+                })
+                .collect();
+            view.keep(cache, revision);
+            pids
+        };
+        assert_eq!(pids(&mut view, &snap, Some(1)), [12, 11, 10]);
+        // Same revision: the rows of the earlier frame.
+        snap.processes[0].cpu_percent = 9.0;
+        assert_eq!(pids(&mut view, &snap, Some(1)), [12, 11, 10]);
+        // New data, or no revision at all: built again.
+        assert_eq!(pids(&mut view, &snap, Some(2)), [10, 12, 11]);
+        snap.processes[1].cpu_percent = 10.0;
+        assert_eq!(pids(&mut view, &snap, None), [11, 10, 12]);
+        assert!(view.cache.is_none());
+        // Every setting that orders or narrows the rows rebuilds them.
+        assert_eq!(pids(&mut view, &snap, Some(3)), [11, 10, 12]);
+        view.descending = false;
+        assert_eq!(pids(&mut view, &snap, Some(3)), [12, 10, 11]);
+        view.sort = Col::Pid;
+        assert_eq!(pids(&mut view, &snap, Some(3)), [10, 11, 12]);
+        view.search = "12".into();
+        assert_eq!(pids(&mut view, &snap, Some(3)), [12]);
+        view.search.clear();
+        view.filter = QuickFilter::Cpu;
+        assert_eq!(pids(&mut view, &snap, Some(3)), [10, 11]);
+        view.filter = QuickFilter::All;
+        view.mode = ViewMode::Apps;
+        assert_eq!(pids(&mut view, &snap, Some(3)), [10, 11, 12]);
+        view.expanded.insert("p11".into());
+        assert_eq!(pids(&mut view, &snap, Some(3)), [10, 11, 11, 12]);
     }
 }

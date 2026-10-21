@@ -34,6 +34,17 @@ impl Sort {
             if self.desc { o.reverse() } else { o }
         });
     }
+
+    /// Sorts `rows` by the text `key` makes of each, in this direction. For
+    /// formatted columns: each text is made once, not twice per comparison.
+    pub fn apply_text<T>(self, rows: &mut Vec<T>, key: impl Fn(&T) -> String) {
+        let mut keyed: Vec<(String, T)> = std::mem::take(rows)
+            .into_iter()
+            .map(|r| (key(&r), r))
+            .collect();
+        self.apply(&mut keyed, |a, b, _| text(&a.0, &b.0));
+        rows.extend(keyed.into_iter().map(|(_, r)| r));
+    }
 }
 
 /// A header cell: clicking sorts by `col`, clicking again reverses. Numeric

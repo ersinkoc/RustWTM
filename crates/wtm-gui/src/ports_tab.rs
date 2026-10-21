@@ -484,27 +484,32 @@ fn listening_table(
                     .is_some_and(|k| k.service.to_lowercase().contains(&f))
         })
         .collect();
-    let name = |p: &Option<&ProcessInfo>| p.map_or("?", |p| p.name.as_str()).to_owned();
+    fn name<'a>(p: &Option<&'a ProcessInfo>) -> &'a str {
+        p.map_or("?", |p| p.name.as_str())
+    }
     let mut sort = Sort::load(ui, "ports", Sort::new(0, false));
-    sort.apply(&mut rows, |(a, ap), (b, bp), col| match col {
-        0 => a.port.cmp(&b.port),
-        1 => text(&format!("{:?}", a.protocol), &format!("{:?}", b.protocol)),
-        2 => text(
-            a.known().map_or("", |k| k.service),
-            b.known().map_or("", |k| k.service),
-        ),
-        3 => text(&name(ap), &name(bp)),
-        4 => a.pid.cmp(&b.pid),
-        5 => a.exposure().cmp(&b.exposure()),
-        6 => a.connections.cmp(&b.connections),
-        7 => num(
-            f64::from(ap.map_or(0.0, |p| p.cpu_percent)),
-            f64::from(bp.map_or(0.0, |p| p.cpu_percent)),
-        ),
-        _ => ap
-            .map_or(0, |p| p.private_working_set)
-            .cmp(&bp.map_or(0, |p| p.private_working_set)),
-    });
+    if sort.col == 1 {
+        sort.apply_text(&mut rows, |(a, _)| format!("{:?}", a.protocol));
+    } else {
+        sort.apply(&mut rows, |(a, ap), (b, bp), col| match col {
+            0 => a.port.cmp(&b.port),
+            2 => text(
+                a.known().map_or("", |k| k.service),
+                b.known().map_or("", |k| k.service),
+            ),
+            3 => text(name(ap), name(bp)),
+            4 => a.pid.cmp(&b.pid),
+            5 => a.exposure().cmp(&b.exposure()),
+            6 => a.connections.cmp(&b.connections),
+            7 => num(
+                f64::from(ap.map_or(0.0, |p| p.cpu_percent)),
+                f64::from(bp.map_or(0.0, |p| p.cpu_percent)),
+            ),
+            _ => ap
+                .map_or(0, |p| p.private_working_set)
+                .cmp(&bp.map_or(0, |p| p.private_working_set)),
+        });
+    }
 
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
