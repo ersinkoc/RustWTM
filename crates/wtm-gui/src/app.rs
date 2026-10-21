@@ -10,6 +10,7 @@ use wtm_ipc::{Command, EventLevel};
 
 use crate::backend::{Backend, Data, HISTORY_LEN, Mode, Panel, ServiceOp, UiCommand, describe};
 use crate::processes::{Intent, ManagedMap, ProcessView, context_menu, limit_labels};
+use crate::theme::{BAD, GOOD, WARN};
 use crate::tray::Tray;
 use crate::views;
 
@@ -71,7 +72,10 @@ fn nav_width(ctx: &egui::Context) -> f32 {
                     )
                     .size()
                     .x
-                    + 58.0
+                    // The row's label offset and gap, and the panel's margins.
+                    + crate::navigation::LABEL_LEFT
+                    + crate::navigation::LABEL_RIGHT_GAP
+                    + 20.0
             })
             .fold(200.0, f32::max)
             .min(280.0)
@@ -191,6 +195,8 @@ struct UiState {
     confirm_many: Option<(Vec<ProcessRef>, Command)>,
     network_filter: String,
     services_filter: String,
+    /// The Events tab shows only this level; `None` shows all.
+    event_level: Option<EventLevel>,
     selected_startup: Option<wtm_core::startup::StartupEntry>,
     history: views::HistoryView,
     history_dirty: bool,
@@ -363,6 +369,7 @@ impl Default for UiState {
             confirm_many: None,
             network_filter: String::new(),
             services_filter: String::new(),
+            event_level: None,
             selected_startup: None,
             history: views::HistoryView::default(),
             history_dirty: true,
@@ -391,17 +398,17 @@ impl Default for UiState {
     }
 }
 
-const WARN: Color32 = Color32::from_rgb(230, 140, 40);
-const BAD: Color32 = Color32::from_rgb(220, 70, 70);
-const GOOD: Color32 = Color32::from_rgb(80, 180, 100);
-
-fn level_color(level: EventLevel) -> Color32 {
+/// The colour of an event's text: secondary for information.
+fn level_color(ui: &Ui, level: EventLevel) -> Color32 {
     match level {
-        EventLevel::Info => Color32::GRAY,
-        EventLevel::Warn => WARN,
-        EventLevel::Error => BAD,
+        EventLevel::Info => ui.visuals().weak_text_color(),
+        EventLevel::Warn => crate::theme::text_color(ui, WARN),
+        EventLevel::Error => crate::theme::text_color(ui, BAD),
     }
 }
+
+/// Windows shorter than this leave out the page subtitle.
+const COMPACT_HEIGHT: f32 = 640.0;
 
 impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
@@ -471,6 +478,8 @@ impl eframe::App for App {
             state.last_update_check = Some(Instant::now());
             service_cmds.push(UiCommand::CheckUpdate);
         }
+        // Before the pages: a text field that Esc just left keeps it.
+        shortcuts(&ctx, state);
         update_bar(ui, &data, state, &mut service_cmds);
 
         // Narrow windows get the icon-only rail unless the user chose.
@@ -489,14 +498,14 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 match &data.message {
                     Some((level, text)) => {
-                        ui.label(RichText::new(crate::i18n::message(text).as_ref()).color(level_color(*level)));
+                        ui.label(RichText::new(crate::i18n::message(text).as_ref()).color(level_color(ui, *level)));
                     }
                     None => {
                         ui.weak(crate::i18n::tr("Right-click a process for actions."));
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    mode_badge(ui, data.mode);
+                    mode_badge(ui, data.mode, stale_age(&data, Instant::now()));
                     if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
                         ui.label(
                             RichText::new(crate::i18n::tr("▶ Game mode"))
@@ -515,7 +524,7 @@ impl eframe::App for App {
                     }
                     if !data.kill_list.is_empty()
                         && ui
-                            .small_button(RichText::new(crate::i18n::tr("🚨 Panic")).strong().color(BAD))
+                            .small_button(RichText::new(crate::i18n::tr("🚨 Panic")).strong().color(crate::theme::text_color(ui, BAD)))
                             .on_hover_text(crate::i18n::tr("End everything on the kill list (Ctrl+Shift+K)"))
                             .clicked()
                     {
@@ -559,7 +568,11 @@ impl eframe::App for App {
                 .resizable(true)
                 .default_size(330.0)
                 .show(ui, |ui| {
-                    if ui.small_button(crate::i18n::tr("Close details")).clicked() {
+                    if ui
+                        .small_button(crate::i18n::tr("Close details"))
+                        .on_hover_text("Esc")
+                        .clicked()
+                    {
                         state.processes.selected = None;
                     }
                     egui::ScrollArea::vertical()
@@ -571,10 +584,13 @@ impl eframe::App for App {
         }
 
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading(RichText::new(state.tab.label()).size(25.0));
-            ui.label(RichText::new(state.tab.subtitle()).weak());
-            sample_health(ui, &data, Instant::now());
+            let now = Instant::now();
+            page_header(ui, state.tab, &data, now);
             ui.add_space(12.0);
+            // Values that stopped updating must not pass for live ones.
+            if stale_age(&data, now).is_some() {
+                ui.multiply_opacity(STALE_OPACITY);
+            }
             if state.tab == Tab::Settings {
                 crate::settings::page_bar(ui, &mut state.config.page);
             }
@@ -605,9 +621,7 @@ impl eframe::App for App {
                         };
                         intents.extend(state.processes.ui_cached(ui, snap, &extra, data.revision));
                     }
-                    None => {
-                        ui.spinner();
-                    }
+                    None => crate::theme::loading(ui, crate::i18n::tr("Loading processes…")),
                 },
                 Tab::Performance => performance(ui, &data),
                 Tab::Disks => crate::disks_tab::disks_tab(ui, &data, &mut state.disks),
@@ -615,7 +629,7 @@ impl eframe::App for App {
                     service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
                 }
                 Tab::Governor => governor(ui, &data),
-                Tab::Events => events(ui, &data),
+                Tab::Events => events(ui, &data, &mut state.event_level),
                 Tab::History => {
                     if views::app_history(ui, &data, &mut state.history) {
                         state.history_dirty = true;
@@ -740,7 +754,10 @@ impl eframe::App for App {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
-                        .button(RichText::new(describe(command)).color(BAD))
+                        .button(
+                            RichText::new(describe(command))
+                                .color(crate::theme::text_color(ui, BAD)),
+                        )
                         .clicked()
                     {
                         intents.push(Intent::Command(target.clone(), command));
@@ -785,7 +802,10 @@ impl eframe::App for App {
                 });
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new(title).color(BAD)).clicked() {
+                    if ui
+                        .button(RichText::new(title).color(crate::theme::text_color(ui, BAD)))
+                        .clicked()
+                    {
                         service_cmds.push(UiCommand::Session { id, op });
                         state.confirm_session = None;
                     }
@@ -873,7 +893,7 @@ impl eframe::App for App {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui
-                        .button(RichText::new({ let __wtm_i18n_0 = &(describe(command)); crate::i18n::format("{0} all", std::slice::from_ref(__wtm_i18n_0)) }).color(BAD))
+                        .button(RichText::new({ let __wtm_i18n_0 = &(describe(command)); crate::i18n::format("{0} all", std::slice::from_ref(__wtm_i18n_0)) }).color(crate::theme::text_color(ui, BAD)))
                         .clicked()
                     {
                         intents.extend(targets.iter().map(|t| Intent::Command(t.clone(), command)));
@@ -1022,7 +1042,7 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
         UpdateState::Failed(e) if state.update_started => {
             egui::Panel::top("update_bar").show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(BAD, {
+                    crate::theme::colored(ui, BAD, {
                         crate::i18n::format("The update failed: {0}", std::slice::from_ref(e))
                     });
                     ui.hyperlink_to(
@@ -1048,7 +1068,7 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
             ui.label(
                 RichText::new({ let __wtm_i18n_0 = &(release.version_text()); let __wtm_i18n_1 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("⬆ RustWTM {0} is available (you have {1}).", &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()]) })
                 .strong()
-                .color(GOOD),
+                .color(crate::theme::text_color(ui, GOOD)),
             );
             if data.installable && release.msi.is_some() {
                 if ui
@@ -1108,7 +1128,8 @@ fn language_settings(
         }
     });
     if let Some(error) = &state.language_error {
-        ui.colored_label(
+        crate::theme::colored(
+            ui,
             BAD,
             crate::i18n::format("Cannot save language: {0}", std::slice::from_ref(error)),
         );
@@ -1119,7 +1140,7 @@ fn language_settings(
 fn window_settings(ui: &mut Ui, state: &mut UiState) {
     language_settings(ui, state, crate::i18n::save);
     ui.horizontal(|ui| {
-        ui.label(crate::i18n::tr("Theme:"));
+        ui.label(crate::i18n::tr("Theme"));
         let mut preference = ui.ctx().options(|o| o.theme_preference);
         for (value, label) in [
             (egui::ThemePreference::System, crate::i18n::tr("System")),
@@ -1182,37 +1203,126 @@ fn window_settings(ui: &mut Ui, state: &mut UiState) {
     ui.add_space(6.0);
 }
 
-fn sample_health(ui: &mut Ui, data: &Data, now: Instant) {
+/// How much page content fades while its data is out of date.
+const STALE_OPACITY: f32 = 0.55;
+
+/// `Some` while the shown data is out of date, with its age when known.
+fn stale_age(data: &Data, now: Instant) -> Option<Option<Duration>> {
+    match data.sample_freshness(now) {
+        crate::backend::SampleFreshness::Stale(age) => Some(age),
+        _ => None,
+    }
+}
+
+/// The page title and subtitle with the age of the data on the right, and
+/// a warning below them while the data is out of date. Short windows leave
+/// out the subtitle and show the age next to the title.
+fn page_header(ui: &mut Ui, tab: Tab, data: &Data, now: Instant) {
+    let compact = ui.ctx().content_rect().height() < COMPACT_HEIGHT;
+    ui.horizontal(|ui| {
+        let title = ui.heading(RichText::new(tab.label()).size(25.0));
+        if compact {
+            title.on_hover_text(tab.subtitle());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                data_age(ui, data, now);
+            });
+        }
+    });
+    if !compact {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tab.subtitle()).weak());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                data_age(ui, data, now);
+            });
+        });
+    }
+    stale_banner(ui, data, now);
+}
+
+/// How old the shown data is: secondary text, a warning once out of date.
+fn data_age(ui: &mut Ui, data: &Data, now: Instant) {
     use crate::backend::SampleFreshness;
-    ui.horizontal_wrapped(|ui| {
-        let (age, stale) = match data.sample_freshness(now) {
-            SampleFreshness::Waiting => {
-                ui.weak(crate::i18n::tr("Waiting for monitoring data…"));
-                return;
-            }
-            SampleFreshness::Current(age) => (Some(age), false),
-            SampleFreshness::Stale(age) => (age, true),
-        };
-        if stale {
-            ui.colored_label(crate::theme::text_color(ui, WARN), crate::i18n::tr("Monitoring data is out of date"))
-                .on_hover_text(crate::i18n::tr("Displayed values remain from the last received sample. They do not indicate current activity."));
+    let (age, stale) = match data.sample_freshness(now) {
+        SampleFreshness::Waiting => {
+            ui.weak(crate::i18n::tr("Waiting for monitoring data…"));
+            return;
         }
-        if let Some(age) = age {
-            ui.label(crate::i18n::format("Last data received {0}s ago", &[age.as_secs().to_string()]));
-        }
+        SampleFreshness::Current(age) => (age, false),
+        SampleFreshness::Stale(Some(age)) => (age, true),
+        SampleFreshness::Stale(None) => return,
+    };
+    let text = crate::i18n::format("Last data received {0}s ago", &[age.as_secs().to_string()]);
+    if stale {
+        crate::theme::colored(ui, WARN, text);
+    } else {
+        ui.weak(text);
+    }
+}
+
+/// A full-width warning while the data is out of date, with the reason.
+fn stale_banner(ui: &mut Ui, data: &Data, now: Instant) {
+    if stale_age(data, now).is_none() {
+        return;
+    }
+    ui.add_space(6.0);
+    crate::theme::strip(ui, WARN, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            let color = crate::theme::text_color(ui, WARN);
+            ui.label(RichText::new("⚠").size(16.0).color(color));
+            ui.label(
+                RichText::new(crate::i18n::tr("Monitoring data is out of date"))
+                    .size(16.0)
+                    .color(color),
+            )
+            .on_hover_text(crate::i18n::tr("Displayed values remain from the last received sample. They do not indicate current activity."));
+        });
         if let Some(error) = &data.sample_error {
             ui.label(crate::i18n::message(error).as_ref());
         }
     });
 }
 
-fn mode_badge(ui: &mut Ui, mode: Mode) {
+/// Keys that work on every page: Ctrl+Tab and Ctrl+Shift+Tab go through
+/// the pages, Esc closes the process details.
+fn shortcuts(ctx: &egui::Context, state: &mut UiState) {
+    let blocked = egui::Popup::is_any_open(ctx) || ctx.memory(|m| m.top_modal_layer().is_some());
+    if blocked {
+        return;
+    }
+    let step = ctx.input_mut(|i| {
+        if i.consume_key(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::Tab,
+        ) {
+            Some(NAV.len() - 1)
+        } else if i.consume_key(egui::Modifiers::COMMAND, egui::Key::Tab) {
+            Some(1)
+        } else {
+            None
+        }
+    });
+    if let Some(step) = step
+        && let Some(i) = NAV.iter().position(|n| n.0 == state.tab)
+    {
+        state.tab = NAV[(i + step) % NAV.len()].0;
+    }
+    if state.tab == Tab::Processes
+        && state.processes.selected.is_some()
+        && !ctx.text_edit_focused()
+        && ctx.input(|i| i.key_pressed(egui::Key::Escape))
+    {
+        state.processes.selected = None;
+    }
+}
+
+/// The connection in the status bar; a warning while no data arrives.
+fn mode_badge(ui: &mut Ui, mode: Mode, stale: Option<Option<Duration>>) {
     let (text, color, hover) = match mode {
-        Mode::Starting => (
-            crate::i18n::tr("○ Starting"),
-            Color32::GRAY,
-            crate::i18n::tr("Collecting data…"),
-        ),
+        Mode::Starting => {
+            ui.weak(crate::i18n::tr("○ Starting"))
+                .on_hover_text(crate::i18n::tr("Collecting data…"));
+            return;
+        }
         Mode::Service {
             verified: false, ..
         } => (
@@ -1242,7 +1352,20 @@ fn mode_badge(ui: &mut Ui, mode: Mode) {
             ),
         ),
     };
-    ui.label(RichText::new(text).color(crate::theme::text_color(ui, color)))
+    let (text, color) = match stale {
+        None => (text.to_owned(), crate::theme::text_color(ui, color)),
+        Some(age) => (
+            match age {
+                Some(age) => crate::i18n::format(
+                    "{0} · no data for {1} s",
+                    &[text.to_owned(), age.as_secs().to_string()],
+                ),
+                None => crate::i18n::format("{0} · no data", &[text.to_owned()]),
+            },
+            crate::theme::text_color(ui, WARN),
+        ),
+    };
+    ui.label(RichText::new(text).color(color))
         .on_hover_text(hover);
 }
 
@@ -1267,7 +1390,8 @@ fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Int
     ui.add_space(8.0);
     ui.strong(crate::i18n::tr("Diagnostics"));
     if let Some(title) = data.hung.get(&sel.pid) {
-        ui.colored_label(
+        crate::theme::colored(
+            ui,
             BAD,
             crate::i18n::format("Not responding: \"{0}\"", std::slice::from_ref(title)),
         );
@@ -1328,7 +1452,7 @@ fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Int
             });
         }
         Some(Some(Err(e))) => {
-            ui.colored_label(BAD, e);
+            crate::theme::colored(ui, BAD, e);
         }
         Some(Some(Ok(list))) => modules_list(ui, list),
         None => {}
@@ -1341,7 +1465,7 @@ fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Int
             });
         }
         Some(Some(Err(e))) => {
-            ui.colored_label(BAD, e);
+            crate::theme::colored(ui, BAD, e);
         }
         Some(Some(Ok(r))) => end_report(ui, r, data.elevated),
         None => {}
@@ -1354,7 +1478,7 @@ fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Int
             });
         }
         Some(Some(Err(e))) => {
-            ui.colored_label(BAD, e);
+            crate::theme::colored(ui, BAD, e);
         }
         Some(Some(Ok(r))) => wait_report(ui, r),
         None => {}
@@ -1388,10 +1512,13 @@ fn modules_list(ui: &mut Ui, list: &[(wtm_core::Module, wtm_core::Signature)]) {
             for (m, s) in sorted {
                 let (color, state) = match s {
                     Signature::Invalid(e) => (
-                        BAD,
+                        crate::theme::text_color(ui, BAD),
                         crate::i18n::format("invalid signature: {0}", std::slice::from_ref(e)),
                     ),
-                    Signature::Unsigned => (WARN, crate::i18n::tr("unsigned").to_owned()),
+                    Signature::Unsigned => (
+                        crate::theme::text_color(ui, WARN),
+                        crate::i18n::tr("unsigned").to_owned(),
+                    ),
                     Signature::Signed { signer, .. } => (
                         ui.visuals().weak_text_color(),
                         signer
@@ -1506,7 +1633,7 @@ pub(crate) fn end_reasons(r: &wtm_core::EndReport, elevated: bool) -> Vec<(bool,
 fn end_report(ui: &mut Ui, r: &wtm_core::EndReport, elevated: bool) {
     for (problem, text) in end_reasons(r, elevated) {
         if problem {
-            ui.colored_label(BAD, text);
+            crate::theme::colored(ui, BAD, text);
         } else {
             ui.label(text);
         }
@@ -1515,7 +1642,8 @@ fn end_report(ui: &mut Ui, r: &wtm_core::EndReport, elevated: bool) {
 
 fn wait_report(ui: &mut Ui, r: &wtm_core::WaitReport) {
     if r.deadlocked() {
-        ui.colored_label(
+        crate::theme::colored(
+            ui,
             BAD,
             crate::i18n::tr("Deadlock: threads wait for each other and will never continue."),
         );
@@ -1538,7 +1666,7 @@ fn wait_report(ui: &mut Ui, r: &wtm_core::WaitReport) {
         let text: Vec<String> = chain.links.iter().map(link_text).collect();
         let mut line = RichText::new(text.join("  →  ")).small().monospace();
         if chain.cycle {
-            line = line.color(BAD);
+            line = line.color(crate::theme::text_color(ui, BAD));
         }
         ui.label(line);
     }
@@ -1597,7 +1725,7 @@ fn details_panel(
         .iter()
         .find(|p| p.pid == sel.pid && p.create_time == sel.create_time)
     else {
-        ui.colored_label(WARN, crate::i18n::tr("This process has exited."));
+        crate::theme::colored(ui, WARN, crate::i18n::tr("This process has exited."));
         return;
     };
 
@@ -1655,11 +1783,13 @@ fn details_panel(
                     let na = || "n/a".to_owned();
                     row(
                         crate::i18n::tr("Priority"),
-                        d.priority.map_or_else(na, |p| format!("{p:?}")),
+                        d.priority
+                            .map_or_else(na, |p| crate::processes::priority_label(p).into()),
                     );
                     row(
                         crate::i18n::tr("Efficiency"),
-                        d.eco_qos.map_or_else(na, |e| format!("{e:?}")),
+                        d.eco_qos
+                            .map_or_else(na, |e| crate::processes::eco_label(e).into()),
                     );
                     row(
                         crate::i18n::tr("Affinity"),
@@ -1760,7 +1890,9 @@ fn details_panel(
     ui.add_space(8.0);
     ui.horizontal_wrapped(|ui| {
         if ui
-            .button(RichText::new(crate::i18n::tr("End task")).color(BAD))
+            .button(
+                RichText::new(crate::i18n::tr("End task")).color(crate::theme::text_color(ui, BAD)),
+            )
             .clicked()
         {
             intents.push(Intent::Confirm(sel.clone(), Command::Kill));
@@ -1849,7 +1981,8 @@ fn perf_plot(id: &str) -> Plot<'static> {
         .allow_boxed_zoom(false)
         .show_x(false)
         .x_axis_formatter(|mark, _| format!("{:.0}s", mark.value))
-        .y_axis_min_width(44.0)
+        // One width for every graph, so that graphs above each other line up.
+        .y_axis_min_width(64.0)
 }
 
 /// A 0..=100% history as a filled area.
@@ -1883,6 +2016,7 @@ fn history_plot(
 }
 
 /// Two byte rates (for example download and upload) on an auto-scaled axis.
+/// The card title carries the legend (see [`rate_title`]).
 fn rate_plot(
     ui: &mut Ui,
     id: &str,
@@ -1891,9 +2025,7 @@ fn rate_plot(
     perf_plot(id)
         .include_y(1024.0)
         .y_axis_formatter(|mark, _| format_bytes(mark.value.max(0.0)) + "/s")
-        .y_axis_min_width(64.0)
         .label_formatter(rate_label)
-        .legend(egui_plot::Legend::default().position(egui_plot::Corner::LeftTop))
         .show(ui, |plot| {
             for (label, values, color) in series {
                 plot.line(
@@ -1931,7 +2063,7 @@ fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, Str
                 let (rect, _) =
                     ui.allocate_exact_size(egui::vec2(160.0, 8.0), egui::Sense::hover());
                 let painter = ui.painter_at(rect);
-                painter.rect_filled(rect, 4.0, ui.visuals().extreme_bg_color);
+                painter.rect_filled(rect, 4.0, crate::theme::track_color(ui));
                 let frac = load.clamp(0.0, 100.0) / 100.0;
                 if frac > 0.0 {
                     let mut fill = rect;
@@ -2031,7 +2163,7 @@ fn core_grid(
 
 pub(crate) fn performance(ui: &mut Ui, data: &Data) {
     let Some(snap) = &data.snapshot else {
-        ui.spinner();
+        crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
         return;
     };
     let s = &snap.system;
@@ -2077,35 +2209,20 @@ const GPU_ENGINES_SHOWN: usize = 4;
 /// Width from which the Performance tab uses two columns.
 const PERF_TWO_COLUMNS: f32 = 900.0;
 
-/// A card title: the resource and its current value in its colour.
-fn title(ui: &Ui, name: &str, value: String, color: Color32) -> egui::WidgetText {
-    let mut job = egui::text::LayoutJob::default();
-    let font = |size| egui::TextFormat {
-        font_id: egui::FontId::proportional(size),
-        color: ui.visuals().strong_text_color(),
-        ..Default::default()
-    };
-    job.append(name, 0.0, font(18.0));
-    job.append(
-        &value,
-        10.0,
-        egui::TextFormat {
-            color: crate::theme::text_color(ui, color),
-            ..font(18.0)
-        },
-    );
-    job.into()
+/// Each series of a rate graph in its colour with its current value, for
+/// the card title.
+fn rate_legend(series: [(&str, f64, Color32); 2]) -> [(String, Color32); 2] {
+    series.map(|(name, rate, color)| (format!("● {name} {}/s", format_bytes(rate)), color))
 }
 
 fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    crate::theme::card(
+    crate::theme::card_with(
         ui,
-        title(
-            ui,
-            "CPU",
-            format!("{:.0}%", s.cpu_percent),
+        "CPU",
+        &[(
+            &format!("{:.0}%", s.cpu_percent),
             crate::theme::load_color(s.cpu_percent),
-        ),
+        )],
         |ui| {
             history_plot(ui, "cpu_plot", "CPU", &data.history.cpu, crate::theme::CPU);
             if !s.core_percent.is_empty() {
@@ -2160,18 +2277,17 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
     } else {
         0.0
     };
-    crate::theme::card(
+    crate::theme::card_with(
         ui,
-        title(
-            ui,
-            crate::i18n::tr("Memory"),
-            format!(
+        crate::i18n::tr("Memory"),
+        &[(
+            &format!(
                 "{} / {} ({mem_pct:.0}%)",
                 format_bytes(s.memory_used() as f64),
                 format_bytes(s.memory_total as f64)
             ),
             crate::theme::load_color(mem_pct as f32),
-        ),
+        )],
         |ui| {
             history_plot(
                 ui,
@@ -2207,17 +2323,13 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
 }
 
 fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    crate::theme::card(
+    crate::theme::card_with(
         ui,
-        title(
-            ui,
-            "GPU",
-            {
-                let __wtm_i18n_0 = &(s.gpu_percent);
-                crate::i18n::format("{0}%  busiest engine", &[format!("{:.0}", __wtm_i18n_0)])
-            },
+        "GPU",
+        &[(
+            &crate::i18n::format("{0}%  busiest engine", &[format!("{:.0}", s.gpu_percent)]),
             crate::theme::GPU,
-        ),
+        )],
         |ui| {
             history_plot(ui, "gpu_plot", "GPU", &data.history.gpu, crate::theme::GPU);
             if !s.gpu_engines.is_empty() {
@@ -2250,18 +2362,18 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
 }
 
 fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    crate::theme::card(
+    let legend = rate_legend([
+        (
+            crate::i18n::tr("Receive"),
+            s.net_rx_rate,
+            crate::theme::NET_RX,
+        ),
+        (crate::i18n::tr("Send"), s.net_tx_rate, crate::theme::NET_TX),
+    ]);
+    crate::theme::card_with(
         ui,
-        egui::RichText::new({
-            let __wtm_i18n_0 = &(format_bytes(s.net_rx_rate));
-            let __wtm_i18n_1 = &(format_bytes(s.net_tx_rate));
-            crate::i18n::format(
-                "Network  ↓ {0}/s  ↑ {1}/s",
-                &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
-            )
-        })
-        .size(18.0)
-        .strong(),
+        crate::i18n::tr("Network"),
+        &legend.each_ref().map(|(t, c)| (t.as_str(), *c)),
         |ui| {
             rate_plot(
                 ui,
@@ -2284,18 +2396,22 @@ fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
 }
 
 fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
-    crate::theme::card(
+    let legend = rate_legend([
+        (
+            crate::i18n::tr("Read"),
+            s.io_read_rate,
+            crate::theme::DISK_READ,
+        ),
+        (
+            crate::i18n::tr("Write"),
+            s.io_write_rate,
+            crate::theme::DISK_WRITE,
+        ),
+    ]);
+    crate::theme::card_with(
         ui,
-        egui::RichText::new({
-            let __wtm_i18n_0 = &(format_bytes(s.io_read_rate));
-            let __wtm_i18n_1 = &(format_bytes(s.io_write_rate));
-            crate::i18n::format(
-                "Disk & I/O  read {0}/s  write {1}/s",
-                &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string()],
-            )
-        })
-        .size(18.0)
-        .strong(),
+        crate::i18n::tr("Disk & I/O"),
+        &legend.each_ref().map(|(t, c)| (t.as_str(), *c)),
         |ui| {
             rate_plot(
                 ui,
@@ -2347,66 +2463,83 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
 }
 
 fn perf_summary(ui: &mut Ui, _data: &Data, s: &wtm_core::SystemStats) {
-    crate::theme::card(
-        ui,
-        egui::RichText::new(crate::i18n::tr("System"))
-            .size(18.0)
-            .strong(),
-        |ui| {
-            egui::Grid::new("perf_grid")
-                .num_columns(2)
-                .striped(true)
-                .spacing([24.0, 6.0])
-                .show(ui, |ui| {
-                    let mut row = |k: &str, v: String| {
-                        ui.weak(k);
-                        ui.strong(v);
-                        ui.end_row();
-                    };
-                    row(
-                        crate::i18n::tr("Logical processors"),
-                        s.logical_cpus.to_string(),
-                    );
-                    row(crate::i18n::tr("Processes"), s.process_count.to_string());
-                    row(crate::i18n::tr("Threads"), s.thread_count.to_string());
-                    row(crate::i18n::tr("Handles"), s.handle_count.to_string());
-                    row(
-                        crate::i18n::tr("Committed"),
-                        format!(
-                            "{} / {}",
-                            format_bytes(s.commit_limit.saturating_sub(s.commit_available) as f64),
-                            format_bytes(s.commit_limit as f64)
-                        ),
-                    );
-                });
-        },
-    );
+    crate::theme::card(ui, crate::i18n::tr("System"), |ui| {
+        // A short list of facts: no stripes that would end mid-card.
+        egui::Grid::new("perf_grid")
+            .num_columns(2)
+            .spacing([24.0, 6.0])
+            .show(ui, |ui| {
+                let mut row = |k: &str, v: String| {
+                    ui.weak(k);
+                    ui.strong(v);
+                    ui.end_row();
+                };
+                row(
+                    crate::i18n::tr("Logical processors"),
+                    s.logical_cpus.to_string(),
+                );
+                row(crate::i18n::tr("Processes"), s.process_count.to_string());
+                row(crate::i18n::tr("Threads"), s.thread_count.to_string());
+                row(crate::i18n::tr("Handles"), s.handle_count.to_string());
+                row(
+                    crate::i18n::tr("Committed"),
+                    format!(
+                        "{} / {}",
+                        format_bytes(s.commit_limit.saturating_sub(s.commit_available) as f64),
+                        format_bytes(s.commit_limit as f64)
+                    ),
+                );
+            });
+    });
 }
 fn governor(ui: &mut Ui, data: &Data) {
     let Some(status) = &data.status else {
-        ui.heading(crate::i18n::tr("Service not running"));
-        ui.label(crate::i18n::tr("The governor runs inside the RustWTM service. Install and start it from an elevated prompt:"));
-        ui.code("wtm-service install\nwtm-service start");
+        crate::theme::panel(ui, |ui| {
+            crate::theme::empty_state(
+                ui,
+                crate::i18n::tr("Service not running"),
+                crate::i18n::tr(
+                    "The governor runs inside the RustWTM service. Install and start it from an elevated prompt:",
+                ),
+            );
+            ui.add_space(4.0);
+            ui.code("wtm-service install\nwtm-service start");
+        });
         return;
     };
+    crate::theme::card(ui, crate::i18n::tr("Status"), |ui| {
+        governor_status(ui, status)
+    });
+    ui.add_space(10.0);
+    crate::theme::card(
+        ui,
+        &crate::i18n::format(
+            "Managed processes ({0})",
+            &[status.managed.len().to_string()],
+        ),
+        |ui| managed_table(ui, status),
+    );
+}
+
+/// The governor's mode and settings, as a list of facts.
+fn governor_status(ui: &mut Ui, status: &wtm_ipc::Status) {
     egui::Grid::new("gov_grid")
         .num_columns(2)
-        .striped(true)
+        .spacing([24.0, 6.0])
         .show(ui, |ui| {
+            let mode = if status.dry_run {
+                RichText::new(crate::i18n::tr("Dry-run (decisions are only logged)"))
+                    .color(crate::theme::text_color(ui, WARN))
+            } else {
+                RichText::new(crate::i18n::tr("Enforcing"))
+                    .color(crate::theme::text_color(ui, GOOD))
+            };
             let mut row = |k: &str, v: RichText| {
-                ui.label(k);
+                ui.weak(k);
                 ui.label(v);
                 ui.end_row();
             };
-            row(
-                crate::i18n::tr("Mode"),
-                if status.dry_run {
-                    RichText::new(crate::i18n::tr("Dry-run (decisions are only logged)"))
-                        .color(WARN)
-                } else {
-                    RichText::new(crate::i18n::tr("Enforcing")).color(GOOD)
-                },
-            );
+            row(crate::i18n::tr("Mode"), mode);
             row(
                 crate::i18n::tr("Governor"),
                 RichText::new(if status.governor_enabled {
@@ -2438,12 +2571,10 @@ fn governor(ui: &mut Ui, data: &Data) {
                 RichText::new(&status.config_path).monospace(),
             );
         });
+}
 
-    ui.add_space(12.0);
-    ui.heading({
-        let __wtm_i18n_0 = &(status.managed.len());
-        crate::i18n::format("Managed processes ({0})", &[format!("{}", __wtm_i18n_0)])
-    });
+/// What the service limits right now, sortable.
+fn managed_table(ui: &mut Ui, status: &wtm_ipc::Status) {
     if status.managed.is_empty() {
         ui.weak(crate::i18n::tr("No process is currently limited."));
         return;
@@ -2464,6 +2595,7 @@ fn governor(ui: &mut Ui, data: &Data) {
     egui::Grid::new("managed_grid")
         .num_columns(4)
         .striped(true)
+        .spacing([16.0, 6.0])
         .show(ui, |ui| {
             for (col, label) in [
                 "PID",
@@ -2478,73 +2610,150 @@ fn governor(ui: &mut Ui, data: &Data) {
             }
             ui.end_row();
             for m in rows {
-                ui.label(m.target.pid.to_string());
+                crate::theme::right(ui, m.target.pid.to_string());
                 ui.label(&m.target.name);
                 ui.label(sources(m));
-                ui.label(crate::i18n::message(&m.summary).as_ref());
+                ui.horizontal(|ui| {
+                    ui.label(crate::i18n::message(&m.summary).as_ref());
+                    crate::theme::fill_row(ui);
+                });
                 ui.end_row();
             }
         });
     sort.store(ui, "managed");
 }
 
-fn events(ui: &mut Ui, data: &Data) {
+/// Order of event levels when sorting, the most severe last.
+fn level_rank(level: EventLevel) -> u8 {
+    match level {
+        EventLevel::Info => 0,
+        EventLevel::Warn => 1,
+        EventLevel::Error => 2,
+    }
+}
+
+fn events(ui: &mut Ui, data: &Data, level: &mut Option<EventLevel>) {
+    use crate::sort::{Sort, header, text};
     if data.events.is_empty() {
-        ui.weak(crate::i18n::tr("No events yet."));
+        crate::theme::panel(ui, |ui| {
+            crate::theme::empty_state(
+                ui,
+                crate::i18n::tr("No events yet."),
+                crate::i18n::tr(
+                    "Decisions of the service and actions taken from this window are listed here.",
+                ),
+            );
+        });
         return;
     }
+    let mut items: Vec<_> = data
+        .events
+        .iter()
+        .rev()
+        .filter(|e| level.is_none_or(|l| e.level == l))
+        .collect();
+    ui.horizontal_wrapped(|ui| {
+        for (value, label) in [
+            (None, crate::i18n::tr("All events")),
+            (Some(EventLevel::Info), crate::i18n::tr("Information")),
+            (Some(EventLevel::Warn), crate::i18n::tr("Warnings")),
+            (Some(EventLevel::Error), crate::i18n::tr("Errors")),
+        ] {
+            ui.selectable_value(level, value, label);
+        }
+        ui.separator();
+        ui.weak(crate::i18n::format(
+            "{0} of {1} events",
+            &[items.len().to_string(), data.events.len().to_string()],
+        ));
+    });
+    ui.add_space(4.0);
+    // Newest first, the order they arrive in.
+    let mut sort = Sort::load(ui, "events", Sort::new(0, true));
+    sort.apply(&mut items, |a, b, col| match col {
+        0 => a.unix_ms.cmp(&b.unix_ms),
+        1 => level_rank(a.level).cmp(&level_rank(b.level)),
+        2 => a.pid.cmp(&b.pid),
+        3 => text(
+            a.name.as_deref().unwrap_or(""),
+            b.name.as_deref().unwrap_or(""),
+        ),
+        _ => text(&a.message, &b.message),
+    });
     let row_height = ui.spacing().interact_size.y;
-    let items: Vec<_> = data.events.iter().rev().collect();
-    TableBuilder::new(ui)
-        .striped(true)
-        .resizable(true)
-        .column(Column::initial(80.0))
-        .column(Column::initial(56.0))
-        .column(Column::initial(64.0))
-        .column(Column::initial(160.0).clip(true))
-        .column(Column::remainder().clip(true))
-        .header(row_height, |mut h| {
-            for label in [
-                crate::i18n::tr("Time"),
-                crate::i18n::tr("Level"),
-                "PID",
-                crate::i18n::tr("Process"),
-                crate::i18n::tr("Message"),
-            ] {
-                h.col(|ui| {
-                    ui.strong(label);
-                });
-            }
-        })
-        .body(|body| {
-            body.rows(row_height, items.len(), |mut row| {
-                let e = items[row.index()];
-                row.col(|ui| {
-                    let time = chrono::DateTime::from_timestamp_millis(e.unix_ms as i64)
-                        .map(|t| {
-                            t.with_timezone(&chrono::Local)
-                                .format("%H:%M:%S")
-                                .to_string()
-                        })
-                        .unwrap_or_default();
-                    ui.label(time);
-                });
-                row.col(|ui| {
-                    ui.label(
-                        RichText::new(crate::i18n::debug(e.level)).color(level_color(e.level)),
-                    );
-                });
-                row.col(|ui| {
-                    ui.label(e.pid.map(|p| p.to_string()).unwrap_or_default());
-                });
-                row.col(|ui| {
-                    ui.label(e.name.clone().unwrap_or_default());
-                });
-                row.col(|ui| {
-                    ui.label(crate::i18n::message(&e.message).as_ref());
+    // Every header fits at first; narrow windows scroll sideways.
+    let widths: Vec<f32> = [
+        ("Time", 80.0),
+        ("Level", 90.0),
+        ("PID", 64.0),
+        ("Process", 160.0),
+    ]
+    .iter()
+    .map(|(label, width)| crate::sort::width(ui, label, *width))
+    .collect();
+    let min_width = widths.iter().sum::<f32>() + 200.0;
+    crate::theme::table_panel(ui, "events", min_width, |ui| {
+        if items.is_empty() {
+            crate::theme::empty_state(
+                ui,
+                crate::i18n::tr("No events of this kind"),
+                crate::i18n::tr("Choose another level to see more."),
+            );
+            return;
+        }
+        TableBuilder::new(ui)
+            .striped(true)
+            .resizable(true)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+            .column(Column::initial(widths[0]))
+            .column(Column::initial(widths[1]))
+            .column(Column::initial(widths[2]))
+            .column(Column::initial(widths[3]).clip(true))
+            .column(Column::remainder().clip(true))
+            .header(row_height, |mut h| {
+                for (col, (label, numeric)) in [
+                    (crate::i18n::tr("Time"), false),
+                    (crate::i18n::tr("Level"), false),
+                    ("PID", true),
+                    (crate::i18n::tr("Process"), false),
+                    (crate::i18n::tr("Message"), false),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    h.col(|ui| header(ui, label, col, numeric, &mut sort));
+                }
+            })
+            .body(|body| {
+                body.rows(row_height, items.len(), |mut row| {
+                    let e = items[row.index()];
+                    row.col(|ui| {
+                        let time = chrono::DateTime::from_timestamp_millis(e.unix_ms as i64)
+                            .map(|t| {
+                                t.with_timezone(&chrono::Local)
+                                    .format("%H:%M:%S")
+                                    .to_string()
+                            })
+                            .unwrap_or_default();
+                        ui.label(time);
+                    });
+                    row.col(|ui| {
+                        let color = level_color(ui, e.level);
+                        ui.label(RichText::new(crate::i18n::debug(e.level)).color(color));
+                    });
+                    row.col(|ui| {
+                        crate::theme::right(ui, e.pid.map(|p| p.to_string()).unwrap_or_default());
+                    });
+                    row.col(|ui| {
+                        ui.label(e.name.clone().unwrap_or_default());
+                    });
+                    row.col(|ui| {
+                        ui.label(crate::i18n::message(&e.message).as_ref());
+                    });
                 });
             });
-        });
+    });
+    sort.store(ui, "events");
 }
 
 /// Actions for the selected service; requires elevation to take effect.
@@ -2721,10 +2930,11 @@ mod tests {
                             verified: false,
                         },
                     ] {
-                        mode_badge(&mut cols[0], mode);
+                        mode_badge(&mut cols[0], mode, None);
                     }
+                    mode_badge(&mut cols[0], Mode::Local, Some(None));
                     performance(&mut cols[1], &d);
-                    events(&mut cols[1], &d);
+                    events(&mut cols[1], &d, &mut None);
                 });
             });
         h.run_steps(3);
@@ -2745,7 +2955,7 @@ mod tests {
         d.snapshot = None;
         let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
             governor(ui, &d);
-            events(ui, &d);
+            events(ui, &d, &mut None);
             performance(ui, &d);
         });
         h.run_steps(2);
@@ -4235,11 +4445,10 @@ mod tests {
         h.run_steps(2);
         assert!(saved_config(&rx).is_none());
 
-        // Quick actions on the busiest app.
-        h.get_all_by_label("Efficiency mode")
-            .next()
-            .unwrap()
-            .click();
+        // Quick actions on the busiest app, behind its "⋯" menu.
+        h.get_all_by_label("⋯").next().unwrap().click();
+        h.run_steps(2);
+        h.get_by_label("Efficiency mode").click();
         h.run_steps(2);
         assert!(rx.try_iter().any(|c| matches!(
             c,
@@ -4248,7 +4457,9 @@ mod tests {
                 ..
             }
         )));
-        h.get_all_by_label("Free memory").next().unwrap().click();
+        h.get_all_by_label("⋯").next().unwrap().click();
+        h.run_steps(2);
+        h.get_by_label("Free memory").click();
         h.run_steps(2);
         assert!(rx.try_iter().any(|c| matches!(
             c,
@@ -4257,6 +4468,10 @@ mod tests {
                 ..
             }
         )));
+        assert!(
+            h.query_by_label_contains("1 process limited right now")
+                .is_some()
+        );
         assert!(
             h.query_by_label_contains("memory guard above 90% RAM")
                 .is_some()
@@ -4302,7 +4517,9 @@ mod tests {
             rx.try_iter()
                 .any(|c| matches!(c, UiCommand::RestartElevated))
         );
-        h.get_all_by_label("Limit…").next().unwrap().click();
+        h.get_all_by_label("⋯").next().unwrap().click();
+        h.run_steps(2);
+        h.get_by_label("Limit…").click();
         h.run_steps(2);
         assert_eq!(h.state().state.tab, Tab::Limits);
         drop(h);
@@ -4361,6 +4578,70 @@ mod tests {
             h.state().state.confirm.is_none(),
             "Delete belongs to the search field while editing"
         );
+    }
+
+    #[test]
+    fn ctrl_tab_goes_through_the_pages_and_escape_closes_the_details() {
+        let (mut h, _rx) = kill_app(Tab::Processes);
+        h.run();
+        h.get_by_label("alpha.exe").click();
+        h.run_steps(2);
+        assert!(h.state().state.processes.selected.is_some());
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().state.processes.selected.is_none());
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Tab);
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Performance);
+        h.key_press_modifiers(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::Tab,
+        );
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Processes);
+        // From the first page back to the last.
+        h.state_mut().state.tab = Tab::Overview;
+        h.key_press_modifiers(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::Tab,
+        );
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::About);
+    }
+
+    #[test]
+    fn events_filter_by_level_and_stale_data_is_flagged_in_the_status_bar() {
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1000.0, 600.0])
+            .build_ui_state(
+                |ui, (d, level): &mut (Data, Option<EventLevel>)| {
+                    events(ui, d, level);
+                    mode_badge(
+                        ui,
+                        Mode::Service {
+                            admin: true,
+                            verified: true,
+                        },
+                        Some(Some(Duration::from_secs(42))),
+                    );
+                },
+                (data(), None),
+            );
+        h.run();
+        let total = h.state().0.events.len().to_string();
+        assert!(
+            h.query_by_label(&format!("{total} of {total} events"))
+                .is_some()
+        );
+        assert!(h.query_by_label("● Service · no data for 42 s").is_some());
+        h.get_by_label("Errors").click();
+        h.run();
+        assert_eq!(h.state().1, Some(EventLevel::Error));
+        assert!(h.query_by_label("No events of this kind").is_some());
+        h.get_by_label("All events").click();
+        h.run();
+        assert!(h.query_by_label("No events of this kind").is_none());
     }
 
     #[test]
@@ -4524,6 +4805,8 @@ mod tests {
     fn render_release_review() {
         let root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visual-review");
+        // `WTM_REVIEW_LANGS=en,de` renders only those languages.
+        let only = std::env::var("WTM_REVIEW_LANGS").ok();
         for (code, language) in [
             ("en", crate::i18n::Language::English),
             ("tr", crate::i18n::Language::Turkish),
@@ -4531,6 +4814,12 @@ mod tests {
             ("fr", crate::i18n::Language::French),
             ("es", crate::i18n::Language::Spanish),
         ] {
+            if only
+                .as_ref()
+                .is_some_and(|o| !o.split(',').any(|c| c == code))
+            {
+                continue;
+            }
             let _language = crate::i18n::scope(language);
             let out = root.join("locales").join(code);
             std::fs::create_dir_all(&out).unwrap();
@@ -4544,6 +4833,16 @@ mod tests {
                         Tab::Disks,
                         Tab::Sensors,
                         Tab::Settings,
+                        Tab::Governor,
+                        Tab::Limits,
+                        Tab::Events,
+                        Tab::Services,
+                        Tab::Startup,
+                        Tab::Users,
+                        Tab::Network,
+                        Tab::Ports,
+                        Tab::History,
+                        Tab::KillList,
                     ] {
                         let mut d = data();
                         d.hardware = crate::sensors::fixture();
@@ -4624,7 +4923,11 @@ mod tests {
                             h.ctx.global_style().visuals.dark_mode,
                             theme == egui::Theme::Dark
                         );
-                        assert!(h.query_by_label(tab.subtitle()).is_some());
+                        // Short windows leave the subtitle out.
+                        assert_eq!(
+                            h.query_by_label(tab.subtitle()).is_some(),
+                            size[1] >= COMPACT_HEIGHT
+                        );
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         h.render().expect("GPU render").save(&path).unwrap();
                         println!("Rendered {}", path.display());
@@ -4678,7 +4981,8 @@ mod tests {
                 .build_ui_state(
                     move |ui, state: &mut (Data, Instant)| {
                         let _language = scope(language);
-                        sample_health(ui, &state.0, state.1);
+                        data_age(ui, &state.0, state.1);
+                        stale_banner(ui, &state.0, state.1);
                     },
                     (Data::default(), now),
                 );

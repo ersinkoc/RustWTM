@@ -190,13 +190,9 @@ pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) {
     ui.add_space(6.0);
     file_activity(ui, data);
     ui.add_space(6.0);
-    card(
-        ui,
-        RichText::new(crate::i18n::tr("What takes up the space"))
-            .size(16.0)
-            .strong(),
-        |ui| analysis(ui, view),
-    );
+    card(ui, crate::i18n::tr("What takes up the space"), |ui| {
+        analysis(ui, view)
+    });
 }
 
 fn used_color(percent: f32) -> Color32 {
@@ -224,7 +220,7 @@ fn kind_label(kind: DriveKind) -> &'static str {
 fn bar(ui: &mut Ui, fraction: f32, width: f32, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 10.0), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
+    painter.rect_filled(rect, 3.0, crate::theme::track_color(ui));
     let mut fill = rect;
     fill.set_width(rect.width() * fraction.clamp(0.0, 1.0));
     painter.rect_filled(fill, 3.0, color);
@@ -236,168 +232,151 @@ fn drives(ui: &mut Ui, view: &mut DisksView) {
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
-    card(
-        ui,
-        RichText::new(crate::i18n::tr("Drives")).size(16.0).strong(),
-        |ui| {
-            let Some(list) = list else {
-                ui.spinner();
-                return;
-            };
-            if list.is_empty() {
-                ui.weak(crate::i18n::tr("No drives could be read."));
-                return;
-            }
-            let mut analyze = None;
-            ui.horizontal_wrapped(|ui| {
-                for v in &list {
-                    egui::Frame::new()
-                        .fill(ui.visuals().faint_bg_color)
-                        .corner_radius(8)
-                        .inner_margin(10)
-                        .show(ui, |ui| {
-                            ui.set_width(270.0);
-                            ui.vertical(|ui| {
-                                ui.horizontal(|ui| {
-                                    let name = if v.label.is_empty() {
-                                        v.root.trim_end_matches('\\').to_owned()
-                                    } else {
-                                        format!("{} ({})", v.label, v.root.trim_end_matches('\\'))
-                                    };
-                                    ui.label(RichText::new(name).strong());
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        ui.weak(format!(
-                                            "{} · {}",
-                                            kind_label(v.kind),
-                                            v.file_system
-                                        ));
-                                    });
+    card(ui, crate::i18n::tr("Drives"), |ui| {
+        let Some(list) = list else {
+            crate::theme::loading(ui, crate::i18n::tr("Reading the drives…"));
+            return;
+        };
+        if list.is_empty() {
+            ui.weak(crate::i18n::tr("No drives could be read."));
+            return;
+        }
+        let mut analyze = None;
+        ui.horizontal_wrapped(|ui| {
+            for v in &list {
+                egui::Frame::new()
+                    .fill(crate::theme::tile_fill(ui))
+                    .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                    .corner_radius(8)
+                    .inner_margin(10)
+                    .show(ui, |ui| {
+                        ui.set_width(270.0);
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                let name = if v.label.is_empty() {
+                                    v.root.trim_end_matches('\\').to_owned()
+                                } else {
+                                    format!("{} ({})", v.label, v.root.trim_end_matches('\\'))
+                                };
+                                ui.label(RichText::new(name).strong());
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    ui.weak(format!("{} · {}", kind_label(v.kind), v.file_system));
                                 });
-                                let percent = v.used_percent();
-                                ui.horizontal(|ui| {
-                                    bar(ui, percent / 100.0, 226.0, used_color(percent));
-                                    ui.label(
-                                        RichText::new(format!("{percent:.0}%")).color(
-                                            crate::theme::text_color(ui, used_color(percent)),
-                                        ),
-                                    );
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label(crate::i18n::format(
-                                        "{0} free of {1}",
-                                        &[
-                                            format_bytes(v.free as f64),
-                                            format_bytes(v.total as f64),
-                                        ],
-                                    ));
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if ui
-                                            .small_button(crate::i18n::tr("Analyze"))
-                                            .on_hover_text(crate::i18n::tr(
-                                                "Find what takes up the space on this drive",
-                                            ))
-                                            .clicked()
-                                        {
-                                            analyze = Some(v.root.clone());
-                                        }
-                                    });
+                            });
+                            let percent = v.used_percent();
+                            ui.horizontal(|ui| {
+                                bar(ui, percent / 100.0, 226.0, used_color(percent));
+                                ui.label(
+                                    RichText::new(format!("{percent:.0}%"))
+                                        .color(crate::theme::text_color(ui, used_color(percent))),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(crate::i18n::format(
+                                    "{0} free of {1}",
+                                    &[format_bytes(v.free as f64), format_bytes(v.total as f64)],
+                                ));
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui
+                                        .small_button(crate::i18n::tr("Analyze"))
+                                        .on_hover_text(crate::i18n::tr(
+                                            "Find what takes up the space on this drive",
+                                        ))
+                                        .clicked()
+                                    {
+                                        analyze = Some(v.root.clone());
+                                    }
                                 });
                             });
                         });
-                }
-            });
-            if let Some(root) = analyze {
-                view.path = root.clone();
-                view.start(ui.ctx(), Path::new(&root));
+                    });
             }
-        },
-    );
+        });
+        if let Some(root) = analyze {
+            view.path = root.clone();
+            view.start(ui.ctx(), Path::new(&root));
+        }
+    });
 }
 
 fn activity(ui: &mut Ui, data: &Data) {
-    card(
-        ui,
-        RichText::new(crate::i18n::tr("Disk activity right now"))
-            .size(16.0)
-            .strong(),
-        |ui| {
-            let Some(snap) = &data.snapshot else {
-                ui.spinner();
-                return;
-            };
-            two_up(
-                ui,
-                |ui| {
-                    ui.strong(crate::i18n::tr("Physical disks"));
-                    if snap.system.disks.is_empty() {
-                        ui.weak(crate::i18n::tr("Disk counters are not available."));
-                    }
-                    egui::Grid::new("disk_activity")
-                        .num_columns(3)
-                        .spacing([12.0, 6.0])
-                        .show(ui, |ui| {
-                            for d in &snap.system.disks {
+    card(ui, crate::i18n::tr("Disk activity right now"), |ui| {
+        let Some(snap) = &data.snapshot else {
+            crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
+            return;
+        };
+        two_up(
+            ui,
+            |ui| {
+                ui.strong(crate::i18n::tr("Physical disks"));
+                if snap.system.disks.is_empty() {
+                    ui.weak(crate::i18n::tr("Disk counters are not available."));
+                }
+                egui::Grid::new("disk_activity")
+                    .num_columns(3)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        for d in &snap.system.disks {
+                            ui.label(crate::i18n::format(
+                                "Disk {0}",
+                                std::slice::from_ref(&d.name),
+                            ));
+                            ui.horizontal(|ui| {
+                                bar(
+                                    ui,
+                                    d.active_percent / 100.0,
+                                    120.0,
+                                    crate::theme::load_color(d.active_percent),
+                                );
                                 ui.label(crate::i18n::format(
-                                    "Disk {0}",
-                                    std::slice::from_ref(&d.name),
+                                    "{0}% busy",
+                                    &[format!("{:.0}", d.active_percent)],
                                 ));
-                                ui.horizontal(|ui| {
-                                    bar(
-                                        ui,
-                                        d.active_percent / 100.0,
-                                        120.0,
-                                        crate::theme::load_color(d.active_percent),
-                                    );
-                                    ui.label(crate::i18n::format(
-                                        "{0}% busy",
-                                        &[format!("{:.0}", d.active_percent)],
-                                    ));
-                                });
-                                ui.weak(crate::i18n::format(
-                                    "read {0}/s · write {1}/s",
-                                    &[format_bytes(d.read_rate), format_bytes(d.write_rate)],
-                                ));
-                                ui.end_row();
-                            }
-                        });
-                },
-                |ui| {
-                    ui.strong(crate::i18n::tr("Who is using the disks"));
-                    let mut busy: Vec<_> = snap
-                        .processes
-                        .iter()
-                        .filter(|p| p.io_rate() >= 1.0)
-                        .collect();
-                    busy.sort_by(|a, b| b.io_rate().total_cmp(&a.io_rate()));
-                    if busy.is_empty() {
-                        ui.weak(crate::i18n::tr(
-                            "No process is reading or writing right now.",
-                        ));
-                    }
-                    egui::Grid::new("disk_processes")
-                        .num_columns(3)
-                        .spacing([12.0, 6.0])
-                        .show(ui, |ui| {
-                            for p in busy.into_iter().take(TOP_PROCESSES) {
-                                ui.label(&p.name);
-                                ui.label(crate::i18n::format(
-                                    "read {0}/s",
-                                    &[format_bytes(p.io_read_rate)],
-                                ));
-                                ui.label(crate::i18n::format(
-                                    "write {0}/s",
-                                    &[format_bytes(p.io_write_rate)],
-                                ));
-                                ui.end_row();
-                            }
-                        });
+                            });
+                            ui.weak(crate::i18n::format(
+                                "read {0}/s · write {1}/s",
+                                &[format_bytes(d.read_rate), format_bytes(d.write_rate)],
+                            ));
+                            ui.end_row();
+                        }
+                    });
+            },
+            |ui| {
+                ui.strong(crate::i18n::tr("Who is using the disks"));
+                let mut busy: Vec<_> = snap
+                    .processes
+                    .iter()
+                    .filter(|p| p.io_rate() >= 1.0)
+                    .collect();
+                busy.sort_by(|a, b| b.io_rate().total_cmp(&a.io_rate()));
+                if busy.is_empty() {
                     ui.weak(crate::i18n::tr(
-                        "Includes file, network and device I/O of each process.",
+                        "No process is reading or writing right now.",
                     ));
-                },
-            );
-        },
-    );
+                }
+                egui::Grid::new("disk_processes")
+                    .num_columns(3)
+                    .spacing([12.0, 6.0])
+                    .show(ui, |ui| {
+                        for p in busy.into_iter().take(TOP_PROCESSES) {
+                            ui.label(&p.name);
+                            ui.label(crate::i18n::format(
+                                "read {0}/s",
+                                &[format_bytes(p.io_read_rate)],
+                            ));
+                            ui.label(crate::i18n::format(
+                                "write {0}/s",
+                                &[format_bytes(p.io_write_rate)],
+                            ));
+                            ui.end_row();
+                        }
+                    });
+                ui.weak(crate::i18n::tr(
+                    "Includes file, network and device I/O of each process.",
+                ));
+            },
+        );
+    });
 }
 
 /// Side by side when there is room, otherwise one below the other.
@@ -416,65 +395,62 @@ fn two_up(ui: &mut Ui, left: impl FnOnce(&mut Ui), right: impl FnOnce(&mut Ui)) 
 
 /// Files read and written right now, by program.
 fn file_activity(ui: &mut Ui, data: &Data) {
-    card(
-        ui,
-        RichText::new(crate::i18n::tr("Files being read and written"))
-            .size(16.0)
-            .strong(),
-        |ui| {
-            // A still label, not a spinner: nothing repaints while waiting.
-            let Some(activity) = &data.disk_activity else {
-                ui.weak(crate::i18n::tr("loading…"));
-                return;
-            };
-            let (files, seconds) = match activity {
-                Ok(a) => a,
-                Err(e) => {
-                    ui.weak(e);
-                    return;
-                }
-            };
-            if files.is_empty() {
-                ui.weak(crate::i18n::tr(
-                    "No disk reads or writes in the last seconds.",
-                ));
+    card(ui, crate::i18n::tr("Files being read and written"), |ui| {
+        // A still label, not a spinner: nothing repaints while waiting.
+        let Some(activity) = &data.disk_activity else {
+            crate::theme::loading_still(
+                ui,
+                crate::i18n::tr("Collecting the files read and written…"),
+            );
+            return;
+        };
+        let (files, seconds) = match activity {
+            Ok(a) => a,
+            Err(e) => {
+                ui.weak(e);
                 return;
             }
-            let names: std::collections::HashMap<u32, &str> = data
-                .snapshot
-                .iter()
-                .flat_map(|s| &s.processes)
-                .map(|p| (p.pid, p.name.as_str()))
-                .collect();
-            let per_second = |b: u64| format_bytes(b as f64 / seconds.max(0.5));
-            egui::Grid::new("file_activity")
-                .num_columns(4)
-                .striped(true)
-                .spacing([16.0, 4.0])
-                .show(ui, |ui| {
-                    for label in [
-                        crate::i18n::tr("Program"),
-                        crate::i18n::tr("Read"),
-                        crate::i18n::tr("Write"),
-                        crate::i18n::tr("File"),
-                    ] {
-                        ui.strong(label);
-                    }
+        };
+        if files.is_empty() {
+            ui.weak(crate::i18n::tr(
+                "No disk reads or writes in the last seconds.",
+            ));
+            return;
+        }
+        let names: std::collections::HashMap<u32, &str> = data
+            .snapshot
+            .iter()
+            .flat_map(|s| &s.processes)
+            .map(|p| (p.pid, p.name.as_str()))
+            .collect();
+        let per_second = |b: u64| format_bytes(b as f64 / seconds.max(0.5));
+        egui::Grid::new("file_activity")
+            .num_columns(4)
+            .striped(true)
+            .spacing([16.0, 4.0])
+            .show(ui, |ui| {
+                for label in [
+                    crate::i18n::tr("Program"),
+                    crate::i18n::tr("Read"),
+                    crate::i18n::tr("Write"),
+                    crate::i18n::tr("File"),
+                ] {
+                    ui.strong(label);
+                }
+                ui.end_row();
+                for f in files.iter().take(20) {
+                    ui.label(names.get(&f.pid).copied().unwrap_or("?"))
+                        .on_hover_text(format!("PID {}", f.pid));
+                    ui.label(format!("{}/s", per_second(f.read)));
+                    ui.label(format!("{}/s", per_second(f.write)));
+                    match &f.path {
+                        Some(p) => ui.add(egui::Label::new(p).truncate()),
+                        None => ui.weak(crate::i18n::tr("(name not known yet)")),
+                    };
                     ui.end_row();
-                    for f in files.iter().take(20) {
-                        ui.label(names.get(&f.pid).copied().unwrap_or("?"))
-                            .on_hover_text(format!("PID {}", f.pid));
-                        ui.label(format!("{}/s", per_second(f.read)));
-                        ui.label(format!("{}/s", per_second(f.write)));
-                        match &f.path {
-                            Some(p) => ui.add(egui::Label::new(p).truncate()),
-                            None => ui.weak(crate::i18n::tr("(name not known yet)")),
-                        };
-                        ui.end_row();
-                    }
-                });
-        },
-    );
+                }
+            });
+    });
 }
 
 fn analysis(ui: &mut Ui, view: &mut DisksView) {
@@ -503,7 +479,7 @@ fn analysis(ui: &mut Ui, view: &mut DisksView) {
         }
     });
     if let Some(e) = &view.error {
-        ui.colored_label(BAD, e);
+        crate::theme::colored(ui, BAD, e);
     }
     let Some(scan) = &view.scan else {
         ui.weak(crate::i18n::tr(
@@ -578,7 +554,8 @@ fn summary(ui: &mut Ui, r: &ScanResult) {
     }
     ui.label(RichText::new(text).strong());
     if r.cancelled {
-        ui.colored_label(
+        crate::theme::colored(
+            ui,
             WARN,
             crate::i18n::tr("Stopped early: the numbers cover only what was scanned."),
         );
@@ -753,7 +730,7 @@ fn folders(
                             }
                             let mut name = RichText::new(&node.name);
                             if node.denied {
-                                name = name.color(WARN);
+                                name = name.color(crate::theme::text_color(ui, WARN));
                             }
                             let label = ui.add(
                                 egui::Label::new(name)

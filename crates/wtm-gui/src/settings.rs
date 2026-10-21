@@ -1,7 +1,7 @@
 //! Settings tab: its pages, the service's main settings as a form, and its
 //! `config.toml` as text, with live validation.
 
-use eframe::egui::{self, Color32, RichText, Ui};
+use eframe::egui::{self, RichText, Ui};
 
 use crate::backend::{Data, UiCommand};
 
@@ -113,11 +113,11 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
     };
     let path = match &data.config {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading the service settings…"));
             return commands;
         }
         Some(Err(e)) => {
-            ui.colored_label(Color32::RED, e);
+            crate::theme::colored(ui, crate::theme::BAD, e);
             if ui.button(crate::i18n::tr("Retry")).clicked() {
                 reload(&mut commands);
             }
@@ -135,10 +135,7 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
     ui.horizontal(|ui| {
         ui.label(RichText::new(path).monospace());
         if dirty {
-            ui.colored_label(
-                Color32::from_rgb(230, 140, 40),
-                crate::i18n::tr("● unsaved changes"),
-            );
+            crate::theme::colored(ui, crate::theme::WARN, crate::i18n::tr("● unsaved changes"));
         }
     });
     ui.horizontal(|ui| {
@@ -161,11 +158,12 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
         }
     });
     match &valid {
-        Ok(_) => ui.colored_label(
-            Color32::from_rgb(80, 180, 100),
+        Ok(_) => crate::theme::colored(
+            ui,
+            crate::theme::GOOD,
             crate::i18n::tr("✔ Valid configuration"),
         ),
-        Err(e) => ui.colored_label(Color32::from_rgb(220, 70, 70), format!("✖ {e}")),
+        Err(e) => crate::theme::colored(ui, crate::theme::BAD, format!("✖ {e}")),
     };
     ui.add_space(4.0);
     if view.page == Page::File {
@@ -188,7 +186,7 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
                     .desired_rows(rows),
             );
         });
-        let fill = ui.visuals().extreme_bg_color;
+        let fill = ui.visuals().text_edit_bg_color();
         crate::theme::more_below(ui, "config_text", &out, fill);
         return commands;
     }

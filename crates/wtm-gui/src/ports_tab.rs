@@ -131,13 +131,16 @@ fn exposure_label(ui: &mut Ui, exposure: Exposure) {
             ),
         ),
     };
-    ui.colored_label(color, exposure.label())
-        .on_hover_text(hint);
+    crate::theme::colored(ui, color, crate::i18n::tr(exposure.label())).on_hover_text(hint);
+}
+
+/// The address a browser opens for a local port.
+fn local_url(port: u16) -> String {
+    format!("http://localhost:{port}")
 }
 
 fn open_url(ui: &Ui, port: u16) {
-    ui.ctx()
-        .open_url(egui::OpenUrl::new_tab(format!("http://localhost:{port}")));
+    ui.ctx().open_url(egui::OpenUrl::new_tab(local_url(port)));
 }
 
 /// Groups port uses by port, each with its process.
@@ -164,11 +167,11 @@ fn rows<'a>(
 pub fn ports_tab(ui: &mut Ui, data: &Data, view: &mut PortsView, intents: &mut Vec<Intent>) {
     let conns = match &data.connections {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading connections…"));
             return;
         }
         Some(Err(e)) => {
-            ui.colored_label(BAD, e);
+            crate::theme::colored(ui, BAD, e);
             return;
         }
         Some(Ok(c)) => c,
@@ -237,14 +240,14 @@ fn free_port_bar(
         ui.label(crate::i18n::tr("Free a port:"));
         let edit = ui.add(
             egui::TextEdit::singleline(&mut view.free_input)
-                .hint_text("e.g. 3000")
-                .desired_width(80.0),
+                .hint_text(crate::i18n::format("e.g. {0}", &["3000".into()]))
+                .desired_width(96.0),
         );
         let port = ports::parse_port(&view.free_input);
         let row = port.and_then(|p| all.iter().find(|r| r.port == p));
         match (port, row) {
             (None, _) if !view.free_input.trim().is_empty() => {
-                ui.colored_label(BAD, crate::i18n::tr("Not a port number"));
+                crate::theme::colored(ui, BAD, crate::i18n::tr("Not a port number"));
             }
             (None, _) => {
                 ui.weak(crate::i18n::tr(
@@ -252,9 +255,11 @@ fn free_port_bar(
                 ));
             }
             (Some(p), None) => {
-                ui.colored_label(GOOD, {
-                    crate::i18n::format("Port {0} is free.", &[format!("{}", p)])
-                });
+                crate::theme::colored(
+                    ui,
+                    GOOD,
+                    crate::i18n::format("Port {0} is free.", &[format!("{}", p)]),
+                );
             }
             (Some(p), Some(row)) => {
                 let blocked = blocked(row);
@@ -266,7 +271,7 @@ fn free_port_bar(
                             RichText::new({
                                 crate::i18n::format("End what uses port {0}", &[format!("{}", p)])
                             })
-                            .color(BAD),
+                            .color(crate::theme::text_color(ui, BAD)),
                         ),
                     )
                     .on_disabled_hover_text(blocked.clone().unwrap_or_default());
@@ -277,7 +282,7 @@ fn free_port_bar(
                 if let Some(why) = &blocked {
                     ui.weak(why);
                 } else if let Some(hint) = relay(row) {
-                    ui.colored_label(WARN, hint);
+                    crate::theme::colored(ui, WARN, hint);
                 }
             }
         }
@@ -285,172 +290,177 @@ fn free_port_bar(
 }
 
 fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: &mut Vec<Intent>) {
-    card(
-        ui,
-        RichText::new(crate::i18n::tr("Developer tools & servers")).strong(),
-        |ui| {
-            ui.horizontal(|ui| {
-                ui.checkbox(
-                    &mut view.show_catalog,
-                    crate::i18n::tr("Show free ports too"),
-                );
-                ui.separator();
-                ui.label(crate::i18n::tr("Watch a port:"));
-                let edit = ui.add(
-                    egui::TextEdit::singleline(&mut view.watch_input)
-                        .hint_text("e.g. 8090")
-                        .desired_width(70.0),
-                );
-                let port = ports::parse_port(&view.watch_input);
-                let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if (ui
-                    .add_enabled(port.is_some(), egui::Button::new(crate::i18n::tr("Watch")))
-                    .clicked()
-                    || enter)
-                    && let Some(p) = port
-                {
-                    if !view.watched.contains(&p) {
-                        view.watched.push(p);
-                        view.watched.sort_unstable();
-                    }
-                    view.watch_input.clear();
-                }
-            });
-            // Watched ports first, then the catalog in its order.
-            let mut list: Vec<(u16, Option<&'static KnownPort>, bool)> = view
-                .watched
-                .iter()
-                .map(|&p| (p, ports::known_port(p), true))
-                .collect();
-            list.extend(
-                KNOWN_PORTS
-                    .iter()
-                    .filter(|k| !view.watched.contains(&k.port))
-                    .map(|k| (k.port, Some(k), false)),
+    card(ui, crate::i18n::tr("Developer tools & servers"), |ui| {
+        ui.horizontal(|ui| {
+            ui.checkbox(
+                &mut view.show_catalog,
+                crate::i18n::tr("Show free ports too"),
             );
-            let shown: Vec<_> = list
-                .into_iter()
-                .map(|(port, known, watched)| {
-                    (port, known, watched, all.iter().find(|r| r.port == port))
-                })
-                .filter(|(_, _, watched, row)| *watched || view.show_catalog || row.is_some())
-                .collect();
-            if shown.is_empty() {
-                ui.weak(crate::i18n::tr(
-                    "None of the well-known developer tools or servers is running.",
-                ));
-                return;
+            ui.separator();
+            ui.label(crate::i18n::tr("Watch a port:"));
+            let edit = ui.add(
+                egui::TextEdit::singleline(&mut view.watch_input)
+                    .hint_text(crate::i18n::format("e.g. {0}", &["8090".into()]))
+                    .desired_width(96.0),
+            );
+            let port = ports::parse_port(&view.watch_input);
+            let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui
+                .add_enabled(port.is_some(), egui::Button::new(crate::i18n::tr("Watch")))
+                .clicked()
+                || enter)
+                && let Some(p) = port
+            {
+                if !view.watched.contains(&p) {
+                    view.watched.push(p);
+                    view.watched.sort_unstable();
+                }
+                view.watch_input.clear();
             }
-            let mut unwatch = None;
-            egui::ScrollArea::vertical()
-                .id_salt("known_ports")
-                .max_height(240.0)
-                .show(ui, |ui| {
-                    egui::Grid::new("known_ports_grid")
-                        .num_columns(8)
-                        .striped(true)
-                        .spacing([14.0, 4.0])
-                        .show(ui, |ui| {
-                            for h in [
-                                "",
-                                crate::i18n::tr("Port"),
-                                crate::i18n::tr("Tool / server"),
-                                crate::i18n::tr("Kind"),
-                                crate::i18n::tr("Program"),
-                                crate::i18n::tr("Reach"),
-                                crate::i18n::tr("Clients"),
-                                "",
-                            ] {
+        });
+        // Watched ports first, then the catalog in its order.
+        let mut list: Vec<(u16, Option<&'static KnownPort>, bool)> = view
+            .watched
+            .iter()
+            .map(|&p| (p, ports::known_port(p), true))
+            .collect();
+        list.extend(
+            KNOWN_PORTS
+                .iter()
+                .filter(|k| !view.watched.contains(&k.port))
+                .map(|k| (k.port, Some(k), false)),
+        );
+        let shown: Vec<_> = list
+            .into_iter()
+            .map(|(port, known, watched)| {
+                (port, known, watched, all.iter().find(|r| r.port == port))
+            })
+            .filter(|(_, _, watched, row)| *watched || view.show_catalog || row.is_some())
+            .collect();
+        if shown.is_empty() {
+            ui.weak(crate::i18n::tr(
+                "None of the well-known developer tools or servers is running.",
+            ));
+            return;
+        }
+        let mut unwatch = None;
+        // Sideways too: on narrow windows the columns go on to the right
+        // instead of widening the page.
+        egui::ScrollArea::both()
+            .id_salt("known_ports")
+            .max_height(240.0)
+            .show(ui, |ui| {
+                egui::Grid::new("known_ports_grid")
+                    .num_columns(8)
+                    .striped(true)
+                    .spacing([14.0, 4.0])
+                    .show(ui, |ui| {
+                        for (i, h) in [
+                            "",
+                            crate::i18n::tr("Port"),
+                            crate::i18n::tr("Tool / server"),
+                            crate::i18n::tr("Kind"),
+                            crate::i18n::tr("Program"),
+                            crate::i18n::tr("Reach"),
+                            crate::i18n::tr("Clients"),
+                            "",
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            if matches!(i, 1 | 6) {
+                                crate::theme::right(ui, RichText::new(h).strong());
+                            } else {
                                 ui.strong(h);
                             }
-                            ui.end_row();
-                            for (port, known, watched, row) in shown {
-                                match row {
-                                    Some(_) => ui
-                                        .colored_label(GOOD, "●")
-                                        .on_hover_text(crate::i18n::tr("In use")),
-                                    None => ui.weak("○").on_hover_text(crate::i18n::tr("Free")),
-                                };
-                                ui.label(RichText::new(port.to_string()).monospace().strong());
-                                ui.label(
-                                    known.map_or(crate::i18n::tr("Watched port"), |k| k.service),
-                                );
-                                ui.weak(known.map_or("", |k| k.category));
-                                match row {
-                                    Some(r) => {
-                                        let label = ui.label(r.process_text());
-                                        if let Some(hint) = relay(r) {
-                                            label.on_hover_text(hint);
-                                        }
-                                        match r.exposure() {
-                                            Some(e) => exposure_label(ui, e),
-                                            None => {
-                                                ui.label("");
-                                            }
-                                        }
-                                        ui.label(r.connections().to_string());
+                        }
+                        ui.end_row();
+                        for (port, known, watched, row) in shown {
+                            match row {
+                                Some(_) => crate::theme::colored(ui, GOOD, "●")
+                                    .on_hover_text(crate::i18n::tr("In use")),
+                                None => ui.weak("○").on_hover_text(crate::i18n::tr("Free")),
+                            };
+                            crate::theme::right(
+                                ui,
+                                RichText::new(port.to_string()).monospace().strong(),
+                            );
+                            ui.label(known.map_or(crate::i18n::tr("Watched port"), |k| k.service));
+                            ui.weak(known.map_or("", |k| k.category));
+                            match row {
+                                Some(r) => {
+                                    let label = ui.label(r.process_text());
+                                    if let Some(hint) = relay(r) {
+                                        label.on_hover_text(hint);
                                     }
-                                    None => {
-                                        ui.weak("free");
-                                        ui.label("");
-                                        ui.label("");
+                                    match r.exposure() {
+                                        Some(e) => exposure_label(ui, e),
+                                        None => {
+                                            ui.label("");
+                                        }
                                     }
+                                    crate::theme::right(ui, r.connections().to_string());
                                 }
-                                ui.horizontal(|ui| {
-                                    if let Some(r) = row {
-                                        if r.browsable()
-                                            && ui
-                                                .small_button(crate::i18n::tr("Open"))
-                                                .on_hover_text(format!("http://localhost:{port}"))
-                                                .clicked()
-                                        {
-                                            open_url(ui, port);
-                                        }
-                                        let blocked = blocked(r);
-                                        if ui
-                                            .add_enabled(
-                                                blocked.is_none(),
-                                                egui::Button::new(
-                                                    RichText::new(crate::i18n::tr("End"))
-                                                        .color(BAD),
-                                                )
-                                                .small(),
-                                            )
-                                            .on_hover_text(relay(r).unwrap_or(crate::i18n::tr(
-                                                "End the program to free the port",
-                                            )))
-                                            .on_disabled_hover_text(blocked.unwrap_or_default())
-                                            .clicked()
-                                        {
-                                            intents.push(end_intent(r, Command::Kill));
-                                        }
-                                        if let Some((_, Some(p))) = r.uses.first()
-                                            && ui
-                                                .small_button(crate::i18n::tr("Show"))
-                                                .on_hover_text(crate::i18n::tr("Show in Processes"))
-                                                .clicked()
-                                        {
-                                            intents.push(Intent::Reveal(ProcessRef::from(*p)));
-                                        }
-                                    }
-                                    if watched
+                                None => {
+                                    ui.weak(crate::i18n::tr("Free"));
+                                    ui.label("");
+                                    ui.label("");
+                                }
+                            }
+                            ui.horizontal(|ui| {
+                                if let Some(r) = row {
+                                    if r.browsable()
                                         && ui
-                                            .small_button("✖")
-                                            .on_hover_text(crate::i18n::tr("Stop watching"))
+                                            .small_button(crate::i18n::tr("Open"))
+                                            .on_hover_text(local_url(port))
                                             .clicked()
                                     {
-                                        unwatch = Some(port);
+                                        open_url(ui, port);
                                     }
-                                });
-                                ui.end_row();
-                            }
-                        });
-                });
-            if let Some(p) = unwatch {
-                view.watched.retain(|w| *w != p);
-            }
-        },
-    );
+                                    let blocked = blocked(r);
+                                    if ui
+                                        .add_enabled(
+                                            blocked.is_none(),
+                                            egui::Button::new(
+                                                RichText::new(crate::i18n::tr("End"))
+                                                    .color(crate::theme::text_color(ui, BAD)),
+                                            )
+                                            .small(),
+                                        )
+                                        .on_hover_text(relay(r).unwrap_or(crate::i18n::tr(
+                                            "End the program to free the port",
+                                        )))
+                                        .on_disabled_hover_text(blocked.unwrap_or_default())
+                                        .clicked()
+                                    {
+                                        intents.push(end_intent(r, Command::Kill));
+                                    }
+                                    if let Some((_, Some(p))) = r.uses.first()
+                                        && ui
+                                            .small_button(crate::i18n::tr("Show"))
+                                            .on_hover_text(crate::i18n::tr("Show in Processes"))
+                                            .clicked()
+                                    {
+                                        intents.push(Intent::Reveal(ProcessRef::from(*p)));
+                                    }
+                                }
+                                if watched
+                                    && ui
+                                        .small_button("✖")
+                                        .on_hover_text(crate::i18n::tr("Stop watching"))
+                                        .clicked()
+                                {
+                                    unwatch = Some(port);
+                                }
+                            });
+                            ui.end_row();
+                        }
+                    });
+            });
+        if let Some(p) = unwatch {
+            view.watched.retain(|w| *w != p);
+        }
+    });
 }
 
 fn listening_table(
@@ -464,11 +474,15 @@ fn listening_table(
         ui.strong(crate::i18n::tr("All listening ports"));
         ui.separator();
         ui.label(crate::i18n::tr("Search:"));
-        ui.add(
-            egui::TextEdit::singleline(&mut view.search)
-                .hint_text(crate::i18n::tr("port, program or tool"))
-                .desired_width(200.0),
-        );
+        let search = ui
+            .add(
+                egui::TextEdit::singleline(&mut view.search)
+                    .id(egui::Id::unique("ports_search"))
+                    .hint_text(crate::i18n::tr("port, program or tool"))
+                    .desired_width(200.0),
+            )
+            .on_hover_text("Ctrl+F");
+        crate::theme::focus_on_ctrl_f(ui, &search);
         ui.checkbox(&mut view.show_udp, crate::i18n::tr("Include UDP"));
     });
     let f = view.search.trim().to_lowercase();
@@ -513,88 +527,110 @@ fn listening_table(
 
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
-    TableBuilder::new(ui)
-        .id_salt("ports_table")
-        .striped(true)
-        .resizable(true)
-        .sense(egui::Sense::click())
-        .cell_layout(Layout::left_to_right(Align::Center))
-        .column(Column::initial(64.0))
-        .column(Column::initial(48.0))
-        .column(Column::initial(190.0).clip(true))
-        .column(Column::initial(170.0).clip(true))
-        .column(Column::initial(64.0))
-        .column(Column::initial(110.0))
-        .column(Column::initial(60.0))
-        .column(Column::initial(60.0))
-        .column(Column::initial(80.0))
-        .column(Column::remainder().clip(true))
-        .header(row_height, |mut h| {
-            for (col, (label, numeric)) in [
-                (crate::i18n::tr("Port"), true),
-                (crate::i18n::tr("Proto"), false),
-                (crate::i18n::tr("Known as"), false),
-                (crate::i18n::tr("Program"), false),
-                ("PID", true),
-                (crate::i18n::tr("Reach"), false),
-                (crate::i18n::tr("Clients"), true),
-                ("CPU", true),
-                (crate::i18n::tr("Memory"), true),
-                (crate::i18n::tr("Address"), false),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                h.col(|ui| header(ui, label, col, numeric, &mut sort));
-            }
-        })
-        .body(|body| {
-            body.rows(row_height, rows.len(), |mut row| {
-                let (u, p) = rows[row.index()];
-                row.col(|ui| {
-                    ui.label(RichText::new(u.port.to_string()).monospace());
-                });
-                row.col(|ui| {
-                    ui.label(format!("{:?}", u.protocol).to_uppercase());
-                });
-                row.col(|ui| {
-                    ui.label(u.known().map_or("", |k| k.service));
-                });
-                row.col(|ui| {
-                    let label = ui.label(p.map_or("?", |p| p.name.as_str()));
-                    if let Some(hint) = p.and_then(|p| ports::relay_hint(&p.name)) {
-                        label.on_hover_text(hint);
-                    }
-                });
-                row.col(|ui| {
-                    ui.label(u.pid.to_string());
-                });
-                row.col(|ui| exposure_label(ui, u.exposure()));
-                row.col(|ui| {
-                    if u.protocol == Protocol::Tcp {
-                        ui.label(u.connections.to_string());
-                    }
-                });
-                row.col(|ui| {
-                    ui.label(p.map_or(String::new(), |p| format!("{:.1}%", p.cpu_percent)));
-                });
-                row.col(|ui| {
-                    ui.label(p.map_or(String::new(), |p| {
-                        format_bytes(p.private_working_set as f64)
-                    }));
-                });
-                row.col(|ui| {
-                    ui.weak(u.address_text());
-                });
-                let response = row.response();
-                if response.clicked()
-                    && let Some(p) = p
+    // Every header fits at first; narrow windows scroll sideways.
+    let widths: Vec<f32> = [
+        ("Port", 64.0),
+        ("Proto", 48.0),
+        ("Known as", 190.0),
+        ("Program", 170.0),
+        ("PID", 64.0),
+        ("Reach", 110.0),
+        ("Clients", 60.0),
+        ("CPU", 60.0),
+        ("Memory", 80.0),
+    ]
+    .iter()
+    .map(|(label, width)| crate::sort::width(ui, label, *width))
+    .collect();
+    let min_width = widths.iter().sum::<f32>() + 120.0;
+    crate::theme::table_panel(ui, "ports", min_width, |ui| {
+        TableBuilder::new(ui)
+            .id_salt("ports_table")
+            .striped(true)
+            .resizable(true)
+            .sense(egui::Sense::click())
+            .cell_layout(Layout::left_to_right(Align::Center))
+            .column(Column::initial(widths[0]))
+            .column(Column::initial(widths[1]))
+            .column(Column::initial(widths[2]).clip(true))
+            .column(Column::initial(widths[3]).clip(true))
+            .column(Column::initial(widths[4]))
+            .column(Column::initial(widths[5]))
+            .column(Column::initial(widths[6]))
+            .column(Column::initial(widths[7]))
+            .column(Column::initial(widths[8]))
+            .column(Column::remainder().clip(true))
+            .header(row_height, |mut h| {
+                for (col, (label, numeric)) in [
+                    (crate::i18n::tr("Port"), true),
+                    (crate::i18n::tr("Proto"), false),
+                    (crate::i18n::tr("Known as"), false),
+                    (crate::i18n::tr("Program"), false),
+                    ("PID", true),
+                    (crate::i18n::tr("Reach"), false),
+                    (crate::i18n::tr("Clients"), true),
+                    ("CPU", true),
+                    (crate::i18n::tr("Memory"), true),
+                    (crate::i18n::tr("Address"), false),
+                ]
+                .into_iter()
+                .enumerate()
                 {
-                    intents.push(Intent::Select(ProcessRef::from(p)));
+                    h.col(|ui| header(ui, label, col, numeric, &mut sort));
                 }
-                response.context_menu(|ui| port_menu(ui, u, p, view, intents));
+            })
+            .body(|body| {
+                body.rows(row_height, rows.len(), |mut row| {
+                    let (u, p) = rows[row.index()];
+                    row.col(|ui| {
+                        crate::theme::right(ui, RichText::new(u.port.to_string()).monospace());
+                    });
+                    row.col(|ui| {
+                        ui.label(format!("{:?}", u.protocol).to_uppercase());
+                    });
+                    row.col(|ui| {
+                        ui.label(u.known().map_or("", |k| k.service));
+                    });
+                    row.col(|ui| {
+                        let label = ui.label(p.map_or("?", |p| p.name.as_str()));
+                        if let Some(hint) = p.and_then(|p| ports::relay_hint(&p.name)) {
+                            label.on_hover_text(hint);
+                        }
+                    });
+                    row.col(|ui| crate::theme::right(ui, u.pid.to_string()));
+                    row.col(|ui| exposure_label(ui, u.exposure()));
+                    row.col(|ui| {
+                        if u.protocol == Protocol::Tcp {
+                            crate::theme::right(ui, u.connections.to_string());
+                        }
+                    });
+                    row.col(|ui| {
+                        crate::theme::right(
+                            ui,
+                            p.map_or(String::new(), |p| format!("{:.1}%", p.cpu_percent)),
+                        );
+                    });
+                    row.col(|ui| {
+                        crate::theme::right(
+                            ui,
+                            p.map_or(String::new(), |p| {
+                                format_bytes(p.private_working_set as f64)
+                            }),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.weak(u.address_text());
+                    });
+                    let response = row.response();
+                    if response.clicked()
+                        && let Some(p) = p
+                    {
+                        intents.push(Intent::Select(ProcessRef::from(p)));
+                    }
+                    response.context_menu(|ui| port_menu(ui, u, p, view, intents));
+                });
             });
-        });
+    });
     sort.store(ui, "ports");
 }
 
@@ -634,7 +670,7 @@ fn port_menu(
                 std::slice::from_ref(&r),
             ));
         } else if let Some(hint) = ports::relay_hint(&p.name) {
-            ui.colored_label(WARN, hint);
+            crate::theme::colored(ui, WARN, hint);
         }
         if ui.button(crate::i18n::tr("Show in Processes")).clicked() {
             intents.push(Intent::Reveal(target.clone()));
@@ -650,7 +686,11 @@ fn port_menu(
         }
         ui.separator();
     }
-    if u.protocol == Protocol::Tcp && ui.button(format!("Open http://localhost:{port}")).clicked() {
+    if u.protocol == Protocol::Tcp
+        && ui
+            .button(crate::i18n::format("Open {0}", &[local_url(port)]))
+            .clicked()
+    {
         open_url(ui, port);
         ui.close();
     }

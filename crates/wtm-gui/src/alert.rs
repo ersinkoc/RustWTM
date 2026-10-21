@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui::{self, RichText};
 use wtm_core::control::{EcoQos, Limits, PriorityClass, ProcessRef};
 use wtm_ipc::Command;
 
@@ -82,9 +82,7 @@ impl AlertWatch {
     }
 }
 
-const BAD: Color32 = Color32::from_rgb(220, 70, 70);
-const WARN: Color32 = Color32::from_rgb(230, 140, 40);
-const GOOD: Color32 = Color32::from_rgb(80, 180, 100);
+use crate::theme::{BAD, GOOD, WARN, text_color};
 /// Apps offered in the alert.
 const APPS_SHOWN: usize = 5;
 
@@ -125,11 +123,14 @@ pub fn dialog(
 
     let modal = egui::Modal::new(egui::Id::unique("cpu_alert")).show(ctx, |ui| {
         ui.set_width(640.0);
-        let color = if alert.cpu >= settings.threshold {
-            BAD
-        } else {
-            GOOD
-        };
+        let color = text_color(
+            ui,
+            if alert.cpu >= settings.threshold {
+                BAD
+            } else {
+                GOOD
+            },
+        );
         ui.label(
             RichText::new({
                 let __wtm_i18n_0 = &(alert.cpu);
@@ -142,7 +143,7 @@ pub fn dialog(
             .color(color),
         );
         if alert.cpu < settings.threshold {
-            ui.colored_label(GOOD, crate::i18n::tr("The load is back to normal."));
+            crate::theme::colored(ui, GOOD, crate::i18n::tr("The load is back to normal."));
         } else {
             ui.label(crate::i18n::tr(
                 "These apps use the most CPU. One click brings them down; nothing is lost.",
@@ -189,11 +190,8 @@ pub fn dialog(
                             ""
                         });
                     ui.label(
-                        RichText::new(format!("{:.0}%", a.cpu)).color(if a.cpu >= 50.0 {
-                            BAD
-                        } else {
-                            WARN
-                        }),
+                        RichText::new(format!("{:.0}%", a.cpu))
+                            .color(text_color(ui, if a.cpu >= 50.0 { BAD } else { WARN })),
                     );
                     ui.horizontal(|ui| {
                         let all = |c: Command| {
@@ -235,7 +233,9 @@ pub fn dialog(
                             intents.extend(all(Command::Suspend));
                         }
                         if ui
-                            .button(RichText::new(crate::i18n::tr("End")).color(BAD))
+                            .button(
+                                RichText::new(crate::i18n::tr("End")).color(text_color(ui, BAD)),
+                            )
                             .clicked()
                         {
                             intents.push(Intent::ConfirmMany(a.instances.clone(), Command::Kill));
@@ -261,7 +261,7 @@ pub fn dialog(
                         )
                     })
                     .strong()
-                    .color(BAD),
+                    .color(text_color(ui, BAD)),
                 )
                 .on_hover_text(crate::i18n::tr("Shows them first"))
                 .clicked()

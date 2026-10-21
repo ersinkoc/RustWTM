@@ -78,6 +78,23 @@ fn colour(kind: SensorKind) -> egui::Color32 {
     }
 }
 
+/// A reading with its unit: fan speeds and clocks in whole numbers.
+fn reading(kind: SensorKind, value: f32) -> String {
+    match kind {
+        SensorKind::Fan | SensorKind::Clock => format!("{value:.0} {}", kind.unit()),
+        _ => format!("{value:.1} {}", kind.unit()),
+    }
+}
+
+/// The lowest and highest reading seen, e.g. `48.0 – 61.5 °C`.
+fn range(kind: SensorKind, min: f32, max: f32) -> String {
+    let digits = match kind {
+        SensorKind::Fan | SensorKind::Clock => 0,
+        _ => 1,
+    };
+    format!("{min:.digits$} – {max:.digits$} {}", kind.unit())
+}
+
 pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiCommand> {
     let report = &data.hardware;
     view.observe(report);
@@ -184,7 +201,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                 .cmp(&format!("{:?}", b.kind))
                 .then(a.name.cmp(&b.name))
         });
-        crate::theme::card(ui, RichText::new(device).size(17.0).strong(), |ui| {
+        crate::theme::card(ui, device, |ui| {
             let name_width = (ui.available_width() - 440.0).clamp(170.0, 380.0);
             egui::Grid::new(("sensors", device))
                 .num_columns(4)
@@ -209,36 +226,39 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                                     .on_hover_text(format!("{}\n{}", sensor.name, sensor.id));
                             },
                         );
-                        let color = crate::theme::text_color(ui, colour(sensor.kind));
-                        ui.label(
-                            RichText::new(sensor.value.map_or_else(
-                                || crate::i18n::tr("Unavailable").into(),
-                                |v| format!("{v:.1} {}", sensor.kind.unit()),
-                            ))
-                            .color(color),
-                        );
+                        match sensor.value {
+                            Some(v) => crate::theme::colored(
+                                ui,
+                                colour(sensor.kind),
+                                reading(sensor.kind, v),
+                            ),
+                            None => ui.weak(crate::i18n::tr("Unavailable")),
+                        };
                         ui.weak(view.extremes.get(&sensor.id).map_or_else(
                             || "—".into(),
-                            |(min, max)| format!("{min:.1} / {max:.1}"),
+                            |(min, max)| range(sensor.kind, *min, *max),
                         ));
-                        let width = if ui.available_width() > 100.0 {
-                            120.0
-                        } else {
-                            60.0
-                        };
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::hover());
-                        if let Some(values) = view.history.get(&sensor.id) {
-                            let max = values.iter().copied().fold(1.0, f32::max) * 1.1;
-                            crate::theme::sparkline(
-                                ui.painter(),
-                                rect,
-                                values,
-                                max,
-                                120,
-                                colour(sensor.kind),
-                            );
-                        }
+                        ui.horizontal(|ui| {
+                            let width = if ui.available_width() > 100.0 {
+                                120.0
+                            } else {
+                                60.0
+                            };
+                            let (rect, _) = ui
+                                .allocate_exact_size(egui::vec2(width, 22.0), egui::Sense::hover());
+                            if let Some(values) = view.history.get(&sensor.id) {
+                                let max = values.iter().copied().fold(1.0, f32::max) * 1.1;
+                                crate::theme::sparkline(
+                                    ui.painter(),
+                                    rect,
+                                    values,
+                                    max,
+                                    120,
+                                    colour(sensor.kind),
+                                );
+                            }
+                            crate::theme::fill_row(ui);
+                        });
                         ui.end_row();
                     }
                 });
@@ -246,7 +266,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
         ui.add_space(8.0);
     }
     ui.add_space(8.0);
-    ui.heading(crate::i18n::tr("Cooling"));
+    crate::theme::section(ui, crate::i18n::tr("Cooling"));
     ui.weak(crate::i18n::tr("Profiles run in the service. Applying one needs a current temperature, an elevated window and enforcing mode. Startup keeps hardware automatic control."));
     if report.channels.is_empty() {
         ui.label(crate::i18n::tr(
@@ -258,7 +278,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
     for channel in &report.channels {
         crate::theme::card(
             ui,
-            RichText::new(format!("{} · {}", channel.device, channel.name)).strong(),
+            &format!("{} · {}", channel.device, channel.name),
             |ui| {
                 if let Some((_, state)) = report.cooling.iter().find(|(id, _)| id == &channel.id) {
                     ui.label(state);
@@ -311,33 +331,41 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     {
                         profile.sensor_id = s.id.clone();
                     }
-                    egui::ComboBox::new(
-                        ("cooling_sensor", &channel.id),
-                        crate::i18n::tr("Temperature source"),
-                    )
-                    .selected_text(
-                        temps
-                            .iter()
-                            .find(|s| s.id == profile.sensor_id)
-                            .map_or(crate::i18n::tr("Select temperature"), |s| s.name.as_str()),
-                    )
-                    .show_ui(ui, |ui| {
-                        for s in &temps {
-                            ui.selectable_value(
-                                &mut profile.sensor_id,
-                                s.id.clone(),
-                                format!("{} · {}", s.device, s.name),
-                            );
-                        }
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label(crate::i18n::tr("Full speed at"));
-                        ui.add(
-                            egui::DragValue::new(&mut profile.critical_celsius)
-                                .range(60.0..=95.0)
-                                .suffix(" °C"),
-                        );
-                    });
+                    egui::Grid::new(("cooling_source", &channel.id))
+                        .num_columns(2)
+                        .spacing([12.0, 6.0])
+                        .show(ui, |ui| {
+                            let label = ui.label(crate::i18n::tr("Temperature source"));
+                            egui::ComboBox::from_id_salt(("cooling_sensor", &channel.id))
+                                .selected_text(
+                                    temps
+                                        .iter()
+                                        .find(|s| s.id == profile.sensor_id)
+                                        .map_or(crate::i18n::tr("Select temperature"), |s| {
+                                            s.name.as_str()
+                                        }),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for s in &temps {
+                                        ui.selectable_value(
+                                            &mut profile.sensor_id,
+                                            s.id.clone(),
+                                            format!("{} · {}", s.device, s.name),
+                                        );
+                                    }
+                                })
+                                .response
+                                .labelled_by(label.id);
+                            ui.end_row();
+                            let label = ui.label(crate::i18n::tr("Full speed at"));
+                            ui.add(
+                                egui::DragValue::new(&mut profile.critical_celsius)
+                                    .range(60.0..=95.0)
+                                    .suffix(" °C"),
+                            )
+                            .labelled_by(label.id);
+                            ui.end_row();
+                        });
                 }
                 match &mut profile.mode {
                     CoolingMode::Manual(value) => {
@@ -565,8 +593,9 @@ mod tests {
         let mut h = harness();
         h.run();
         assert!(h.query_by_label("54.0 °C").is_some());
-        assert!(h.query_by_label("1200.0 RPM").is_some());
+        assert!(h.query_by_label("1200 RPM").is_some());
         assert!(h.query_by_label("Unavailable").is_some());
+        assert!(h.query_by_label("1200 – 1200 RPM").is_some());
         h.get_by_label("Fan RPM").click();
         h.run();
         assert!(h.query_by_label("GPU core").is_none());

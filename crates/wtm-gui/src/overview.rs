@@ -12,28 +12,22 @@ use wtm_policy::{Config, Preset, set_preset};
 use crate::backend::{Data, Mode, UiCommand};
 use crate::processes::Intent;
 
-const GOOD: Color32 = Color32::from_rgb(80, 180, 100);
-const WARN: Color32 = Color32::from_rgb(230, 140, 40);
-const BAD: Color32 = Color32::from_rgb(220, 70, 70);
+use crate::theme::{BAD, GOOD, WARN, load_color};
 
-fn load_color(percent: f32) -> Color32 {
-    match percent {
-        p if p >= 90.0 => BAD,
-        p if p >= 70.0 => WARN,
-        _ => GOOD,
-    }
-}
-
-/// Half the machine is alarming; one full core is worth noticing.
-fn app_color(cpu: f32, logical_cpus: u32) -> Color32 {
+/// Half the machine is alarming; one full core is worth noticing. Less is
+/// ordinary text.
+fn app_color(cpu: f32, logical_cpus: u32) -> Option<Color32> {
     if cpu >= 50.0 {
-        BAD
+        Some(BAD)
     } else if cpu >= 100.0 / logical_cpus.max(1) as f32 {
-        WARN
+        Some(WARN)
     } else {
-        Color32::GRAY
+        None
     }
 }
+
+/// Side by side from this width, otherwise one below the other.
+const TWO_CARDS: f32 = 1100.0;
 
 /// One resource at a glance: a ring for loads that have a ceiling, or a
 /// big value for rates, and the last few minutes as a sparkline.
@@ -56,13 +50,8 @@ const STAT_HEADER: f32 = 66.0;
 const STAT_SECONDS: usize = 60;
 
 fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
-    let dark = ui.visuals().dark_mode;
     egui::Frame::new()
-        .fill(if dark {
-            Color32::from_rgb(26, 31, 38)
-        } else {
-            Color32::WHITE
-        })
+        .fill(crate::theme::card_fill(ui))
         .stroke(egui::Stroke::new(1.0, s.accent.gamma_multiply(0.45)))
         .corner_radius(10)
         .inner_margin(12)
@@ -149,19 +138,13 @@ fn banner(ui: &mut Ui, color: Color32, text: &str) {
 
 /// A tinted full-width strip with an icon.
 fn strip(ui: &mut Ui, color: Color32, icon: &str, text: &str) {
-    egui::Frame::new()
-        .fill(color.gamma_multiply(0.14))
-        .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.5)))
-        .corner_radius(8)
-        .inner_margin(egui::Margin::symmetric(12, 8))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(
-                RichText::new(format!("{icon}  {text}"))
-                    .size(16.0)
-                    .color(crate::theme::text_color(ui, color)),
-            );
-        });
+    crate::theme::strip(ui, color, |ui| {
+        ui.label(
+            RichText::new(format!("{icon}  {text}"))
+                .size(16.0)
+                .color(crate::theme::text_color(ui, color)),
+        );
+    });
 }
 
 /// The game in front and what game mode does for it.
@@ -336,33 +319,27 @@ fn not_responding(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut
             continue;
         };
         ui.add_space(4.0);
-        egui::Frame::new()
-            .fill(BAD.gamma_multiply(0.12))
-            .stroke(egui::Stroke::new(1.0, BAD.gamma_multiply(0.5)))
-            .corner_radius(8)
-            .inner_margin(egui::Margin::symmetric(12, 8))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(crate::i18n::format(
-                            "⚠  {0} is not responding (\"{1}\")",
-                            &[p.name.clone(), title.clone()],
-                        ))
-                        .size(15.0)
-                        .color(crate::theme::text_color(ui, BAD)),
-                    );
-                    if ui
-                        .button(crate::i18n::tr("Why?"))
-                        .on_hover_text(crate::i18n::tr("Show it and analyze its wait chain"))
-                        .clicked()
-                    {
-                        let target = ProcessRef::from(p);
-                        intents.push(Intent::Reveal(target.clone()));
-                        intents.push(Intent::WaitChain(target));
-                    }
-                });
+        crate::theme::strip(ui, BAD, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(crate::i18n::format(
+                        "⚠  {0} is not responding (\"{1}\")",
+                        &[p.name.clone(), title.clone()],
+                    ))
+                    .size(15.0)
+                    .color(crate::theme::text_color(ui, BAD)),
+                );
+                if ui
+                    .button(crate::i18n::tr("Why?"))
+                    .on_hover_text(crate::i18n::tr("Show it and analyze its wait chain"))
+                    .clicked()
+                {
+                    let target = ProcessRef::from(p);
+                    intents.push(Intent::Reveal(target.clone()));
+                    intents.push(Intent::WaitChain(target));
+                }
             });
+        });
     }
 }
 
@@ -379,100 +356,89 @@ fn swarms(
     let by_pid: HashMap<u32, &ProcessInfo> = procs.iter().map(|p| (p.pid, p)).collect();
     for s in swarms {
         ui.add_space(6.0);
-        crate::theme::card(
-            ui,
-            RichText::new({
-                let __wtm_i18n_0 = &(s.members.len());
-                let __wtm_i18n_1 = &(s.name);
-                crate::i18n::format(
-                    "⚠ {0} copies of {1} are running",
-                    &[format!("{}", __wtm_i18n_0), __wtm_i18n_1.to_string()],
-                )
-            })
-            .size(16.0)
-            .strong()
-            .color(crate::theme::text_color(ui, WARN)),
-            |ui| {
-                ui.label({ let __wtm_i18n_0 = &(s.parents_text()); let __wtm_i18n_1 = &(format_bytes(s.memory as f64)); let __wtm_i18n_2 = &(s.cpu_percent); crate::i18n::format("Started by {0}. Together {1} of memory and {2}% CPU. Usually a tool that keeps starting helpers and never waits for them.", &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string(), format!("{:.1}", __wtm_i18n_2)]) });
-                ui.horizontal_wrapped(|ui| {
-                    let all: Vec<ProcessRef> =
-                        s.members.iter().map(|p| ProcessRef::from(*p)).collect();
-                    if ui
-                        .button(
-                            RichText::new({
-                                let __wtm_i18n_0 = &(all.len());
-                                crate::i18n::format("End all {0}", &[format!("{}", __wtm_i18n_0)])
-                            })
-                            .color(crate::theme::text_color(ui, BAD)),
-                        )
+        let title = crate::i18n::format(
+            "⚠ {0} copies of {1} are running",
+            &[s.members.len().to_string(), s.name.to_string()],
+        );
+        crate::theme::card_with(ui, "", &[(&title, WARN)], |ui| {
+            ui.label({ let __wtm_i18n_0 = &(s.parents_text()); let __wtm_i18n_1 = &(format_bytes(s.memory as f64)); let __wtm_i18n_2 = &(s.cpu_percent); crate::i18n::format("Started by {0}. Together {1} of memory and {2}% CPU. Usually a tool that keeps starting helpers and never waits for them.", &[__wtm_i18n_0.to_string(), __wtm_i18n_1.to_string(), format!("{:.1}", __wtm_i18n_2)]) });
+            ui.horizontal_wrapped(|ui| {
+                let all: Vec<ProcessRef> = s.members.iter().map(|p| ProcessRef::from(*p)).collect();
+                if ui
+                    .button(
+                        RichText::new({
+                            let __wtm_i18n_0 = &(all.len());
+                            crate::i18n::format("End all {0}", &[format!("{}", __wtm_i18n_0)])
+                        })
+                        .color(crate::theme::text_color(ui, BAD)),
+                    )
+                    .clicked()
+                {
+                    intents.push(Intent::ConfirmMany(all, Command::Kill));
+                }
+                let orphans: Vec<ProcessRef> = s
+                    .members
+                    .iter()
+                    .filter(|p| wtm_policy::live_parent(p, &by_pid).is_none())
+                    .map(|p| ProcessRef::from(*p))
+                    .collect();
+                if !orphans.is_empty()
+                    && ui
+                        .button({
+                            let __wtm_i18n_0 = &(orphans.len());
+                            crate::i18n::format(
+                                "End the {0} whose parent exited",
+                                &[format!("{}", __wtm_i18n_0)],
+                            )
+                        })
+                        .on_hover_text(crate::i18n::tr("Nothing waits for these any more"))
                         .clicked()
-                    {
-                        intents.push(Intent::ConfirmMany(all, Command::Kill));
-                    }
-                    let orphans: Vec<ProcessRef> = s
-                        .members
-                        .iter()
-                        .filter(|p| wtm_policy::live_parent(p, &by_pid).is_none())
-                        .map(|p| ProcessRef::from(*p))
-                        .collect();
-                    if !orphans.is_empty()
-                        && ui
-                            .button({
-                                let __wtm_i18n_0 = &(orphans.len());
-                                crate::i18n::format(
-                                    "End the {0} whose parent exited",
-                                    &[format!("{}", __wtm_i18n_0)],
-                                )
-                            })
-                            .on_hover_text(crate::i18n::tr("Nothing waits for these any more"))
-                            .clicked()
-                    {
-                        intents.push(Intent::ConfirmMany(orphans, Command::Kill));
-                    }
-                    let mins = match data.swarm.end_after_mins {
-                        0 => STUCK_MINS,
-                        m => m,
-                    };
-                    let stuck: Vec<ProcessRef> = s
-                        .older_than(
-                            std::time::Duration::from_secs(mins * 60),
-                            std::time::SystemTime::now(),
-                        )
-                        .into_iter()
-                        .map(ProcessRef::from)
-                        .collect();
-                    if !stuck.is_empty()
-                        && stuck.len() < s.members.len()
-                        && ui
-                            .button({
-                                let __wtm_i18n_0 = &(stuck.len());
-                                crate::i18n::format(
-                                    "End the {0} running over {1} min",
-                                    &[format!("{}", __wtm_i18n_0), format!("{}", mins)],
-                                )
-                            })
-                            .on_hover_text(crate::i18n::tr(
-                                "Stuck helpers, with the console hosts they started",
-                            ))
-                            .clicked()
-                    {
-                        intents.push(Intent::ConfirmMany(stuck, Command::KillTree));
-                    }
-                    if ui
-                        .button(crate::i18n::tr("Add to kill list…"))
+                {
+                    intents.push(Intent::ConfirmMany(orphans, Command::Kill));
+                }
+                let mins = match data.swarm.end_after_mins {
+                    0 => STUCK_MINS,
+                    m => m,
+                };
+                let stuck: Vec<ProcessRef> = s
+                    .older_than(
+                        std::time::Duration::from_secs(mins * 60),
+                        std::time::SystemTime::now(),
+                    )
+                    .into_iter()
+                    .map(ProcessRef::from)
+                    .collect();
+                if !stuck.is_empty()
+                    && stuck.len() < s.members.len()
+                    && ui
+                        .button({
+                            let __wtm_i18n_0 = &(stuck.len());
+                            crate::i18n::format(
+                                "End the {0} running over {1} min",
+                                &[format!("{}", __wtm_i18n_0), format!("{}", mins)],
+                            )
+                        })
                         .on_hover_text(crate::i18n::tr(
-                            "End them automatically or with the panic button",
+                            "Stuck helpers, with the console hosts they started",
                         ))
                         .clicked()
-                    {
-                        intents.push(Intent::AddToKillList(s.name.clone()));
-                    }
-                    if ui.button(crate::i18n::tr("Show")).clicked() {
-                        intents.push(Intent::Reveal(ProcessRef::from(s.members[0])));
-                    }
-                });
-            },
-        );
+                {
+                    intents.push(Intent::ConfirmMany(stuck, Command::KillTree));
+                }
+                if ui
+                    .button(crate::i18n::tr("Add to kill list…"))
+                    .on_hover_text(crate::i18n::tr(
+                        "End them automatically or with the panic button",
+                    ))
+                    .clicked()
+                {
+                    intents.push(Intent::AddToKillList(s.name.clone()));
+                }
+                if ui.button(crate::i18n::tr("Show")).clicked() {
+                    intents.push(Intent::Reveal(ProcessRef::from(s.members[0])));
+                }
+            });
+        });
     }
 }
 
@@ -573,43 +539,25 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         not_responding(ui, data, &snap.processes, &mut intents);
         swarms(ui, data, &snap.processes, &swarm_list, &mut intents);
     } else {
-        ui.spinner();
+        crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
     }
     ui.add_space(6.0);
-    crate::theme::card(
-        ui,
-        RichText::new(crate::i18n::tr("Automatic protection"))
-            .size(16.0)
-            .strong(),
-        |ui| {
-            protection(ui, data, &mut commands);
-        },
-    );
+    crate::theme::card(ui, crate::i18n::tr("Automatic protection"), |ui| {
+        protection(ui, data, &mut commands);
+    });
     ui.add_space(6.0);
 
     let busiest = |ui: &mut Ui, intents: &mut Vec<Intent>| {
-        crate::theme::card(
-            ui,
-            RichText::new(crate::i18n::tr("Busiest apps right now"))
-                .size(16.0)
-                .strong(),
-            |ui| {
-                busiest_table(ui, data, &apps, intents);
-            },
-        );
+        crate::theme::card(ui, crate::i18n::tr("Busiest apps right now"), |ui| {
+            busiest_table(ui, data, &apps, intents);
+        });
     };
     let recent = |ui: &mut Ui| {
-        crate::theme::card(
-            ui,
-            RichText::new(crate::i18n::tr("Recent automatic actions"))
-                .size(16.0)
-                .strong(),
-            |ui| {
-                recent_actions(ui, data);
-            },
-        );
+        crate::theme::card(ui, crate::i18n::tr("Recent automatic actions"), |ui| {
+            recent_actions(ui, data);
+        });
     };
-    if ui.available_width() >= 1300.0 {
+    if ui.available_width() >= TWO_CARDS {
         ui.columns(2, |cols| {
             busiest(&mut cols[0], &mut intents);
             recent(&mut cols[1]);
@@ -632,15 +580,11 @@ fn busiest_table(
     egui::Grid::new("overview_apps")
         .num_columns(5)
         .striped(true)
+        .spacing([16.0, 6.0])
         .show(ui, |ui| {
-            for h in [
-                crate::i18n::tr("App"),
-                "CPU",
-                crate::i18n::tr("Memory"),
-                crate::i18n::tr("Processes"),
-                "",
-            ] {
-                ui.strong(h);
+            ui.strong(crate::i18n::tr("App"));
+            for h in ["CPU", crate::i18n::tr("Memory"), crate::i18n::tr("Processes")] {
+                crate::theme::right(ui, RichText::new(h).strong());
             }
             ui.end_row();
             for a in &apps {
@@ -654,47 +598,54 @@ fn busiest_table(
                     ui.label(a.name);
                 });
                 let cpus = data.snapshot.as_ref().map_or(1, |s| s.system.logical_cpus);
-                ui.label(
-                    RichText::new(format!("{:.1}%", a.cpu))
-                        .color(crate::theme::text_color(ui, app_color(a.cpu, cpus))),
-                );
-                ui.label(format_bytes(a.memory as f64));
-                ui.label(a.instances.len().to_string());
+                let mut cpu = RichText::new(format!("{:.1}%", a.cpu));
+                if let Some(color) = app_color(a.cpu, cpus) {
+                    cpu = cpu.color(crate::theme::text_color(ui, color));
+                }
+                crate::theme::right(ui, cpu);
+                crate::theme::right(ui, format_bytes(a.memory as f64));
+                crate::theme::right(ui, a.instances.len().to_string());
                 ui.horizontal(|ui| {
-                    if ui
-                        .small_button(crate::i18n::tr("Efficiency mode"))
-                        .on_hover_text(crate::i18n::tr(
-                            "Run every process of this app in efficiency mode (EcoQoS).",
-                        ))
-                        .clicked()
-                    {
-                        for t in &a.instances {
-                            intents.push(Intent::Command(t.clone(), Command::EcoQos(EcoQos::On)));
-                        }
-                    }
-                    if ui
-                        .small_button(crate::i18n::tr("Free memory"))
-                        .on_hover_text(crate::i18n::tr(
-                            "Move this app's memory to the standby list; it comes back as needed.",
-                        ))
-                        .clicked()
-                    {
-                        for t in &a.instances {
-                            intents.push(Intent::Command(t.clone(), Command::TrimMemory));
-                        }
-                    }
-                    if ui
-                        .small_button(crate::i18n::tr("Limit…"))
-                        .on_hover_text(crate::i18n::tr(
-                            "Give this app a permanent CPU / memory budget.",
-                        ))
-                        .clicked()
-                    {
-                        intents.push(Intent::LimitApp(a.name.to_owned()));
-                    }
                     if ui.small_button(crate::i18n::tr("Details")).clicked() {
                         intents.push(Intent::Reveal(a.instances[0].clone()));
                     }
+                    ui.menu_button("⋯", |ui| {
+                        if ui
+                            .button(crate::i18n::tr("Efficiency mode"))
+                            .on_hover_text(crate::i18n::tr(
+                                "Run every process of this app in efficiency mode (EcoQoS).",
+                            ))
+                            .clicked()
+                        {
+                            for t in &a.instances {
+                                intents
+                                    .push(Intent::Command(t.clone(), Command::EcoQos(EcoQos::On)));
+                            }
+                        }
+                        if ui
+                            .button(crate::i18n::tr("Free memory"))
+                            .on_hover_text(crate::i18n::tr(
+                                "Move this app's memory to the standby list; it comes back as needed.",
+                            ))
+                            .clicked()
+                        {
+                            for t in &a.instances {
+                                intents.push(Intent::Command(t.clone(), Command::TrimMemory));
+                            }
+                        }
+                        if ui
+                            .button(crate::i18n::tr("Limit…"))
+                            .on_hover_text(crate::i18n::tr(
+                                "Give this app a permanent CPU / memory budget.",
+                            ))
+                            .clicked()
+                        {
+                            intents.push(Intent::LimitApp(a.name.to_owned()));
+                        }
+                    })
+                    .response
+                    .on_hover_text(crate::i18n::tr("More actions"));
+                    crate::theme::fill_row(ui);
                 });
                 ui.end_row();
             }
@@ -734,16 +685,20 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
     if !matches!(data.mode, Mode::Service { .. }) {
         let error = data.service_error.as_deref().unwrap_or_default();
         if error.contains("protocol") {
-            ui.colored_label(
-                WARN,
-                { let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("The installed RustWTM service is a different version ({0}), so nothing is limited automatically. Update it with the installer of version {1}.", &[error.to_string(), __wtm_i18n_0.to_string()]) },
-            );
+            crate::theme::colored(ui, WARN, {
+                let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION"));
+                crate::i18n::format(
+                    "The installed RustWTM service is a different version ({0}), so nothing is limited automatically. Update it with the installer of version {1}.",
+                    &[error.to_string(), __wtm_i18n_0.to_string()],
+                )
+            });
             ui.hyperlink_to(
                 crate::i18n::tr("Download the latest release"),
                 format!("{}/releases/latest", crate::about::REPO),
             );
         } else {
-            ui.colored_label(
+            crate::theme::colored(
+                ui,
                 WARN,
                 crate::i18n::tr(
                     "The RustWTM service is not running, so nothing is limited automatically.",
@@ -758,7 +713,7 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
     }
     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
     let Some(Ok((_, text))) = &data.config else {
-        ui.spinner();
+        crate::theme::loading(ui, crate::i18n::tr("Loading the service settings…"));
         return;
     };
     let Ok(config) = Config::from_toml(text) else {
@@ -837,9 +792,14 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
     }
 
     if let Some(status) = &data.status {
+        let limited = status.managed.len();
         let mut facts = vec![crate::i18n::format(
-            "{0} processes limited right now",
-            &[status.managed.len().to_string()],
+            if limited == 1 {
+                "{0} process limited right now"
+            } else {
+                "{0} processes limited right now"
+            },
+            &[limited.to_string()],
         )];
         if !config.limits.is_empty() {
             let processes: usize = status.app_limits.iter().map(|g| g.processes).sum();
@@ -940,13 +900,10 @@ mod tests {
 
     #[test]
     fn colors_and_times() {
-        assert_eq!(load_color(95.0), BAD);
-        assert_eq!(load_color(75.0), WARN);
-        assert_eq!(load_color(10.0), GOOD);
         assert_eq!(clock(0).len(), 8);
-        assert_eq!(app_color(60.0, 8), BAD);
-        assert_eq!(app_color(20.0, 8), WARN);
-        assert_eq!(app_color(5.0, 8), Color32::GRAY);
+        assert_eq!(app_color(60.0, 8), Some(BAD));
+        assert_eq!(app_color(20.0, 8), Some(WARN));
+        assert_eq!(app_color(5.0, 8), None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Kill list tab and the panic button: processes that may be ended, either
 //! automatically when they keep eating CPU or all at once on demand.
 
-use eframe::egui::{self, Color32, RichText, Ui};
+use eframe::egui::{self, RichText, Ui};
 use wtm_core::control::ProcessRef;
 use wtm_ipc::Command;
 use wtm_policy::{KillEntry, remove_kill_entry, set_kill_entry};
@@ -9,8 +9,7 @@ use wtm_policy::{KillEntry, remove_kill_entry, set_kill_entry};
 use crate::backend::{Data, Mode, Panel, UiCommand};
 use crate::processes::Intent;
 
-const BAD: Color32 = Color32::from_rgb(220, 70, 70);
-const WARN: Color32 = Color32::from_rgb(230, 140, 40);
+use crate::theme::{BAD, WARN, right};
 
 /// A process the panic button would end.
 #[derive(Debug, Clone, PartialEq)]
@@ -50,7 +49,7 @@ pub fn panic_dialog(ctx: &egui::Context, data: &Data, open: &mut bool, intents: 
     let targets = targets(data);
     let modal = egui::Modal::new(egui::Id::unique("panic")).show(ctx, |ui| {
         ui.set_width(620.0);
-        ui.label(RichText::new(crate::i18n::tr("🚨 Panic: end the kill list")).size(22.0).color(BAD));
+        ui.label(RichText::new(crate::i18n::tr("🚨 Panic: end the kill list")).size(22.0).color(crate::theme::text_color(ui, BAD)));
         if targets.is_empty() {
             ui.label(crate::i18n::tr("Nothing on the kill list is running right now."));
             if data.kill_list.is_empty() {
@@ -68,9 +67,11 @@ pub fn panic_dialog(ctx: &egui::Context, data: &Data, open: &mut bool, intents: 
                 .num_columns(4)
                 .striped(true)
                 .show(ui, |ui| {
-                    for h in [crate::i18n::tr("Process"), "PID", "CPU", crate::i18n::tr("Kill-list entry")] {
-                        ui.strong(h);
+                    ui.strong(crate::i18n::tr("Process"));
+                    for h in ["PID", "CPU"] {
+                        right(ui, RichText::new(h).strong());
                     }
+                    ui.strong(crate::i18n::tr("Kill-list entry"));
                     ui.end_row();
                     for t in &targets {
                         let name = if t.child {
@@ -79,8 +80,8 @@ pub fn panic_dialog(ctx: &egui::Context, data: &Data, open: &mut bool, intents: 
                             t.process.name.clone()
                         };
                         ui.label(name);
-                        ui.label(t.process.pid.to_string());
-                        ui.label(format!("{:.1}%", t.cpu));
+                        right(ui, t.process.pid.to_string());
+                        right(ui, format!("{:.1}%", t.cpu));
                         ui.weak(&t.entry);
                         ui.end_row();
                     }
@@ -92,7 +93,7 @@ pub fn panic_dialog(ctx: &egui::Context, data: &Data, open: &mut bool, intents: 
                 .button(
                     RichText::new({ let __wtm_i18n_0 = &(targets.len()); crate::i18n::format("End {0} processes now", &[format!("{}", __wtm_i18n_0)]) })
                         .strong()
-                        .color(BAD),
+                        .color(crate::theme::text_color(ui, BAD)),
                 )
                 .clicked()
             {
@@ -203,7 +204,11 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
     if ui
         .add_enabled(
             !running.is_empty(),
-            egui::Button::new(RichText::new(panic_label).strong().color(BAD)),
+            egui::Button::new(
+                RichText::new(panic_label)
+                    .strong()
+                    .color(crate::theme::text_color(ui, BAD)),
+            ),
         )
         .on_hover_text(crate::i18n::tr(
             "Shows what will be ended first (Ctrl+Shift+K from anywhere)",
@@ -216,11 +221,11 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
 
     let text = match &data.config {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading the service settings…"));
             return commands;
         }
         Some(Err(e)) => {
-            ui.colored_label(BAD, e);
+            crate::theme::colored(ui, BAD, e);
             if ui.button(crate::i18n::tr("Retry")).clicked() {
                 commands.push(UiCommand::Load(Panel::Config));
             }
@@ -230,7 +235,8 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
     };
     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
     if data.status.as_ref().is_some_and(|s| s.dry_run) {
-        ui.colored_label(
+        crate::theme::colored(
+            ui,
             WARN,
             crate::i18n::tr(
                 "Dry-run mode: automatic ends are only logged. The panic button always works.",
@@ -253,57 +259,62 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
     }
 
     if !data.kill_list.is_empty() {
-        egui::Grid::new("kill_list")
-            .num_columns(5)
-            .striped(true)
-            .show(ui, |ui| {
-                for h in [
-                    crate::i18n::tr("Program"),
-                    crate::i18n::tr("Ended"),
-                    crate::i18n::tr("Its children"),
-                    crate::i18n::tr("Running now"),
-                    "",
-                ] {
-                    ui.strong(h);
-                }
-                ui.end_row();
-                for (i, e) in data.kill_list.iter().enumerate() {
-                    ui.label(e.label());
-                    ui.label(e.describe());
-                    ui.label(if e.tree { "too" } else { crate::i18n::tr("no") });
-                    let label = e.label();
-                    let n = running.iter().filter(|t| t.entry == label).count();
-                    ui.label(n.to_string());
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(admin, egui::Button::new(crate::i18n::tr("Edit")))
-                            .clicked()
-                        {
-                            view.edit(i, e);
-                        }
-                        if ui
-                            .add_enabled(admin, egui::Button::new(crate::i18n::tr("Remove")))
-                            .clicked()
-                        {
-                            match remove_kill_entry(text, i) {
-                                Ok(new) => commands.push(UiCommand::SaveConfig(new)),
-                                Err(e) => view.error = Some(e),
-                            }
-                        }
-                    });
+        crate::theme::panel(ui, |ui| {
+            egui::Grid::new("kill_list")
+                .num_columns(5)
+                .striped(true)
+                .show(ui, |ui| {
+                    for h in [
+                        crate::i18n::tr("Program"),
+                        crate::i18n::tr("Ended"),
+                        crate::i18n::tr("Its children"),
+                    ] {
+                        ui.strong(h);
+                    }
+                    right(ui, RichText::new(crate::i18n::tr("Running now")).strong());
                     ui.end_row();
-                }
-            });
+                    for (i, e) in data.kill_list.iter().enumerate() {
+                        ui.label(e.label());
+                        ui.label(e.describe());
+                        ui.label(crate::i18n::tr(if e.tree { "yes" } else { "no" }));
+                        let label = e.label();
+                        let n = running.iter().filter(|t| t.entry == label).count();
+                        right(ui, n.to_string());
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add_enabled(admin, egui::Button::new(crate::i18n::tr("Edit")))
+                                .clicked()
+                            {
+                                view.edit(i, e);
+                            }
+                            if ui
+                                .add_enabled(admin, egui::Button::new(crate::i18n::tr("Remove")))
+                                .clicked()
+                            {
+                                match remove_kill_entry(text, i) {
+                                    Ok(new) => commands.push(UiCommand::SaveConfig(new)),
+                                    Err(e) => view.error = Some(e),
+                                }
+                            }
+                            crate::theme::fill_row(ui);
+                        });
+                        ui.end_row();
+                    }
+                });
+        });
     } else {
         ui.weak(crate::i18n::tr("The kill list is empty. Add a program below, or right-click a process → Add to kill list…"));
     }
 
     ui.add_space(12.0);
-    ui.heading(if view.editing.is_some() {
-        crate::i18n::tr("Change entry")
-    } else {
-        crate::i18n::tr("Add to the kill list")
-    });
+    crate::theme::section(
+        ui,
+        if view.editing.is_some() {
+            crate::i18n::tr("Change entry")
+        } else {
+            crate::i18n::tr("Add to the kill list")
+        },
+    );
     egui::Grid::new("kill_form").num_columns(2).show(ui, |ui| {
         ui.label(crate::i18n::tr("Program"));
         ui.add(
@@ -428,7 +439,7 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
         }
     });
     if let Some(e) = &view.error {
-        ui.colored_label(BAD, e);
+        crate::theme::colored(ui, BAD, e);
     }
     commands
 }
