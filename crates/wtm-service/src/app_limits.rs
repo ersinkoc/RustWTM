@@ -157,8 +157,11 @@ impl AppLimiter {
         }
 
         // Budgets follow edits; groups without live members are dropped.
-        let live_keys: HashSet<(u32, i64)> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
-        self.outside.retain(|k| live_keys.contains(k));
+        if !self.outside.is_empty() {
+            let live_keys: HashSet<(u32, i64)> =
+                procs.iter().map(|p| (p.pid, p.create_time)).collect();
+            self.outside.retain(|k| live_keys.contains(k));
+        }
         let mut usage = self.planner.usage(procs);
         for u in &mut usage {
             u.outside = u

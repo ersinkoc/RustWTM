@@ -80,7 +80,9 @@ impl EventLog {
     /// Events newer than `id`, oldest first.
     pub fn after(&self, id: u64) -> Vec<Event> {
         let inner = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        inner.items.iter().filter(|e| e.id > id).cloned().collect()
+        // Ids rise with position: clients polling for news skip the backlog.
+        let first = inner.items.partition_point(|e| e.id <= id);
+        inner.items.range(first..).cloned().collect()
     }
 }
 

@@ -70,8 +70,9 @@ impl Rescue {
         })
     }
 
-    pub fn tick(&mut self, now: Instant, snap: &Snapshot) {
-        let Some(split) = self.split.clone() else {
+    /// `live` holds the processes running in `snap`.
+    pub fn tick(&mut self, now: Instant, snap: &Snapshot, live: &HashSet<Key>) {
+        let Some(split) = &self.split else {
             return;
         };
         match self.policy.tick(now, snap.system.cpu_percent) {
@@ -79,7 +80,7 @@ impl Rescue {
                 None,
                 format!(
                     "CPU overloaded: {} {} free for RustWTM and Windows",
-                    cpu_names(&split),
+                    cpu_names(split),
                     if self.dry_run {
                         "would be kept (dry run)"
                     } else {
@@ -90,16 +91,14 @@ impl Rescue {
             Some(RescueStep::Release) => self.release_all("load recovered"),
             None => {}
         }
-        let live: HashSet<Key> = snap
-            .processes
-            .iter()
-            .map(|p| (p.pid, p.create_time))
-            .collect();
         self.confined.retain(|k, _| live.contains(k));
         self.skipped.retain(|k| live.contains(k));
         if !self.policy.engaged() || self.dry_run {
             return;
         }
+        let Some(split) = &self.split else {
+            return;
+        };
         let cfg = self.policy.config();
         let fresh: Vec<_> = snap
             .processes
@@ -160,6 +159,15 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    fn tick(r: &mut Rescue, now: Instant, snap: &Snapshot) {
+        let live = snap
+            .processes
+            .iter()
+            .map(|p| (p.pid, p.create_time))
+            .collect();
+        r.tick(now, snap, &live);
+    }
+
     fn snapshot(cpu: f32, procs: Vec<wtm_core::ProcessInfo>) -> Snapshot {
         let mut s = wtm_core::Sampler::new().sample().unwrap();
         s.system.cpu_percent = cpu;
@@ -201,11 +209,12 @@ mod tests {
             h.default_cpu_sets().unwrap()
         };
         let t = Instant::now();
-        r.tick(t, &snapshot(99.0, vec![ping.clone()]));
+        tick(&mut r, t, &snapshot(99.0, vec![ping.clone()]));
         assert_eq!(sets(pid).len(), others.len());
         assert_eq!(r.summary().unwrap().moved, 1);
 
-        r.tick(
+        tick(
+            &mut r,
             t + Duration::from_secs(1),
             &snapshot(10.0, vec![ping.clone()]),
         );
@@ -214,7 +223,11 @@ mod tests {
 
         // Dry run only reports.
         r.configure(cfg, true);
-        r.tick(t + Duration::from_secs(2), &snapshot(99.0, vec![ping]));
+        tick(
+            &mut r,
+            t + Duration::from_secs(2),
+            &snapshot(99.0, vec![ping]),
+        );
         assert!(sets(pid).is_empty());
         assert_eq!(r.summary().unwrap().moved, 0);
         let _ = child.kill();

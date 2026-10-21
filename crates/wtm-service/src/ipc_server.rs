@@ -2,7 +2,7 @@
 //! forwards control requests (admin only) to the engine thread.
 
 use std::fs::OpenOptions;
-use std::io;
+use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, PoisonError, RwLock};
@@ -10,6 +10,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use anyhow::Context;
+use serde::{Serialize, Serializer};
 use tracing::{debug, warn};
 use wtm_core::Snapshot;
 use wtm_core::control::{self, ProcessRef};
@@ -192,6 +193,50 @@ fn read_lock<T: Clone>(lock: &RwLock<T>) -> T {
     lock.read().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
+/// A [`Response`] newtype variant encoded straight from borrowed state,
+/// byte for byte as the owned variant, so a reply needs no deep copy of
+/// the snapshot, status or recent load first.
+struct Borrowed<'a, T: ?Sized> {
+    /// Position of the variant in [`Response`].
+    index: u32,
+    variant: &'static str,
+    value: &'a T,
+}
+
+impl<T: Serialize + ?Sized> Serialize for Borrowed<'_, T> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_newtype_variant("Response", self.index, self.variant, self.value)
+    }
+}
+
+const SNAPSHOT: (u32, &str) = (1, "Snapshot");
+const STATUS: (u32, &str) = (2, "Status");
+const RECENT: (u32, &str) = (10, "Recent");
+
+fn borrowed<'a, T: ?Sized>((index, variant): (u32, &'static str), value: &'a T) -> Borrowed<'a, T> {
+    Borrowed {
+        index,
+        variant,
+        value,
+    }
+}
+
+/// Encodes the frame while the lock is held, then sends it without the
+/// lock, so a slow client never holds up the engine's next write.
+fn send_locked<T: Serialize>(
+    conn: &mut impl Write,
+    lock: &RwLock<T>,
+    variant: (u32, &'static str),
+) -> io::Result<()> {
+    let mut frame = Vec::new();
+    {
+        let value = lock.read().unwrap_or_else(PoisonError::into_inner);
+        write_frame(&mut frame, &borrowed(variant, &*value))?;
+    }
+    conn.write_all(&frame)?;
+    conn.flush()
+}
+
 fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) -> io::Result<()> {
     let Request::Hello { version } = read_frame(&mut conn)? else {
         return write_frame(&mut conn, &Response::Error("expected Hello".into()));
@@ -217,10 +262,16 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
         let response = match request {
             Request::Hello { .. } => Response::Error("already connected".into()),
             Request::Snapshot => match read_lock(&shared.snapshot) {
-                Some(s) => Response::Snapshot((*s).clone()),
+                Some(s) => {
+                    write_frame(&mut conn, &borrowed(SNAPSHOT, &*s))?;
+                    continue;
+                }
                 None => Response::Error("no snapshot yet".into()),
             },
-            Request::Status => Response::Status(read_lock(&shared.status)),
+            Request::Status => {
+                send_locked(&mut conn, &shared.status, STATUS)?;
+                continue;
+            }
             Request::Hardware => Response::Hardware(shared.hardware.snapshot()),
             Request::SetCooling { .. } if !admin => {
                 Response::Error("administrator rights required".into())
@@ -240,7 +291,10 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                     }
                 }
             }
-            Request::Recent => Response::Recent(read_lock(&shared.recent).into()),
+            Request::Recent => {
+                send_locked(&mut conn, &shared.recent, RECENT)?;
+                continue;
+            }
             Request::Events { after } => Response::Events(shared.events.after(after)),
             // Inspected with the client's rights, not the service's.
             Request::Inspect(target) => match conn.as_client(|| control::inspect(&target)) {
@@ -397,7 +451,8 @@ fn foreground(
 }
 
 fn config_path(shared: &Shared) -> Option<std::path::PathBuf> {
-    let path = read_lock(&shared.status).config_path;
+    let status = shared.status.read().unwrap_or_else(PoisonError::into_inner);
+    let path = &status.config_path;
     (!path.is_empty()).then(|| path.into())
 }
 
@@ -790,6 +845,63 @@ mod tests {
         assert!(error(foreground(&shared, &tx, me.pid, false, Err(failed))).contains("session"));
         assert!(error(foreground(&shared, &tx, 0xFFFF_FFF0, false, Ok(0))).contains("not found"));
         assert!(rx.try_recv().is_err(), "rejected reports are not forwarded");
+    }
+
+    fn frame(msg: &impl Serialize) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_frame(&mut out, msg).unwrap();
+        out
+    }
+
+    #[test]
+    fn borrowed_replies_encode_like_owned_ones() {
+        let snap = wtm_core::Sampler::new().sample().unwrap();
+        assert_eq!(
+            frame(&borrowed(SNAPSHOT, &snap)),
+            frame(&Response::Snapshot(snap.clone()))
+        );
+        let status = Status {
+            config_path: r"C:\x\config.toml".into(),
+            foreground: Some("game.exe".into()),
+            ..Status::default()
+        };
+        let lock = RwLock::new(status.clone());
+        let mut sent = Vec::new();
+        send_locked(&mut sent, &lock, STATUS).unwrap();
+        assert_eq!(sent, frame(&Response::Status(status)));
+        let point = wtm_ipc::SystemPoint::of(&snap.system);
+        let recent = RwLock::new(std::collections::VecDeque::from([point.clone(), point]));
+        let mut sent = Vec::new();
+        send_locked(&mut sent, &recent, RECENT).unwrap();
+        let owned = Response::Recent(recent.read().unwrap().iter().cloned().collect());
+        assert_eq!(sent, frame(&owned));
+        // And clients read them back as those variants.
+        let back: Response = read_frame(&mut &sent[..]).unwrap();
+        assert!(matches!(back, Response::Recent(p) if p.len() == 2));
+    }
+
+    /// Timing: a snapshot reply of this PC, copied first (as before) or
+    /// encoded in place. `cargo test -p wtm-service --release -- --ignored
+    /// snapshot_reply_cost --nocapture`
+    #[test]
+    #[ignore = "timing"]
+    fn snapshot_reply_cost() {
+        let snap = Arc::new(wtm_core::Sampler::new().sample().unwrap());
+        let n = 500;
+        let t = std::time::Instant::now();
+        for _ in 0..n {
+            std::hint::black_box(frame(&Response::Snapshot((*snap).clone())));
+        }
+        let copied = t.elapsed() / n;
+        let t = std::time::Instant::now();
+        for _ in 0..n {
+            std::hint::black_box(frame(&borrowed(SNAPSHOT, &*snap)));
+        }
+        let borrowed = t.elapsed() / n;
+        println!(
+            "snapshot reply ({} processes): copied {copied:?}, in place {borrowed:?}",
+            snap.processes.len()
+        );
     }
 
     #[test]

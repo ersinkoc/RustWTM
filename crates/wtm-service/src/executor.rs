@@ -8,7 +8,6 @@
 use std::collections::{HashMap, HashSet};
 use std::mem::discriminant;
 
-use wtm_core::Snapshot;
 use wtm_core::control::{self, EcoQos, Limiter, Limits, PriorityClass, ProcessRef};
 use wtm_ipc::Managed;
 use wtm_policy::{Action, Decision, PriorityLevel, Source};
@@ -143,12 +142,8 @@ impl Executor {
         out
     }
 
-    pub fn forget_exited(&mut self, snap: &Snapshot) {
-        let live: HashSet<Key> = snap
-            .processes
-            .iter()
-            .map(|p| (p.pid, p.create_time))
-            .collect();
+    /// Drops processes that are not in `live` (the running ones).
+    pub fn forget_exited(&mut self, live: &HashSet<Key>) {
         let Self {
             limiter, touched, ..
         } = self;
@@ -629,7 +624,14 @@ mod process_tests {
         apply(&mut e, Source::Manual, &t, Action::CpuCap(20.0)).unwrap();
         drop(child);
         std::thread::sleep(std::time::Duration::from_millis(200));
-        e.forget_exited(&Sampler::new().sample().unwrap());
+        let live = Sampler::new()
+            .sample()
+            .unwrap()
+            .processes
+            .iter()
+            .map(|p| (p.pid, p.create_time))
+            .collect();
+        e.forget_exited(&live);
         assert!(e.managed().is_empty());
 
         // A protected process is refused and the failure is reported.
