@@ -1,6 +1,6 @@
 //! The sampling / decision / enforcement loop shared by service and console mode.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
@@ -136,14 +136,14 @@ const FOREGROUND_TTL: Duration = Duration::from_secs(5);
 fn foreground_keys(
     report: Option<(u32, Instant)>,
     procs: &[ProcessInfo],
-) -> (std::collections::HashSet<(u32, i64)>, Option<String>) {
+) -> (HashSet<(u32, i64)>, Option<String>) {
     let Some(p) = report
         .filter(|(_, at)| at.elapsed() < FOREGROUND_TTL)
         .and_then(|(pid, _)| procs.iter().find(|p| p.pid == pid))
     else {
         return Default::default();
     };
-    let mut keys: std::collections::HashSet<_> = wtm_core::descendants(p.pid, p.create_time, procs)
+    let mut keys: HashSet<_> = wtm_core::descendants(p.pid, p.create_time, procs)
         .iter()
         .map(|d| (d.pid, d.create_time))
         .collect();
@@ -227,7 +227,8 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         .write()
         .unwrap_or_else(PoisonError::into_inner) = config.clone();
     let watcher_stop = Arc::new(AtomicBool::new(false));
-    let watcher = spawn_watcher(tx.clone(), watcher_stop.clone());
+    let watch_starts = Arc::new(AtomicBool::new(watches_starts(&config)));
+    let watcher = spawn_watcher(tx.clone(), watcher_stop.clone(), watch_starts.clone());
     let server = match ipc_server::start(shared.clone(), tx.clone(), &paths.pipe) {
         Ok(s) => Some(s),
         Err(e) => {
@@ -294,6 +295,8 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut next_prune = Instant::now();
     let mut paths_cache = PathCache::new();
     let mut cmdline_cache = PathCache::new();
+    // The processes of the current sample, refilled each tick.
+    let mut live: HashSet<(u32, i64)> = HashSet::new();
     let mut app_limiter =
         AppLimiter::new(config.limits.clone(), config.dry_run, shared.events.clone());
     let mut app_usage = Vec::new();
@@ -375,6 +378,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     executor.set_dry_run(new.dry_run);
                     rescue.configure(new.reserve.clone(), new.dry_run);
                     game_mode.set_config(new.game_mode.clone());
+                    watch_starts.store(watches_starts(&new), Ordering::Relaxed);
                     sync_blocks(blocker.as_ref(), &new, &shared.events);
                     shared.events.info(
                         None,
@@ -405,8 +409,10 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 continue;
             }
         };
-        executor.forget_exited(&snap);
-        rescue.tick(Instant::now(), &snap);
+        live.clear();
+        live.extend(snap.processes.iter().map(|p| (p.pid, p.create_time)));
+        executor.forget_exited(&live);
+        rescue.tick(Instant::now(), &snap, &live);
         if snap.interval.is_some() {
             let mut recent = shared
                 .recent
@@ -441,11 +447,6 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 );
             }
         }
-        let live: std::collections::HashSet<(u32, i64)> = snap
-            .processes
-            .iter()
-            .map(|p| (p.pid, p.create_time))
-            .collect();
         paths_cache.retain(|k, _| live.contains(k));
         cmdline_cache.retain(|k, _| live.contains(k));
 
@@ -792,16 +793,33 @@ const WATCH_INTERVAL: Duration = Duration::from_millis(250);
 /// interval).
 const RECENT_LEN: usize = 300;
 
+/// Only rules without a `when` act on processes as they start.
+fn watches_starts(config: &Config) -> bool {
+    config.rules.iter().any(|r| r.when.is_none())
+}
+
 /// Polls for new processes between full samples so unconditional rules
-/// (e.g. `kill`) act within a fraction of a second.
-fn spawn_watcher(tx: Sender<EngineMsg>, stop: Arc<AtomicBool>) -> JoinHandle<()> {
+/// (e.g. `kill`) act within a fraction of a second. A poll reads the whole
+/// process list, so it runs only while `wanted` (such a rule exists).
+fn spawn_watcher(
+    tx: Sender<EngineMsg>,
+    stop: Arc<AtomicBool>,
+    wanted: Arc<AtomicBool>,
+) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("start-watcher".into())
         .spawn(move || {
-            let mut watcher = StartWatcher::new();
+            let mut watcher: Option<StartWatcher> = None;
             let mut warned = false;
             while !stop.load(Ordering::SeqCst) {
-                match watcher.poll() {
+                if !wanted.load(Ordering::Relaxed) {
+                    // Primed afresh when wanted again: what started
+                    // meanwhile was seen by the full samples.
+                    watcher = None;
+                    std::thread::sleep(WATCH_INTERVAL);
+                    continue;
+                }
+                match watcher.get_or_insert_with(StartWatcher::new).poll() {
                     Ok(started) if !started.is_empty() => {
                         if tx.send(EngineMsg::Started(started)).is_err() {
                             return;
@@ -1675,12 +1693,70 @@ mod unit_tests {
     fn watcher_exits_once_the_engine_is_gone() {
         let (tx, rx) = std::sync::mpsc::channel();
         drop(rx);
-        let watcher = spawn_watcher(tx, Arc::new(AtomicBool::new(false)));
+        let watcher = spawn_watcher(
+            tx,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(true)),
+        );
         // The first poll only records what is already running.
         std::thread::sleep(WATCH_INTERVAL * 2);
         let _child = spawn();
         wait_for("watcher exit", || watcher.is_finished().then_some(()));
         watcher.join().unwrap();
+    }
+
+    #[test]
+    fn starts_are_watched_only_for_rules_without_a_condition() {
+        assert!(!watches_starts(&Config::default()));
+        let rule = |when: &str| {
+            Config::from_toml(&format!(
+                "[[rule]]\nname = \"r\"\nmatch = {{ name = \"a.exe\" }}\n{when}actions = [\"kill\"]\n"
+            ))
+            .unwrap()
+        };
+        assert!(!watches_starts(&rule("when = { cpu_above = 20 }\n")));
+        assert!(watches_starts(&rule("")));
+    }
+
+    /// Timing: one start-watcher poll of this PC (four a second while it
+    /// runs). `cargo test -p wtm-service --release -- --ignored
+    /// start_watch_cost --nocapture`
+    #[test]
+    #[ignore = "timing"]
+    fn start_watch_cost() {
+        let mut watcher = StartWatcher::new();
+        watcher.poll().unwrap();
+        let n = 200;
+        let t = Instant::now();
+        for _ in 0..n {
+            std::hint::black_box(watcher.poll().unwrap());
+        }
+        println!("start watcher poll: {:?}", t.elapsed() / n);
+
+        // The running-process set a tick needs: built once and refilled,
+        // where the executor, rescue core and engine each collected one.
+        let procs = Sampler::new().sample().unwrap().processes;
+        let keys = || procs.iter().map(|p| (p.pid, p.create_time));
+        let n = 2000;
+        let t = Instant::now();
+        for _ in 0..n {
+            for _ in 0..3 {
+                std::hint::black_box(keys().collect::<HashSet<_>>());
+            }
+        }
+        let before = t.elapsed() / n;
+        let mut live = HashSet::new();
+        let t = Instant::now();
+        for _ in 0..n {
+            live.clear();
+            live.extend(keys());
+            std::hint::black_box(&live);
+        }
+        println!(
+            "live sets per tick ({} processes): three collected {before:?}, one refilled {:?}",
+            procs.len(),
+            t.elapsed() / n
+        );
     }
 
     #[test]

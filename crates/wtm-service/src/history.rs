@@ -18,12 +18,29 @@ struct Acc {
     handles_sum: f64,
     threads_sum: f64,
     samples: u32,
+    /// Totals of the instances in the sample being added.
+    sample: Sample,
+}
+
+/// One app's instances in one sample.
+#[derive(Debug, Default)]
+struct Sample {
+    cpu: f32,
+    gpu: f32,
+    mem: u64,
+    count: u32,
+    handles: u64,
+    threads: u64,
 }
 
 pub struct History {
     conn: Connection,
     minute: Option<i64>,
+    /// The current minute's aggregates; keys are lower-case app names, so
+    /// a sample allocates only for apps new in the minute.
     apps: HashMap<String, Acc>,
+    /// Scratch for lower-casing names that are not ASCII lower case.
+    lower: String,
 }
 
 const SCHEMA: &str = "
@@ -73,6 +90,7 @@ impl History {
             conn,
             minute: None,
             apps: HashMap::new(),
+            lower: String::new(),
         })
     }
 
@@ -92,18 +110,30 @@ impl History {
         }
         self.minute = Some(minute);
 
-        let mut per_app: HashMap<String, (f32, f32, u64, u32, u64, u64)> = HashMap::new();
         for p in snap.processes.iter().filter(|p| p.pid != 0) {
-            let e = per_app.entry(p.name.to_lowercase()).or_default();
-            e.0 += p.cpu_percent;
-            e.1 += p.gpu_percent;
-            e.2 += p.private_working_set;
-            e.3 += 1;
-            e.4 += u64::from(p.handle_count);
-            e.5 += u64::from(p.thread_count);
+            let app = lower_name(&p.name, &mut self.lower);
+            let add = |e: &mut Sample| {
+                e.cpu += p.cpu_percent;
+                e.gpu += p.gpu_percent;
+                e.mem += p.private_working_set;
+                e.count += 1;
+                e.handles += u64::from(p.handle_count);
+                e.threads += u64::from(p.thread_count);
+            };
+            match self.apps.get_mut(app) {
+                Some(acc) => add(&mut acc.sample),
+                None => add(&mut self.apps.entry(app.to_owned()).or_default().sample),
+            }
         }
-        for (app, (cpu, gpu, mem, count, handles, threads)) in per_app {
-            let acc = self.apps.entry(app).or_default();
+        for acc in self.apps.values_mut().filter(|a| a.sample.count > 0) {
+            let Sample {
+                cpu,
+                gpu,
+                mem,
+                count,
+                handles,
+                threads,
+            } = std::mem::take(&mut acc.sample);
             acc.cpu_sum += f64::from(cpu);
             acc.cpu_peak = acc.cpu_peak.max(cpu);
             // Instances can share an engine; the total cannot exceed it.
@@ -157,29 +187,59 @@ impl History {
     }
 }
 
+/// `name` in lower case, as `str::to_lowercase` gives it; process names
+/// are almost always ASCII and often already lower case, which borrows
+/// `name` or reuses `buf` instead of allocating.
+fn lower_name<'a>(name: &'a str, buf: &'a mut String) -> &'a str {
+    if !name
+        .bytes()
+        .any(|b| b.is_ascii_uppercase() || !b.is_ascii())
+    {
+        return name;
+    }
+    buf.clear();
+    if name.is_ascii() {
+        buf.extend(name.bytes().map(|b| char::from(b.to_ascii_lowercase())));
+    } else {
+        *buf = name.to_lowercase();
+    }
+    buf
+}
+
 /// Per-app summaries for rows at or after `since_minute`.
 pub fn stats(
     conn: &Connection,
     since_minute: i64,
     logical_cpus: u32,
 ) -> rusqlite::Result<Vec<AppStats>> {
+    // Steps from app to app along the primary key and reads each app's
+    // window as one range: three times faster than looking every row of
+    // the minute index up in the table, and rows arrive grouped by app.
     let mut stmt = conn.prepare(
-        "SELECT app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
+        "WITH RECURSIVE apps(a) AS (
+             SELECT min(app) FROM app_minute
+             UNION ALL
+             SELECT (SELECT min(app) FROM app_minute WHERE app > a) FROM apps
+             WHERE a IS NOT NULL
+         )
+         SELECT app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
                 handles_avg, threads_avg
-         FROM app_minute WHERE minute >= ?1",
+         FROM apps JOIN app_minute ON app = a AND minute >= ?1",
     )?;
-    let mut grouped: HashMap<String, Vec<MinuteRow>> = HashMap::new();
-    let rows = stmt.query_map(params![since_minute], |r| {
-        Ok((r.get::<_, String>(0)?, row(r, 1)?))
-    })?;
-    for item in rows {
-        let (app, row) = item?;
-        grouped.entry(app).or_default().push(row);
+    let mut out = Vec::new();
+    let (mut app, mut minutes) = (String::new(), Vec::<MinuteRow>::new());
+    let mut rows = stmt.query(params![since_minute])?;
+    while let Some(r) = rows.next()? {
+        // Borrowed from SQLite: no allocation per row.
+        let name = r.get_ref(0)?.as_str()?;
+        if name != app {
+            out.extend(summarize(&app, &minutes, logical_cpus));
+            minutes.clear();
+            name.clone_into(&mut app);
+        }
+        minutes.push(row(r, 1)?);
     }
-    let mut out: Vec<AppStats> = grouped
-        .iter()
-        .filter_map(|(app, rows)| summarize(app, rows, logical_cpus))
-        .collect();
+    out.extend(summarize(&app, &minutes, logical_cpus));
     out.sort_by(|a, b| b.cpu_avg.total_cmp(&a.cpu_avg));
     Ok(out)
 }
@@ -371,6 +431,62 @@ mod tests {
         assert!(History::with(ro).is_err());
         assert!(History::open(&path).is_ok(), "writable: migrated");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn names_are_lowered_like_to_lowercase() {
+        let mut buf = String::new();
+        for name in ["app.exe", "App.EXE", "ÄPFEL.exe", "ΟΔΟΣ.exe", ""] {
+            assert_eq!(lower_name(name, &mut buf), name.to_lowercase());
+        }
+    }
+
+    /// Timing: one sample of this PC per call, and a day of minute rows for
+    /// 150 apps summarised. `cargo test -p wtm-service --release -- --ignored
+    /// history_cost --nocapture`
+    #[test]
+    #[ignore = "timing"]
+    fn history_cost() {
+        let live = wtm_core::Sampler::new().sample().unwrap();
+        let s = snap(live.processes);
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        let n = 2000;
+        let t = std::time::Instant::now();
+        for _ in 0..n {
+            // All in one minute: no flush, only the per-sample work.
+            h.record(&s, 60).unwrap();
+        }
+        let per = t.elapsed() / n;
+        println!(
+            "record: {per:?} per sample of {} processes",
+            s.processes.len()
+        );
+
+        let tx = h.conn.transaction().unwrap();
+        {
+            let mut insert = tx
+                .prepare(
+                    "INSERT INTO app_minute (app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes)
+                     VALUES (?1, ?2, 1.0, 2.0, 3, 4, 1)",
+                )
+                .unwrap();
+            for app in 0..150 {
+                for minute in 0..3 * 24 * 60 {
+                    insert
+                        .execute(params![format!("app-{app}.exe"), minute])
+                        .unwrap();
+                }
+            }
+        }
+        tx.commit().unwrap();
+        let t = std::time::Instant::now();
+        for _ in 0..10 {
+            assert_eq!(stats(h.connection(), 2 * 24 * 60, 8).unwrap().len(), 150);
+        }
+        println!(
+            "stats: {:?} for the last of three days of 150 apps",
+            t.elapsed() / 10
+        );
     }
 
     #[test]
