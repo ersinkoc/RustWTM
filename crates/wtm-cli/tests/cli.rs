@@ -60,6 +60,27 @@ fn list_prints_summary_header_and_rows() {
 }
 
 #[test]
+fn list_info_and_ports_print_json() {
+    let o = wtm(&["list", "--sample-ms", "100", "-n", "3", "--json"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let list: serde_json::Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(list["processes"].as_array().unwrap().len(), 3);
+    assert!(list["system"]["logical_cpus"].as_u64().unwrap() > 0);
+
+    let child = spawn_ping();
+    let pid = child.0.id().to_string();
+    let o = wtm(&["info", &pid, "--json"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let info: serde_json::Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert_eq!(info[0]["process"]["pid"].to_string(), pid);
+
+    let o = wtm(&["ports", "--json"]);
+    assert!(o.status.success(), "{}", stderr(&o));
+    let ports: serde_json::Value = serde_json::from_str(&stdout(&o)).unwrap();
+    assert!(ports.is_array());
+}
+
+#[test]
 fn list_shows_command_lines() {
     let o = wtm(&["list", "--sample-ms", "100", "--sort", "pid", "--cmdline"]);
     assert!(o.status.success(), "{}", stderr(&o));

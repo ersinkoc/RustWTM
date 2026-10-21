@@ -71,6 +71,7 @@ fn machine() -> Vec<ProcessInfo> {
                 io_write_rate: 0.0,
                 net_rx_rate: 0.0,
                 net_tx_rate: 0.0,
+                suspended: false,
                 create_time: i as i64 * 10,
             }
         })
@@ -224,6 +225,7 @@ fn per_tick_costs() {
             ..Default::default()
         },
         processes: procs.clone(),
+        net_traced: false,
     };
     let mut governor = Governor::new(GovernorConfig {
         sustain_secs: 0,

@@ -1935,6 +1935,7 @@ mod tests {
                 interval: None,
                 system: wtm_core::SystemStats::default(),
                 processes: procs,
+                net_traced: false,
             }))
         };
         w.data().snapshot = snapshot(vec![a.clone(), b.clone()]);

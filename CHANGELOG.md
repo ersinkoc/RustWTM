@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `wtm-service cleanup` removes RustWTM's blocked-program entries and its
+  firewall rules; the MSI runs it on a full uninstall and
+  `wtm-service uninstall` (used by `uninstall.ps1`) runs it too.
+- The MSI asks a running RustWTM window to close before it removes or
+  replaces files.
+- `wtm list`, `wtm info` and `wtm ports` take `--json`.
+- Snapshots say whether a process is suspended and whether per-process
+  network traffic was measured; the service status carries the error of a
+  configuration file it could not load (IPC protocol 14).
+
+### Fixed
+
+- Uninstalling left blocked programs pointing at a deleted `rustwtm.exe` and
+  RustWTM's firewall rules in place.
+- *Remove limits* reported success for a process RustWTM had not limited; it
+  now says so.
+- Resuming a process suspended several times left it frozen; resume now
+  undoes every suspension.
+- A client could suspend itself through the service and freeze.
+- An invalid configuration at service start was only logged to file; it is
+  now an event and part of the status.
+- A priority or efficiency mode set by hand was undone when the governor
+  later rolled back its own change.
+- The hardware sensor helper kept running after the Sensors tab was closed;
+  it now stops after 30 s without requests unless a fan profile is active.
+- `wtm list`/`top` and the MCP server no longer present unmeasured
+  per-process network traffic as 0 B/s. The MCP server measures CPU, disk
+  and network over a fresh window instead of since the previous call (or
+  uses the service's sample), and its control tools accept the
+  `create_time` from `list_processes` to refuse a reused PID.
+- The stale 0.13.0 review is no longer installed by the MSI.
+
 ## [0.18.1] - 2026-10-21
 
 ### Changed

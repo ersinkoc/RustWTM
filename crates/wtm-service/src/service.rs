@@ -15,6 +15,7 @@ use windows_service::service_control_handler::{self, ServiceControlHandlerResult
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
 use windows_service::{define_windows_service, service_dispatcher};
 
+use crate::blocker::Blocker;
 use crate::engine::{self, Paths};
 use crate::ipc_server::EngineMsg;
 use crate::logging;
@@ -182,12 +183,105 @@ pub fn uninstall() -> anyhow::Result<()> {
     }
     service.delete()?;
     println!("Service '{SERVICE_NAME}' removed.");
+    cleanup()
+}
+
+/// Removes what RustWTM leaves outside its own files: its blocked-program
+/// entries (Image File Execution Options, which would otherwise keep
+/// pointing at a deleted rustwtm.exe) and its firewall rules. Run by the
+/// MSI on a full uninstall and by [`uninstall`]. Only entries RustWTM marked
+/// and rules in its own group are touched.
+pub fn cleanup() -> anyhow::Result<()> {
+    let failures = clean(
+        Blocker::system(String::new()),
+        wtm_sys::firewall::unblock_all,
+        &mut |line| println!("{line}"),
+    );
+    anyhow::ensure!(failures == 0, "{failures} item(s) could not be removed");
     Ok(())
+}
+
+/// [`cleanup`] with the blocker and firewall given; reports each step to
+/// `say` and returns the number of failures. Keeps going after one.
+fn clean(
+    blocker: std::io::Result<Blocker>,
+    unblock_all: impl FnOnce() -> wtm_sys::Result<usize>,
+    say: &mut dyn FnMut(String),
+) -> usize {
+    let mut failures = 0;
+    match blocker {
+        Ok(b) => {
+            let (removed, failed) = b.remove_all();
+            for name in removed {
+                say(format!("No longer blocked from starting: {name}"));
+            }
+            for f in failed {
+                say(format!("Could not unblock {f}"));
+                failures += 1;
+            }
+        }
+        Err(e) => {
+            say(format!("Could not open the blocked-program entries: {e}"));
+            failures += 1;
+        }
+    }
+    match unblock_all() {
+        Ok(0) => {}
+        Ok(n) => say(format!("Removed {n} RustWTM firewall rule(s).")),
+        Err(e) => {
+            say(format!("Could not remove RustWTM firewall rules: {e}"));
+            failures += 1;
+        }
+    }
+    failures
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleanup_reports_each_step_and_keeps_going() {
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+        let path = format!(r"Software\RustWTM-test-cleanup-{}", std::process::id());
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let blocker = || {
+            Blocker::at(
+                RegKey::predef(HKEY_CURRENT_USER),
+                &path,
+                r#""C:\x\rustwtm.exe" --blocked"#.into(),
+            )
+        };
+        blocker().unwrap().sync(&["xmrig.exe".into()]).unwrap();
+
+        let mut lines = Vec::new();
+        let failures = clean(blocker(), || Ok(2), &mut |l| lines.push(l));
+        assert_eq!(failures, 0);
+        assert_eq!(
+            lines,
+            [
+                "No longer blocked from starting: xmrig.exe",
+                "Removed 2 RustWTM firewall rule(s)."
+            ]
+        );
+        assert!(blocker().unwrap().blocked().is_empty());
+
+        // Nothing left: silent. Failures are counted, not fatal.
+        lines.clear();
+        assert_eq!(clean(blocker(), || Ok(0), &mut |l| lines.push(l)), 0);
+        assert!(lines.is_empty());
+        let denied = || Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        let failed = || {
+            Err(wtm_sys::Error::Nt {
+                call: "x",
+                status: 1,
+            })
+        };
+        assert_eq!(clean(denied(), failed, &mut |l| lines.push(l)), 2);
+        assert_eq!(lines.len(), 2);
+        let _ = hkcu.delete_subkey_all(&path);
+    }
 
     #[test]
     fn dispatch_fails_outside_the_scm() {

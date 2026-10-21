@@ -12,6 +12,35 @@ fn process(procs: &[ProcessInfo], pid: u32) -> Option<&ProcessInfo> {
     procs.iter().find(|p| p.pid == pid)
 }
 
+/// The ports [`render`] and [`json`] show.
+fn shown(uses: &[PortUse], udp: bool, known: bool) -> Vec<&PortUse> {
+    uses.iter()
+        .filter(|u| udp || u.protocol == Protocol::Tcp)
+        .filter(|u| !known || u.known().is_some())
+        .collect()
+}
+
+/// `wtm ports --json`: the rows of [`render`] as objects.
+pub fn json(uses: &[PortUse], procs: &[ProcessInfo], udp: bool, known: bool) -> serde_json::Value {
+    shown(uses, udp, known)
+        .into_iter()
+        .map(|u| {
+            let p = process(procs, u.pid);
+            serde_json::json!({
+                "port": u.port,
+                "protocol": format!("{:?}", u.protocol).to_uppercase(),
+                "pid": u.pid,
+                "program": p.map(|p| p.name.as_str()),
+                "create_time": p.map(|p| p.create_time),
+                "known_as": u.known().map(|k| k.service),
+                "reach": u.exposure().label(),
+                "clients": (u.protocol == Protocol::Tcp).then_some(u.connections),
+                "addresses": u.addresses.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            })
+        })
+        .collect()
+}
+
 /// The listening ports as a table; `udp` adds bound UDP ports, `known` keeps
 /// only the ports of well-known tools and servers.
 pub fn render(
@@ -21,11 +50,7 @@ pub fn render(
     known: bool,
     out: &mut impl Write,
 ) -> std::io::Result<()> {
-    let shown: Vec<&PortUse> = uses
-        .iter()
-        .filter(|u| udp || u.protocol == Protocol::Tcp)
-        .filter(|u| !known || u.known().is_some())
-        .collect();
+    let shown = shown(uses, udp, known);
     if shown.is_empty() {
         return writeln!(out, "No listening ports.");
     }
@@ -136,6 +161,7 @@ mod tests {
             io_write_rate: 0.0,
             net_rx_rate: 0.0,
             net_tx_rate: 0.0,
+            suspended: false,
             create_time: 1,
         }
     }
@@ -190,6 +216,27 @@ mod tests {
         assert!(!known.contains("41000"), "{known}");
         let none = text(|o| render(&[], &[], false, false, o).unwrap());
         assert_eq!(none.trim(), "No listening ports.");
+    }
+
+    #[test]
+    fn ports_as_json() {
+        let rows = json(&uses(), &procs(), true, false);
+        let rows = rows.as_array().unwrap();
+        let vite = rows.iter().find(|r| r["port"] == 5173).unwrap();
+        assert_eq!(vite["program"], "node.exe");
+        assert_eq!(vite["protocol"], "TCP");
+        assert_eq!(vite["known_as"], "Vite");
+        assert_eq!(vite["addresses"][0], "0.0.0.0");
+        let mdns = rows.iter().find(|r| r["port"] == 5353).unwrap();
+        assert!(mdns["clients"].is_null(), "UDP has no clients");
+        assert_eq!(
+            json(&uses(), &procs(), false, false)
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(json(&[], &[], true, false), serde_json::json!([]));
     }
 
     #[test]

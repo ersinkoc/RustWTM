@@ -41,6 +41,7 @@ pub fn proc(pid: u32, parent_pid: u32, name: &str, cpu: f32) -> ProcessInfo {
         io_write_rate: 0.0,
         net_rx_rate: 0.0,
         net_tx_rate: 0.0,
+        suspended: false,
         create_time: 116_444_736_000_000_000 + i64::from(pid),
     }
 }
@@ -85,6 +86,7 @@ pub fn snapshot() -> Snapshot {
             proc(101, 100, "alpha-child.exe", 2.0),
             proc(200, 4, "beta.exe", 0.5),
         ],
+        net_traced: false,
     }
 }
 
@@ -213,6 +215,7 @@ pub fn data() -> Data {
                 moved: 42,
             }),
             game: None,
+            config_error: None,
         }),
         details: Some((
             alpha.clone(),

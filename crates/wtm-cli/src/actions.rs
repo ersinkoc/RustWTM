@@ -190,8 +190,14 @@ fn affinity_line(
     }
 }
 
-pub fn info(specs: &[String]) -> anyhow::Result<ExitCode> {
+pub fn info(specs: &[String], json: bool) -> anyhow::Result<ExitCode> {
     let procs = snapshot()?;
+    if json {
+        let (value, ok) = info_json(matching(specs, &procs)?, |p| control::inspect(&p.into()));
+        serde_json::to_writer_pretty(std::io::stdout().lock(), &value)?;
+        println!();
+        return Ok(exit_code(ok));
+    }
     let mut ok = true;
     for p in matching(specs, &procs)? {
         println!("PID          {}", p.pid);
@@ -222,6 +228,26 @@ pub fn info(specs: &[String]) -> anyhow::Result<ExitCode> {
         println!();
     }
     Ok(exit_code(ok))
+}
+
+/// `info --json`: each process with its details, or why they could not be
+/// read; and whether all could.
+fn info_json(
+    procs: Vec<&ProcessInfo>,
+    inspect: impl Fn(&ProcessInfo) -> ControlResult<ProcessDetails>,
+) -> (serde_json::Value, bool) {
+    let mut ok = true;
+    let rows = procs
+        .into_iter()
+        .map(|p| match inspect(p) {
+            Ok(d) => serde_json::json!({ "process": p, "details": d }),
+            Err(e) => {
+                ok = false;
+                serde_json::json!({ "process": p, "error": e.to_string() })
+            }
+        })
+        .collect();
+    (serde_json::Value::Array(rows), ok)
 }
 
 /// The `info` lines from [`control::inspect`]: `Ok` for stdout, `Err` for stderr.
@@ -459,6 +485,25 @@ mod tests {
             details(Err(ControlError::AccessDenied { pid: 4 })).unwrap_err(),
             "Details      access denied to process 4 (try an elevated prompt)"
         );
+    }
+
+    #[test]
+    fn info_json_carries_details_or_the_error() {
+        let procs = snapshot().unwrap();
+        let me = procs.iter().find(|p| p.pid == std::process::id()).unwrap();
+        let (value, ok) = info_json(vec![me], |p| control::inspect(&p.into()));
+        assert!(ok);
+        assert_eq!(value[0]["process"]["pid"], me.pid);
+        assert!(value[0]["details"]["path"].is_string());
+        let (value, ok) = info_json(vec![me], |p| Err(ControlError::AccessDenied { pid: p.pid }));
+        assert!(!ok);
+        assert!(
+            value[0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("access denied")
+        );
+        assert!(value[0].get("details").is_none());
     }
 
     #[test]

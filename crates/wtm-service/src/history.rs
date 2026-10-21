@@ -295,6 +295,7 @@ mod tests {
             io_write_rate: 0.0,
             net_rx_rate: 0.0,
             net_tx_rate: 0.0,
+            suspended: false,
             create_time: i64::from(pid),
         }
     }
@@ -311,6 +312,7 @@ mod tests {
             interval: Some(Duration::from_secs(1)),
             system: SystemStats::default(),
             processes: procs,
+            net_traced: false,
         }
     }
 

@@ -2,24 +2,43 @@ use wtm_core::{ProcessInfo, SystemStats};
 
 /// Width of every column before NAME, including separators.
 const PREFIX_WIDTH: usize = 67;
+/// Width the NET/s column adds.
+const NET_WIDTH: usize = 11;
 
-pub fn header() -> String {
+/// Width before NAME; the NET/s column appears only when per-process
+/// network traffic was measured (`net`), since otherwise it would be all 0.
+fn prefix_width(net: bool) -> usize {
+    PREFIX_WIDTH + if net { NET_WIDTH } else { 0 }
+}
+
+pub fn header(net: bool) -> String {
+    let net = if net {
+        format!(" {:>10}", "NET/s")
+    } else {
+        String::new()
+    };
     format!(
-        "{:>7} {:>7} {:>6} {:>6} {:>10} {:>5} {:>7} {:>10}  NAME",
+        "{:>7} {:>7} {:>6} {:>6} {:>10} {:>5} {:>7} {:>10}{net}  NAME",
         "PID", "PPID", "CPU%", "GPU%", "MEMORY", "THR", "HANDLES", "DISK/s"
     )
 }
 
-/// Formats one process; the name is truncated so the line fits `width` columns.
-pub fn row(p: &ProcessInfo, width: usize) -> String {
-    let name_width = width.saturating_sub(PREFIX_WIDTH).max(8);
+/// Formats one process; the name is truncated so the line fits `width`
+/// columns. `net` adds the network column (see [`header`]).
+pub fn row(p: &ProcessInfo, width: usize, net: bool) -> String {
+    let name_width = width.saturating_sub(prefix_width(net)).max(8);
     let name: String = if p.name.chars().count() > name_width {
         p.name.chars().take(name_width - 1).chain(['…']).collect()
     } else {
         p.name.clone()
     };
+    let net = if net {
+        format!(" {:>10}", bytes(p.net_rate()))
+    } else {
+        String::new()
+    };
     format!(
-        "{:>7} {:>7} {:>6.1} {:>6.1} {:>10} {:>5} {:>7} {:>10}  {}",
+        "{:>7} {:>7} {:>6.1} {:>6.1} {:>10} {:>5} {:>7} {:>10}{net}  {}",
         p.pid,
         p.parent_pid,
         p.cpu_percent,
@@ -30,6 +49,17 @@ pub fn row(p: &ProcessInfo, width: usize) -> String {
         bytes(p.io_rate()),
         name
     )
+}
+
+/// Appended to a summary line when per-process network traffic was not
+/// measured (it needs the service's trace), so the missing NET/s column
+/// does not read as "no traffic".
+pub fn network_note(net: bool) -> &'static str {
+    if net {
+        ""
+    } else {
+        "   per-process network: n/a"
+    }
 }
 
 /// Width the NAME column is padded to when a command line follows it.
@@ -136,6 +166,42 @@ mod tests {
 
     #[test]
     fn header_prefix_matches_row_prefix() {
-        assert_eq!(header().find("NAME"), Some(PREFIX_WIDTH));
+        for net in [false, true] {
+            assert_eq!(header(net).find("NAME"), Some(prefix_width(net)));
+        }
+    }
+
+    #[test]
+    fn network_column_only_when_measured() {
+        let p = ProcessInfo {
+            pid: 42,
+            parent_pid: 1,
+            name: "app.exe".into(),
+            cpu_percent: 0.0,
+            cpu_time: std::time::Duration::ZERO,
+            working_set: 0,
+            private_working_set: 0,
+            private_bytes: 0,
+            thread_count: 1,
+            handle_count: 1,
+            session_id: 1,
+            base_priority: 8,
+            gpu_percent: 0.0,
+            gpu_memory: 0,
+            io_read_rate: 0.0,
+            io_write_rate: 0.0,
+            net_rx_rate: 1024.0,
+            net_tx_rate: 1024.0,
+            suspended: false,
+            create_time: 0,
+        };
+        let traced = row(&p, usize::MAX, true);
+        assert!(traced.contains("2.0 KiB"), "{traced}");
+        assert_eq!(traced.find("app.exe"), Some(prefix_width(true)));
+        let untraced = row(&p, usize::MAX, false);
+        assert!(!untraced.contains("KiB"), "{untraced}");
+        assert!(!header(false).contains("NET"));
+        assert!(network_note(false).contains("n/a"));
+        assert!(network_note(true).is_empty());
     }
 }

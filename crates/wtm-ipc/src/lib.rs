@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 13;
+pub const PROTOCOL_VERSION: u32 = 14;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -211,6 +211,10 @@ pub struct Status {
     pub rescue_core: Option<RescueStatus>,
     /// The game in front while game mode is active.
     pub game: Option<GameStatus>,
+    /// Why the configuration file was not loaded: at start the service then
+    /// runs on built-in defaults (dry run), after an edit it keeps the
+    /// previous configuration. `None` once a load succeeds.
+    pub config_error: Option<String>,
 }
 
 /// Game mode while a full-screen app is in front.
@@ -708,6 +712,7 @@ mod tests {
                 io_write_rate: 0.0,
                 net_rx_rate: 0.0,
                 net_tx_rate: 0.0,
+                suspended: false,
                 create_time: 133_000_000_000_000_000 + i64::from(i),
             })
             .collect();
@@ -718,6 +723,7 @@ mod tests {
                 ..Default::default()
             },
             processes,
+            net_traced: false,
         }
     }
 

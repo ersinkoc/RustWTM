@@ -153,6 +153,7 @@ mod tests {
             io_write_rate: 0.0,
             net_rx_rate: 0.0,
             net_tx_rate: 0.0,
+            suspended: false,
             create_time: i64::from(pid),
         }
     }
@@ -173,6 +174,7 @@ mod tests {
                 proc(14, "keep.exe", 7000),
                 proc(4, "System", 9999),
             ],
+            net_traced: false,
         }
     }
 

@@ -506,6 +506,7 @@ mod tests {
             io_write_rate: 0.0,
             net_rx_rate: 0.0,
             net_tx_rate: 0.0,
+            suspended: false,
             create_time: i64::from(pid),
         }
     }

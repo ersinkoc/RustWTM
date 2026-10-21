@@ -30,13 +30,17 @@ pub struct ProcessInfo {
     pub io_read_rate: f64,
     pub io_write_rate: f64,
     /// Network bytes per second, from an ETW trace that needs administrator
-    /// rights; zero when the trace is not running.
+    /// rights; zero when the trace is not running (see
+    /// [`Snapshot::net_traced`]).
     #[serde(default)]
     pub net_rx_rate: f64,
     #[serde(default)]
     pub net_tx_rate: f64,
     /// Raw FILETIME; together with `pid` it uniquely identifies a process.
     pub create_time: i64,
+    /// Every thread is suspended: the process is frozen until resumed.
+    #[serde(default)]
+    pub suspended: bool,
 }
 
 impl ProcessInfo {
@@ -107,6 +111,10 @@ pub struct Snapshot {
     pub interval: Option<Duration>,
     pub system: SystemStats,
     pub processes: Vec<ProcessInfo>,
+    /// Per-process network rates were measured; without the trace they are
+    /// zero and should read as unknown.
+    #[serde(default)]
+    pub net_traced: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -189,6 +197,7 @@ mod tests {
             io_write_rate: 0.0,
             net_rx_rate: 0.0,
             net_tx_rate: 0.0,
+            suspended: false,
             create_time: FILETIME_UNIX_OFFSET,
         }
     }

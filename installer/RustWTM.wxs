@@ -43,9 +43,6 @@
           <Component Id="HardwareDocumentation">
             <File Id="HardwareGuide" Source="docs\hardware.md" KeyPath="yes" />
           </Component>
-          <Component Id="ReleaseDocumentation">
-            <File Id="ReleaseReview" Source="docs\0.13.0-review.md" KeyPath="yes" />
-          </Component>
           <Component Id="CpuDocumentation">
             <File Id="CpuGuide" Source="docs\cpu-controls.md" KeyPath="yes" />
           </Component>
@@ -110,11 +107,43 @@
       </Component>
     </StandardDirectory>
 
+    <!-- The tray app holds rustwtm.exe open; ask it to quit (WM_CLOSE, then
+         WM_QUERYENDSESSION/WM_ENDSESSION, sent from the user's context)
+         before files are removed or replaced, so an upgrade or uninstall
+         needs no reboot. The util extension schedules this before
+         InstallFiles, which on uninstall (and on the removal of this
+         version by a later upgrade) comes after RemoveFiles: moved to just
+         before RemoveFiles, still inside the script phase it needs. -->
+    <util:CloseApplication Id="CloseGui"
+                           Target="rustwtm.exe"
+                           CloseMessage="yes"
+                           EndSessionMessage="yes"
+                           RebootPrompt="no" />
+
+    <!-- On a full uninstall (not an upgrade), remove the blocked-program
+         entries and firewall rules RustWTM made: the entries would keep
+         sending blocked programs to a deleted rustwtm.exe. Runs as SYSTEM
+         after the service stopped and before its files go; a failure never
+         stops the uninstall. -->
+    <CustomAction Id="RustWTMCleanup"
+                  FileRef="ServiceExe"
+                  ExeCommand="cleanup"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="override Wix4CloseApplications_$(sys.BUILDARCHSHORT)"
+              Before="RemoveFiles"
+              Condition="VersionNT &gt; 400" />
+      <Custom Action="RustWTMCleanup"
+              After="StopServices"
+              Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
     <Feature Id="Main" Title="RustWTM">
       <ComponentRef Id="Gui" />
       <ComponentRef Id="HardwareProvider" />
       <ComponentRef Id="HardwareDocumentation" />
-      <ComponentRef Id="ReleaseDocumentation" />
       <ComponentRef Id="CpuDocumentation" />
       <ComponentRef Id="LanguageDocumentation" />
       <ComponentRef Id="Cli" />

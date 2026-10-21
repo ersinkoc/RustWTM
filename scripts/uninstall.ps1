@@ -4,8 +4,9 @@
 
 .DESCRIPTION
     Stops and removes the RustWTM service (which rolls back every limit it
-    applied), deletes the Start Menu shortcut, removes the install directory
-    from the machine PATH and deletes it. Configuration and usage history in
+    applied) along with its blocked-program entries and firewall rules,
+    deletes the Start Menu shortcut, removes the install directory from the
+    machine PATH and deletes it. Configuration and usage history in
     %ProgramData%\RustWTM are kept unless -RemoveData is given.
 
 .PARAMETER InstallDir
@@ -46,7 +47,7 @@ if ($self -and $self.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCa
 }
 
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
-    Write-Step 'Stopping and removing the RustWTM service (limits are rolled back)'
+    Write-Step 'Stopping and removing the RustWTM service (limits, program blocks and firewall rules are removed)'
     $svcExe = Join-Path $InstallDir 'wtm-service.exe'
     if (Test-Path $svcExe) {
         & $svcExe uninstall

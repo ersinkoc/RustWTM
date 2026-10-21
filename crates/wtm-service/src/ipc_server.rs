@@ -394,11 +394,33 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 Response::Error("administrator rights required (run the client elevated)".into())
             }
             Request::Control { target, command } => {
-                forward_control(engine, target, command, CONTROL_TIMEOUT)
+                match refuse_freezing_client(&target, command, conn.client_pid().ok()) {
+                    Some(refusal) => refusal,
+                    None => forward_control(engine, target, command, CONTROL_TIMEOUT),
+                }
             }
         };
         write_frame(&mut conn, &response)?;
     }
+}
+
+/// A client suspending itself would freeze and never ask to be resumed;
+/// the protection rules only know the service's own PID, so the server
+/// refuses it here.
+fn refuse_freezing_client(
+    target: &ProcessRef,
+    command: Command,
+    client_pid: Option<u32>,
+) -> Option<Response> {
+    (command == Command::Suspend && client_pid == Some(target.pid)).then(|| {
+        Response::Control(vec![Outcome {
+            target: target.clone(),
+            result: Err(format!(
+                "process {} is the program asking; suspending it would freeze it",
+                target.pid
+            )),
+        }])
+    })
 }
 
 /// Hands a control request to the engine thread and waits for its outcomes.
@@ -769,6 +791,23 @@ mod tests {
         drop(busy);
         // The engine has stopped.
         assert_eq!(error(forward(&tx, CONTROL_TIMEOUT)), "service is stopping");
+    }
+
+    #[test]
+    fn a_client_cannot_suspend_itself() {
+        let me = ProcessRef {
+            pid: 1234,
+            create_time: 5,
+            name: "rustwtm.exe".into(),
+        };
+        let refusal = refuse_freezing_client(&me, Command::Suspend, Some(1234));
+        let outcomes = expect_reply!(refusal.unwrap(), Response::Control);
+        assert_eq!(outcomes[0].target, me);
+        assert!(outcomes[0].result.as_ref().unwrap_err().contains("freeze"));
+        // Other processes, other commands and unknown clients pass.
+        assert!(refuse_freezing_client(&me, Command::Suspend, Some(99)).is_none());
+        assert!(refuse_freezing_client(&me, Command::Resume, Some(1234)).is_none());
+        assert!(refuse_freezing_client(&me, Command::Suspend, None).is_none());
     }
 
     #[test]

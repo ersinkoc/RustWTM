@@ -30,6 +30,8 @@ pub struct RawProcess {
     pub io_read_bytes: u64,
     pub io_write_bytes: u64,
     pub io_other_bytes: u64,
+    /// Every thread is suspended (e.g. by `NtSuspendProcess`).
+    pub suspended: bool,
 }
 
 /// Takes process snapshots, reusing its buffer between calls.
@@ -51,6 +53,11 @@ impl ThreadInfo {
         // DelayExecution, Suspended, WrDelayExecution, WrSuspended, WrQueue.
         const IDLE: [u32; 5] = [4, 5, 11, 12, 15];
         self.state == 5 && !IDLE.contains(&self.wait_reason)
+    }
+
+    /// Waiting because it was suspended (Suspended or WrSuspended).
+    pub fn suspended(&self) -> bool {
+        self.state == 5 && matches!(self.wait_reason, 5 | 12)
     }
 }
 
@@ -93,10 +100,16 @@ impl ProcessSnapshotter {
     ) -> Result<Vec<RawProcess>> {
         let len = self.query()?;
         let mut count = 0usize;
-        for info in self.entries(len) {
+        for (offset, info) in self.entries_at(len) {
             count += 1;
             if keep(info.unique_process_id as usize as u32, info.create_time) {
-                out.push(to_raw(info));
+                let mut raw = to_raw(info);
+                // The idle process's threads are never suspended; System's
+                // cannot be. Stops at the first running thread.
+                raw.suspended = raw.pid > 4
+                    && info.number_of_threads > 0
+                    && self.threads_of(len, offset, info).all(|t| t.suspended());
+                out.push(raw);
             }
         }
         self.last_count = count;
@@ -139,38 +152,43 @@ impl ProcessSnapshotter {
     /// itself is not opened). Empty when the process is gone.
     pub fn threads(&mut self, pid: u32) -> Result<Vec<ThreadInfo>> {
         let len = self.query()?;
-        let base = self.buf.as_ptr().cast::<u8>();
-        let entry_size = size_of::<ntapi::SystemProcessInformation>();
-        let thread_size = size_of::<ntapi::SystemThreadInformation>();
         let Some((offset, info)) = self
             .entries_at(len)
             .find(|(_, info)| info.unique_process_id as usize as u32 == pid)
         else {
             return Ok(Vec::new());
         };
-        let first = offset + entry_size;
-        let count = (info.number_of_threads as usize).min(len.saturating_sub(first) / thread_size);
-        Ok((0..count)
-            .map(|i| {
-                // SAFETY: `count` entries fit inside the valid bytes.
-                let t = unsafe {
-                    &*base
-                        .add(first + i * thread_size)
-                        .cast::<ntapi::SystemThreadInformation>()
-                };
-                ThreadInfo {
-                    tid: t.unique_thread as usize as u32,
-                    state: t.thread_state,
-                    wait_reason: t.wait_reason,
-                    context_switches: t.context_switches,
-                }
-            })
-            .collect())
+        Ok(self.threads_of(len, offset, info).collect())
     }
 
-    /// The process entries among the first `len` bytes of the buffer.
-    fn entries(&self, len: usize) -> impl Iterator<Item = &ntapi::SystemProcessInformation> {
-        self.entries_at(len).map(|(_, info)| info)
+    /// The thread entries that follow the process entry at `offset`, within
+    /// the first `len` valid bytes.
+    fn threads_of(
+        &self,
+        len: usize,
+        offset: usize,
+        info: &ntapi::SystemProcessInformation,
+    ) -> impl Iterator<Item = ThreadInfo> {
+        let base = self.buf.as_ptr().cast::<u8>();
+        let thread_size = size_of::<ntapi::SystemThreadInformation>();
+        let first = offset + size_of::<ntapi::SystemProcessInformation>();
+        let len = len.min(self.buf.len() * 8);
+        let count = (info.number_of_threads as usize).min(len.saturating_sub(first) / thread_size);
+        (0..count).map(move |i| {
+            // SAFETY: `count` entries fit inside the valid bytes of the
+            // buffer, which is borrowed for the iterator's lifetime.
+            let t = unsafe {
+                &*base
+                    .add(first + i * thread_size)
+                    .cast::<ntapi::SystemThreadInformation>()
+            };
+            ThreadInfo {
+                tid: t.unique_thread as usize as u32,
+                state: t.thread_state,
+                wait_reason: t.wait_reason,
+                context_switches: t.context_switches,
+            }
+        })
     }
 
     /// The process entries with their byte offsets.
@@ -215,6 +233,7 @@ fn to_raw(info: &ntapi::SystemProcessInformation) -> RawProcess {
         io_read_bytes: info.read_transfer_count.max(0) as u64,
         io_write_bytes: info.write_transfer_count.max(0) as u64,
         io_other_bytes: info.other_transfer_count.max(0) as u64,
+        suspended: false,
     }
 }
 
@@ -260,6 +279,50 @@ mod tests {
         let procs = s.snapshot().unwrap();
         assert!(s.buf.len() > 1, "buffer was not grown");
         assert!(procs.iter().any(|p| p.pid == std::process::id()));
+    }
+
+    #[test]
+    fn reports_suspended_processes() {
+        use crate::control::{Access, ProcessHandle};
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let mut s = ProcessSnapshotter::new();
+        // Threads enter the suspended state asynchronously, once scheduled.
+        let becomes = |s: &mut ProcessSnapshotter, frozen: bool| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let now = s
+                    .snapshot()
+                    .unwrap()
+                    .into_iter()
+                    .find(|p| p.pid == pid)
+                    .map(|p| p.suspended);
+                if now == Some(frozen) {
+                    return;
+                }
+                assert!(std::time::Instant::now() < deadline, "suspended is {now:?}");
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        becomes(&mut s, false);
+        let h = ProcessHandle::open(pid, Access::SUSPEND_RESUME).unwrap();
+        h.suspend().unwrap();
+        becomes(&mut s, true);
+        assert!(s.threads(pid).unwrap().iter().all(ThreadInfo::suspended));
+        h.resume().unwrap();
+        becomes(&mut s, false);
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(
+            !s.snapshot()
+                .unwrap()
+                .iter()
+                .any(|p| p.pid == std::process::id() && p.suspended)
+        );
     }
 
     #[test]

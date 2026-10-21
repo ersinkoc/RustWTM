@@ -14,6 +14,8 @@ pub const IFEO: &str = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File
 /// DWORD value identifying entries RustWTM created.
 const MARKER: &str = "RustWTMBlock";
 const DEBUGGER: &str = "Debugger";
+/// How RustWTM's debugger command ends (see the service's `block_debugger`).
+const BLOCKED_ARG: &str = "--blocked";
 
 pub struct Blocker {
     root: RegKey,
@@ -86,6 +88,37 @@ impl Blocker {
         key.set_value(DEBUGGER, &self.debugger)?;
         key.set_value(MARKER, &1u32)?;
         Ok(true)
+    }
+
+    /// Removes every entry RustWTM marked (on uninstall), carrying on past
+    /// failures. A debugger that is no longer RustWTM's (another program
+    /// replaced it) is left in place; only the marker goes. Returns the
+    /// names cleared and the failures.
+    pub fn remove_all(&self) -> (Vec<String>, Vec<String>) {
+        let (mut removed, mut failed) = (Vec::new(), Vec::new());
+        for name in self.blocked() {
+            match self.clear(&name) {
+                Ok(()) => removed.push(name),
+                Err(e) => failed.push(format!("{name}: {e}")),
+            }
+        }
+        (removed, failed)
+    }
+
+    fn clear(&self, name: &str) -> io::Result<()> {
+        let key = self.root.open_subkey_with_flags(name, KEY_ALL_ACCESS)?;
+        let ours = key
+            .get_value::<String, _>(DEBUGGER)
+            .is_ok_and(|d| d.trim_end().ends_with(BLOCKED_ARG));
+        if ours {
+            key.delete_value(DEBUGGER)?;
+        }
+        key.delete_value(MARKER)?;
+        if key.enum_values().next().is_none() && key.enum_keys().next().is_none() {
+            drop(key);
+            self.root.delete_subkey(name)?;
+        }
+        Ok(())
     }
 
     fn remove(&self, name: &str) -> io::Result<()> {
@@ -184,6 +217,43 @@ mod tests {
             .get_value(DEBUGGER)
             .unwrap();
         assert_eq!(foreign, "vsjitdebugger.exe");
+    }
+
+    #[test]
+    fn remove_all_clears_only_marked_entries() {
+        let s = Scratch::new("remove-all");
+        let b = &s.blocker;
+        b.sync(&names(&["a.exe", "b.exe"])).unwrap();
+        // Another program took over b.exe's debugger meanwhile.
+        let (taken, _) = b.root.create_subkey("b.exe").unwrap();
+        taken.set_value(DEBUGGER, &"vsjitdebugger.exe").unwrap();
+        // Marked, but its debugger already vanished.
+        let (broken, _) = b.root.create_subkey("broken.exe").unwrap();
+        broken.set_value(MARKER, &1u32).unwrap();
+        let (foreign, _) = b.root.create_subkey("other.exe").unwrap();
+        foreign.set_value(DEBUGGER, &"x.exe").unwrap();
+
+        let (removed, failed) = b.remove_all();
+        assert_eq!(removed, ["a.exe", "b.exe", "broken.exe"]);
+        assert!(failed.is_empty(), "{failed:?}");
+        assert!(b.blocked().is_empty());
+        assert!(b.root.open_subkey("a.exe").is_err());
+        assert!(b.root.open_subkey("broken.exe").is_err());
+        let kept: String = b
+            .root
+            .open_subkey("b.exe")
+            .unwrap()
+            .get_value(DEBUGGER)
+            .unwrap();
+        assert_eq!(kept, "vsjitdebugger.exe");
+        let other: String = b
+            .root
+            .open_subkey("other.exe")
+            .unwrap()
+            .get_value(DEBUGGER)
+            .unwrap();
+        assert_eq!(other, "x.exe");
+        assert_eq!(b.remove_all(), (Vec::new(), Vec::new()));
     }
 
     #[test]
