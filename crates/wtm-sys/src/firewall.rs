@@ -57,6 +57,21 @@ pub fn unblock(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Removes every rule in RustWTM's group (on uninstall); returns how many
+/// rule names were removed.
+pub fn unblock_all() -> Result<usize> {
+    let _com = ComScope::enter();
+    let rules = firewall_rules()?;
+    let mut names: Vec<String> = group_rules(&rules)?.into_iter().map(|r| r.name).collect();
+    names.sort();
+    names.dedup();
+    for name in &names {
+        // SAFETY: plain COM call on a live interface.
+        unsafe { rules.0.Remove(&BSTR::from(name.as_str()))? };
+    }
+    Ok(names.len())
+}
+
 /// Programs RustWTM has blocked: the paths of the rules in its group.
 pub fn blocked() -> Result<Vec<String>> {
     let _com = ComScope::enter();
@@ -243,5 +258,19 @@ mod tests {
         assert_eq!(listed.iter().filter(|p| same_program(p, &path)).count(), 1);
         unblock(&path).unwrap();
         assert!(!blocked().unwrap().iter().any(|p| same_program(p, &path)));
+    }
+
+    /// Removes every RustWTM rule on the machine, so it only runs where
+    /// RUSTWTM_SCM_TESTS is set (an elevated, disposable CI machine).
+    #[test]
+    fn unblock_all_empties_the_group() {
+        if std::env::var_os("RUSTWTM_SCM_TESTS").is_none() {
+            return;
+        }
+        let path = format!(r"C:\RustWTM-test-{}\all.exe", std::process::id());
+        block(&path).unwrap();
+        assert!(unblock_all().unwrap() >= 2, "in and out");
+        assert!(blocked().unwrap().is_empty());
+        assert_eq!(unblock_all().unwrap(), 0);
     }
 }

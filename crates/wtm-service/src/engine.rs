@@ -155,7 +155,9 @@ fn modified(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-fn load_config(path: &Path) -> anyhow::Result<Config> {
+/// The configuration, and why the file could not be used when the
+/// built-in defaults stand in for it.
+fn load_config(path: &Path) -> anyhow::Result<(Config, Option<String>)> {
     if !path.exists() {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -165,10 +167,10 @@ fn load_config(path: &Path) -> anyhow::Result<Config> {
         info!(path = %path.display(), "wrote default config");
     }
     match Config::load(path) {
-        Ok(c) => Ok(c),
+        Ok(c) => Ok((c, None)),
         Err(e) => {
             error!(error = %e, "config invalid; falling back to defaults (dry-run)");
-            Ok(Config::default())
+            Ok((Config::default(), Some(e.to_string())))
         }
     }
 }
@@ -197,11 +199,16 @@ fn status(
             name: name.to_owned(),
             calmed: game.calmed(),
         }),
+        config_error: None,
     }
 }
 
 /// The per-file disk trace stops this long after the last request.
 const DISK_TRACE_IDLE: Duration = Duration::from_secs(30);
+
+/// The hardware sensor helper stops this long after the last request,
+/// unless a fan profile is active.
+const HARDWARE_IDLE: Duration = Duration::from_secs(30);
 
 /// Prefix of the ETW session that counts network bytes per process.
 const NET_TRACE: &str = "RustWTM-Network";
@@ -209,7 +216,7 @@ const NET_TRACE: &str = "RustWTM-Network";
 /// Runs until [`EngineMsg::Stop`] arrives (or all senders are dropped), then
 /// rolls back every applied limit. `tx` is handed to the IPC server.
 pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> anyhow::Result<()> {
-    let mut config = load_config(&paths.config)?;
+    let (mut config, mut config_error) = load_config(&paths.config)?;
     let mut config_mtime = modified(&paths.config);
 
     if !control::enable_debug_privilege() {
@@ -221,6 +228,12 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     }
 
     let shared = Arc::new(Shared::default());
+    if let Some(e) = &config_error {
+        shared.events.warn(
+            None,
+            format!("configuration invalid, running on defaults (dry run): {e}"),
+        );
+    }
     shared.hardware.dry_run(config.dry_run);
     *shared
         .config
@@ -346,15 +359,18 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     *shared
                         .status
                         .write()
-                        .unwrap_or_else(PoisonError::into_inner) = status(
-                        &config,
-                        paths,
-                        &executor,
-                        &app_usage,
-                        foreground_app.as_deref(),
-                        &rescue,
-                        &game_mode,
-                    );
+                        .unwrap_or_else(PoisonError::into_inner) = Status {
+                        config_error: config_error.clone(),
+                        ..status(
+                            &config,
+                            paths,
+                            &executor,
+                            &app_usage,
+                            foreground_app.as_deref(),
+                            &rescue,
+                            &game_mode,
+                        )
+                    };
                 }
                 Ok(EngineMsg::Foreground(pid, full)) => {
                     foreground = Some((pid, Instant::now()));
@@ -394,11 +410,15 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                         .write()
                         .unwrap_or_else(PoisonError::into_inner) = new.clone();
                     config = new;
+                    config_error = None;
                     shared.hardware.dry_run(config.dry_run);
                 }
-                Err(e) => shared
-                    .events
-                    .warn(None, format!("config reload failed, keeping previous: {e}")),
+                Err(e) => {
+                    shared
+                        .events
+                        .warn(None, format!("config reload failed, keeping previous: {e}"));
+                    config_error = Some(e.to_string());
+                }
             }
         }
 
@@ -483,6 +503,8 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 *trace = None;
             }
         }
+        // So does the sensor helper, unless it is driving a fan.
+        shared.hardware.stop_if_idle(HARDWARE_IDLE);
         let (calm, change) = game_mode.tick(game, &snap.processes);
         decisions.extend(calm);
         if let Some(change) = change {
@@ -517,15 +539,18 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         *shared
             .status
             .write()
-            .unwrap_or_else(PoisonError::into_inner) = status(
-            &config,
-            paths,
-            &executor,
-            &app_usage,
-            foreground_app.as_deref(),
-            &rescue,
-            &game_mode,
-        );
+            .unwrap_or_else(PoisonError::into_inner) = Status {
+            config_error: config_error.clone(),
+            ..status(
+                &config,
+                paths,
+                &executor,
+                &app_usage,
+                foreground_app.as_deref(),
+                &rescue,
+                &game_mode,
+            )
+        };
         last_snapshot = Some(snap);
     }
 
@@ -705,13 +730,27 @@ fn handle_control(
             .collect(),
         Command::Suspend => vec![outcome(target, control::suspend(target))],
         Command::Resume => vec![outcome(target, control::resume(target))],
-        Command::Priority(p) => vec![outcome(target, control::set_priority(target, p))],
+        // A hand-picked priority or efficiency mode is what a later rollback
+        // of RustWTM's own actions returns to.
+        Command::Priority(p) => {
+            let r = control::set_priority(target, p);
+            if r.is_ok() {
+                executor.manual_priority(target, p);
+            }
+            vec![outcome(target, r)]
+        }
         Command::Affinity(mask) => vec![outcome(target, control::set_affinity(target, mask))],
         Command::AffinityTier(selection) => vec![outcome(
             target,
             control::set_core_affinity(target, selection),
         )],
-        Command::EcoQos(mode) => vec![outcome(target, control::set_eco_qos(target, mode))],
+        Command::EcoQos(mode) => {
+            let r = control::set_eco_qos(target, mode);
+            if r.is_ok() {
+                executor.manual_eco(target, mode);
+            }
+            vec![outcome(target, r)]
+        }
         Command::TrimMemory => vec![outcome(target, control::trim_memory(target))],
         // Limits and unlimits go through the executor so they compose with
         // governor/rule limits and survive their rollbacks.
@@ -734,13 +773,19 @@ fn handle_control(
             }];
         }
         Command::Unlimit => {
-            return vec![Outcome {
-                target: target.clone(),
-                result: executor.execute(&Decision::Restore {
+            let sources = executor.sources(target);
+            let result = if sources.contains(&Source::Manual) {
+                executor.execute(&Decision::Restore {
                     source: Source::Manual,
                     target: target.clone(),
                     reason: "manual".into(),
-                }),
+                })
+            } else {
+                Err(not_limited_by_hand(&sources))
+            };
+            return vec![Outcome {
+                target: target.clone(),
+                result,
             }];
         }
     };
@@ -756,6 +801,18 @@ fn handle_control(
         }
     }
     outcomes
+}
+
+/// Why "remove limits" did nothing: nothing set by hand to remove.
+fn not_limited_by_hand(sources: &[Source]) -> String {
+    if sources.is_empty() {
+        return "not limited by RustWTM in this session".into();
+    }
+    let names: Vec<String> = sources.iter().map(|s| format!("{s:?}")).collect();
+    format!(
+        "no limits set by hand; the current ones come from {} and are lifted when it lets go",
+        names.join(", ")
+    )
 }
 
 type PathCache = HashMap<(u32, i64), Option<String>>;
@@ -1219,12 +1276,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("wtm-config-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("config.toml");
-        let config = load_config(&path).unwrap();
+        let (config, error) = load_config(&path).unwrap();
         assert!(config.dry_run);
+        assert!(error.is_none());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULT_CONFIG_TOML);
 
         std::fs::write(&path, "nonsense = [").unwrap();
-        assert_eq!(load_config(&path).unwrap(), Config::default());
+        let (config, error) = load_config(&path).unwrap();
+        assert_eq!(config, Config::default());
+        // The parser's message, for clients to show.
+        assert!(error.is_some_and(|e| !e.is_empty()));
         let _ = std::fs::remove_dir_all(&dir);
 
         // Nowhere to write the default config.
@@ -1569,6 +1630,51 @@ mod unit_tests {
     }
 
     #[test]
+    fn manual_choices_outlast_rollbacks_and_unlimit_reports_nothing_to_do() {
+        let a = spawn();
+        let procs = Sampler::new().sample().unwrap().processes;
+        let t = ProcessRef::from(procs.iter().find(|p| p.pid == a.0.id()).unwrap());
+        let shared = Shared::default();
+        let mut executor = Executor::new(false, shared.events.clone());
+        let priority = || control::inspect(&t).unwrap().priority;
+
+        // Nothing to remove: said so instead of reporting success.
+        let r = handle_control(&mut executor, &procs, &shared, &t, Command::Unlimit);
+        assert_eq!(
+            r[0].result,
+            Err("not limited by RustWTM in this session".into())
+        );
+
+        // The governor deprioritizes; the user then picks a priority by hand.
+        executor
+            .execute(&Decision::Apply {
+                source: Source::Governor,
+                target: t.clone(),
+                action: Action::Priority(wtm_policy::PriorityLevel::Idle),
+                reason: "test".into(),
+            })
+            .unwrap();
+        let r = handle_control(&mut executor, &procs, &shared, &t, Command::Unlimit);
+        let e = r[0].result.as_ref().unwrap_err();
+        assert!(e.contains("Governor"), "{e}");
+        let pick = Command::Priority(PriorityClass::AboveNormal);
+        assert!(
+            handle_control(&mut executor, &procs, &shared, &t, pick)[0]
+                .result
+                .is_ok()
+        );
+        // The governor letting go keeps the user's choice.
+        executor
+            .execute(&Decision::Restore {
+                source: Source::Governor,
+                target: t.clone(),
+                reason: "test".into(),
+            })
+            .unwrap();
+        assert_eq!(priority(), Some(PriorityClass::AboveNormal));
+    }
+
+    #[test]
     fn insights_raise_findings_and_clear_them() {
         let history = History::with(rusqlite::Connection::open_in_memory().unwrap()).unwrap();
         let now_minute = 30_000_000i64;
@@ -1590,6 +1696,7 @@ mod unit_tests {
                 ..Default::default()
             },
             processes: Vec::new(),
+            net_traced: false,
         };
         let shared = Shared::default();
         let mut insights = InsightPolicy::new();
@@ -1636,6 +1743,7 @@ mod unit_tests {
             io_write_rate: 0.0,
             net_rx_rate: 0.0,
             net_tx_rate: 0.0,
+            suspended: false,
             create_time: 1,
         };
         let applied = insights.tick(std::slice::from_ref(&hog), &config.insights);
@@ -1674,6 +1782,7 @@ mod unit_tests {
             interval: None,
             system: Default::default(),
             processes: Vec::new(),
+            net_traced: false,
         };
         let shared = Shared::default();
         let mut executor = Executor::new(true, shared.events.clone());

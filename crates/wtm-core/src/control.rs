@@ -48,6 +48,8 @@ pub enum ControlError {
     Stale { pid: u32 },
     #[error("access denied to process {pid} (try an elevated prompt)")]
     AccessDenied { pid: u32 },
+    #[error("process {pid} is not limited by RustWTM in this session")]
+    NotLimited { pid: u32 },
     #[error("process {pid}: {source}")]
     Sys { pid: u32, source: wtm_sys::Error },
 }
@@ -208,10 +210,33 @@ pub fn suspend(target: &ProcessRef) -> ControlResult<()> {
     sys(target.pid, h.suspend())
 }
 
+/// Resumes that undo stacked suspensions before [`resume`] gives up.
+const MAX_RESUMES: usize = 64;
+
 /// Resuming is always allowed, so a mistakenly frozen process can be recovered.
+///
+/// Suspensions stack: a process suspended twice needs two resumes. This
+/// keeps resuming (a bounded number of times) until some thread of the
+/// process is no longer suspended.
 pub fn resume(target: &ProcessRef) -> ControlResult<()> {
+    let pid = target.pid;
     let h = open_verified(target, Access::SUSPEND_RESUME)?;
-    sys(target.pid, h.resume())
+    sys(pid, h.resume())?;
+    let mut snapshotter = wtm_sys::process::ProcessSnapshotter::new();
+    for _ in 1..MAX_RESUMES {
+        let threads = sys(pid, snapshotter.threads(pid))?;
+        if !all_suspended(&threads) {
+            break;
+        }
+        sys(pid, h.resume())?;
+    }
+    Ok(())
+}
+
+/// A process is frozen while every one of its threads is suspended; one
+/// without threads (exited) is not.
+fn all_suspended(threads: &[wtm_sys::process::ThreadInfo]) -> bool {
+    !threads.is_empty() && threads.iter().all(wtm_sys::process::ThreadInfo::suspended)
 }
 
 pub fn set_priority(target: &ProcessRef, priority: PriorityClass) -> ControlResult<()> {
@@ -375,9 +400,17 @@ impl Limiter {
         Ok(())
     }
 
+    /// Whether this limiter holds limits on `target`.
+    pub fn is_limited(&self, target: &ProcessRef) -> bool {
+        self.jobs.contains_key(&(target.pid, target.create_time))
+    }
+
+    /// Lifts the limits [`apply`](Self::apply) set. A process this limiter
+    /// never limited is an error: its job (if any) is not ours to change,
+    /// and reporting success would leave the user believing it is free.
     pub fn lift(&mut self, target: &ProcessRef) -> ControlResult<()> {
         let Some((_, job, current)) = self.jobs.remove(&(target.pid, target.create_time)) else {
-            return Ok(());
+            return Err(ControlError::NotLimited { pid: target.pid });
         };
         if current.cpu_percent.is_some() {
             sys(target.pid, job.set_cpu_cap(None))?;
@@ -439,6 +472,37 @@ mod tests {
             ControlError::AccessDenied { pid: 7 }.to_string(),
             "access denied to process 7 (try an elevated prompt)"
         );
+    }
+
+    #[test]
+    fn lifting_what_was_never_limited_is_an_error() {
+        let mut limiter = Limiter::new();
+        let t = ProcessRef {
+            pid: std::process::id(),
+            create_time: 1,
+            name: "me.exe".into(),
+        };
+        assert!(!limiter.is_limited(&t));
+        let e = limiter.lift(&t).unwrap_err();
+        assert!(matches!(e, ControlError::NotLimited { .. }));
+        assert!(e.to_string().contains("not limited by RustWTM"), "{e}");
+        assert!(limiter.lift_all().is_empty());
+    }
+
+    #[test]
+    fn frozen_means_every_thread_suspended() {
+        use wtm_sys::process::ThreadInfo;
+        let thread = |state, wait_reason| ThreadInfo {
+            tid: 1,
+            state,
+            wait_reason,
+            context_switches: 0,
+        };
+        assert!(!all_suspended(&[]));
+        assert!(all_suspended(&[thread(5, 5), thread(5, 12)]));
+        // One thread waiting on something else, or running: not frozen.
+        assert!(!all_suspended(&[thread(5, 5), thread(5, 6)]));
+        assert!(!all_suspended(&[thread(5, 5), thread(2, 0)]));
     }
 
     #[test]

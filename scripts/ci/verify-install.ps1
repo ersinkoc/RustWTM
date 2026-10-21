@@ -71,6 +71,16 @@ $wtm = Join-Path $InstallDir 'wtm.exe'
 Wait-Until { & $wtm history --hours 1 -n 3 *> $null; $LASTEXITCODE -eq 0 } 'wtm history via the service' 30
 Assert $true 'wtm history reaches the service'
 
+# What the service leaves outside its files: a blocked program and a firewall
+# rule, as RustWTM makes them. Uninstalling must remove both.
+$ifeo = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\rustwtm-cleanup-test.exe'
+New-Item -Path $ifeo -Force | Out-Null
+New-ItemProperty -Path $ifeo -Name Debugger -Value "`"$InstallDir\rustwtm.exe`" --blocked" | Out-Null
+New-ItemProperty -Path $ifeo -Name RustWTMBlock -Value 1 -PropertyType DWord | Out-Null
+New-NetFirewallRule -DisplayName 'RustWTM: block outbound for rustwtm-cleanup-test.exe' -Group 'RustWTM' `
+    -Direction Outbound -Action Block -Program 'C:\rustwtm-cleanup-test.exe' | Out-Null
+Assert ([bool](Get-NetFirewallRule -Group 'RustWTM' -ErrorAction SilentlyContinue)) 'test firewall rule added'
+
 # --- uninstall ---------------------------------------------------------------
 if ($Mode -eq 'msi') {
     $p = Start-Process msiexec.exe -ArgumentList '/x', "`"$((Resolve-Path $Msi).Path)`"", '/qn', '/l*v', 'uninstall.log' -Wait -PassThru
@@ -86,4 +96,6 @@ Assert (-not (Test-Path $shortcut)) 'shortcut removed'
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
 Assert (-not ($machinePath -contains $InstallDir)) 'PATH entry removed'
 Assert (Test-Path (Join-Path $DataDir 'config.toml')) 'configuration kept after uninstall'
+Assert (-not (Test-Path $ifeo)) 'blocked-program entries removed'
+Assert (-not (Get-NetFirewallRule -Group 'RustWTM' -ErrorAction SilentlyContinue)) 'RustWTM firewall rules removed'
 Write-Host "Install / uninstall verification passed ($Mode)." -ForegroundColor Green

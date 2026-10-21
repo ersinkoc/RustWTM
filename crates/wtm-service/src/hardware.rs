@@ -18,6 +18,10 @@ pub struct HardwareHub {
     report: Arc<RwLock<HardwareReport>>,
     dry_run: Arc<AtomicBool>,
     worker: Mutex<Option<Sender<Message>>>,
+    /// When a client last asked for sensors or a fan setting.
+    last_request: Mutex<Instant>,
+    /// The worker is holding a fan profile, which must keep being renewed.
+    controlling: Arc<AtomicBool>,
 }
 impl Default for HardwareHub {
     fn default() -> Self {
@@ -25,8 +29,15 @@ impl Default for HardwareHub {
             report: Arc::new(RwLock::new(HardwareReport::default())),
             dry_run: Arc::new(AtomicBool::new(true)),
             worker: Mutex::new(None),
+            last_request: Mutex::new(Instant::now()),
+            controlling: Arc::new(AtomicBool::new(false)),
         }
     }
+}
+
+/// The helper may stop: nobody asked for `after` and no fan is controlled.
+fn idle(last_request: Instant, controlling: bool, after: Duration) -> bool {
+    !controlling && last_request.elapsed() >= after
 }
 
 impl HardwareHub {
@@ -38,6 +49,7 @@ impl HardwareHub {
         worker.get_or_insert_with(|| {
             let (tx, rx) = mpsc::channel();
             let (report, dry_run) = (self.report.clone(), self.dry_run.clone());
+            let controlling = self.controlling.clone();
             std::thread::spawn(move || {
                 let mut reader = HardwareReader::new(true);
                 let mut profiles: HashMap<String, CoolingProfile> = HashMap::new();
@@ -76,6 +88,7 @@ impl HardwareHub {
                         }
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
                     }
+                    controlling.store(!profiles.is_empty(), Ordering::Relaxed);
                     match reader.sample() {
                         Ok(mut snapshot) => {
                             let now = unix_ms();
@@ -91,6 +104,7 @@ impl HardwareHub {
                                 snapshot.cooling.push((id.clone(),label));
                             }
                             if dry_run.load(Ordering::Relaxed) {profiles.clear();applied.clear();}
+                            controlling.store(!profiles.is_empty(), Ordering::Relaxed);
                             *report.write().unwrap_or_else(PoisonError::into_inner) = snapshot;
                         }
                         Err(e) => {
@@ -107,7 +121,14 @@ impl HardwareHub {
             tx
         }).clone()
     }
+    fn requested(&self) {
+        *self
+            .last_request
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Instant::now();
+    }
     pub fn snapshot(&self) -> HardwareReport {
+        self.requested();
         self.sender();
         self.report
             .read()
@@ -120,6 +141,7 @@ impl HardwareHub {
                 "Switch the service from monitoring to enforcing before controlling fans".into(),
             );
         }
+        self.requested();
         let (reply, rx) = mpsc::channel();
         self.sender()
             .send(Message::Set(
@@ -132,6 +154,25 @@ impl HardwareHub {
         // Six seconds to start plus the provider's four-second control timeout.
         rx.recv_timeout(Duration::from_secs(12))
             .map_err(|e| format!("Hardware control did not acknowledge: {e}"))?
+    }
+    /// Stops the helper (about 100 MB and a steady trickle of CPU) once no
+    /// client asked for `after` and no fan profile is active. The next
+    /// request starts it again. Does not wait for the helper to exit.
+    pub fn stop_if_idle(&self, after: Duration) {
+        let mut worker = self.worker.lock().unwrap_or_else(PoisonError::into_inner);
+        let last = *self
+            .last_request
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if worker.is_none() || !idle(last, self.controlling.load(Ordering::Relaxed), after) {
+            return;
+        }
+        if let Some(tx) = worker.take() {
+            let (reply, _) = mpsc::channel();
+            let _ = tx.send(Message::Stop(reply));
+        }
+        // A reading kept from before the pause would look current.
+        *self.report.write().unwrap_or_else(PoisonError::into_inner) = HardwareReport::default();
     }
     pub fn stop(&self) {
         if let Some(tx) = self
@@ -169,5 +210,38 @@ mod tests {
                 .contains("monitoring")
         );
         assert!(hub.worker.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn idle_needs_quiet_clients_and_no_fan_control() {
+        let long_ago = Instant::now() - Duration::from_secs(60);
+        let after = Duration::from_secs(30);
+        assert!(idle(long_ago, false, after));
+        assert!(!idle(long_ago, true, after), "a fan profile keeps it");
+        assert!(!idle(Instant::now(), false, after));
+    }
+
+    #[test]
+    fn the_helper_stops_when_idle_and_restarts_on_request() {
+        let hub = HardwareHub::default();
+        // Never started: nothing to stop.
+        hub.stop_if_idle(Duration::ZERO);
+        assert!(hub.worker.lock().unwrap().is_none());
+
+        let _ = hub.snapshot();
+        assert!(hub.worker.lock().unwrap().is_some());
+        // Asked just now.
+        hub.stop_if_idle(Duration::from_secs(30));
+        assert!(hub.worker.lock().unwrap().is_some());
+        // Driving a fan keeps it running however long nobody asks.
+        hub.controlling.store(true, Ordering::Relaxed);
+        hub.stop_if_idle(Duration::ZERO);
+        assert!(hub.worker.lock().unwrap().is_some());
+        hub.controlling.store(false, Ordering::Relaxed);
+        hub.stop_if_idle(Duration::ZERO);
+        assert!(hub.worker.lock().unwrap().is_none());
+        let _ = hub.snapshot();
+        assert!(hub.worker.lock().unwrap().is_some(), "started again");
+        hub.stop();
     }
 }

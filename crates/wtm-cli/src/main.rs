@@ -57,6 +57,9 @@ enum Command {
         /// Also show each process's command line
         #[arg(long, short = 'c')]
         cmdline: bool,
+        /// Print the sample as JSON (network rates are null when unmeasured)
+        #[arg(long)]
+        json: bool,
     },
     /// Model Context Protocol server on stdin/stdout, for AI assistants
     /// (Claude Desktop, Claude Code). Read-only unless --allow-control.
@@ -77,6 +80,8 @@ enum Command {
     Info {
         #[arg(required = true)]
         targets: Vec<String>,
+        #[arg(long)]
+        json: bool,
     },
     /// Terminate processes
     Kill {
@@ -169,6 +174,8 @@ enum Command {
         /// Only ports of well-known developer tools and servers
         #[arg(long, short)]
         known: bool,
+        #[arg(long)]
+        json: bool,
     },
     /// End whatever keeps a port busy, e.g. `wtm free-port 3000` (preview
     /// without --yes)
@@ -363,7 +370,8 @@ fn main() -> anyhow::Result<ExitCode> {
             limit,
             sample_ms,
             cmdline,
-        } => list(sort.into(), limit, sample_ms, cmdline).map(|()| ExitCode::SUCCESS),
+            json,
+        } => list(sort.into(), limit, sample_ms, cmdline, json).map(|()| ExitCode::SUCCESS),
         Command::Mcp { allow_control } => {
             mcp::run(io::stdin().lock(), io::stdout().lock(), allow_control)?;
             Ok(ExitCode::SUCCESS)
@@ -372,7 +380,7 @@ fn main() -> anyhow::Result<ExitCode> {
             top::run(sort.into(), Duration::from_millis(interval_ms.max(100)))
                 .map(|()| ExitCode::SUCCESS)
         }
-        Command::Info { targets } => actions::info(&targets),
+        Command::Info { targets, json } => actions::info(&targets, json),
         Command::History { hours, limit } => history(
             wtm_ipc::Client::connect(),
             hours,
@@ -417,9 +425,15 @@ fn main() -> anyhow::Result<ExitCode> {
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Ports { udp, known } => {
+        Command::Ports { udp, known, json } => {
             let (uses, procs) = port_uses()?;
-            ports::render(&uses, &procs, udp, known, &mut io::stdout().lock())?;
+            let mut out = io::stdout().lock();
+            if json {
+                serde_json::to_writer_pretty(&mut out, &ports::json(&uses, &procs, udp, known))?;
+                writeln!(out)?;
+            } else {
+                ports::render(&uses, &procs, udp, known, &mut out)?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::FreePort { port, yes, tree } => {
@@ -480,23 +494,51 @@ fn main() -> anyhow::Result<ExitCode> {
     }
 }
 
-fn list(sort: SortKey, limit: Option<usize>, sample_ms: u64, cmdline: bool) -> anyhow::Result<()> {
+fn list(
+    sort: SortKey,
+    limit: Option<usize>,
+    sample_ms: u64,
+    cmdline: bool,
+    json: bool,
+) -> anyhow::Result<()> {
     let mut sampler = Sampler::new();
     sampler.sample()?;
     std::thread::sleep(Duration::from_millis(sample_ms.max(100)));
     let mut snap = sampler.sample()?;
     sort_processes(&mut snap.processes, sort);
+    snap.processes.truncate(limit.unwrap_or(usize::MAX));
 
     let mut out = io::stdout().lock();
-    writeln!(out, "{}", table::summary(&snap.system))?;
-    writeln!(out, "{}", table::io_summary(&snap.system))?;
-    if cmdline {
-        writeln!(out, "{}", table::then(table::header(), 4, "COMMAND LINE"))?;
-    } else {
-        writeln!(out, "{}", table::header())?;
+    if json {
+        // Read with the caller's own rights; null when not readable.
+        let command_line = |p: &wtm_core::ProcessInfo| {
+            cmdline
+                .then(|| control::command_line(&p.into()).ok())
+                .flatten()
+        };
+        serde_json::to_writer_pretty(&mut out, &list_json(&snap, cmdline, command_line)?)?;
+        writeln!(out)?;
+        return Ok(());
     }
-    for p in snap.processes.iter().take(limit.unwrap_or(usize::MAX)) {
-        let row = table::row(p, usize::MAX);
+    let net = snap.net_traced;
+    writeln!(out, "{}", table::summary(&snap.system))?;
+    writeln!(
+        out,
+        "{}{}",
+        table::io_summary(&snap.system),
+        table::network_note(net)
+    )?;
+    if cmdline {
+        writeln!(
+            out,
+            "{}",
+            table::then(table::header(net), 4, "COMMAND LINE")
+        )?;
+    } else {
+        writeln!(out, "{}", table::header(net))?;
+    }
+    for p in &snap.processes {
+        let row = table::row(p, usize::MAX, net);
         if cmdline {
             // Read with the caller's own rights; empty when not readable.
             let cmd = control::command_line(&p.into()).unwrap_or_default();
@@ -506,6 +548,31 @@ fn list(sort: SortKey, limit: Option<usize>, sample_ms: u64, cmdline: bool) -> a
         }
     }
     Ok(())
+}
+
+/// `wtm list --json`: the snapshot, with network rates `null` when they
+/// were not measured (not 0) and, with `cmdline`, each command line.
+fn list_json(
+    snap: &wtm_core::Snapshot,
+    cmdline: bool,
+    command_line: impl Fn(&wtm_core::ProcessInfo) -> Option<String>,
+) -> serde_json::Result<serde_json::Value> {
+    let mut value = serde_json::to_value(snap)?;
+    if let Some(rows) = value
+        .get_mut("processes")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for (row, p) in rows.iter_mut().zip(&snap.processes) {
+            if !snap.net_traced {
+                row["net_rx_rate"] = serde_json::Value::Null;
+                row["net_tx_rate"] = serde_json::Value::Null;
+            }
+            if cmdline {
+                row["command_line"] = command_line(p).into();
+            }
+        }
+    }
+    Ok(value)
 }
 
 /// Prints the service's history report; `client` is the connection attempt.
@@ -651,9 +718,23 @@ mod tests {
             cli.command,
             Command::Ports {
                 udp: true,
-                known: true
+                known: true,
+                json: false
             }
         ));
+        let cli = Cli::try_parse_from(["wtm", "ports", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Ports { json: true, .. }));
+        let cli = Cli::try_parse_from(["wtm", "list", "--json", "-n", "3"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::List {
+                json: true,
+                limit: Some(3),
+                ..
+            }
+        ));
+        let cli = Cli::try_parse_from(["wtm", "info", "notepad", "--json"]).unwrap();
+        assert!(matches!(cli.command, Command::Info { json: true, .. }));
         let cli = Cli::try_parse_from([
             "wtm",
             "kill-list",
@@ -675,6 +756,28 @@ mod tests {
                 }
             }
         ));
+    }
+
+    #[test]
+    fn list_json_marks_unmeasured_network_as_null() {
+        let mut snap = Sampler::new().sample().unwrap();
+        snap.processes.truncate(2);
+        let value = list_json(&snap, true, |p| Some(format!("cmd {}", p.pid))).unwrap();
+        let rows = value["processes"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(value["net_traced"], false);
+        assert!(rows[0]["net_rx_rate"].is_null() && rows[0]["net_tx_rate"].is_null());
+        assert_eq!(
+            rows[1]["command_line"],
+            format!("cmd {}", snap.processes[1].pid)
+        );
+        assert!(rows[0]["create_time"].is_i64());
+
+        snap.net_traced = true;
+        snap.processes[0].net_rx_rate = 5.0;
+        let value = list_json(&snap, false, |_| None).unwrap();
+        assert_eq!(value["processes"][0]["net_rx_rate"], 5.0);
+        assert!(value["processes"][0].get("command_line").is_none());
     }
 
     fn stats(app: &str) -> AppStats {

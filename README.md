@@ -237,6 +237,7 @@ service; run it as administrator to send commands through the service.
 
 ```text
 wtm list --sort mem -n 20          one-shot listing
+wtm list --json                    the same as JSON (also `info`, `ports`)
 wtm sensors --json                local read-only hardware readings
 wtm cores                         logical processors and relative P/E tiers
 wtm affinity 1234 --ecores         use the regular efficient tier
@@ -273,7 +274,8 @@ or with Claude Code: `claude mcp add rustwtm -- "C:\Program Files\RustWTM\wtm.ex
 Tools: `system_overview`, `list_processes`, `process_details`,
 `why_not_responding`, `why_wont_it_end`, `network_connections`, `drives`,
 `recent_events`; with `--allow-control` also `end_process`, `suspend_process`,
-`resume_process`, `set_priority` and `efficiency_mode`.
+`resume_process`, `set_priority` and `efficiency_mode`, which take the
+`create_time` that `list_processes` reports to refuse a PID reused meanwhile.
 
 Targets are PIDs or image names (`.exe` optional, case-insensitive).
 
@@ -281,6 +283,7 @@ Targets are PIDs or image names (`.exe` optional, case-insensitive).
 
 ```text
 wtm-service install | uninstall | start | stop
+wtm-service cleanup                remove RustWTM's program blocks and firewall rules
 wtm-service console --data-dir .\data    run the engine in the foreground
 ```
 

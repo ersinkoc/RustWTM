@@ -118,18 +118,22 @@ fn render(
     queue!(out, cursor::MoveTo(0, 0))?;
     line(out, &table::summary(&snap.system), width)?;
     line(out, &table::io_summary(&snap.system), width)?;
+    let net = snap.net_traced;
     line(
         out,
-        &format!("Sort: {sort:?}   [c]pu [m]emory [d]isk [p]id [n]ame   [q]uit"),
+        &format!(
+            "Sort: {sort:?}   [c]pu [m]emory [d]isk [p]id [n]ame   [q]uit{}",
+            table::network_note(net)
+        ),
         width,
     )?;
     queue!(out, SetAttribute(Attribute::Reverse))?;
-    line(out, &format!("{:<width$}", table::header()), width)?;
+    line(out, &format!("{:<width$}", table::header(net)), width)?;
     queue!(out, SetAttribute(Attribute::Reset))?;
 
     let body_rows = rows.saturating_sub(4);
     for p in snap.processes.iter().take(body_rows) {
-        line(out, &table::row(p, width), width)?;
+        line(out, &table::row(p, width, net), width)?;
     }
     queue!(out, Clear(ClearType::FromCursorDown))?;
     out.flush()

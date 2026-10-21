@@ -59,8 +59,11 @@ struct Cli {
 enum Command {
     /// Register as an auto-start Windows service running as LocalSystem (elevated)
     Install,
-    /// Stop and remove the service (elevated)
+    /// Stop and remove the service, then clean up as `cleanup` does (elevated)
     Uninstall,
+    /// Remove RustWTM's blocked-program entries and firewall rules (elevated;
+    /// run by the MSI on uninstall)
+    Cleanup,
     /// Start the installed service
     Start,
     /// Stop the installed service; all limits are rolled back
@@ -94,6 +97,7 @@ fn run(
     match command {
         Command::Install => service::install(),
         Command::Uninstall => service::uninstall(),
+        Command::Cleanup => service::cleanup(),
         Command::Start => service::start(),
         Command::Stop => service::stop(),
         Command::Service => service::dispatch(),
@@ -117,6 +121,7 @@ mod tests {
         for (args, expected) in [
             (&["install"][..], "Install"),
             (&["uninstall"], "Uninstall"),
+            (&["cleanup"], "Cleanup"),
             (&["start"], "Start"),
             (&["stop"], "Stop"),
             (&["service"], "Service"),
@@ -125,6 +130,7 @@ mod tests {
             let name = match parse(args).unwrap().command {
                 Command::Install => "Install",
                 Command::Uninstall => "Uninstall",
+                Command::Cleanup => "Cleanup",
                 Command::Start => "Start",
                 Command::Stop => "Stop",
                 Command::Service => "Service",

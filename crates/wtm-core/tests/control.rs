@@ -55,7 +55,30 @@ fn suspend_resume_and_kill() {
     let mut child = spawn_cmd("ping -n 60 127.0.0.1");
     let target = find(child.0.id());
 
+    // Threads enter the suspended state asynchronously, once scheduled.
+    let becomes = |frozen: bool| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let now = snapshot()
+                .iter()
+                .find(|p| p.pid == target.pid)
+                .map(|p| p.suspended);
+            if now == Some(frozen) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "suspended is {now:?}");
+            sleep(Duration::from_millis(20));
+        }
+    };
+    becomes(false);
+    // Suspensions stack; one resume still thaws the process.
     control::suspend(&target).unwrap();
+    control::suspend(&target).unwrap();
+    control::suspend(&target).unwrap();
+    becomes(true);
+    control::resume(&target).unwrap();
+    becomes(false);
+    // Resuming a running process is harmless.
     control::resume(&target).unwrap();
     control::kill(&target).unwrap();
 
@@ -252,8 +275,11 @@ fn limiter_tracks_lifts_and_forgets_targets() {
     let b = spawn_cmd("ping -n 60 127.0.0.1");
     let (a_ref, b_ref) = (find(a.0.id()), find(b.0.id()));
     let mut limiter = Limiter::new();
-    // Nothing applied yet: lifting is a no-op.
-    limiter.lift(&a_ref).unwrap();
+    // Nothing applied yet: lifting is refused, not reported as done.
+    assert!(matches!(
+        limiter.lift(&a_ref),
+        Err(ControlError::NotLimited { .. })
+    ));
 
     let memory_only = Limits {
         cpu_percent: None,

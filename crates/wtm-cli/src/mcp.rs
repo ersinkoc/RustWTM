@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use wtm_core::control::{self, EcoQos, PriorityClass, ProcessRef};
@@ -16,9 +16,19 @@ use wtm_core::{ProcessInfo, Sampler, Snapshot, format_bytes};
 /// Protocol revisions this server speaks, newest first.
 const PROTOCOLS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// Rates compare two samples; one older than this would average CPU, disk
+/// and network over the whole pause between two tool calls.
+const FRESH: Duration = Duration::from_secs(2);
+/// The window measured when the last sample is too old.
+const WINDOW: Duration = Duration::from_millis(500);
+
 pub struct Server {
     sampler: Sampler,
-    primed: bool,
+    /// When the sampler last sampled.
+    sampled: Option<Instant>,
+    /// Ask the RustWTM service for its latest sample first: it also measures
+    /// network traffic per process.
+    use_service: bool,
     allow_control: bool,
 }
 
@@ -26,19 +36,27 @@ impl Server {
     pub fn new(allow_control: bool) -> Self {
         Self {
             sampler: Sampler::new(),
-            primed: false,
+            sampled: None,
+            use_service: true,
             allow_control,
         }
     }
 
-    /// A sample with rates: the first one needs a second sample to compare.
+    /// A sample with current rates: unless the previous sample is recent,
+    /// a fresh one is taken first to compare against.
     fn snapshot(&mut self) -> Result<Snapshot, String> {
-        if !self.primed {
-            self.sampler.sample().map_err(|e| e.to_string())?;
-            std::thread::sleep(Duration::from_millis(400));
-            self.primed = true;
+        if self.use_service
+            && let Some(snap) = service_snapshot()
+        {
+            return Ok(snap);
         }
-        self.sampler.sample().map_err(|e| e.to_string())
+        if self.sampled.is_none_or(|at| at.elapsed() > FRESH) {
+            self.sampler.sample().map_err(|e| e.to_string())?;
+            std::thread::sleep(WINDOW);
+        }
+        let snap = self.sampler.sample().map_err(|e| e.to_string())?;
+        self.sampled = Some(Instant::now());
+        Ok(snap)
     }
 
     /// Answers one JSON-RPC message; `None` for notifications.
@@ -86,6 +104,19 @@ impl Server {
 
     fn tools(&self) -> Vec<Value> {
         let pid = json!({ "type": "object", "properties": { "pid": { "type": "integer" } }, "required": ["pid"] });
+        // Control tools also take the creation time list_processes reports,
+        // so a PID reused meanwhile by another program is refused.
+        let identity = |extra: Value| {
+            let mut properties = json!({
+                "pid": { "type": "integer" },
+                "create_time": { "type": "integer", "description": "From list_processes; refuses a PID that now belongs to another process" },
+            });
+            if let (Some(p), Some(e)) = (properties.as_object_mut(), extra.as_object()) {
+                p.extend(e.clone());
+            }
+            properties
+        };
+        let target = |extra: Value, required: &[&str]| json!({ "type": "object", "properties": identity(extra), "required": required });
         let mut tools = vec![
             tool(
                 "system_overview",
@@ -94,7 +125,7 @@ impl Server {
             ),
             tool(
                 "list_processes",
-                "Processes sorted by cpu, memory, disk or network, optionally filtered by name.",
+                "Processes sorted by cpu, memory, disk or network, optionally filtered by name. Each line ends with the process's create_time, which control tools accept to make sure they act on the same process.",
                 json!({
                     "type": "object",
                     "properties": {
@@ -137,22 +168,17 @@ impl Server {
         ];
         if self.allow_control {
             tools.extend([
-                tool("end_process", "Ends a process (unsaved data in it is lost).", pid.clone()),
-                tool("suspend_process", "Freezes every thread of a process.", pid.clone()),
-                tool("resume_process", "Resumes a suspended process.", pid.clone()),
-                tool("set_priority", "Changes a process's priority class.", json!({
-                    "type": "object",
-                    "properties": {
-                        "pid": { "type": "integer" },
-                        "priority": { "type": "string", "enum": ["idle", "below_normal", "normal", "above_normal", "high"] },
-                    },
-                    "required": ["pid", "priority"],
-                })),
-                tool("efficiency_mode", "Turns efficiency mode (EcoQoS) on or off for a process.", json!({
-                    "type": "object",
-                    "properties": { "pid": { "type": "integer" }, "on": { "type": "boolean" } },
-                    "required": ["pid", "on"],
-                })),
+                tool("end_process", "Ends a process (unsaved data in it is lost).", target(json!({}), &["pid"])),
+                tool("suspend_process", "Freezes every thread of a process.", target(json!({}), &["pid"])),
+                tool("resume_process", "Resumes a suspended process.", target(json!({}), &["pid"])),
+                tool("set_priority", "Changes a process's priority class.", target(
+                    json!({ "priority": { "type": "string", "enum": ["idle", "below_normal", "normal", "above_normal", "high"] } }),
+                    &["pid", "priority"],
+                )),
+                tool("efficiency_mode", "Turns efficiency mode (EcoQoS) on or off for a process.", target(
+                    json!({ "on": { "type": "boolean" } }),
+                    &["pid", "on"],
+                )),
             ]);
         }
         tools
@@ -187,11 +213,14 @@ impl Server {
             .and_then(|p| u32::try_from(p).ok())
             .ok_or("`pid` is required")?;
         let snap = self.snapshot()?;
-        snap.processes
+        let target = snap
+            .processes
             .iter()
             .find(|p| p.pid == pid)
             .map(ProcessRef::from)
-            .ok_or_else(|| format!("no process with PID {pid}"))
+            .ok_or_else(|| format!("no process with PID {pid}"))?;
+        check_identity(&target, args.get("create_time"))?;
+        Ok(target)
     }
 
     fn run_tool(&mut self, name: &str, args: &Value) -> Result<String, String> {
@@ -222,12 +251,15 @@ impl Server {
                     _ => f64::from(p.cpu_percent),
                 };
                 procs.sort_by(|a, b| key(b).total_cmp(&key(a)));
-                Ok(procs
+                let mut lines: Vec<String> = procs
                     .into_iter()
                     .take(limit as usize)
-                    .map(process_line)
-                    .collect::<Vec<_>>()
-                    .join("\n"))
+                    .map(|p| process_line(p, snap.net_traced))
+                    .collect();
+                if !snap.net_traced {
+                    lines.push(NET_UNTRACED.into());
+                }
+                Ok(lines.join("\n"))
             }
             "process_details" => {
                 let t = self.target(args)?;
@@ -422,13 +454,13 @@ impl Server {
         by_cpu.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
         out.push_str("busiest by CPU:\n");
         for p in by_cpu.iter().take(5) {
-            out.push_str(&format!("  {}\n", process_line(p)));
+            out.push_str(&format!("  {}\n", process_line(p, snap.net_traced)));
         }
         let mut by_mem = by_cpu.clone();
         by_mem.sort_by_key(|p| std::cmp::Reverse(p.private_working_set));
         out.push_str("largest by memory:\n");
         for p in by_mem.iter().take(5) {
-            out.push_str(&format!("  {}\n", process_line(p)));
+            out.push_str(&format!("  {}\n", process_line(p, snap.net_traced)));
         }
         let hung = wtm_core::hung_windows();
         let mut seen = HashSet::new();
@@ -451,16 +483,58 @@ fn tool(name: &str, description: &str, schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": schema })
 }
 
-fn process_line(p: &ProcessInfo) -> String {
+/// The installed service's latest sample, while it runs. Only a verified
+/// service is trusted: a program squatting on the pipe could otherwise
+/// misname processes for the control tools.
+fn service_snapshot() -> Option<Snapshot> {
+    let mut client = wtm_ipc::Client::connect().ok()?;
+    if !client.is_verified() {
+        return None;
+    }
+    match client.call(&wtm_ipc::Request::Snapshot).ok()? {
+        wtm_ipc::Response::Snapshot(s) if s.interval.is_some() => Some(s),
+        _ => None,
+    }
+}
+
+/// Said once under a listing whose network rates were not measured.
+const NET_UNTRACED: &str =
+    "(network per process not measured: that needs the RustWTM service running)";
+
+/// One process; the network rate only when it was measured (`net`), since
+/// otherwise it would read as an idle 0 B/s.
+fn process_line(p: &ProcessInfo, net: bool) -> String {
+    let network = if net {
+        format!(", network {}/s", format_bytes(p.net_rate()))
+    } else {
+        String::new()
+    };
+    let suspended = if p.suspended { ", SUSPENDED" } else { "" };
     format!(
-        "{} (PID {}): CPU {:.1}%, memory {}, disk {}/s, network {}/s",
+        "{} (PID {}): CPU {:.1}%, memory {}, disk {}/s{network}{suspended}, create_time {}",
         p.name,
         p.pid,
         p.cpu_percent,
         format_bytes(p.private_working_set as f64),
         format_bytes(p.io_rate()),
-        format_bytes(p.net_rate())
+        p.create_time
     )
+}
+
+/// Refuses `target` when the caller named a different instance of its PID
+/// (`create_time` from an earlier list_processes).
+fn check_identity(target: &ProcessRef, create_time: Option<&Value>) -> Result<(), String> {
+    match create_time {
+        None | Some(Value::Null) => Ok(()),
+        Some(v) => match v.as_i64() {
+            Some(t) if t == target.create_time => Ok(()),
+            Some(_) => Err(format!(
+                "PID {} now belongs to another process ({}); list the processes again",
+                target.pid, target.name
+            )),
+            None => Err("`create_time` must be an integer".into()),
+        },
+    }
 }
 
 fn link_text(link: &wtm_core::Link) -> String {
@@ -543,7 +617,10 @@ mod tests {
         assert!(names.contains(&"system_overview") && names.contains(&"why_wont_it_end"));
         assert!(!names.contains(&"end_process"), "read-only by default");
         let listing = replies[2]["result"]["content"][0]["text"].as_str().unwrap();
-        assert_eq!(listing.lines().count(), 3, "{listing}");
+        // Three processes, then (without the service) the note that network
+        // was not measured.
+        let untraced = usize::from(listing.ends_with(NET_UNTRACED));
+        assert_eq!(listing.lines().count(), 3 + untraced, "{listing}");
         let details = replies[3]["result"]["content"][0]["text"].as_str().unwrap();
         assert!(
             details.contains(&format!("PID {}", std::process::id())),
@@ -577,6 +654,77 @@ mod tests {
         let missing = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"suspend_process","arguments":{"pid":4294967280u64}}});
         let replies = talk(&[missing], true);
         assert_eq!(replies[0]["result"]["isError"], true);
+    }
+
+    #[test]
+    fn control_tools_check_the_process_identity() {
+        let t = ProcessRef {
+            pid: 7,
+            create_time: 1234,
+            name: "app.exe".into(),
+        };
+        assert!(check_identity(&t, None).is_ok());
+        assert!(check_identity(&t, Some(&Value::Null)).is_ok());
+        assert!(check_identity(&t, Some(&json!(1234))).is_ok());
+        let reused = check_identity(&t, Some(&json!(99))).unwrap_err();
+        assert!(reused.contains("another process"), "{reused}");
+        assert!(check_identity(&t, Some(&json!("x"))).is_err());
+
+        // Through the server: a stale creation time is refused before acting.
+        let me = std::process::id();
+        let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"suspend_process","arguments":{"pid":me,"create_time":1}}});
+        let replies = talk(&[call], true);
+        assert_eq!(replies[0]["result"]["isError"], true);
+        let text = replies[0]["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("another process"), "{text}");
+        let list = json!({"jsonrpc":"2.0","id":2,"method":"tools/list"});
+        let replies = talk(&[list], true);
+        let tools = replies[0]["result"]["tools"].as_array().unwrap();
+        let end = tools.iter().find(|t| t["name"] == "end_process").unwrap();
+        assert!(end["inputSchema"]["properties"]["create_time"].is_object());
+        let priority = tools.iter().find(|t| t["name"] == "set_priority").unwrap();
+        assert_eq!(
+            priority["inputSchema"]["required"],
+            json!(["pid", "priority"])
+        );
+        assert!(priority["inputSchema"]["properties"]["priority"].is_object());
+    }
+
+    #[test]
+    fn lines_show_network_only_when_measured() {
+        let snap = Sampler::new().sample().unwrap();
+        let me = snap
+            .processes
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap();
+        let line = process_line(me, false);
+        assert!(!line.contains("network"), "{line}");
+        assert!(
+            line.ends_with(&format!("create_time {}", me.create_time)),
+            "{line}"
+        );
+        assert!(process_line(me, true).contains("network 0 B/s"));
+    }
+
+    #[test]
+    fn a_stale_sample_is_refreshed_before_measuring() {
+        let mut server = Server::new(false);
+        server.use_service = false;
+        let first = server.snapshot().unwrap();
+        assert!(
+            first.interval.is_some_and(|d| d >= WINDOW),
+            "rates need a window"
+        );
+        // Right after: the previous sample is recent enough to compare with.
+        let started = Instant::now();
+        let second = server.snapshot().unwrap();
+        assert!(started.elapsed() < WINDOW);
+        assert!(second.interval.is_some_and(|d| d < FRESH));
+        // Long after: measured afresh, not averaged over the pause.
+        server.sampled = Some(Instant::now() - FRESH * 5);
+        let third = server.snapshot().unwrap();
+        assert!(third.interval.is_some_and(|d| d < FRESH));
     }
 
     #[test]

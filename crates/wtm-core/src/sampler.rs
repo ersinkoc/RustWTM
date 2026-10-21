@@ -74,6 +74,7 @@ impl ProcessInfo {
             io_write_rate: 0.0,
             net_rx_rate: 0.0,
             net_tx_rate: 0.0,
+            suspended: p.suspended,
             create_time: p.create_time,
         }
     }
@@ -266,6 +267,7 @@ impl Sampler {
             interval: elapsed,
             system,
             processes,
+            net_traced: self.network_traced(),
         })
     }
 }

@@ -281,6 +281,33 @@ impl Executor {
         }
     }
 
+    /// The sources holding actions on `t`; empty when RustWTM does not
+    /// manage it.
+    pub fn sources(&self, t: &ProcessRef) -> Vec<Source> {
+        let mut sources: Vec<Source> = self
+            .touched
+            .get(&key(t))
+            .map(|e| e.actions.keys().copied().collect())
+            .unwrap_or_default();
+        sources.sort_by_key(|s| *s as u8);
+        sources
+    }
+
+    /// The user set the priority by hand: it becomes what a later rollback
+    /// returns to, so the governor letting go does not undo the user's choice.
+    pub fn manual_priority(&mut self, t: &ProcessRef, priority: PriorityClass) {
+        if let Some(entry) = self.touched.get_mut(&key(t)) {
+            entry.original_priority = Some(priority);
+        }
+    }
+
+    /// Like [`manual_priority`](Self::manual_priority), for efficiency mode.
+    pub fn manual_eco(&mut self, t: &ProcessRef, mode: EcoQos) {
+        if let Some(entry) = self.touched.get_mut(&key(t)) {
+            entry.original_eco = Some(mode);
+        }
+    }
+
     /// Rolls back everything, from every source.
     pub fn restore_all(&mut self, reason: &str) {
         self.restore_sources(
@@ -321,10 +348,13 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
         errors.extend(control::set_eco_qos(target, mode).err());
     }
     if new.limits() != old.limits() {
-        let r = if new.limits() == Limits::default() {
+        let r = if new.limits() != Limits::default() {
+            limiter.apply(target, new.limits())
+        } else if limiter.is_limited(target) {
             limiter.lift(target)
         } else {
-            limiter.apply(target, new.limits())
+            // Applying failed earlier: there is nothing to lift.
+            Ok(())
         };
         errors.extend(r.err());
     }
@@ -506,6 +536,49 @@ mod process_tests {
                 .iter()
                 .any(|ev| ev.message.contains("restored"))
         );
+    }
+
+    #[test]
+    fn manual_changes_survive_rollbacks() {
+        let (_child, t) = spawn();
+        let mut e = Executor::new(false, EventLog::default());
+        // Nothing managed: manual changes have nothing to update.
+        e.manual_priority(&t, PriorityClass::High);
+        assert!(e.sources(&t).is_empty());
+
+        apply(
+            &mut e,
+            Source::Governor,
+            &t,
+            Action::Priority(PriorityLevel::Idle),
+        )
+        .unwrap();
+        apply(&mut e, Source::Governor, &t, Action::EcoQos).unwrap();
+        assert_eq!(e.sources(&t), [Source::Governor]);
+        // The user picks a priority and turns efficiency mode off meanwhile.
+        control::set_priority(&t, PriorityClass::AboveNormal).unwrap();
+        e.manual_priority(&t, PriorityClass::AboveNormal);
+        control::set_eco_qos(&t, EcoQos::Off).unwrap();
+        e.manual_eco(&t, EcoQos::Off);
+        // The governor letting go keeps the user's choice.
+        restore(&mut e, Source::Governor, &t).unwrap();
+        assert_eq!(priority(&t), Some(PriorityClass::AboveNormal));
+        assert_eq!(control::inspect(&t).unwrap().eco_qos, Some(EcoQos::Off));
+        assert!(e.sources(&t).is_empty());
+    }
+
+    #[test]
+    fn a_cap_that_failed_to_apply_rolls_back_cleanly() {
+        let system = ProcessRef {
+            pid: 4,
+            create_time: 0,
+            name: "System".into(),
+        };
+        let mut e = Executor::new(false, EventLog::default());
+        assert!(apply(&mut e, Source::Rule, &system, Action::CpuCap(10.0)).is_err());
+        // Only the restore itself is checked: no "not limited" complaint.
+        restore(&mut e, Source::Rule, &system).unwrap();
+        assert!(e.managed().is_empty());
     }
 
     #[test]
