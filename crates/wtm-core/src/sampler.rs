@@ -20,6 +20,9 @@ pub struct Sampler {
     prev: Option<Previous>,
     /// Network bytes per process; needs administrator rights.
     net_trace: Option<wtm_sys::nettrace::NetTracer>,
+    /// The counter map of the sample before the previous one, emptied and
+    /// refilled next time so steady-state sampling does not reallocate it.
+    spare: HashMap<(u32, i64), Counters>,
 }
 
 #[derive(Debug)]
@@ -81,6 +84,9 @@ impl ProcessInfo {
 pub struct StartWatcher {
     snapshotter: ProcessSnapshotter,
     seen: HashSet<(u32, i64)>,
+    /// The set before `seen`, refilled by the next poll (four times a second
+    /// in the service) instead of allocating a new one.
+    spare: HashSet<(u32, i64)>,
     primed: bool,
 }
 
@@ -93,7 +99,9 @@ impl StartWatcher {
     /// records what is already running and returns nothing.
     pub fn poll(&mut self) -> crate::Result<Vec<ProcessInfo>> {
         let raw = self.snapshotter.snapshot()?;
-        let mut current = HashSet::with_capacity(raw.len());
+        let mut current = std::mem::take(&mut self.spare);
+        current.clear();
+        current.reserve(raw.len());
         let mut started = Vec::new();
         for p in raw {
             let key = (p.pid, p.create_time);
@@ -102,7 +110,7 @@ impl StartWatcher {
                 started.push(ProcessInfo::from_raw(p));
             }
         }
-        self.seen = current;
+        self.spare = std::mem::replace(&mut self.seen, current);
         self.primed = true;
         Ok(started)
     }
@@ -123,6 +131,7 @@ impl Sampler {
             logical_cpus: system::logical_cpu_count(),
             prev: None,
             net_trace: None,
+            spare: HashMap::new(),
         }
     }
 
@@ -146,7 +155,7 @@ impl Sampler {
         let mem = system::memory_status()?;
         let cores = system::per_cpu_times().unwrap_or_default();
         let net = system::net_counters().ok();
-        let gpu = self
+        let mut gpu = self
             .gpu
             .as_mut()
             .and_then(|g| g.sample().ok())
@@ -168,7 +177,7 @@ impl Sampler {
             commit_limit: mem.commit_limit,
             commit_available: mem.commit_avail,
             gpu_percent: gpu.total_percent,
-            gpu_engines: gpu.engines.clone(),
+            gpu_engines: std::mem::take(&mut gpu.engines),
             disks: self
                 .disks
                 .as_mut()
@@ -199,7 +208,9 @@ impl Sampler {
             .as_ref()
             .map(wtm_sys::nettrace::NetTracer::take)
             .unwrap_or_default();
-        let mut counters = HashMap::with_capacity(raw.len());
+        let mut counters = std::mem::take(&mut self.spare);
+        counters.clear();
+        counters.reserve(raw.len());
         let mut processes = Vec::with_capacity(raw.len());
         for p in raw {
             let now_c = Counters::of(&p);
@@ -241,13 +252,16 @@ impl Sampler {
             processes.push(info);
         }
 
-        self.prev = Some(Previous {
+        let replaced = self.prev.replace(Previous {
             at: now,
             cpu,
             cores,
             net,
             procs: counters,
         });
+        if let Some(old) = replaced {
+            self.spare = old.procs;
+        }
         Ok(Snapshot {
             interval: elapsed,
             system,

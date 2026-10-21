@@ -121,6 +121,11 @@ pub enum SortKey {
 
 /// Sorts "bigger is worse" metrics descending, identifiers ascending.
 pub fn sort_processes(procs: &mut [ProcessInfo], key: SortKey) {
+    if key == SortKey::Name {
+        // Lower-cases each name once, not twice per comparison.
+        procs.sort_by_cached_key(|p| (p.name.to_lowercase(), p.pid));
+        return;
+    }
     procs.sort_by(|a, b| {
         let primary = match key {
             SortKey::Cpu => b.cpu_percent.total_cmp(&a.cpu_percent),
@@ -251,5 +256,32 @@ mod tests {
         );
         idle.create_time = i64::MAX;
         assert!(idle.start_time().is_some());
+    }
+
+    /// `cargo test --release -p wtm-core sort_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore = "timing harness"]
+    fn sort_speed() {
+        let base: Vec<ProcessInfo> = (0..2000u32)
+            .map(|i| {
+                proc(
+                    i * 4,
+                    &format!("Process{}.exe", (i * 7919) % 2000),
+                    i as f32,
+                )
+            })
+            .collect();
+        for key in [SortKey::Cpu, SortKey::Name] {
+            let runs = 100;
+            let mut total = Duration::ZERO;
+            for _ in 0..runs {
+                let mut v = base.clone();
+                let started = std::time::Instant::now();
+                sort_processes(&mut v, key);
+                total += started.elapsed();
+                std::hint::black_box(&v);
+            }
+            println!("{key:?}: {:?} per sort of 2000", total / runs);
+        }
     }
 }

@@ -8,8 +8,8 @@
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 
 /// One folder and everything below it.
@@ -84,13 +84,15 @@ impl Progress {
     pub fn current(&self) -> String {
         self.current
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
     fn set_current(&self, path: &Path) {
         if let Ok(mut c) = self.current.try_lock() {
-            *c = path.display().to_string();
+            use std::fmt::Write;
+            c.clear();
+            let _ = write!(c, "{}", path.display());
         }
     }
 }
@@ -106,66 +108,190 @@ struct Walk<'a> {
     keep: usize,
     types: HashMap<String, (u64, u64)>,
     denied: u64,
+    /// Scratch for the lower-cased extension of the current file.
+    ext: String,
 }
 
-/// Worker threads at most; the folders right below the root are shared out.
+/// Worker threads at most.
 const WORKERS: usize = 4;
-/// Deep folder trees recurse.
-const WORKER_STACK: usize = 64 << 20;
 
-/// Scans `root` and everything below it. Check `progress` from another
-/// thread; [`Progress::cancel`] stops the scan soon after. The folders below
-/// the root are scanned by a few worker threads in background mode (lowest
-/// CPU and I/O priority), so the scan never slows the machine down.
-pub fn scan(root: &Path, progress: &Progress, keep_largest: usize) -> ScanResult {
-    let started = Instant::now();
-    let mut walk = Walk::new(progress, keep_largest);
-    let (mut node, subdirs) = walk.list(root);
-    node.name = root.display().to_string();
+/// A folder still to list: its node id and its parent's.
+struct Task {
+    id: usize,
+    parent: usize,
+    path: PathBuf,
+}
 
-    let workers = std::thread::available_parallelism()
-        .map_or(1, |n| n.get())
-        .clamp(1, WORKERS)
-        .min(subdirs.len().max(1));
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    let mut children: Vec<Option<DirNode>> = vec![None; subdirs.len()];
-    std::thread::scope(|s| {
-        let handles: Vec<_> = (0..workers)
-            .map(|_| {
-                std::thread::Builder::new()
-                    .name("disk-scan-worker".into())
-                    .stack_size(WORKER_STACK)
-                    .spawn_scoped(s, || {
-                        let _ = crate::control::enter_background_mode();
-                        let mut w = Walk::new(progress, keep_largest);
-                        let mut done = Vec::new();
-                        loop {
-                            let i = next.fetch_add(1, Ordering::Relaxed);
-                            if i >= subdirs.len() || progress.cancelled() {
-                                break;
-                            }
-                            done.push((i, w.dir(&subdirs[i])));
-                        }
-                        (w, done)
-                    })
+/// Folders waiting to be listed, shared by the workers. Any worker takes any
+/// folder at any depth, so one huge folder (Users, Windows) is spread over
+/// all of them instead of keeping a single worker busy to the end.
+struct Queue {
+    tasks: Vec<Task>,
+    /// Workers listing a folder right now; they may still add more.
+    busy: usize,
+}
+
+struct Shared<'a> {
+    queue: Mutex<Queue>,
+    wake: Condvar,
+    next_id: AtomicUsize,
+    progress: &'a Progress,
+}
+
+impl Shared<'_> {
+    fn lock(&self) -> MutexGuard<'_, Queue> {
+        self.queue.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The next folder to list; `None` once all are listed or on cancel.
+    fn take(&self) -> Option<Task> {
+        let mut q = self.lock();
+        loop {
+            if self.progress.cancelled() {
+                return None;
+            }
+            if let Some(task) = q.tasks.pop() {
+                q.busy += 1;
+                return Some(task);
+            }
+            if q.busy == 0 {
+                return None;
+            }
+            q = self.wake.wait(q).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// Marks a taken folder as done (also if listing it panicked, so the other
+/// workers never wait forever), queueing its subfolders.
+struct Listing<'s, 'a> {
+    shared: &'s Shared<'a>,
+    subdirs: Vec<Task>,
+}
+
+impl Drop for Listing<'_, '_> {
+    fn drop(&mut self) {
+        let mut q = self.shared.lock();
+        q.busy -= 1;
+        q.tasks.append(&mut self.subdirs);
+        drop(q);
+        self.shared.wake.notify_all();
+    }
+}
+
+/// A listed folder: node id, parent id, and the node without its children.
+type Found = (usize, usize, DirNode);
+
+/// Lists folders until none are left, in background mode when `background`.
+fn work<'a>(shared: &Shared<'a>, keep: usize, background: bool) -> (Walk<'a>, Vec<Found>) {
+    if background {
+        let _ = crate::control::enter_background_mode();
+    }
+    let mut w = Walk::new(shared.progress, keep);
+    let mut found = Vec::new();
+    while let Some(task) = shared.take() {
+        let mut listing = Listing {
+            shared,
+            subdirs: Vec::new(),
+        };
+        let (node, subdirs) = w.list(&task.path);
+        let first = shared.next_id.fetch_add(subdirs.len(), Ordering::Relaxed);
+        // Reversed so the stack hands them out in listing order.
+        listing.subdirs = subdirs
+            .into_iter()
+            .enumerate()
+            .rev()
+            .map(|(i, path)| Task {
+                id: first + i,
+                parent: task.id,
+                path,
             })
             .collect();
-        for handle in handles.into_iter().flatten() {
-            if let Ok((w, done)) = handle.join() {
+        found.push((task.id, task.parent, node));
+    }
+    (w, found)
+}
+
+/// Builds the tree from the listed folders: `ids` ids were handed out, and
+/// every child has a larger id than its parent, so going from the last id
+/// down finishes each folder before it is added to its parent. Folders whose
+/// parent is missing (a worker panicked) are left out.
+fn assemble(found: Vec<Found>, ids: usize) -> Option<DirNode> {
+    let mut slots: Vec<Option<(usize, DirNode)>> = (0..ids).map(|_| None).collect();
+    for (id, parent, node) in found {
+        slots[id] = Some((parent, node));
+    }
+    for id in (1..ids).rev() {
+        let Some((parent, mut node)) = slots[id].take() else {
+            continue;
+        };
+        sort_children(&mut node);
+        if let Some((_, p)) = slots.get_mut(parent).and_then(Option::as_mut) {
+            p.size += node.size;
+            p.files += node.files;
+            p.children.push(node);
+        }
+    }
+    let (_, mut root) = slots.first_mut()?.take()?;
+    sort_children(&mut root);
+    Some(root)
+}
+
+/// Largest first, then by name.
+fn sort_children(node: &mut DirNode) {
+    node.children
+        .sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.name.cmp(&b.name)));
+    node.children.shrink_to_fit();
+}
+
+/// Scans `root` and everything below it. Check `progress` from another
+/// thread; [`Progress::cancel`] stops the scan soon after. The folders are
+/// listed by a few worker threads in background mode (lowest CPU and I/O
+/// priority), so the scan never slows the machine down.
+pub fn scan(root: &Path, progress: &Progress, keep_largest: usize) -> ScanResult {
+    let started = Instant::now();
+    let shared = Shared {
+        queue: Mutex::new(Queue {
+            tasks: vec![Task {
+                id: 0,
+                parent: usize::MAX,
+                path: root.to_owned(),
+            }],
+            busy: 0,
+        }),
+        wake: Condvar::new(),
+        next_id: AtomicUsize::new(1),
+        progress,
+    };
+    let workers = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, WORKERS);
+    let mut walk = Walk::new(progress, keep_largest);
+    let mut found = Vec::new();
+    std::thread::scope(|s| {
+        let handles: Vec<_> = (0..workers)
+            .filter_map(|_| {
+                std::thread::Builder::new()
+                    .name("disk-scan-worker".into())
+                    .spawn_scoped(s, || work(&shared, keep_largest, true))
+                    .ok()
+            })
+            .collect();
+        if handles.is_empty() {
+            let (w, f) = work(&shared, keep_largest, false);
+            walk.absorb(w);
+            found.extend(f);
+        }
+        for handle in handles {
+            if let Ok((w, f)) = handle.join() {
                 walk.absorb(w);
-                for (i, child) in done {
-                    children[i] = Some(child);
-                }
+                found.extend(f);
             }
         }
     });
-    for child in children.into_iter().flatten() {
-        node.size += child.size;
-        node.files += child.files;
-        node.children.push(child);
-    }
-    node.children
-        .sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.name.cmp(&b.name)));
+    // Without a listing of the root (cancelled first) the tree is empty.
+    let mut node = assemble(found, shared.next_id.into_inner()).unwrap_or_default();
+    node.name = root.display().to_string();
 
     let mut largest: Vec<BigFile> = walk
         .largest
@@ -219,6 +345,7 @@ impl<'a> Walk<'a> {
             keep,
             types: HashMap::new(),
             denied: 0,
+            ext: String::new(),
         }
     }
 
@@ -236,23 +363,6 @@ impl<'a> Walk<'a> {
                 self.largest.pop();
             }
         }
-    }
-
-    fn dir(&mut self, path: &Path) -> DirNode {
-        let (mut node, subdirs) = self.list(path);
-        for sub in subdirs {
-            if self.progress.cancelled() {
-                break;
-            }
-            let child = self.dir(&sub);
-            node.size += child.size;
-            node.files += child.files;
-            node.children.push(child);
-        }
-        node.children
-            .sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.name.cmp(&b.name)));
-        node.children.shrink_to_fit();
-        node
     }
 
     /// The files directly in `path`, and its subfolders still to scan.
@@ -294,21 +404,42 @@ impl<'a> Walk<'a> {
             let size = meta.len();
             node.own_size += size;
             node.own_files += 1;
-            self.progress.files.fetch_add(1, Ordering::Relaxed);
-            self.progress.bytes.fetch_add(size, Ordering::Relaxed);
-            let name = entry.file_name();
-            let extension = Path::new(&name)
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            let t = self.types.entry(extension).or_default();
-            t.0 += size;
-            t.1 += 1;
+            self.count_type(Path::new(&entry.file_name()).extension(), size);
             self.keep_if_large(size, &entry, &meta);
         }
+        // Once per folder: per file, the workers would contend for the
+        // counters' cache line.
+        self.progress
+            .files
+            .fetch_add(node.own_files, Ordering::Relaxed);
+        self.progress
+            .bytes
+            .fetch_add(node.own_size, Ordering::Relaxed);
         node.size = node.own_size;
         node.files = node.own_files;
         (node, subdirs)
+    }
+
+    /// Adds a file to its type, lower-cased into a reused buffer so the
+    /// usual case (a type seen before) allocates nothing.
+    fn count_type(&mut self, extension: Option<&std::ffi::OsStr>, size: u64) {
+        let ext = extension.map(|e| e.to_string_lossy()).unwrap_or_default();
+        self.ext.clear();
+        if ext.is_ascii() {
+            self.ext.push_str(&ext);
+            self.ext.make_ascii_lowercase();
+        } else {
+            self.ext.push_str(&ext.to_lowercase());
+        }
+        match self.types.get_mut(self.ext.as_str()) {
+            Some(t) => {
+                t.0 += size;
+                t.1 += 1;
+            }
+            None => {
+                self.types.insert(self.ext.clone(), (size, 1));
+            }
+        }
     }
 
     fn keep_if_large(&mut self, size: u64, entry: &std::fs::DirEntry, meta: &std::fs::Metadata) {
@@ -456,6 +587,47 @@ mod tests {
             r.elapsed.as_secs_f64()
         );
         assert!(r.root.files > 1000);
+    }
+
+    /// A synthetic tree: `top` folders right below the root, the first one
+    /// holding `heavy` times the others' share, each leaf with 40 files.
+    fn synthetic(test: &str, top: usize, heavy: usize) -> (PathBuf, u64) {
+        let root = std::env::temp_dir().join(format!("wtm-scan-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut files = 0;
+        for t in 0..top {
+            let leaves = if t == 0 { 50 * heavy } else { 50 };
+            for l in 0..leaves {
+                let dir = root
+                    .join(format!("top{t}"))
+                    .join(format!("sub{}", l % 7))
+                    .join(format!("leaf{l}"));
+                std::fs::create_dir_all(&dir).unwrap();
+                for f in 0..40 {
+                    let ext = ["txt", "dll", "PNG", "json", "rs"][f % 5];
+                    std::fs::write(dir.join(format!("file{f}.{ext}")), [0u8; 16]).unwrap();
+                    files += 1;
+                }
+            }
+        }
+        (root, files)
+    }
+
+    /// `cargo test --release -p wtm-core scan_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore = "timing harness; writes thousands of files"]
+    fn scan_speed() {
+        for (label, top, heavy) in [("balanced", 8, 1), ("one big folder", 2, 8)] {
+            let (root, files) = synthetic(&format!("speed-{top}"), top, heavy);
+            let mut best = Duration::MAX;
+            for _ in 0..5 {
+                let r = scan(&root, &Progress::default(), LARGEST_KEPT);
+                assert_eq!(r.root.files, files);
+                best = best.min(r.elapsed);
+            }
+            let _ = std::fs::remove_dir_all(&root);
+            println!("{label}: {files} files, best of 5 {best:?}");
+        }
     }
 
     #[test]

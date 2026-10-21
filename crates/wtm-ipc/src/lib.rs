@@ -264,25 +264,46 @@ fn invalid(e: impl std::fmt::Display) -> io::Error {
 }
 
 pub fn write_frame<T: Serialize>(w: &mut impl Write, msg: &T) -> io::Result<()> {
-    let body = postcard::to_stdvec(msg).map_err(invalid)?;
-    if body.len() > MAX_FRAME {
-        return Err(invalid("frame too large"));
-    }
-    w.write_all(&(body.len() as u32).to_le_bytes())?;
-    w.write_all(&body)?;
-    w.flush()
+    write_frame_with(w, msg, &mut Vec::new())
 }
 
 pub fn read_frame<T: DeserializeOwned>(r: &mut impl Read) -> io::Result<T> {
+    read_frame_with(r, &mut Vec::new())
+}
+
+/// [`write_frame`] encoding into `buf`, which keeps its capacity for the
+/// next frame: a connection sending a snapshot every second then stops
+/// growing a fresh buffer from nothing each time. The length and the body go
+/// out in a single write (one system call on a pipe).
+pub fn write_frame_with<T: Serialize>(
+    w: &mut impl Write,
+    msg: &T,
+    buf: &mut Vec<u8>,
+) -> io::Result<()> {
+    buf.clear();
+    buf.extend_from_slice(&[0; 4]);
+    *buf = postcard::to_extend(msg, std::mem::take(buf)).map_err(invalid)?;
+    let body_len = buf.len() - 4;
+    if body_len > MAX_FRAME {
+        return Err(invalid("frame too large"));
+    }
+    buf[..4].copy_from_slice(&(body_len as u32).to_le_bytes());
+    w.write_all(buf)?;
+    w.flush()
+}
+
+/// [`read_frame`] reading the body into `buf`, which keeps its capacity.
+pub fn read_frame_with<T: DeserializeOwned>(r: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<T> {
     let mut len = [0u8; 4];
     r.read_exact(&mut len)?;
     let len = u32::from_le_bytes(len) as usize;
     if len > MAX_FRAME {
         return Err(invalid("frame too large"));
     }
-    let mut body = vec![0u8; len];
-    r.read_exact(&mut body)?;
-    postcard::from_bytes(&body).map_err(invalid)
+    buf.clear();
+    buf.resize(len, 0);
+    r.read_exact(buf)?;
+    postcard::from_bytes(buf).map_err(invalid)
 }
 
 /// Blocking client for the service pipe.
@@ -291,7 +312,12 @@ pub struct Client {
     pipe: File,
     admin: bool,
     verified: bool,
+    /// Frame buffer reused by every call.
+    buf: Vec<u8>,
 }
+
+/// Largest frame buffer a [`Client`] keeps between calls.
+const KEPT_BUFFER: usize = 4 << 20;
 
 /// `ERROR_PIPE_BUSY`: all instances are momentarily in use.
 const ERROR_PIPE_BUSY: i32 = 231;
@@ -324,6 +350,7 @@ impl Client {
             pipe,
             admin: false,
             verified,
+            buf: Vec::new(),
         };
         match client.call(&Request::Hello {
             version: PROTOCOL_VERSION,
@@ -350,8 +377,13 @@ impl Client {
     }
 
     pub fn call(&mut self, request: &Request) -> io::Result<Response> {
-        write_frame(&mut self.pipe, request)?;
-        read_frame(&mut self.pipe)
+        write_frame_with(&mut self.pipe, request, &mut self.buf)?;
+        let response = read_frame_with(&mut self.pipe, &mut self.buf);
+        // A rare huge reply (a long history) is not kept around.
+        if self.buf.capacity() > KEPT_BUFFER {
+            self.buf = Vec::new();
+        }
+        response
     }
 }
 
@@ -652,5 +684,107 @@ mod tests {
         };
         assert_eq!(e.clone(), e);
         assert!(format!("{e:?}").contains("Warn"));
+    }
+
+    /// A snapshot as big as a busy machine's: 2000 processes.
+    fn big_snapshot() -> Snapshot {
+        let processes = (0..2000u32)
+            .map(|i| wtm_core::ProcessInfo {
+                pid: i * 4,
+                parent_pid: i,
+                name: format!("process-{i}.exe"),
+                cpu_percent: i as f32 / 100.0,
+                cpu_time: Duration::from_millis(u64::from(i) * 1234),
+                working_set: u64::from(i) << 20,
+                private_working_set: u64::from(i) << 19,
+                private_bytes: u64::from(i) << 21,
+                thread_count: i % 64,
+                handle_count: i * 3,
+                session_id: 1,
+                base_priority: 8,
+                gpu_percent: 0.0,
+                gpu_memory: 0,
+                io_read_rate: f64::from(i),
+                io_write_rate: 0.0,
+                net_rx_rate: 0.0,
+                net_tx_rate: 0.0,
+                create_time: 133_000_000_000_000_000 + i64::from(i),
+            })
+            .collect();
+        Snapshot {
+            interval: Some(Duration::from_secs(1)),
+            system: wtm_core::SystemStats {
+                core_percent: vec![12.5; 32],
+                ..Default::default()
+            },
+            processes,
+        }
+    }
+
+    /// Counts the writes a frame takes; each is a system call on a pipe.
+    struct CountingWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+    }
+
+    impl Write for CountingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_frame_is_one_write() {
+        let mut w = CountingWriter {
+            bytes: Vec::new(),
+            writes: 0,
+        };
+        write_frame(&mut w, &Response::Snapshot(big_snapshot())).unwrap();
+        assert_eq!(w.writes, 1);
+        let len = u32::from_le_bytes(w.bytes[..4].try_into().unwrap()) as usize;
+        assert_eq!(len + 4, w.bytes.len());
+        match read_frame::<Response>(&mut Cursor::new(w.bytes)).unwrap() {
+            Response::Snapshot(s) => assert_eq!(s.processes.len(), 2000),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `cargo test --release -p wtm-ipc snapshot_frame_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore = "timing harness"]
+    fn snapshot_frame_speed() {
+        let reply = Response::Snapshot(big_snapshot());
+        let runs = 200;
+        let time = |f: &mut dyn FnMut()| {
+            let started = std::time::Instant::now();
+            for _ in 0..runs {
+                f();
+            }
+            started.elapsed() / runs
+        };
+        let mut frame = Vec::new();
+        write_frame(&mut frame, &reply).unwrap();
+        let mut buf = Vec::new();
+        let encode = time(&mut || write_frame(&mut io::sink(), &reply).unwrap());
+        let encode_with =
+            time(&mut || write_frame_with(&mut io::sink(), &reply, &mut buf).unwrap());
+        let decode = time(&mut || {
+            std::hint::black_box(read_frame::<Response>(&mut Cursor::new(&frame)).unwrap());
+        });
+        let decode_with = time(&mut || {
+            let r = read_frame_with::<Response>(&mut Cursor::new(&frame), &mut buf);
+            std::hint::black_box(r.unwrap());
+        });
+        println!(
+            "{} bytes per snapshot; encode {encode:?} (reused buffer {encode_with:?}), \
+             decode {decode:?} (reused buffer {decode_with:?})",
+            frame.len()
+        );
     }
 }
