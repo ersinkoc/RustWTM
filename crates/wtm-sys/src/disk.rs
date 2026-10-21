@@ -10,7 +10,7 @@ use windows::Win32::System::Performance::{
 use windows::core::{PCWSTR, w};
 
 use crate::Result;
-use crate::gpu::{pdh, read_array};
+use crate::gpu::{ArrayReader, pdh};
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DiskUsage {
@@ -27,6 +27,7 @@ pub struct DiskSampler {
     idle: PDH_HCOUNTER,
     read: PDH_HCOUNTER,
     write: PDH_HCOUNTER,
+    reader: ArrayReader,
 }
 
 impl std::fmt::Debug for DiskSampler {
@@ -51,6 +52,7 @@ impl DiskSampler {
             idle: PDH_HCOUNTER::default(),
             read: PDH_HCOUNTER::default(),
             write: PDH_HCOUNTER::default(),
+            reader: ArrayReader::default(),
         };
         for (path, counter) in [
             (w!(r"\PhysicalDisk(*)\% Idle Time"), &mut s.idle),
@@ -76,16 +78,23 @@ impl DiskSampler {
         })?;
         let mut disks: BTreeMap<String, DiskUsage> = BTreeMap::new();
         for (counter, field) in [(self.idle, 0), (self.read, 1), (self.write, 2)] {
-            read_array(counter, PDH_FMT_DOUBLE, |name, item| {
+            self.reader.read(counter, PDH_FMT_DOUBLE, |name, item| {
                 // SAFETY: requested as PDH_FMT_DOUBLE.
                 let v = unsafe { item.FmtValue.Anonymous.doubleValue };
                 if name == "_Total" {
                     return;
                 }
-                let d = disks.entry(name.clone()).or_insert_with(|| DiskUsage {
-                    name,
-                    ..Default::default()
-                });
+                // The three counters report the same disks: name each once.
+                if !disks.contains_key(name) {
+                    let d = DiskUsage {
+                        name: name.to_owned(),
+                        ..Default::default()
+                    };
+                    disks.insert(name.to_owned(), d);
+                }
+                let Some(d) = disks.get_mut(name) else {
+                    return;
+                };
                 match field {
                     0 => d.active_percent = (100.0 - v).clamp(0.0, 100.0) as f32,
                     1 => d.read_rate = v.max(0.0),

@@ -101,7 +101,7 @@ fn module_snapshot(pid: u32) -> crate::Result<OwnedHandle> {
 /// The text before the first NUL of a fixed UTF-16 buffer.
 fn from_wide(buf: &[u16]) -> String {
     let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-    String::from_utf16_lossy(&buf[..end])
+    crate::utf16_lossy(&buf[..end])
 }
 
 /// `s` as a NUL-terminated UTF-16 string.

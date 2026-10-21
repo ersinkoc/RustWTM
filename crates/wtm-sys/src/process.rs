@@ -58,6 +58,8 @@ impl ThreadInfo {
 pub struct ProcessSnapshotter {
     // u64 elements keep the buffer 8-byte aligned for the native structures.
     buf: Vec<u64>,
+    /// Processes in the previous snapshot, to size the next one's vector.
+    last_count: usize,
 }
 
 const INITIAL_BUFFER_BYTES: usize = 512 * 1024;
@@ -69,8 +71,36 @@ impl ProcessSnapshotter {
     }
 
     pub fn snapshot(&mut self) -> Result<Vec<RawProcess>> {
+        // Sized like the previous snapshot (plus a few) so it never regrows.
+        let capacity = self.last_count + 32;
+        self.collect(Vec::with_capacity(capacity), |_, _| true)
+    }
+
+    /// Like [`snapshot`](Self::snapshot), but converts (and names) only the
+    /// processes `keep` accepts, given each one's PID and creation time.
+    /// Polling for new processes this way skips the rest unconverted.
+    pub fn snapshot_where(
+        &mut self,
+        keep: impl FnMut(u32, i64) -> bool,
+    ) -> Result<Vec<RawProcess>> {
+        self.collect(Vec::new(), keep)
+    }
+
+    fn collect(
+        &mut self,
+        mut out: Vec<RawProcess>,
+        mut keep: impl FnMut(u32, i64) -> bool,
+    ) -> Result<Vec<RawProcess>> {
         let len = self.query()?;
-        Ok(self.parse(len))
+        let mut count = 0usize;
+        for info in self.entries(len) {
+            count += 1;
+            if keep(info.unique_process_id as usize as u32, info.create_time) {
+                out.push(to_raw(info));
+            }
+        }
+        self.last_count = count;
+        Ok(out)
     }
 
     /// Fills the buffer and returns the number of valid bytes.
@@ -112,55 +142,54 @@ impl ProcessSnapshotter {
         let base = self.buf.as_ptr().cast::<u8>();
         let entry_size = size_of::<ntapi::SystemProcessInformation>();
         let thread_size = size_of::<ntapi::SystemThreadInformation>();
-        let mut offset = 0usize;
-        while offset + entry_size <= len {
-            // SAFETY: bounds checked above; the kernel aligns every entry to 8 bytes.
-            let info = unsafe { &*base.add(offset).cast::<ntapi::SystemProcessInformation>() };
-            if info.unique_process_id as usize as u32 == pid {
-                let first = offset + entry_size;
-                let count =
-                    (info.number_of_threads as usize).min(len.saturating_sub(first) / thread_size);
-                return Ok((0..count)
-                    .map(|i| {
-                        // SAFETY: `count` entries fit inside the valid bytes.
-                        let t = unsafe {
-                            &*base
-                                .add(first + i * thread_size)
-                                .cast::<ntapi::SystemThreadInformation>()
-                        };
-                        ThreadInfo {
-                            tid: t.unique_thread as usize as u32,
-                            state: t.thread_state,
-                            wait_reason: t.wait_reason,
-                            context_switches: t.context_switches,
-                        }
-                    })
-                    .collect());
-            }
-            if info.next_entry_offset == 0 {
-                break;
-            }
-            offset += info.next_entry_offset as usize;
-        }
-        Ok(Vec::new())
+        let Some((offset, info)) = self
+            .entries_at(len)
+            .find(|(_, info)| info.unique_process_id as usize as u32 == pid)
+        else {
+            return Ok(Vec::new());
+        };
+        let first = offset + entry_size;
+        let count = (info.number_of_threads as usize).min(len.saturating_sub(first) / thread_size);
+        Ok((0..count)
+            .map(|i| {
+                // SAFETY: `count` entries fit inside the valid bytes.
+                let t = unsafe {
+                    &*base
+                        .add(first + i * thread_size)
+                        .cast::<ntapi::SystemThreadInformation>()
+                };
+                ThreadInfo {
+                    tid: t.unique_thread as usize as u32,
+                    state: t.thread_state,
+                    wait_reason: t.wait_reason,
+                    context_switches: t.context_switches,
+                }
+            })
+            .collect())
     }
 
-    fn parse(&self, len: usize) -> Vec<RawProcess> {
+    /// The process entries among the first `len` bytes of the buffer.
+    fn entries(&self, len: usize) -> impl Iterator<Item = &ntapi::SystemProcessInformation> {
+        self.entries_at(len).map(|(_, info)| info)
+    }
+
+    /// The process entries with their byte offsets.
+    fn entries_at(
+        &self,
+        len: usize,
+    ) -> impl Iterator<Item = (usize, &ntapi::SystemProcessInformation)> {
         let base = self.buf.as_ptr().cast::<u8>();
         let entry_size = size_of::<ntapi::SystemProcessInformation>();
-        let mut out = Vec::with_capacity(512);
-        let mut offset = 0usize;
-
-        while offset + entry_size <= len {
-            // SAFETY: bounds checked above; the kernel aligns every entry to 8 bytes.
+        let len = len.min(self.buf.len() * 8);
+        let mut next = Some(0usize);
+        std::iter::from_fn(move || {
+            let offset = next.filter(|&o| o + entry_size <= len)?;
+            // SAFETY: bounds checked above; the kernel aligns every entry to
+            // 8 bytes; the buffer is borrowed for the iterator's lifetime.
             let info = unsafe { &*base.add(offset).cast::<ntapi::SystemProcessInformation>() };
-            out.push(to_raw(info));
-            if info.next_entry_offset == 0 {
-                break;
-            }
-            offset += info.next_entry_offset as usize;
-        }
-        out
+            next = (info.next_entry_offset != 0).then(|| offset + info.next_entry_offset as usize);
+            Some((offset, info))
+        })
     }
 }
 
@@ -197,7 +226,7 @@ fn image_name(info: &ntapi::SystemProcessInformation, pid: u32) -> String {
     // SAFETY: the kernel points `buffer` into the same snapshot buffer, which
     // is borrowed for the lifetime of `info`; `length` is in bytes.
     let chars = unsafe { std::slice::from_raw_parts(name.buffer, name.length as usize / 2) };
-    String::from_utf16_lossy(chars)
+    crate::utf16_lossy(chars)
 }
 
 #[cfg(test)]
@@ -224,9 +253,33 @@ mod tests {
     #[test]
     fn grows_a_too_small_buffer() {
         // Far smaller than one entry, so the kernel asks for more space.
-        let mut s = ProcessSnapshotter { buf: vec![0; 1] };
+        let mut s = ProcessSnapshotter {
+            buf: vec![0; 1],
+            ..Default::default()
+        };
         let procs = s.snapshot().unwrap();
         assert!(s.buf.len() > 1, "buffer was not grown");
         assert!(procs.iter().any(|p| p.pid == std::process::id()));
+    }
+
+    #[test]
+    fn snapshot_where_converts_only_accepted_processes() {
+        let mut s = ProcessSnapshotter::new();
+        let me = std::process::id();
+        let mut seen = 0;
+        let mine = s
+            .snapshot_where(|pid, _| {
+                seen += 1;
+                pid == me
+            })
+            .unwrap();
+        assert!(seen > 2, "every process is offered");
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0].pid, me);
+        assert!(!mine[0].name.is_empty());
+        let all = s.snapshot().unwrap();
+        let full = all.iter().find(|p| p.pid == me).unwrap();
+        assert_eq!(full.create_time, mine[0].create_time);
+        assert_eq!(full.name, mine[0].name);
     }
 }

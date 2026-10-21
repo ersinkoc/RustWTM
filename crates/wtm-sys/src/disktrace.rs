@@ -11,7 +11,7 @@
 //! and stops a second session, whose stop lists every open file object, and
 //! keeps the names still missing.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -27,6 +27,7 @@ use windows::Win32::System::Threading::{
 use windows::core::PCWSTR;
 
 use crate::etw::{self, Session, u32_at, u64_at};
+use crate::fasthash::{FastMap, FastSet};
 use crate::handle::OwnedHandle;
 
 const OPCODE_READ: u8 = 10;
@@ -65,22 +66,22 @@ pub struct FileIo {
 #[derive(Default)]
 struct Ledger {
     /// (process, file object) -> (read, write) since the last take.
-    bytes: HashMap<(u32, u64), (u64, u64)>,
+    bytes: FastMap<(u32, u64), (u64, u64)>,
     /// File object -> NT path.
-    names: HashMap<u64, Arc<str>>,
+    names: FastMap<u64, Arc<str>>,
     /// File objects closed since the last take; forgotten after it, so the
     /// bytes they moved in the meantime still get their name.
-    closed: HashSet<u64>,
+    closed: FastSet<u64>,
     /// Thread -> owning process.
-    threads: HashMap<u32, u32>,
+    threads: FastMap<u32, u32>,
     /// File objects that moved bytes but have no name yet.
-    wanted: HashSet<u64>,
+    wanted: FastSet<u64>,
     /// Wanted objects a rundown did not name; not asked for again.
-    given_up: HashSet<u64>,
+    given_up: FastSet<u64>,
 }
 
 impl Ledger {
-    fn name(&mut self, file: u64, path: Arc<str>, overwrite: bool) {
+    fn name(&mut self, file: u64, path: &str, overwrite: bool) {
         if self.names.len() >= MAX_NAMES && !self.names.contains_key(&file) {
             self.names.clear();
         }
@@ -88,9 +89,13 @@ impl Ledger {
         self.given_up.remove(&file);
         if overwrite {
             self.closed.remove(&file);
-            self.names.insert(file, path);
+            // A file object is often named again with the same path (each
+            // create of a cached object); keep the existing copy then.
+            if self.names.get(&file).is_none_or(|old| **old != *path) {
+                self.names.insert(file, path.into());
+            }
         } else {
-            self.names.entry(file).or_insert(path);
+            self.names.entry(file).or_insert_with(|| path.into());
         }
     }
 
@@ -195,21 +200,23 @@ fn disk_transfer(d: &[u8], ptr: usize) -> Option<(u64, u64, u32)> {
     Some((file, u64::from(size), thread))
 }
 
-/// `FileIo` Name/Create/Rundown: (file object, NT path).
-fn file_name(d: &[u8], ptr: usize) -> Option<(u64, String)> {
+/// `FileIo` Name/Create/Rundown: (file object, NT path). The path is
+/// decoded into `buf`, which the consumer keeps: these events are frequent.
+fn file_name<'a>(d: &[u8], ptr: usize, buf: &'a mut String) -> Option<(u64, &'a str)> {
     let file = pointer_at(d, 0, ptr)?;
-    let units: Vec<u16> = d
+    let units = d
         .get(ptr..)?
         .as_chunks::<2>()
         .0
         .iter()
         .map(|&c| u16::from_le_bytes(c))
-        .take_while(|&c| c != 0)
-        .collect();
-    if units.is_empty() {
+        .take_while(|&c| c != 0);
+    buf.clear();
+    buf.extend(char::decode_utf16(units).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)));
+    if buf.is_empty() {
         return None;
     }
-    Some((file, String::from_utf16_lossy(&units)))
+    Some((file, buf.as_str()))
 }
 
 /// `Thread` Start/DCStart: (thread, process).
@@ -217,8 +224,9 @@ fn thread_owner(d: &[u8]) -> Option<(u32, u32)> {
     Some((u32_at(d, 4)?, u32_at(d, 0)?))
 }
 
-/// Feeds one event of the main session into the ledger.
-fn record_event(ledger: &Mutex<Ledger>, record: &EVENT_RECORD) {
+/// Feeds one event of the main session into the ledger; `path` is scratch
+/// space for file names.
+fn record_event(ledger: &Mutex<Ledger>, record: &EVENT_RECORD, path: &mut String) {
     let header = &record.EventHeader;
     let opcode = header.EventDescriptor.Opcode;
     let d = etw::user_data(record);
@@ -240,8 +248,8 @@ fn record_event(ledger: &Mutex<Ledger>, record: &EVENT_RECORD) {
     } else if header.ProviderId == FileIoGuid {
         match opcode {
             OPCODE_FILE_NAME | OPCODE_FILE_CREATE | OPCODE_FILE_RUNDOWN => {
-                if let Some((file, path)) = file_name(d, ptr) {
-                    lock(ledger).name(file, path.into(), opcode != OPCODE_FILE_RUNDOWN);
+                if let Some((file, path)) = file_name(d, ptr, path) {
+                    lock(ledger).name(file, path, opcode != OPCODE_FILE_RUNDOWN);
                 }
             }
             OPCODE_FILE_DELETE => {
@@ -266,6 +274,7 @@ fn rundown(session_name: &str, ledger: &Arc<Mutex<Ledger>>) {
         return;
     };
     let sink = Arc::clone(ledger);
+    let mut path = String::new();
     let consumer = session.consume(move |record| {
         let header = &record.EventHeader;
         if header.ProviderId != FileIoGuid {
@@ -278,12 +287,17 @@ fn rundown(session_name: &str, ledger: &Arc<Mutex<Ledger>>) {
         ) {
             return;
         }
-        let Some((file, path)) = file_name(etw::user_data(record), pointer_size(record)) else {
+        let (d, ptr) = (etw::user_data(record), pointer_size(record));
+        // The rundown lists every open file in the system; only the few
+        // wanted ones are worth decoding.
+        let Some(file) = pointer_at(d, 0, ptr) else {
             return;
         };
         let mut l = lock(&sink);
-        if l.wanted.contains(&file) {
-            l.name(file, path.into(), false);
+        if l.wanted.contains(&file)
+            && let Some((file, path)) = file_name(d, ptr, &mut path)
+        {
+            l.name(file, path, false);
         }
     });
     std::thread::sleep(RUNDOWN_SETTLE);
@@ -386,7 +400,8 @@ impl DiskTracer {
         let session = Session::start_kernel(name, flags)?;
         let ledger = Arc::new(Mutex::new(Ledger::default()));
         let sink = Arc::clone(&ledger);
-        session.consume(move |record| record_event(&sink, record))?;
+        let mut path = String::new();
+        session.consume(move |record| record_event(&sink, record, &mut path))?;
 
         let names_session = format!("{name}-names");
         let (stop, stopped) = mpsc::channel();
@@ -483,8 +498,13 @@ mod tests {
         let mut n = 0x1234u32.to_le_bytes().to_vec();
         n.extend(r"\Device\X\a".encode_utf16().flat_map(u16::to_le_bytes));
         n.extend_from_slice(&[0, 0, 0x41, 0]);
-        assert_eq!(file_name(&n, 4), Some((0x1234, r"\Device\X\a".to_string())));
-        assert_eq!(file_name(&n[..4], 4), None);
+        let mut buf = String::from("left over");
+        assert_eq!(file_name(&n, 4, &mut buf), Some((0x1234, r"\Device\X\a")));
+        assert_eq!(file_name(&n[..4], 4, &mut buf), None);
+        // A lone surrogate decodes as U+FFFD, as from_utf16_lossy does.
+        let mut bad = 7u32.to_le_bytes().to_vec();
+        bad.extend_from_slice(&[0x41, 0, 0x00, 0xd8, 0x42, 0, 0, 0]);
+        assert_eq!(file_name(&bad, 4, &mut buf), Some((7, "A\u{fffd}B")));
 
         let t = [5, 0, 0, 0, 9, 0, 0, 0];
         assert_eq!(thread_owner(&t), Some((9, 5)));
@@ -494,9 +514,9 @@ mod tests {
     fn drains_rows_merged_by_name_and_sorted() {
         let mut l = Ledger::default();
         l.thread_started(1, 100);
-        l.name(0xa, r"\Device\HarddiskVolume10\big".into(), true);
-        l.name(0xb, r"\Device\HarddiskVolume10\big".into(), true);
-        l.name(0xc, r"\Device\HarddiskVolume1\small".into(), true);
+        l.name(0xa, r"\Device\HarddiskVolume10\big", true);
+        l.name(0xb, r"\Device\HarddiskVolume10\big", true);
+        l.name(0xc, r"\Device\HarddiskVolume1\small", true);
         l.moved(100, 0xa, 1000, false);
         l.moved(100, 0xb, 500, true);
         l.moved(100, 0xc, 10, true);
@@ -535,12 +555,106 @@ mod tests {
     #[test]
     fn rundown_names_do_not_replace_known_ones() {
         let mut l = Ledger::default();
-        l.name(1, "new".into(), true);
-        l.name(1, "old".into(), false);
+        l.name(1, "new", true);
+        l.name(1, "old", false);
         assert_eq!(&*l.names[&1], "new");
+        // The same path again keeps the stored copy; a new one replaces it.
+        let kept = Arc::clone(&l.names[&1]);
+        l.name(1, "new", true);
+        assert!(Arc::ptr_eq(&kept, &l.names[&1]));
+        l.name(1, "newer", true);
+        assert_eq!(&*l.names[&1], "newer");
         l.wanted.insert(2);
-        l.name(2, "found".into(), false);
+        l.name(2, "found", false);
         assert!(l.wanted.is_empty());
+    }
+
+    fn event(provider: windows::core::GUID, opcode: u8, payload: &[u8]) -> EVENT_RECORD {
+        let mut r = EVENT_RECORD::default();
+        r.EventHeader.ProviderId = provider;
+        r.EventHeader.EventDescriptor.Opcode = opcode;
+        r.EventHeader.ProcessId = u32::MAX;
+        r.UserData = payload.as_ptr().cast_mut().cast();
+        r.UserDataLength = payload.len() as u16;
+        r
+    }
+
+    #[test]
+    fn events_feed_the_ledger() {
+        let ledger = Mutex::new(Ledger::default());
+        let mut scratch = String::new();
+        let thread = thread_owner_payload(42, 9);
+        let mut name = 0xbeefu64.to_le_bytes().to_vec();
+        name.extend(r"\Device\X\f".encode_utf16().flat_map(u16::to_le_bytes));
+        name.extend_from_slice(&[0, 0]);
+        let disk = disk_payload(512, 0xbeef, 9);
+        for r in [
+            event(ThreadGuid, OPCODE_THREAD_START, &thread),
+            event(FileIoGuid, OPCODE_FILE_CREATE, &name),
+            event(DiskIoGuid, OPCODE_WRITE, &disk),
+            event(DiskIoGuid, OPCODE_READ, &disk),
+        ] {
+            record_event(&ledger, &r, &mut scratch);
+        }
+        let rows = lock(&ledger).drain(&devices());
+        assert_eq!(
+            rows,
+            [FileIo {
+                pid: 42,
+                path: Some(r"\Device\X\f".into()),
+                read: 512,
+                write: 512
+            }]
+        );
+    }
+
+    fn thread_owner_payload(pid: u32, thread: u32) -> Vec<u8> {
+        [pid.to_le_bytes(), thread.to_le_bytes()].concat()
+    }
+
+    /// Feeding a busy machine's mix of events: mostly disk transfers, with a
+    /// file create (named again) every tenth. Run with
+    /// `--release -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing harness"]
+    fn event_cost() {
+        let ledger = Mutex::new(Ledger::default());
+        let mut scratch = String::new();
+        let files = 5000u64;
+        let names: Vec<Vec<u8>> = (0..files)
+            .map(|f| {
+                let mut n = (0x1000 + f * 16).to_le_bytes().to_vec();
+                let path = format!(r"\Device\HarddiskVolume3\Users\me\project\target\file{f}.o");
+                n.extend(path.encode_utf16().flat_map(u16::to_le_bytes));
+                n.extend_from_slice(&[0, 0]);
+                n
+            })
+            .collect();
+        for t in 0..500u32 {
+            let p = thread_owner_payload(t % 50, t * 4);
+            record_event(
+                &ledger,
+                &event(ThreadGuid, OPCODE_THREAD_START, &p),
+                &mut scratch,
+            );
+        }
+        let disks: Vec<Vec<u8>> = (0..files)
+            .map(|f| disk_payload(4096, 0x1000 + f * 16, (f as u32 % 500) * 4))
+            .collect();
+        let events = 1_000_000u64;
+        let start = Instant::now();
+        for i in 0..events {
+            let f = ((i * 7919) % files) as usize;
+            let r = if i % 10 == 0 {
+                event(FileIoGuid, OPCODE_FILE_CREATE, &names[f])
+            } else {
+                event(DiskIoGuid, OPCODE_READ, &disks[f])
+            };
+            record_event(&ledger, &r, &mut scratch);
+        }
+        let ns = start.elapsed().as_secs_f64() * 1e9 / events as f64;
+        println!("disk trace: {ns:.1} ns per event");
+        assert!(!lock(&ledger).drain(&devices()).is_empty());
     }
 
     #[test]
