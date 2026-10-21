@@ -2030,7 +2030,7 @@ mod tests {
     }
 
     fn message(w: &Worker) -> (EventLevel, String) {
-        w.data().message.clone().unwrap()
+        w.data().message.take().unwrap()
     }
 
     #[test]
