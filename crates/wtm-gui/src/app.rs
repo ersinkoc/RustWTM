@@ -496,7 +496,11 @@ impl eframe::App for App {
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    mode_badge(ui, data.mode);
+                    mode_badge(
+                        ui,
+                        data.mode,
+                        crate::backend::service_problem(data.service_error.as_deref()),
+                    );
                     if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
                         ui.label(
                             RichText::new(crate::i18n::tr("▶ Game mode"))
@@ -1206,7 +1210,9 @@ fn sample_health(ui: &mut Ui, data: &Data, now: Instant) {
     });
 }
 
-fn mode_badge(ui: &mut Ui, mode: Mode) {
+/// `problem`: why there is no service connection, for `Mode::Local`.
+fn mode_badge(ui: &mut Ui, mode: Mode, problem: crate::backend::ServiceProblem) {
+    use crate::backend::ServiceProblem;
     let (text, color, hover) = match mode {
         Mode::Starting => (
             crate::i18n::tr("○ Starting"),
@@ -1237,9 +1243,20 @@ fn mode_badge(ui: &mut Ui, mode: Mode) {
         Mode::Local => (
             crate::i18n::tr("○ Local"),
             WARN,
-            crate::i18n::tr(
-                "The RustWTM service is not running. Monitoring and actions use this window's own rights.",
-            ),
+            match problem {
+                ServiceProblem::NotRunning => crate::i18n::tr(
+                    "The RustWTM service is not running. Monitoring and actions use this window's own rights.",
+                ),
+                ServiceProblem::Older => crate::i18n::tr(
+                    "The RustWTM service is an older version this window cannot talk to; update it. Monitoring and actions use this window's own rights.",
+                ),
+                ServiceProblem::Newer => crate::i18n::tr(
+                    "The RustWTM service is newer than this window; restart RustWTM to use it. Until then monitoring and actions use this window's own rights.",
+                ),
+                ServiceProblem::Impostor => crate::i18n::tr(
+                    "Another program answers in place of the RustWTM service, so it is not used. Monitoring and actions use this window's own rights.",
+                ),
+            },
         ),
     };
     ui.label(RichText::new(text).color(crate::theme::text_color(ui, color)))
@@ -2721,7 +2738,18 @@ mod tests {
                             verified: false,
                         },
                     ] {
-                        mode_badge(&mut cols[0], mode);
+                        mode_badge(
+                            &mut cols[0],
+                            mode,
+                            crate::backend::ServiceProblem::NotRunning,
+                        );
+                    }
+                    for problem in [
+                        crate::backend::ServiceProblem::Older,
+                        crate::backend::ServiceProblem::Newer,
+                        crate::backend::ServiceProblem::Impostor,
+                    ] {
+                        mode_badge(&mut cols[0], Mode::Local, problem);
                     }
                     performance(&mut cols[1], &d);
                     events(&mut cols[1], &d);

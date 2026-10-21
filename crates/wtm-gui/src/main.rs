@@ -32,6 +32,9 @@ use eframe::egui;
 /// `visible: false` starts hidden in the tray (`--background`, used at sign-in).
 fn options(visible: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
+        // OpenGL: the window needs nothing more, and it loads far fewer
+        // driver libraries than wgpu's Direct3D/Vulkan back ends.
+        renderer: eframe::Renderer::Glow,
         viewport: egui::ViewportBuilder::default()
             .with_title("RustWTM")
             .with_visible(visible)
@@ -83,23 +86,65 @@ fn main() -> eframe::Result {
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let background = args.iter().any(|a| a == "--background");
-    // One RustWTM per user: a second start shows the first one's window
-    // (`--new-instance` starts another one anyway).
-    if !args.iter().any(|a| a == "--new-instance")
-        && let Some((window, _)) = wtm_core::window::find_other("RustWTM")
-    {
-        if !background {
-            wtm_core::window::bring_to_front(window);
-            wtm_core::window::release_topmost(window);
-        }
-        return Ok(());
+    // "Restart as administrator": the copy that started us is closing; it
+    // must be gone before we look for another instance.
+    if let Some(pid) = replaced_pid(&args) {
+        wtm_core::launch::wait_for_exit(pid, REPLACE_WAIT);
     }
+    // One RustWTM per session: a second start shows the first one's window
+    // (`--new-instance` starts another one anyway).
+    let _instance = if args.iter().any(|a| a == "--new-instance") {
+        None
+    } else {
+        match wtm_core::window::single_instance(INSTANCE_MUTEX) {
+            Some(lock) => Some(lock),
+            None => {
+                if !background {
+                    show_other_instance();
+                }
+                return Ok(());
+            }
+        }
+    };
     harden();
     eframe::run_native(
         "RustWTM",
         options(!background),
-        Box::new(move |cc| Ok(Box::new(app::App::new(cc, background)))),
+        Box::new(move |cc| {
+            // Signing out, shutting down or an installer replacing our files
+            // closes RustWTM even while it waits in the tray.
+            let ctx = cc.egui_ctx.clone();
+            wtm_core::window::watch_session_end(move || tray::request_exit(&ctx));
+            Ok(Box::new(app::App::new(cc, background)))
+        }),
     )
+}
+
+/// Held by the running RustWTM window of this session.
+const INSTANCE_MUTEX: &str = r"Local\RustWTM-GUI";
+
+/// How long a new copy waits for the one it replaces to exit.
+const REPLACE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The process named by `--replace <pid>`.
+fn replaced_pid(args: &[String]) -> Option<u32> {
+    let at = args
+        .iter()
+        .position(|a| a == wtm_core::launch::REPLACE_ARG)?;
+    args.get(at + 1)?.parse().ok()
+}
+
+/// Brings the running copy's window forward. It may still be starting, so
+/// it is looked for a few times.
+fn show_other_instance() {
+    for _ in 0..10 {
+        if let Some((window, _)) = wtm_core::window::find_other("RustWTM") {
+            wtm_core::window::bring_to_front(window);
+            wtm_core::window::release_topmost(window);
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 #[cfg(test)]
@@ -125,7 +170,22 @@ mod tests {
     }
 
     #[test]
+    fn finds_the_process_to_replace() {
+        let replaced = |list: &[&str]| super::replaced_pid(&args(list).collect::<Vec<_>>());
+        assert_eq!(replaced(&[]), None);
+        assert_eq!(replaced(&["--background"]), None);
+        assert_eq!(replaced(&["--replace", "1234"]), Some(1234));
+        assert_eq!(replaced(&["--new-instance", "--replace", "7"]), Some(7));
+        assert_eq!(replaced(&["--replace"]), None);
+        assert_eq!(replaced(&["--replace", "x"]), None);
+    }
+
+    #[test]
     fn window_options() {
+        assert!(matches!(
+            super::options(true).renderer,
+            eframe::Renderer::Glow
+        ));
         let viewport = super::options(true).viewport;
         assert_eq!(super::options(false).viewport.visible, Some(false));
         assert_eq!(viewport.title.as_deref(), Some("RustWTM"));

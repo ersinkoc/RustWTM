@@ -33,16 +33,68 @@ const NO_TELEGRAM: &str = "The Telegram bot runs in the RustWTM service";
 fn without_service(data: &Mutex<Data>, what: &str) -> String {
     let what = crate::i18n::tr(what);
     let data = data.lock().unwrap_or_else(PoisonError::into_inner);
-    match data.service_error.as_deref() {
-        Some(e) if e.contains("protocol") => {
+    let error = data.service_error.as_deref().unwrap_or_default();
+    match service_problem(data.service_error.as_deref()) {
+        ServiceProblem::Older => {
             let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION"));
             crate::i18n::format(
                 "{0}, but the installed service is a different version ({1}). Update it with the installer of version {2}.",
-                &[what.to_string(), e.to_string(), __wtm_i18n_0.to_string()],
+                &[
+                    what.to_string(),
+                    error.to_string(),
+                    __wtm_i18n_0.to_string(),
+                ],
             )
         }
-        _ => crate::i18n::format("{0}, which is not running.", &[what.to_string()]),
+        ServiceProblem::Newer => crate::i18n::format(
+            "{0}, but the installed service is newer than this window ({1}). Restart RustWTM, or update it with the latest installer.",
+            &[what.to_string(), error.to_string()],
+        ),
+        ServiceProblem::Impostor => crate::i18n::format(
+            "{0}, but another program answers in its place, so RustWTM does not use it.",
+            &[what.to_string()],
+        ),
+        ServiceProblem::NotRunning => {
+            crate::i18n::format("{0}, which is not running.", &[what.to_string()])
+        }
     }
+}
+
+/// Why the window works without the service, from the last connection error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceProblem {
+    NotRunning,
+    /// The service is an older version: update it.
+    Older,
+    /// The service is newer than this window: restart or update the window.
+    Newer,
+    /// Another process serves the pipe in place of the installed service.
+    Impostor,
+}
+
+/// Reads the error of `wtm_ipc::Client::connect`; its handshake reports
+/// "service speaks protocol {service}, client {ours}".
+pub fn service_problem(error: Option<&str>) -> ServiceProblem {
+    let Some(error) = error else {
+        return ServiceProblem::NotRunning;
+    };
+    if error.contains("not served by the RustWTM service") {
+        return ServiceProblem::Impostor;
+    }
+    if let Some(rest) = error.strip_prefix("service speaks protocol ")
+        && let Some((service, client)) = rest.split_once(", client ")
+        && let (Ok(service), Ok(client)) = (service.parse::<u32>(), client.parse::<u32>())
+    {
+        return if service > client {
+            ServiceProblem::Newer
+        } else {
+            ServiceProblem::Older
+        };
+    }
+    if error.contains("protocol") || error.contains("handshake") {
+        return ServiceProblem::Older;
+    }
+    ServiceProblem::NotRunning
 }
 use wtm_ipc::{Client, Command, Event, EventLevel, Outcome, Request, Response, Status};
 
@@ -455,6 +507,59 @@ fn unexpected(r: Response) -> io::Error {
     })
 }
 
+/// Shown when the service hangs up, which it does every time it restarts
+/// (an update, "Restart" in Services).
+const RECONNECTING: &str = "The RustWTM service went away (it may be restarting); reconnecting…";
+
+/// The warning for a connection that failed during a tick.
+fn lost_connection(e: &io::Error) -> String {
+    // ERROR_BROKEN_PIPE, ERROR_NO_DATA, ERROR_PIPE_NOT_CONNECTED.
+    let hung_up = matches!(
+        e.kind(),
+        io::ErrorKind::BrokenPipe | io::ErrorKind::UnexpectedEof
+    ) || matches!(e.raw_os_error(), Some(109 | 232 | 233));
+    if hung_up {
+        crate::i18n::tr(RECONNECTING).to_owned()
+    } else {
+        crate::i18n::format("Lost connection to service: {0}", &[format!("{}", e)])
+    }
+}
+
+/// Adds events fetched from the service. Right after connecting it sends its
+/// whole backlog again, which replaces the service events already shown;
+/// otherwise only events newer than the newest one shown are added. Local
+/// events (id 0) are kept.
+fn merge_events(events: &mut VecDeque<Event>, fetched: Vec<Event>, backlog: bool) {
+    if backlog {
+        events.retain(|e| e.id == 0);
+    }
+    let newest = events.iter().map(|e| e.id).max().unwrap_or(0);
+    events.extend(fetched.into_iter().filter(|e| e.id > newest));
+    if backlog {
+        events.make_contiguous().sort_by_key(|e| e.unix_ms);
+    }
+    trim(events, EVENTS_KEPT);
+}
+
+/// Control errors are written for the command line ("try an elevated
+/// prompt"); the window says what to do in the window instead.
+fn gui_error(error: &str, elevated: bool) -> String {
+    let denied = error
+        .strip_prefix("access denied to process ")
+        .and_then(|rest| rest.strip_suffix(" (try an elevated prompt)"));
+    match denied {
+        Some(pid) if elevated => crate::i18n::format(
+            "access denied to process {0} (Windows protects it even from administrators)",
+            &[pid.to_owned()],
+        ),
+        Some(pid) => crate::i18n::format(
+            "access denied to process {0} (restart RustWTM as administrator)",
+            &[pid.to_owned()],
+        ),
+        None => error.to_owned(),
+    }
+}
+
 impl Worker {
     fn data(&self) -> MutexGuard<'_, Data> {
         self.data.lock().unwrap_or_else(PoisonError::into_inner)
@@ -487,7 +592,14 @@ impl Worker {
                 Ok(c) => {
                     self.client = Some(c);
                     self.last_event = 0;
-                    self.data().service_error = None;
+                    let mut data = self.data();
+                    data.service_error = None;
+                    // Back again: "reconnecting…" no longer applies.
+                    if data.message.as_ref().map(|(_, m)| m.as_str())
+                        == Some(crate::i18n::tr(RECONNECTING))
+                    {
+                        data.message = None;
+                    }
                 }
                 Err(e) => {
                     self.next_connect = Instant::now() + RECONNECT;
@@ -505,8 +617,9 @@ impl Worker {
                 let _ = client.call(&Request::Foreground { pid, fullscreen });
             }
             // Right after connecting: the service's last minutes, so the
-            // graphs start full.
-            let backfill = (self.last_event == 0)
+            // graphs start full, and its event backlog.
+            let fresh = self.last_event == 0;
+            let backfill = fresh
                 .then(|| match client.call(&Request::Recent) {
                     Ok(Response::Recent(points)) => Some(points),
                     _ => None,
@@ -515,7 +628,7 @@ impl Worker {
             match fetch(client, self.last_event) {
                 Ok((snapshot, status, events)) => {
                     // Skip the backlog fetched right after connecting.
-                    if self.last_event != 0 && self.notifications.load(Ordering::Relaxed) {
+                    if !fresh && self.notifications.load(Ordering::Relaxed) {
                         events.iter().filter(|e| e.notify).for_each(self.notify);
                     }
                     if let Some(last) = events.last() {
@@ -537,7 +650,7 @@ impl Worker {
                     }
                     data.mode = Mode::Service { admin, verified };
                     data.status = Some(status);
-                    data.events.extend(events);
+                    merge_events(&mut data.events, events, fresh);
                     if let Some(s) = snapshot {
                         publish(&mut data, s);
                     } else {
@@ -550,9 +663,7 @@ impl Worker {
                 Err(e) => {
                     self.client = None;
                     self.next_connect = Instant::now() + RECONNECT;
-                    self.data().message = Some((EventLevel::Warn, {
-                        crate::i18n::format("Lost connection to service: {0}", &[format!("{}", e)])
-                    }));
+                    self.data().message = Some((EventLevel::Warn, lost_connection(&e)));
                 }
             }
         }
@@ -636,6 +747,16 @@ impl Worker {
                 data.lock().unwrap_or_else(PoisonError::into_inner).message = Some(message);
                 ctx.request_repaint();
             }
+        });
+    }
+
+    /// Runs `job` on its own thread with its own connection to the service,
+    /// so a slow request does not hold up the samples of the main one.
+    fn aside(&self, job: impl FnOnce(io::Result<Client>, &Mutex<Data>) + Send + 'static) {
+        let (pipe, data, ctx) = (self.pipe.clone(), self.data.clone(), self.ctx.clone());
+        std::thread::spawn(move || {
+            job(Client::connect_to(&pipe), &data);
+            ctx.request_repaint();
         });
     }
 
@@ -940,19 +1061,28 @@ impl Worker {
                 self.load(Panel::Telegram);
             }
             UiCommand::TestTelegram => {
-                let result = match self.client.as_mut() {
-                    None => Err(without_service(&self.data, NO_TELEGRAM)),
-                    Some(c) => match c.call(&Request::TestTelegram) {
-                        Ok(Response::Text(t)) => Ok(t),
-                        Ok(other) => Err(unexpected(other).to_string()),
-                        Err(e) => Err(e.to_string()),
-                    },
-                };
-                self.data().message = Some(match result {
+                let tested = |result: Result<String, String>| match result {
                     Ok(t) => (EventLevel::Info, t),
                     Err(e) => (EventLevel::Error, {
                         crate::i18n::format("Telegram test failed: {0}", std::slice::from_ref(&e))
                     }),
+                };
+                if self.client.is_none() {
+                    self.data().message =
+                        Some(tested(Err(without_service(&self.data, NO_TELEGRAM))));
+                    return;
+                }
+                // Telegram may take half a minute to answer.
+                self.aside(move |client, data| {
+                    let result = client.map_err(|e| e.to_string()).and_then(|mut c| {
+                        match c.call(&Request::TestTelegram) {
+                            Ok(Response::Text(t)) => Ok(t),
+                            Ok(other) => Err(unexpected(other).to_string()),
+                            Err(e) => Err(e.to_string()),
+                        }
+                    });
+                    data.lock().unwrap_or_else(PoisonError::into_inner).message =
+                        Some(tested(result));
                 });
             }
             UiCommand::WaitChain(target) => {
@@ -1078,33 +1208,42 @@ impl Worker {
             }
             UiCommand::Inspect(target) => {
                 let result = match self.client.as_mut() {
-                    Some(c) => match c.call(&Request::Inspect(target.clone())) {
-                        Ok(Response::Details(d)) => Ok(d),
-                        Ok(other) => Err(unexpected(other).to_string()),
-                        Err(e) => Err(e.to_string()),
-                    },
+                    Some(c) => inspect_with(c, &target),
                     None => control::inspect(&target).map_err(|e| e.to_string()),
                 };
                 self.data().details = Some((target, result));
             }
             UiCommand::Control { target, command } => {
-                let via_service = self.client.as_ref().is_some_and(Client::is_admin);
-                let outcomes = if via_service {
-                    let client = self.client.as_mut().expect("checked above");
-                    match client.call(&Request::Control {
-                        target: target.clone(),
-                        command,
-                    }) {
-                        Ok(Response::Control(o)) => o,
-                        Ok(other) => vec![failed(&target, unexpected(other).to_string())],
-                        Err(e) => vec![failed(&target, e.to_string())],
-                    }
+                if self.client.as_ref().is_some_and(Client::is_admin) {
+                    // The service may wait up to seconds for the process.
+                    self.aside(move |client, data| {
+                        let (outcomes, details) = match client {
+                            Ok(mut c) => {
+                                let outcomes = match c.call(&Request::Control {
+                                    target: target.clone(),
+                                    command,
+                                }) {
+                                    Ok(Response::Control(o)) => o,
+                                    Ok(other) => {
+                                        vec![failed(&target, unexpected(other).to_string())]
+                                    }
+                                    Err(e) => vec![failed(&target, e.to_string())],
+                                };
+                                (outcomes, inspect_with(&mut c, &target))
+                            }
+                            Err(e) => (vec![failed(&target, e.to_string())], Err(e.to_string())),
+                        };
+                        let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+                        report(&mut data, command, outcomes, false);
+                        // So the side panel reflects the change.
+                        data.details = Some((target, details));
+                    });
                 } else {
-                    self.run_local(&target, command)
-                };
-                self.report(command, &outcomes, !via_service);
-                // Refresh details so the side panel reflects the change.
-                self.handle(UiCommand::Inspect(target));
+                    let outcomes = self.run_local(&target, command);
+                    report(&mut self.data(), command, outcomes, true);
+                    // Refresh details so the side panel reflects the change.
+                    self.handle(UiCommand::Inspect(target));
+                }
             }
         }
     }
@@ -1246,9 +1385,20 @@ impl Worker {
             Command::TrimMemory => one(control::trim_memory(t)),
         }
     }
+}
 
-    fn report(&self, command: Command, outcomes: &[Outcome], local: bool) {
-        let mut data = self.data();
+/// Shows what a control command did; `local` ones are also logged as events
+/// (the service logs its own).
+fn report(data: &mut Data, command: Command, mut outcomes: Vec<Outcome>, local: bool) {
+    // Through the service the request already had administrator rights.
+    let privileged = data.elevated || !local;
+    for o in &mut outcomes {
+        if let Err(e) = &mut o.result {
+            *e = gui_error(e, privileged);
+        }
+    }
+    let outcomes = &outcomes[..];
+    {
         let failures: Vec<&Outcome> = outcomes.iter().filter(|o| o.result.is_err()).collect();
         data.message = Some(match failures.first() {
             None => (
@@ -1350,6 +1500,14 @@ fn service_message(
                 &[format!("{:?}", op), name.to_string(), format!("{}", e)],
             )
         }),
+    }
+}
+
+fn inspect_with(client: &mut Client, target: &ProcessRef) -> Result<ProcessDetails, String> {
+    match client.call(&Request::Inspect(target.clone())) {
+        Ok(Response::Details(d)) => Ok(d),
+        Ok(other) => Err(unexpected(other).to_string()),
+        Err(e) => Err(e.to_string()),
     }
 }
 
@@ -2273,16 +2431,31 @@ mod tests {
         }
     }
 
-    /// Answers every request with `respond` until the client disconnects.
+    /// Answers every request with `respond` on `connections` connections
+    /// (slow requests use one of their own), each until its client
+    /// disconnects.
     fn serve(
         pipe: &str,
-        mut respond: impl FnMut(Request) -> Response + Send + 'static,
+        connections: usize,
+        respond: impl FnMut(Request) -> Response + Send + 'static,
     ) -> std::thread::JoinHandle<()> {
         let mut listener = wtm_sys::pipe::PipeListener::bind(pipe, wtm_ipc::PIPE_SDDL).unwrap();
+        let respond = Arc::new(Mutex::new(respond));
         std::thread::spawn(move || {
-            let mut conn = listener.accept().unwrap();
-            while let Ok(request) = read_frame::<Request>(&mut conn) {
-                let _ = write_frame(&mut conn, &respond(request));
+            let served: Vec<_> = (0..connections)
+                .map(|_| {
+                    let mut conn = listener.accept().unwrap();
+                    let respond = respond.clone();
+                    std::thread::spawn(move || {
+                        while let Ok(request) = read_frame::<Request>(&mut conn) {
+                            let response = respond.lock().unwrap()(request);
+                            let _ = write_frame(&mut conn, &response);
+                        }
+                    })
+                })
+                .collect();
+            for s in served {
+                s.join().unwrap();
             }
         })
     }
@@ -2324,13 +2497,17 @@ mod tests {
     }
 
     /// Answers like the service would, until the client disconnects.
-    fn fake_server(pipe: String, snapshot: Snapshot) -> std::thread::JoinHandle<()> {
+    fn fake_server(
+        pipe: String,
+        connections: usize,
+        snapshot: Snapshot,
+    ) -> std::thread::JoinHandle<()> {
         let target = ProcessRef {
             pid: 1,
             create_time: 1,
             name: "x.exe".into(),
         };
-        serve(&pipe, move |request| match request {
+        serve(&pipe, connections, move |request| match request {
             Request::Hello { .. } => hello(),
             Request::Snapshot => Response::Snapshot(snapshot.clone()),
             Request::Status => Response::Status(Status::default()),
@@ -2395,9 +2572,11 @@ mod tests {
         }
         let pipe = test_pipe("service");
         let snapshot = Sampler::new().sample().unwrap();
-        let server = fake_server(pipe.clone(), snapshot);
+        // The main connection, then one each for Control and TestTelegram.
+        let server = fake_server(pipe.clone(), 3, snapshot);
 
         let mut w = worker();
+        w.pipe = pipe.clone();
         w.client = Some(Client::connect_to(&pipe).unwrap());
         w.foreground = || Some((1, false));
         w.tick();
@@ -2430,7 +2609,7 @@ mod tests {
             target: t.clone(),
             command: Command::Suspend,
         });
-        assert_eq!(message(&w).0, EventLevel::Info);
+        assert_eq!(background_message(&w).0, EventLevel::Info);
         // Inspect after the command went through the service and was refused.
         assert!(matches!(&w.data().details, Some((_, Err(e))) if e == "denied"));
         w.handle(UiCommand::LoadHistory { hours: 24 });
@@ -2451,20 +2630,22 @@ mod tests {
         assert_eq!(message(&w).0, EventLevel::Info);
         assert!(matches!(w.data().telegram, Some(Ok(_))));
         w.handle(UiCommand::TestTelegram);
-        assert_eq!(message(&w), (EventLevel::Info, "sent".to_owned()));
+        assert_eq!(
+            background_message(&w),
+            (EventLevel::Info, "sent".to_owned())
+        );
 
         drop(w.client.take());
         server.join().unwrap();
 
-        // A server that hangs up right after the handshake: the next tick
-        // must fall back to local sampling and warn.
+        // A server that hangs up right after the handshake (as a restarting
+        // service does): the next tick falls back to local sampling and
+        // says that it reconnects.
         w.client = Some(hang_up_after_hello(&pipe, false));
         w.tick();
         assert_eq!(w.data().mode, Mode::Local);
         assert!(w.client.is_none());
-        let (level, text) = message(&w);
-        assert_eq!(level, EventLevel::Warn);
-        assert!(text.starts_with("Lost connection to service"), "{text}");
+        assert_eq!(message(&w), (EventLevel::Warn, RECONNECTING.to_owned()));
     }
 
     static NOTIFIED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -2488,7 +2669,7 @@ mod tests {
         }
         let pipe = test_pipe("odd");
         let mut next_event = 0;
-        let server = serve(&pipe, move |request| match request {
+        let server = serve(&pipe, 3, move |request| match request {
             Request::Hello { .. } => hello(),
             // The service has not sampled yet.
             Request::Snapshot => Response::Error("no sample yet".into()),
@@ -2557,7 +2738,7 @@ mod tests {
             target: x_exe(),
             command: Command::Resume,
         });
-        let (level, text) = message(&w);
+        let (level, text) = background_message(&w);
         assert_eq!(level, EventLevel::Warn);
         assert!(text.ends_with("refused"), "{text}");
         assert!(matches!(&w.data().details, Some((_, Ok(_)))));
@@ -2576,7 +2757,7 @@ mod tests {
         assert!(text.ends_with("invalid configuration: x"), "{text}");
         assert!(matches!(&w.data().config, Some(Err(e)) if e.starts_with("unexpected response")));
         w.handle(UiCommand::TestTelegram);
-        assert!(message(&w).1.ends_with("chat not found"));
+        assert!(background_message(&w).1.ends_with("chat not found"));
         w.handle(UiCommand::Load(Panel::Telegram));
         assert!(matches!(&w.data().telegram, Some(Err(e)) if e.starts_with("unexpected response")));
 
@@ -2590,18 +2771,177 @@ mod tests {
             return;
         }
         let mut w = worker();
-        w.client = Some(hang_up_after_hello(&test_pipe("dead"), true));
+        w.pipe = test_pipe("dead");
+        w.client = Some(hang_up_after_hello(&w.pipe, true));
         w.handle(UiCommand::LoadHistory { hours: 1 });
         assert!(matches!(w.data().app_history, Some(Err(_))));
         w.handle(UiCommand::SaveConfig(String::new()));
         assert_eq!(message(&w).0, EventLevel::Error);
         assert!(matches!(w.data().config, Some(Err(_))));
+        // The connection for the request cannot be made either.
         w.handle(UiCommand::Control {
             target: x_exe(),
             command: Command::Kill,
         });
-        assert_eq!(message(&w).0, EventLevel::Warn);
+        assert_eq!(background_message(&w).0, EventLevel::Warn);
         assert!(matches!(&w.data().details, Some((_, Err(_)))));
+    }
+
+    fn event(id: u64, unix_ms: u64) -> Event {
+        Event {
+            id,
+            unix_ms,
+            level: EventLevel::Info,
+            pid: None,
+            name: None,
+            message: format!("event {id}"),
+            notify: false,
+        }
+    }
+
+    fn ids(events: &VecDeque<Event>) -> Vec<u64> {
+        events.iter().map(|e| e.id).collect()
+    }
+
+    #[test]
+    fn reconnecting_does_not_repeat_service_events() {
+        let mut events = VecDeque::new();
+        merge_events(&mut events, vec![event(1, 10), event(2, 20)], true);
+        merge_events(&mut events, vec![event(3, 30)], false);
+        // A local action between the service's events.
+        events.push_back(event(0, 35));
+        // Events already shown are not added twice.
+        merge_events(&mut events, vec![event(3, 30), event(4, 40)], false);
+        assert_eq!(ids(&events), [1, 2, 3, 0, 4]);
+        // After reconnecting the backlog replaces the service events and the
+        // local one keeps its place in time.
+        merge_events(
+            &mut events,
+            (1..=5).map(|i| event(i, i * 10)).collect(),
+            true,
+        );
+        assert_eq!(ids(&events), [1, 2, 3, 0, 4, 5]);
+        // A restarted service may count from 1 again.
+        merge_events(&mut events, vec![event(1, 100)], true);
+        assert_eq!(ids(&events), [0, 1]);
+        // Never more than are kept.
+        merge_events(
+            &mut events,
+            (1..=EVENTS_KEPT as u64 + 10)
+                .map(|i| event(i, 100 + i))
+                .collect(),
+            true,
+        );
+        assert_eq!(events.len(), EVENTS_KEPT);
+        assert_eq!(events.back().map(|e| e.id), Some(EVENTS_KEPT as u64 + 10));
+    }
+
+    #[test]
+    fn the_service_problem_is_read_from_the_connection_error() {
+        use ServiceProblem::*;
+        assert_eq!(service_problem(None), NotRunning);
+        assert_eq!(
+            service_problem(Some(
+                "The system cannot find the file specified. (os error 2)"
+            )),
+            NotRunning
+        );
+        assert_eq!(
+            service_problem(Some("service speaks protocol 12, client 13")),
+            Older
+        );
+        assert_eq!(
+            service_problem(Some("service speaks protocol 14, client 13")),
+            Newer
+        );
+        assert_eq!(
+            service_problem(Some("unexpected handshake reply: Done")),
+            Older
+        );
+        assert_eq!(
+            service_problem(Some("the pipe is not served by the RustWTM service")),
+            Impostor
+        );
+        let data = Mutex::new(Data {
+            service_error: Some("service speaks protocol 14, client 13".into()),
+            ..Data::default()
+        });
+        let text = without_service(&data, NO_CONFIG);
+        assert!(text.contains("newer than this window"), "{text}");
+        assert!(text.contains("Restart RustWTM"), "{text}");
+        data.lock().unwrap().service_error =
+            Some("the pipe is not served by the RustWTM service".into());
+        assert!(without_service(&data, NO_CONFIG).contains("another program"));
+    }
+
+    #[test]
+    fn errors_are_worded_for_the_window() {
+        let denied = "access denied to process 42 (try an elevated prompt)";
+        assert_eq!(
+            gui_error(denied, false),
+            "access denied to process 42 (restart RustWTM as administrator)"
+        );
+        assert_eq!(
+            gui_error(denied, true),
+            "access denied to process 42 (Windows protects it even from administrators)"
+        );
+        assert_eq!(
+            gui_error("process 42 no longer exists", false),
+            "process 42 no longer exists"
+        );
+        let mut data = Data::default();
+        report(
+            &mut data,
+            Command::Kill,
+            vec![failed(&x_exe(), denied.into())],
+            true,
+        );
+        let text = data.message.unwrap().1;
+        assert!(
+            text.ends_with("(restart RustWTM as administrator)"),
+            "{text}"
+        );
+        assert!(data.events[0].message.ends_with("as administrator)"));
+
+        let broken = io::Error::from_raw_os_error(109);
+        assert_eq!(lost_connection(&broken), RECONNECTING);
+        let eof = io::Error::from(io::ErrorKind::UnexpectedEof);
+        assert_eq!(lost_connection(&eof), RECONNECTING);
+        let odd = io::Error::other("unexpected response: Done");
+        assert_eq!(
+            lost_connection(&odd),
+            "Lost connection to service: unexpected response: Done"
+        );
+    }
+
+    #[test]
+    fn slow_requests_do_not_hold_up_the_worker() {
+        if service_installed() {
+            return;
+        }
+        let pipe = test_pipe("slow");
+        let snapshot = Sampler::new().sample().unwrap();
+        // The main connection answers at once; the Telegram test takes long.
+        let server = serve(&pipe, 2, move |request| match request {
+            Request::Hello { .. } => hello(),
+            Request::Snapshot => Response::Snapshot(snapshot.clone()),
+            Request::Status => Response::Status(Status::default()),
+            Request::Events { .. } => Response::Events(Vec::new()),
+            Request::TestTelegram => {
+                std::thread::sleep(Duration::from_millis(300));
+                Response::Text("sent".into())
+            }
+            _ => Response::Done,
+        });
+        let mut w = worker();
+        w.pipe = pipe.clone();
+        w.client = Some(Client::connect_to(&pipe).unwrap());
+        let started = Instant::now();
+        w.handle(UiCommand::TestTelegram);
+        assert!(started.elapsed() < Duration::from_millis(250));
+        assert_eq!(background_message(&w).1, "sent");
+        drop(w.client.take());
+        server.join().unwrap();
     }
 
     #[test]
@@ -2611,7 +2951,7 @@ mod tests {
         }
         for stage in 0..3 {
             let pipe = test_pipe(&format!("fetch{stage}"));
-            let server = serve(&pipe, move |request| match (request, stage) {
+            let server = serve(&pipe, 1, move |request| match (request, stage) {
                 (Request::Hello { .. }, _) => hello(),
                 (Request::Snapshot, 0) | (Request::Status, 1) | (Request::Events { .. }, 2) => {
                     Response::Series(Vec::new())

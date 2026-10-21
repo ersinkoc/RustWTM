@@ -733,7 +733,8 @@ fn clock(unix_ms: u64) -> String {
 fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
     if !matches!(data.mode, Mode::Service { .. }) {
         let error = data.service_error.as_deref().unwrap_or_default();
-        if error.contains("protocol") {
+        let problem = crate::backend::service_problem(data.service_error.as_deref());
+        if problem == crate::backend::ServiceProblem::Older {
             ui.colored_label(
                 WARN,
                 { let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("The installed RustWTM service is a different version ({0}), so nothing is limited automatically. Update it with the installer of version {1}.", &[error.to_string(), __wtm_i18n_0.to_string()]) },
@@ -741,6 +742,20 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
             ui.hyperlink_to(
                 crate::i18n::tr("Download the latest release"),
                 format!("{}/releases/latest", crate::about::REPO),
+            );
+        } else if problem == crate::backend::ServiceProblem::Newer {
+            ui.colored_label(
+                WARN,
+                crate::i18n::format("The installed RustWTM service is newer than this window ({0}). Restart RustWTM to use it; if this window stays older, update it with the latest installer.", &[error.to_string()]),
+            );
+            ui.hyperlink_to(
+                crate::i18n::tr("Download the latest release"),
+                format!("{}/releases/latest", crate::about::REPO),
+            );
+        } else if problem == crate::backend::ServiceProblem::Impostor {
+            ui.colored_label(
+                WARN,
+                crate::i18n::tr("Another program answers in place of the RustWTM service, so RustWTM does not use it and nothing is limited automatically."),
             );
         } else {
             ui.colored_label(

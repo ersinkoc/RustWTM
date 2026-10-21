@@ -22,7 +22,17 @@ wtm-core.workspace = true
 wtm-ipc.workspace = true
 wtm-policy.workspace = true
 chrono.workspace = true
-eframe = { workspace = true, features = ["persistence"] }
+# Rendered with OpenGL (glow): the default wgpu back end loads Direct3D and
+# Vulkan drivers and costs the window close to 200 MB more memory.
+eframe = { workspace = true, features = [
+    "accesskit",
+    "clipboard",
+    "default_fonts",
+    "glow",
+    "links",
+    "persistence",
+    "system_fonts",
+] }
 egui_extras.workspace = true
 egui_plot.workspace = true
 notify-rust.workspace = true
