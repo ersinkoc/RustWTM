@@ -3503,6 +3503,66 @@
     "fr": "Connexion au service perdue : {0}",
     "es": "Conexión con el servicio perdida: {0}"
   },
+  "The RustWTM service went away (it may be restarting); reconnecting…": {
+    "tr": "RustWTM servisi bağlantıyı kapattı (yeniden başlıyor olabilir); yeniden bağlanılıyor…",
+    "de": "Der RustWTM-Dienst ist nicht mehr erreichbar (er startet eventuell neu); Verbindung wird wiederhergestellt…",
+    "fr": "Le service RustWTM ne répond plus (il redémarre peut-être) ; reconnexion…",
+    "es": "El servicio RustWTM dejó de responder (puede que se esté reiniciando); reconectando…"
+  },
+  "access denied to process {0} (restart RustWTM as administrator)": {
+    "tr": "{0} işlemine erişim reddedildi (RustWTM'i yönetici olarak yeniden başlatın)",
+    "de": "Zugriff auf Prozess {0} verweigert (RustWTM als Administrator neu starten)",
+    "fr": "Accès au processus {0} refusé (redémarrez RustWTM en administrateur)",
+    "es": "Acceso denegado al proceso {0} (reinicie RustWTM como administrador)"
+  },
+  "access denied to process {0} (Windows protects it even from administrators)": {
+    "tr": "{0} işlemine erişim reddedildi (Windows onu yöneticilere karşı da korur)",
+    "de": "Zugriff auf Prozess {0} verweigert (Windows schützt ihn auch vor Administratoren)",
+    "fr": "Accès au processus {0} refusé (Windows le protège même des administrateurs)",
+    "es": "Acceso denegado al proceso {0} (Windows lo protege incluso de los administradores)"
+  },
+  "{0}, but the installed service is newer than this window ({1}). Restart RustWTM, or update it with the latest installer.": {
+    "tr": "{0}, ancak kurulu servis bu pencereden daha yeni ({1}). RustWTM'i yeniden başlatın ya da en son yükleyiciyle güncelleyin.",
+    "de": "{0}, aber der installierte Dienst ist neuer als dieses Fenster ({1}). Starten Sie RustWTM neu oder aktualisieren Sie es mit dem neuesten Installationsprogramm.",
+    "fr": "{0}, mais le service installé est plus récent que cette fenêtre ({1}). Redémarrez RustWTM ou mettez-le à jour avec le dernier programme d’installation.",
+    "es": "{0}, pero el servicio instalado es más reciente que esta ventana ({1}). Reinicie RustWTM o actualícelo con el instalador más reciente."
+  },
+  "{0}, but another program answers in its place, so RustWTM does not use it.": {
+    "tr": "{0}, ancak onun yerine başka bir program yanıt veriyor; RustWTM bunu kullanmaz.",
+    "de": "{0}, aber an seiner Stelle antwortet ein anderes Programm, daher verwendet RustWTM es nicht.",
+    "fr": "{0}, mais un autre programme répond à sa place ; RustWTM ne l’utilise donc pas.",
+    "es": "{0}, pero otro programa responde en su lugar, así que RustWTM no lo usa."
+  },
+  "The installed RustWTM service is newer than this window ({0}). Restart RustWTM to use it; if this window stays older, update it with the latest installer.": {
+    "tr": "Kurulu RustWTM servisi bu pencereden daha yeni ({0}). Kullanmak için RustWTM'i yeniden başlatın; pencere eski kalırsa en son yükleyiciyle güncelleyin.",
+    "de": "Der installierte RustWTM-Dienst ist neuer als dieses Fenster ({0}). Starten Sie RustWTM neu, um ihn zu nutzen; bleibt dieses Fenster älter, aktualisieren Sie es mit dem neuesten Installationsprogramm.",
+    "fr": "Le service RustWTM installé est plus récent que cette fenêtre ({0}). Redémarrez RustWTM pour l’utiliser ; si cette fenêtre reste plus ancienne, mettez-la à jour avec le dernier programme d’installation.",
+    "es": "El servicio RustWTM instalado es más reciente que esta ventana ({0}). Reinicie RustWTM para usarlo; si esta ventana sigue siendo más antigua, actualícela con el instalador más reciente."
+  },
+  "Another program answers in place of the RustWTM service, so RustWTM does not use it and nothing is limited automatically.": {
+    "tr": "RustWTM servisi yerine başka bir program yanıt veriyor; RustWTM bunu kullanmaz ve hiçbir şey otomatik olarak sınırlanmaz.",
+    "de": "An Stelle des RustWTM-Dienstes antwortet ein anderes Programm; RustWTM verwendet es nicht, und nichts wird automatisch begrenzt.",
+    "fr": "Un autre programme répond à la place du service RustWTM ; RustWTM ne l’utilise pas et rien n’est limité automatiquement.",
+    "es": "Otro programa responde en lugar del servicio RustWTM; RustWTM no lo usa y nada se limita automáticamente."
+  },
+  "The RustWTM service is an older version this window cannot talk to; update it. Monitoring and actions use this window's own rights.": {
+    "tr": "RustWTM servisi bu pencerenin iletişim kuramadığı eski bir sürüm; servisi güncelleyin. İzleme ve işlemler bu pencerenin kendi yetkilerini kullanır.",
+    "de": "Der RustWTM-Dienst ist eine ältere Version, mit der dieses Fenster nicht sprechen kann; aktualisieren Sie ihn. Überwachung und Aktionen nutzen die eigenen Rechte dieses Fensters.",
+    "fr": "Le service RustWTM est une version plus ancienne avec laquelle cette fenêtre ne peut pas communiquer ; mettez-le à jour. La surveillance et les actions utilisent les droits propres de cette fenêtre.",
+    "es": "El servicio RustWTM es una versión anterior con la que esta ventana no puede comunicarse; actualícelo. La supervisión y las acciones usan los propios permisos de esta ventana."
+  },
+  "The RustWTM service is newer than this window; restart RustWTM to use it. Until then monitoring and actions use this window's own rights.": {
+    "tr": "RustWTM servisi bu pencereden daha yeni; kullanmak için RustWTM'i yeniden başlatın. O zamana kadar izleme ve işlemler bu pencerenin kendi yetkilerini kullanır.",
+    "de": "Der RustWTM-Dienst ist neuer als dieses Fenster; starten Sie RustWTM neu, um ihn zu nutzen. Bis dahin nutzen Überwachung und Aktionen die eigenen Rechte dieses Fensters.",
+    "fr": "Le service RustWTM est plus récent que cette fenêtre ; redémarrez RustWTM pour l’utiliser. En attendant, la surveillance et les actions utilisent les droits propres de cette fenêtre.",
+    "es": "El servicio RustWTM es más reciente que esta ventana; reinicie RustWTM para usarlo. Hasta entonces, la supervisión y las acciones usan los propios permisos de esta ventana."
+  },
+  "Another program answers in place of the RustWTM service, so it is not used. Monitoring and actions use this window's own rights.": {
+    "tr": "RustWTM servisi yerine başka bir program yanıt veriyor, bu yüzden kullanılmıyor. İzleme ve işlemler bu pencerenin kendi yetkilerini kullanır.",
+    "de": "An Stelle des RustWTM-Dienstes antwortet ein anderes Programm, daher wird es nicht verwendet. Überwachung und Aktionen nutzen die eigenen Rechte dieses Fensters.",
+    "fr": "Un autre programme répond à la place du service RustWTM ; il n’est donc pas utilisé. La surveillance et les actions utilisent les droits propres de cette fenêtre.",
+    "es": "Otro programa responde en lugar del servicio RustWTM, así que no se usa. La supervisión y las acciones usan los propios permisos de esta ventana."
+  },
   "{0} has exited (watched for {1}).": {
     "tr": "{0} sonlandı (izleme süresi {1}).",
     "de": "{0} wurde beendet ({1} überwacht).",

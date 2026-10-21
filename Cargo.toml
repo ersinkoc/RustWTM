@@ -20,7 +20,7 @@ wtm-ipc = { path = "crates/wtm-ipc" }
 
 anyhow = "1.0.104"
 chrono = "0.4.45"
-eframe = "0.37.0"
+eframe = { version = "0.37.0", default-features = false }
 egui_extras = "0.37.0"
 egui_plot = "0.38.0"
 clap = { version = "4.6.7", features = ["derive"] }

@@ -33,11 +33,27 @@ pub fn run(line: &str, elevated: bool) -> Result<(), String> {
 }
 
 /// Starts this program again with administrator rights. The caller exits
-/// once it returns `Ok`.
+/// once it returns `Ok`; the new copy is told to wait for that (see
+/// [`REPLACE_ARG`]) instead of finding this one and closing again.
 pub fn restart_elevated() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe = exe.to_string_lossy();
-    wtm_sys::shell::launch(&exe, "", true).map_err(|e| describe(&exe, e.is_cancelled(), e))
+    let args = format!("{REPLACE_ARG} {}", std::process::id());
+    wtm_sys::shell::launch(&exe, &args, true).map_err(|e| describe(&exe, e.is_cancelled(), e))
+}
+
+/// `--replace <pid>`: this copy takes over from process `pid`, which is
+/// about to exit.
+pub const REPLACE_ARG: &str = "--replace";
+
+/// Waits until process `pid` has exited, at most `timeout`. Returns whether
+/// it is gone; a process that cannot be opened counts as gone.
+pub fn wait_for_exit(pid: u32, timeout: std::time::Duration) -> bool {
+    use wtm_sys::control::{Access, ProcessHandle};
+    match ProcessHandle::open(pid, Access::SYNCHRONIZE) {
+        Ok(process) => process.wait_exit(timeout).unwrap_or(true),
+        Err(_) => true,
+    }
 }
 
 fn describe(file: &str, cancelled: bool, e: impl std::fmt::Display) -> String {
@@ -86,5 +102,25 @@ mod tests {
         );
         // Either answer is fine; it must not panic.
         let _ = is_elevated();
+    }
+
+    #[test]
+    fn waits_for_a_replaced_process_to_exit() {
+        use std::time::{Duration, Instant};
+        // A PID that cannot be opened counts as gone at once.
+        assert!(wait_for_exit(0xFFFF_FFF0, Duration::from_secs(10)));
+        // Ourselves: still running, so the wait ends after the timeout.
+        let started = Instant::now();
+        assert!(!wait_for_exit(
+            std::process::id(),
+            Duration::from_millis(50)
+        ));
+        assert!(started.elapsed() >= Duration::from_millis(40));
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "exit"])
+            .spawn()
+            .unwrap();
+        assert!(wait_for_exit(child.id(), Duration::from_secs(10)));
+        let _ = child.wait();
     }
 }
