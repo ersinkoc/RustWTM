@@ -5668,5 +5668,17 @@
     "de": "Welche Dateien gelesen und geschrieben werden, erfordert den RustWTM-Dienst oder Administratorrechte.",
     "fr": "Voir quels fichiers sont lus et écrits nécessite le service RustWTM ou des droits administrateur.",
     "es": "Ver qué archivos se leen y escriben requiere el servicio RustWTM o derechos de administrador."
+    },
+  "More below": {
+    "tr": "Aşağıda devamı var",
+    "de": "Weiter unten mehr",
+    "fr": "Suite plus bas",
+    "es": "Hay más abajo"
+  },
+  "Fix the errors in config.toml to use this form.": {
+    "tr": "Bu formu kullanmak için config.toml dosyasındaki hataları düzeltin.",
+    "de": "Beheben Sie die Fehler in config.toml, um dieses Formular zu verwenden.",
+    "fr": "Corrigez les erreurs de config.toml pour utiliser ce formulaire.",
+    "es": "Corrija los errores de config.toml para usar este formulario."
   }
 }

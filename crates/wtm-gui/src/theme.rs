@@ -160,13 +160,18 @@ pub fn card<R>(
     title: impl Into<egui::WidgetText>,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
+    panel(ui, |ui| {
+        ui.label(title.into());
+        ui.add_space(4.0);
+        add(ui)
+    })
+}
+
+/// A [`card`] without a title, for a page that is one section.
+pub fn panel<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     let dark = ui.visuals().dark_mode;
     egui::Frame::new()
-        .fill(if dark {
-            Color32::from_rgb(26, 31, 38)
-        } else {
-            Color32::WHITE
-        })
+        .fill(card_fill(ui))
         .stroke(Stroke::new(
             1.0,
             if dark {
@@ -179,8 +184,6 @@ pub fn card<R>(
         .inner_margin(Margin::same(12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(title.into());
-            ui.add_space(4.0);
             add(ui)
         })
         .inner
@@ -273,6 +276,100 @@ pub fn ring_gauge(
     response
 }
 
+fn scroll_key(key: &str) -> egui::Id {
+    egui::Id::unique(("more_below", key))
+}
+
+/// The offset a click on [`more_below`] asked for, for the next
+/// `vertical_scroll_offset` of the scroll area with the same `key`.
+pub fn take_scroll(ui: &Ui, key: &str) -> Option<f32> {
+    ui.data_mut(|d| d.remove_temp::<f32>(scroll_key(key)))
+}
+
+/// While a scroll area's content goes on below its bottom edge: fades that
+/// edge into `fill` and shows a *More below* button that scrolls most of a
+/// view further (see [`take_scroll`]).
+pub fn more_below<R>(
+    ui: &Ui,
+    key: &str,
+    out: &egui::scroll_area::ScrollAreaOutput<R>,
+    fill: Color32,
+) {
+    let view = out.inner_rect;
+    let max_offset = out.content_size.y - view.height();
+    let offset = out.state.clamped_offset().y;
+    if max_offset - offset < 8.0 || view.height() < 80.0 {
+        return;
+    }
+    let painter = ui.painter().with_clip_rect(view);
+
+    let fade = Rect::from_min_max(egui::pos2(view.left(), view.bottom() - 36.0), view.max);
+    let mut mesh = epaint::Mesh::default();
+    let clear = fill.gamma_multiply(0.0);
+    for (pos, color) in [
+        (fade.left_top(), clear),
+        (fade.right_top(), clear),
+        (fade.right_bottom(), fill),
+        (fade.left_bottom(), fill),
+    ] {
+        mesh.colored_vertex(pos, color);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(Shape::mesh(mesh));
+
+    let label = crate::i18n::tr("More below");
+    let galley = painter.layout_no_wrap(
+        label.to_owned(),
+        egui::FontId::proportional(13.0),
+        Color32::WHITE,
+    );
+    let size = galley.size() + egui::vec2(38.0, 10.0);
+    let rect = Rect::from_center_size(
+        egui::pos2(view.center().x, view.bottom() - 6.0 - size.y / 2.0),
+        size,
+    );
+    let response = ui
+        .interact(rect, scroll_key(key).with("button"), egui::Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+    let color = if response.hovered() {
+        ACCENT.gamma_multiply(0.85)
+    } else {
+        ACCENT
+    };
+    painter.rect_filled(rect, CornerRadius::same(255), color);
+    // A chevron pointing down, then the text.
+    let c = egui::pos2(rect.left() + 15.0, rect.center().y);
+    painter.add(Shape::line(
+        vec![
+            c + egui::vec2(-4.0, -2.0),
+            c + egui::vec2(0.0, 2.0),
+            c + egui::vec2(4.0, -2.0),
+        ],
+        Stroke::new(1.6, Color32::WHITE),
+    ));
+    painter.galley(
+        egui::pos2(rect.left() + 26.0, rect.center().y - galley.size().y / 2.0),
+        galley,
+        Color32::WHITE,
+    );
+    if response.clicked() {
+        let target = (offset + view.height() * 0.85).min(max_offset);
+        ui.data_mut(|d| d.insert_temp(scroll_key(key), target));
+        ui.ctx().request_repaint();
+    }
+}
+
+/// Background of a [`card`].
+pub fn card_fill(ui: &Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(26, 31, 38)
+    } else {
+        Color32::WHITE
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -325,6 +422,48 @@ mod tests {
                 });
             h.run();
         }
+    }
+
+    #[test]
+    fn more_below_shows_until_the_end_and_scrolls() {
+        let mut h = egui_kittest::Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([400.0, 300.0])
+            .build_ui(|ui| {
+                let mut area = egui::ScrollArea::vertical()
+                    .id_salt("list")
+                    .auto_shrink([false, false]);
+                if let Some(y) = take_scroll(ui, "list") {
+                    area = area.vertical_scroll_offset(y);
+                }
+                let out = area.show(ui, |ui| {
+                    for i in 0..60 {
+                        ui.label(format!("row {i}"));
+                    }
+                });
+                ui.data_mut(|d| {
+                    d.insert_temp(egui::Id::unique("offset"), out.state.clamped_offset().y)
+                });
+                more_below(ui, "list", &out, ui.visuals().panel_fill);
+            });
+        h.run();
+        let offset = |h: &egui_kittest::Harness<'_>| {
+            h.ctx
+                .data(|d| d.get_temp::<f32>(egui::Id::unique("offset")))
+                .unwrap()
+        };
+        assert_eq!(offset(&h), 0.0);
+        for _ in 0..10 {
+            if h.query_by_label("More below").is_none() {
+                break;
+            }
+            let before = offset(&h);
+            h.get_by_label("More below").click();
+            h.run();
+            assert!(offset(&h) > before, "a click scrolls down");
+        }
+        assert!(h.query_by_label("More below").is_none(), "gone at the end");
+        assert!(h.query_by_label("row 59").is_some());
     }
 
     #[test]

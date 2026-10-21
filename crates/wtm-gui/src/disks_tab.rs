@@ -704,8 +704,13 @@ fn folders(
     );
     let row_height = ui.spacing().interact_size.y;
     let mut toggle = None;
-    TableBuilder::new(ui)
-        .id_salt("disk_folders")
+    let scroll = crate::theme::take_scroll(ui, "disk_folders");
+    let table = TableBuilder::new(ui).id_salt("disk_folders");
+    let table = match scroll {
+        Some(y) => table.vertical_scroll_offset(y),
+        None => table,
+    };
+    let out = table
         .striped(true)
         .resizable(true)
         .max_scroll_height(TABLE_HEIGHT)
@@ -814,6 +819,7 @@ fn folders(
                 }
             });
         });
+    crate::theme::more_below(ui, "disk_folders", &out, crate::theme::card_fill(ui));
     if let Some(index) = toggle
         && !expanded.remove(&index)
     {
@@ -827,8 +833,13 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
         return;
     }
     let row_height = ui.spacing().interact_size.y;
-    TableBuilder::new(ui)
-        .id_salt("disk_largest")
+    let scroll = crate::theme::take_scroll(ui, "disk_largest");
+    let table = TableBuilder::new(ui).id_salt("disk_largest");
+    let table = match scroll {
+        Some(y) => table.vertical_scroll_offset(y),
+        None => table,
+    };
+    let out = table
         .striped(true)
         .resizable(true)
         .max_scroll_height(TABLE_HEIGHT)
@@ -878,6 +889,7 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
                 });
             });
         });
+    crate::theme::more_below(ui, "disk_largest", &out, crate::theme::card_fill(ui));
 }
 
 fn types(ui: &mut Ui, r: &ScanResult) {
@@ -885,41 +897,45 @@ fn types(ui: &mut Ui, r: &ScanResult) {
         ui.weak(crate::i18n::tr("No files found."));
         return;
     }
-    egui::ScrollArea::vertical()
+    let mut area = egui::ScrollArea::vertical()
         .id_salt("disk_types")
-        .max_height(TABLE_HEIGHT)
-        .show(ui, |ui| {
-            egui::Grid::new("disk_types_grid")
-                .num_columns(4)
-                .striped(true)
-                .spacing([16.0, 6.0])
-                .show(ui, |ui| {
-                    for label in [
-                        crate::i18n::tr("Type"),
-                        crate::i18n::tr("Size"),
-                        crate::i18n::tr("Share"),
-                        crate::i18n::tr("Files"),
-                    ] {
-                        ui.strong(label);
-                    }
+        .max_height(TABLE_HEIGHT);
+    if let Some(y) = crate::theme::take_scroll(ui, "disk_types") {
+        area = area.vertical_scroll_offset(y);
+    }
+    let out = area.show(ui, |ui| {
+        egui::Grid::new("disk_types_grid")
+            .num_columns(4)
+            .striped(true)
+            .spacing([16.0, 6.0])
+            .show(ui, |ui| {
+                for label in [
+                    crate::i18n::tr("Type"),
+                    crate::i18n::tr("Size"),
+                    crate::i18n::tr("Share"),
+                    crate::i18n::tr("Files"),
+                ] {
+                    ui.strong(label);
+                }
+                ui.end_row();
+                for t in &r.types {
+                    ui.label(match t.extension.as_str() {
+                        "" => crate::i18n::tr("(no extension)").to_owned(),
+                        "*" => crate::i18n::tr("All other types").to_owned(),
+                        e => format!(".{e}"),
+                    });
+                    ui.label(format_bytes(t.size as f64));
+                    ui.horizontal(|ui| {
+                        let s = share(t.size, r.root.size);
+                        bar(ui, s, 160.0, ACCENT);
+                        ui.label(format!("{:.1}%", s * 100.0));
+                    });
+                    ui.label(t.files.to_string());
                     ui.end_row();
-                    for t in &r.types {
-                        ui.label(match t.extension.as_str() {
-                            "" => crate::i18n::tr("(no extension)").to_owned(),
-                            "*" => crate::i18n::tr("All other types").to_owned(),
-                            e => format!(".{e}"),
-                        });
-                        ui.label(format_bytes(t.size as f64));
-                        ui.horizontal(|ui| {
-                            let s = share(t.size, r.root.size);
-                            bar(ui, s, 160.0, ACCENT);
-                            ui.label(format!("{:.1}%", s * 100.0));
-                        });
-                        ui.label(t.files.to_string());
-                        ui.end_row();
-                    }
-                });
-        });
+                }
+            });
+    });
+    crate::theme::more_below(ui, "disk_types", &out, crate::theme::card_fill(ui));
 }
 
 /// Drives and a finished analysis for the visual review.

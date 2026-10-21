@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Settings: split into pages chosen at the top (*This window*, *Service
+  settings*, *config.toml*, *Telegram*) instead of one long scrolling page;
+  the `config.toml` editor fills the window.
+- Pages and lists that continue below the visible area (the Disks tab, the
+  space analysis tables, the config editor and other long pages) fade at the
+  bottom and show a *More below* button that scrolls further.
+
 ## [0.18.0] - 2026-10-21
 
 ### Changed

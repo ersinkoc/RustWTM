@@ -1,12 +1,45 @@
-//! Settings tab: the service's main settings as a form, and its
+//! Settings tab: its pages, the service's main settings as a form, and its
 //! `config.toml` as text, with live validation.
 
 use eframe::egui::{self, Color32, RichText, Ui};
 
 use crate::backend::{Data, UiCommand};
 
+/// A page of the Settings tab, chosen from the bar at its top.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum Page {
+    #[default]
+    Window,
+    Service,
+    File,
+    Telegram,
+}
+
+impl Page {
+    /// The text editor fills the page and scrolls itself.
+    pub fn scrolls(self) -> bool {
+        self != Self::File
+    }
+}
+
+/// The bar of Settings pages.
+pub fn page_bar(ui: &mut Ui, page: &mut Page) {
+    ui.horizontal(|ui| {
+        for (p, label) in [
+            (Page::Window, crate::i18n::tr("This window")),
+            (Page::Service, crate::i18n::tr("Service settings")),
+            (Page::File, "config.toml"),
+            (Page::Telegram, "Telegram"),
+        ] {
+            ui.selectable_value(page, p, RichText::new(label).size(15.0));
+        }
+    });
+    ui.separator();
+}
+
 #[derive(Debug, Default)]
 pub struct ConfigView {
+    pub page: Page,
     /// Text being edited.
     pub text: String,
     /// The service's text the edit started from.
@@ -135,34 +168,47 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
         Err(e) => ui.colored_label(Color32::from_rgb(220, 70, 70), format!("✖ {e}")),
     };
     ui.add_space(4.0);
-    if let Ok(config) = &valid {
-        crate::theme::card(
-            ui,
-            RichText::new(crate::i18n::tr("Service settings"))
-                .size(16.0)
-                .strong(),
-            |ui| {
-                if let Some(new) = form(ui, config, &view.text) {
-                    view.text = new;
-                }
-            },
-        );
-        ui.add_space(4.0);
-    }
-    egui::CollapsingHeader::new(crate::i18n::tr("Advanced: edit config.toml"))
-        .id_salt("config_text")
-        .default_open(valid.is_err())
-        .show(ui, |ui| {
-            ui.weak(
-                crate::i18n::tr("Rules, app limits, the kill list and every other option. See docs/configuration.md."),
-            );
+    if view.page == Page::File {
+        ui.weak(crate::i18n::tr(
+            "Rules, app limits, the kill list and every other option. See docs/configuration.md.",
+        ));
+        let line = ui.text_style_height(&egui::TextStyle::Monospace);
+        let rows = ((ui.available_height() - 12.0) / line).max(8.0) as usize;
+        let mut area = egui::ScrollArea::vertical()
+            .id_salt("config_text")
+            .auto_shrink([false, false]);
+        if let Some(y) = crate::theme::take_scroll(ui, "config_text") {
+            area = area.vertical_scroll_offset(y);
+        }
+        let out = area.show(ui, |ui| {
             ui.add(
                 egui::TextEdit::multiline(&mut view.text)
                     .code_editor()
                     .desired_width(f32::INFINITY)
-                    .desired_rows(30),
+                    .desired_rows(rows),
             );
         });
+        let fill = ui.visuals().extreme_bg_color;
+        crate::theme::more_below(ui, "config_text", &out, fill);
+        return commands;
+    }
+    match &valid {
+        Ok(config) => crate::theme::panel(ui, |ui| {
+            if let Some(new) = form(ui, config, &view.text) {
+                view.text = new;
+            }
+        }),
+        Err(_) => {
+            ui.horizontal(|ui| {
+                ui.label(crate::i18n::tr(
+                    "Fix the errors in config.toml to use this form.",
+                ));
+                if ui.button("config.toml").clicked() {
+                    view.page = Page::File;
+                }
+            });
+        }
+    }
     commands
 }
 

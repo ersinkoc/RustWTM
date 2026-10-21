@@ -575,17 +575,22 @@ impl eframe::App for App {
             ui.label(RichText::new(state.tab.subtitle()).weak());
             sample_health(ui, &data, Instant::now());
             ui.add_space(12.0);
-            let scroll_page = matches!(
-                state.tab,
-                Tab::Overview
-                    | Tab::Disks
-                    | Tab::Sensors
-                    | Tab::Settings
-                    | Tab::Governor
-                    | Tab::About
-                    | Tab::Limits
-                    | Tab::KillList
-            );
+            if state.tab == Tab::Settings {
+                crate::settings::page_bar(ui, &mut state.config.page);
+            }
+            let scroll_page = match state.tab {
+                Tab::Settings => state.config.page.scrolls(),
+                _ => matches!(
+                    state.tab,
+                    Tab::Overview
+                        | Tab::Disks
+                        | Tab::Sensors
+                        | Tab::Governor
+                        | Tab::About
+                        | Tab::Limits
+                        | Tab::KillList
+                ),
+            };
             let page_id = state.tab.label();
             let mut content = |ui: &mut Ui| match state.tab {
                 Tab::Processes => match &data.snapshot {
@@ -656,26 +661,25 @@ impl eframe::App for App {
                         &mut state.panic,
                     ));
                 }
-                Tab::Settings => {
-                    crate::theme::card(
-                        ui,
-                        RichText::new(crate::i18n::tr("This window"))
-                            .size(16.0)
-                            .strong(),
-                        |ui| {
-                            window_settings(ui, state);
-                        },
-                    );
-                    ui.add_space(6.0);
-                    service_cmds.extend(crate::telegram_settings::telegram(
-                        ui,
-                        &data,
-                        &mut state.telegram,
-                    ));
-                    ui.add_space(8.0);
-                    ui.heading(crate::i18n::tr("Service configuration"));
-                    service_cmds.extend(crate::settings::settings(ui, &data, &mut state.config));
-                }
+                Tab::Settings => match state.config.page {
+                    crate::settings::Page::Window => crate::theme::panel(ui, |ui| {
+                        window_settings(ui, state);
+                    }),
+                    crate::settings::Page::Telegram => {
+                        service_cmds.extend(crate::telegram_settings::telegram(
+                            ui,
+                            &data,
+                            &mut state.telegram,
+                        ));
+                    }
+                    crate::settings::Page::Service | crate::settings::Page::File => {
+                        service_cmds.extend(crate::settings::settings(
+                            ui,
+                            &data,
+                            &mut state.config,
+                        ));
+                    }
+                },
                 Tab::Services => {
                     if let Some(op) = service_bar(ui, &data, state.selected_service.as_deref()) {
                         service_cmds.push(op);
@@ -701,10 +705,14 @@ impl eframe::App for App {
                 }
             };
             if scroll_page {
-                egui::ScrollArea::vertical()
+                let mut area = egui::ScrollArea::vertical()
                     .id_salt(("page", page_id))
-                    .auto_shrink([false, false])
-                    .show(ui, &mut content);
+                    .auto_shrink([false, false]);
+                if let Some(y) = crate::theme::take_scroll(ui, page_id) {
+                    area = area.vertical_scroll_offset(y);
+                }
+                let out = area.show(ui, &mut content);
+                crate::theme::more_below(ui, page_id, &out, ui.visuals().panel_fill);
             } else {
                 content(ui);
             }
@@ -3931,6 +3939,12 @@ mod tests {
         h.run_steps(2);
         nav_to(&mut h, "Settings");
         h.run_steps(2);
+        assert!(
+            h.query_by_label("Pop up when the CPU stays above")
+                .is_some()
+        );
+        h.get_by_label("Service settings").click();
+        h.run_steps(2);
         assert!(h.query_by_label_contains("Valid configuration").is_some());
         assert!(h.query_by_label_contains("unsaved").is_none());
 
@@ -3973,14 +3987,49 @@ mod tests {
     }
 
     #[test]
-    fn settings_tab_shows_errors_and_needs_admin_to_save() {
+    fn settings_config_file_page_fills_the_window() {
         let mut d = data();
-        d.config = Some(Err("service not running".into()));
-        let (backend, rx) = Backend::offline(d);
+        d.config = Some(Ok((
+            "config.toml".into(),
+            wtm_policy::DEFAULT_CONFIG_TOML.into(),
+        )));
+        let (backend, _rx) = Backend::offline(d);
         let state = UiState {
             tab: Tab::Settings,
             ..Default::default()
         };
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1000.0, 640.0])
+            .build_eframe(|_| App {
+                backend,
+                state,
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        h.get_by_label("config.toml").click();
+        h.run_steps(2);
+        let editor = h.get_by_role(egui::accesskit::Role::MultilineTextInput);
+        let rect = editor.rect();
+        assert!(rect.min.y < 300.0, "editor starts near the top: {rect:?}");
+        assert!(rect.height() > 300.0, "and fills the page: {rect:?}");
+        assert!(
+            h.query_by_label("More below").is_some(),
+            "the long default config continues below"
+        );
+    }
+
+    #[test]
+    fn settings_tab_shows_errors_and_needs_admin_to_save() {
+        let mut d = data();
+        d.config = Some(Err("service not running".into()));
+        let (backend, rx) = Backend::offline(d);
+        let mut state = UiState {
+            tab: Tab::Settings,
+            ..Default::default()
+        };
+        state.config.page = crate::settings::Page::Service;
         let mut h = Harness::builder()
             .allow_missing_glyphs()
             .with_size([1400.0, 900.0])
@@ -4579,6 +4628,13 @@ mod tests {
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         h.render().expect("GPU render").save(&path).unwrap();
                         println!("Rendered {}", path.display());
+                        if tab == Tab::Settings {
+                            h.state_mut().state.config.page = crate::settings::Page::File;
+                            h.run_steps(2);
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-SettingsFile.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                        }
                         if tab == Tab::Performance {
                             {
                                 let mut data = h.state().backend.data();
