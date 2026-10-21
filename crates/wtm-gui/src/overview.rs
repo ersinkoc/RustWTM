@@ -733,6 +733,19 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
         }
         return;
     }
+    if data
+        .status
+        .as_ref()
+        .is_some_and(|s| s.config_error.is_some())
+    {
+        crate::theme::colored(
+            ui,
+            BAD,
+            crate::i18n::tr(
+                "The service could not load config.toml and keeps its previous or default settings; see Settings.",
+            ),
+        );
+    }
     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
     let Some(Ok((_, text))) = &data.config else {
         crate::theme::loading(ui, crate::i18n::tr("Loading the service settings…"));

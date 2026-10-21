@@ -1264,3 +1264,21 @@ fn quick_filters_combine_with_search_and_exclude_idle_cpu() {
     );
     assert!(h.query_by_label("alpha.exe").is_none());
 }
+
+#[test]
+fn suspended_processes_and_unmeasured_network_are_marked() {
+    let mut h = process_harness();
+    h.state_mut().snap.processes[1].suspended = true;
+    h.run();
+    assert!(h.query_by_label("Suspended").is_some());
+    let rows = h.state().snap.processes.len();
+    assert_eq!(
+        h.query_all_by_label("—").count(),
+        rows,
+        "network not measured"
+    );
+
+    h.state_mut().snap.net_traced = true;
+    h.run();
+    assert!(h.query_by_label("—").is_none());
+}

@@ -6058,5 +6058,29 @@
     "de": "Alle Netzwerke",
     "fr": "Tous les réseaux",
     "es": "Todas las redes"
+    },
+  "Suspended": {
+    "tr": "Askıya alındı",
+    "de": "Angehalten",
+    "fr": "Suspendu",
+    "es": "Suspendido"
+  },
+  "Per-process network needs the RustWTM service or administrator rights": {
+    "tr": "Süreç başına ağ için RustWTM servisi veya yönetici hakları gerekir",
+    "de": "Netzwerk pro Prozess erfordert den RustWTM-Dienst oder Administratorrechte",
+    "fr": "Le réseau par processus nécessite le service RustWTM ou des droits administrateur",
+    "es": "La red por proceso requiere el servicio RustWTM o derechos de administrador"
+  },
+  "The service could not load this file and keeps its previous or default settings: {0}": {
+    "tr": "Servis bu dosyayı yükleyemedi ve önceki ya da varsayılan ayarlarla çalışıyor: {0}",
+    "de": "Der Dienst konnte diese Datei nicht laden und behält seine vorherigen oder Standardeinstellungen: {0}",
+    "fr": "Le service n'a pas pu charger ce fichier et garde ses paramètres précédents ou par défaut : {0}",
+    "es": "El servicio no pudo cargar este archivo y mantiene su configuración anterior o predeterminada: {0}"
+  },
+  "The service could not load config.toml and keeps its previous or default settings; see Settings.": {
+    "tr": "Servis config.toml dosyasını yükleyemedi ve önceki ya da varsayılan ayarlarla çalışıyor; Ayarlar'a bakın.",
+    "de": "Der Dienst konnte config.toml nicht laden und behält seine vorherigen oder Standardeinstellungen; siehe Einstellungen.",
+    "fr": "Le service n'a pas pu charger config.toml et garde ses paramètres précédents ou par défaut ; voir Paramètres.",
+    "es": "El servicio no pudo cargar config.toml y mantiene su configuración anterior o predeterminada; consulte Ajustes."
   }
 }

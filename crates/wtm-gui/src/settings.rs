@@ -138,6 +138,16 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
             crate::theme::colored(ui, crate::theme::WARN, crate::i18n::tr("● unsaved changes"));
         }
     });
+    if let Some(e) = data.status.as_ref().and_then(|s| s.config_error.as_deref()) {
+        crate::theme::colored(
+            ui,
+            crate::theme::BAD,
+            crate::i18n::format(
+                "The service could not load this file and keeps its previous or default settings: {0}",
+                &[e.to_owned()],
+            ),
+        );
+    }
     ui.horizontal(|ui| {
         let save = ui.add_enabled(
             admin && dirty && valid.is_ok(),

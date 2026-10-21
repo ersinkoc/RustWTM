@@ -39,6 +39,40 @@ All notable changes to this project are documented here. The format follows
   uses the service's sample), and its control tools accept the
   `create_time` from `list_processes` to refuse a reused PID.
 - The stale 0.13.0 review is no longer installed by the MSI.
+- An Explorer window on a folder named RustWTM stopped RustWTM from
+  starting; the single-instance check now uses a per-session lock and finds
+  the running window by its program.
+- *Restart as administrator* could end with no RustWTM running; the new copy
+  waits for the old one to exit.
+- With a newer service the window advised installing an older version; the
+  advice and the status badge now name the actual problem.
+- Events were listed twice after reconnecting to the same service.
+- Ending processes or testing Telegram no longer holds up monitoring
+  updates while the request runs.
+- A RustWTM hidden in the tray now quits when Windows or an installer asks
+  it to.
+- Raw error codes on a service restart and command-line wording in the
+  window's error messages are replaced by plain messages.
+
+### Changed
+
+- The window draws with OpenGL instead of wgpu: about 250 MB less memory
+  and a 30% smaller program.
+- Visual pass: readable status colours and visible bar tracks and text
+  fields in the light theme; full column headers in every language with
+  right-aligned numbers; one card title and sortable-header style; loading
+  and empty states with text; a stale-data banner that dims the page; the
+  data age on the subtitle line; a gear icon for Settings; labels before
+  controls in the power and cooling forms; translated priority, startup and
+  finding names; level filter and sorting in Events; a *⋯* menu for the
+  busiest apps' actions.
+- Processes marks suspended processes and shows "—" for network traffic
+  that is not measured; Settings and the Overview show why the service
+  could not load `config.toml`.
+- Ctrl+Tab and Ctrl+Shift+Tab switch pages, Ctrl+F searches Services,
+  Network and Ports, and Esc closes the process details.
+- The *More below* hint also shows on Performance, About and the process
+  details.
 
 ## [0.18.1] - 2026-10-21
 

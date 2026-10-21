@@ -948,7 +948,16 @@ impl ProcessView {
                                                 ),
                                                 None => ui.label(&p.name),
                                             };
-                                            if extra.hung.contains_key(&p.pid) {
+                                            if p.suspended {
+                                                ui.label(
+                                                    RichText::new(crate::i18n::tr("Suspended"))
+                                                        .color(crate::theme::text_color(
+                                                            ui,
+                                                            crate::theme::WARN,
+                                                        ))
+                                                        .small(),
+                                                );
+                                            } else if extra.hung.contains_key(&p.pid) {
                                                 ui.label(
                                                     RichText::new(crate::i18n::tr(
                                                         "Not responding",
@@ -974,6 +983,16 @@ impl ProcessView {
                                         }
                                         Col::Disk => {
                                             right(ui, format!("{}/s", format_bytes(p.io_rate())))
+                                        }
+                                        Col::Network if !snap.net_traced => {
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Center),
+                                                |ui| {
+                                                    ui.weak("—").on_hover_text(crate::i18n::tr(
+                                                        "Per-process network needs the RustWTM service or administrator rights",
+                                                    ));
+                                                },
+                                            );
                                         }
                                         Col::Network => {
                                             right(ui, format!("{}/s", format_bytes(p.net_rate())))

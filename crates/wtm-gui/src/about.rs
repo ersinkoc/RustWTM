@@ -46,9 +46,11 @@ pub fn about(
 ) -> bool {
     use crate::backend::UpdateState;
     let mut check = false;
-    egui::ScrollArea::vertical()
-        .id_salt("about")
-        .show(ui, |ui| {
+    let mut area = egui::ScrollArea::vertical().id_salt("about");
+    if let Some(y) = crate::theme::take_scroll(ui, "about") {
+        area = area.vertical_scroll_offset(y);
+    }
+    let out = area.show(ui, |ui| {
             ui.add_space(12.0);
             ui.vertical_centered(|ui| {
                 // Drawn and uploaded once, not on every frame.
@@ -166,6 +168,7 @@ pub fn about(
                 ui.weak(frame_timing(f));
             }
         });
+    crate::theme::more_below(ui, "about", &out, ui.visuals().panel_fill);
     check
 }
 

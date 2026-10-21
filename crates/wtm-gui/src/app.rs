@@ -580,11 +580,15 @@ impl eframe::App for App {
                     {
                         state.processes.selected = None;
                     }
-                    egui::ScrollArea::vertical()
-                        .id_salt("process_details")
-                        .show(ui, |ui| {
-                            details_panel(ui, &data, snap, &sel, &mut intents);
-                        });
+                    let mut area = egui::ScrollArea::vertical().id_salt("process_details");
+                    if let Some(y) = crate::theme::take_scroll(ui, "process_details") {
+                        area = area.vertical_scroll_offset(y);
+                    }
+                    let out = area.show(ui, |ui| {
+                        details_panel(ui, &data, snap, &sel, &mut intents);
+                    });
+                    let fill = ui.visuals().panel_fill;
+                    crate::theme::more_below(ui, "process_details", &out, fill);
                 });
         }
 
@@ -2199,7 +2203,11 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
         perf_disk,
         perf_summary,
     ];
-    egui::ScrollArea::vertical().show(ui, |ui| {
+    let mut area = egui::ScrollArea::vertical().id_salt("performance");
+    if let Some(y) = crate::theme::take_scroll(ui, "performance") {
+        area = area.vertical_scroll_offset(y);
+    }
+    let out = area.show(ui, |ui| {
         ui.add_space(4.0);
         // Two columns of similar height when there is room: the tall CPU
         // card with Disk and the summary on the left, the others on the
@@ -2224,6 +2232,7 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
             }
         }
     });
+    crate::theme::more_below(ui, "performance", &out, ui.visuals().panel_fill);
 }
 
 /// GPU engines listed by load; the rest are summarised in one line.
