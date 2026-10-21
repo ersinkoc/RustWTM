@@ -61,6 +61,7 @@ pub enum Col {
     Commit,
     WorkingSet,
     Disk,
+    Network,
     Gpu,
     GpuMemory,
     Threads,
@@ -73,7 +74,7 @@ pub enum Col {
 }
 
 /// Column, header, initial width, numeric (sorts largest first), shown by default.
-const COLUMNS: [(Col, &str, f32, bool, bool); 16] = [
+const COLUMNS: [(Col, &str, f32, bool, bool); 17] = [
     (Col::Name, "Name", 240.0, false, true),
     (Col::Pid, "PID", 64.0, false, true),
     (Col::Cpu, "CPU", 64.0, true, true),
@@ -81,6 +82,7 @@ const COLUMNS: [(Col, &str, f32, bool, bool); 16] = [
     (Col::Commit, "Commit", 92.0, true, false),
     (Col::WorkingSet, "Working set", 92.0, true, false),
     (Col::Disk, "Disk", 92.0, true, true),
+    (Col::Network, "Network", 92.0, true, true),
     (Col::Gpu, "GPU", 60.0, true, true),
     (Col::GpuMemory, "GPU memory", 92.0, true, false),
     (Col::Threads, "Threads", 64.0, true, true),
@@ -121,6 +123,8 @@ pub struct Extra<'a> {
     pub command_lines: &'a crate::backend::CommandLines,
     pub image_paths: &'a crate::backend::CommandLines,
     pub icons: &'a HashMap<String, Option<std::sync::Arc<wtm_core::IconImage>>>,
+    /// Processes whose window does not respond.
+    pub hung: &'a crate::backend::HungMap,
 }
 
 impl Extra<'_> {
@@ -166,6 +170,14 @@ pub enum Intent {
     Dump(ProcessRef),
     /// Notify when the process exits.
     WatchExit(ProcessRef),
+    /// Find out what the process's threads wait for.
+    WaitChain(ProcessRef),
+    /// Find out why the process cannot be ended.
+    WhyAlive(ProcessRef),
+    /// List the modules the process has loaded, with their signatures.
+    Modules(ProcessRef),
+    /// Block (`true`) or unblock the program's network access with Windows Firewall.
+    Network(ProcessRef, bool),
 }
 
 /// How the process list is arranged.
@@ -184,7 +196,62 @@ pub enum QuickFilter {
     Cpu,
     Memory,
     Managed,
+    NotResponding,
 }
+
+/// Which Windows sessions to list.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SessionFilter {
+    #[default]
+    Any,
+    /// Programs in a signed-in user's session.
+    Users,
+    /// Services and system processes (session 0).
+    Services,
+}
+
+/// Disk rate that counts as "disk active".
+const DISK_ACTIVE: f64 = 1024.0 * 1024.0;
+/// GPU share that counts as "GPU active".
+const GPU_ACTIVE: f32 = 5.0;
+
+/// Narrows the list beyond the quick filter; every part that is set must match.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MoreFilters {
+    /// Only processes started within this many minutes.
+    pub started_within: Option<u32>,
+    pub disk_active: bool,
+    pub gpu_active: bool,
+    pub session: SessionFilter,
+}
+
+impl MoreFilters {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn matches(&self, p: &ProcessInfo, now: std::time::SystemTime) -> bool {
+        let recent = self.started_within.is_none_or(|mins| {
+            p.start_time().is_some_and(|start| {
+                // A start "after now" is clock skew of a moment ago.
+                now.duration_since(start)
+                    .map_or(true, |age| age.as_secs() <= u64::from(mins) * 60)
+            })
+        });
+        let session = match self.session {
+            SessionFilter::Any => true,
+            SessionFilter::Users => p.session_id != 0,
+            SessionFilter::Services => p.session_id == 0,
+        };
+        recent
+            && session
+            && (!self.disk_active || p.io_rate() >= DISK_ACTIVE)
+            && (!self.gpu_active || p.gpu_percent >= GPU_ACTIVE)
+    }
+}
+
+/// Minutes offered for "started in the last ...".
+const RECENT_PRESETS: [u32; 5] = [1, 5, 15, 60, 240];
 
 pub struct ProcessView {
     pub search: String,
@@ -199,6 +266,9 @@ pub struct ProcessView {
     /// Shade CPU, memory, disk and GPU cells by how much they use.
     pub heat: bool,
     pub filter: QuickFilter,
+    pub more: MoreFilters,
+    /// Minutes last chosen for the "started in the last" filter.
+    pub recent_minutes: u32,
     /// Only the process table is frozen. Sampling, protection and alerts continue.
     pub paused: Option<std::sync::Arc<Snapshot>>,
 }
@@ -215,12 +285,130 @@ impl Default for ProcessView {
             visible: COLUMNS.iter().filter(|c| c.4).map(|c| c.0).collect(),
             heat: true,
             filter: QuickFilter::All,
+            more: MoreFilters::default(),
+            recent_minutes: 5,
             paused: None,
         }
     }
 }
 
 impl ProcessView {
+    /// Turns the "started in the last" filter on or off; on also shows how
+    /// long each process has been running.
+    fn set_recent(&mut self, on: bool) {
+        self.more.started_within = on.then_some(self.recent_minutes);
+        if on {
+            self.visible.insert(Col::Started);
+        }
+    }
+
+    fn more_filters_menu(&mut self, ui: &mut Ui) {
+        let active = [
+            self.more.started_within.is_some(),
+            self.more.disk_active,
+            self.more.gpu_active,
+            self.more.session != SessionFilter::Any,
+        ]
+        .into_iter()
+        .filter(|on| *on)
+        .count();
+        let title = if active == 0 {
+            crate::i18n::tr("More filters").to_string()
+        } else {
+            crate::i18n::format("More filters ({0})", &[active.to_string()])
+        };
+        ui.menu_button(title, |ui| {
+            ui.strong(crate::i18n::tr("Started in the last"));
+            ui.horizontal(|ui| {
+                for mins in RECENT_PRESETS {
+                    let label = if mins >= 60 {
+                        crate::i18n::format("{0} h", &[(mins / 60).to_string()])
+                    } else {
+                        crate::i18n::format("{0} min", &[mins.to_string()])
+                    };
+                    let on = self.more.started_within == Some(mins);
+                    if ui.selectable_label(on, label).clicked() {
+                        self.recent_minutes = mins;
+                        self.set_recent(!on);
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(crate::i18n::tr("Custom"));
+                let mut mins = self.recent_minutes;
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut mins)
+                            .range(1..=10_080)
+                            .suffix(" min"),
+                    )
+                    .changed()
+                {
+                    self.recent_minutes = mins;
+                    self.set_recent(true);
+                }
+            });
+            ui.separator();
+            ui.strong(crate::i18n::tr("Activity"));
+            ui.checkbox(
+                &mut self.more.disk_active,
+                crate::i18n::tr("Disk active (1 MiB/s or more)"),
+            );
+            ui.checkbox(
+                &mut self.more.gpu_active,
+                crate::i18n::tr("GPU active (5% or more)"),
+            );
+            ui.separator();
+            ui.strong(crate::i18n::tr("Session"));
+            for (session, label) in [
+                (SessionFilter::Any, crate::i18n::tr("All sessions")),
+                (SessionFilter::Users, crate::i18n::tr("User apps")),
+                (
+                    SessionFilter::Services,
+                    crate::i18n::tr("Services and system (session 0)"),
+                ),
+            ] {
+                ui.radio_value(&mut self.more.session, session, label);
+            }
+            if !self.more.is_empty() {
+                ui.separator();
+                if ui.button(crate::i18n::tr("Reset these filters")).clicked() {
+                    self.more = MoreFilters::default();
+                    ui.close();
+                }
+            }
+        });
+    }
+
+    /// One removable chip per active activity or session filter.
+    fn filter_chips(&mut self, ui: &mut Ui) {
+        let chip = |ui: &mut Ui, text: &str| {
+            ui.add(
+                egui::Button::new(format!("{text}  ✖"))
+                    .small()
+                    .corner_radius(10),
+            )
+            .on_hover_text(crate::i18n::tr("Remove this filter"))
+            .clicked()
+        };
+        if self.more.disk_active && chip(ui, crate::i18n::tr("Disk active")) {
+            self.more.disk_active = false;
+        }
+        if self.more.gpu_active && chip(ui, crate::i18n::tr("GPU active")) {
+            self.more.gpu_active = false;
+        }
+        let session = match self.more.session {
+            SessionFilter::Any => None,
+            SessionFilter::Users => Some(crate::i18n::tr("User apps")),
+            SessionFilter::Services => Some(crate::i18n::tr("Services and system")),
+        };
+        if let Some(label) = session
+            && chip(ui, label)
+        {
+            self.more.session = SessionFilter::Any;
+        }
+    }
+
     /// Whether the column with header `label` is shown.
     #[cfg(test)]
     pub fn view_has(&self, label: &str) -> bool {
@@ -239,6 +427,7 @@ fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col, extra: &Extra<'_>) -> Ord
         Col::Commit => a.private_bytes.cmp(&b.private_bytes),
         Col::WorkingSet => a.working_set.cmp(&b.working_set),
         Col::Disk => a.io_rate().total_cmp(&b.io_rate()),
+        Col::Network => a.net_rate().total_cmp(&b.net_rate()),
         Col::Gpu => a.gpu_percent.total_cmp(&b.gpu_percent),
         Col::GpuMemory => a.gpu_memory.cmp(&b.gpu_memory),
         Col::Threads => a.thread_count.cmp(&b.thread_count),
@@ -463,10 +652,34 @@ impl ProcessView {
                     crate::i18n::tr("Managed"),
                     crate::i18n::tr("Processes with a governor action, manual limit or app budget"),
                 ),
+                (
+                    QuickFilter::NotResponding,
+                    crate::i18n::tr("Not responding"),
+                    crate::i18n::tr("Programs whose window Windows marks as not responding"),
+                ),
             ] {
                 ui.selectable_value(&mut self.filter, filter, label)
                     .on_hover_text(hint);
             }
+            ui.separator();
+            let mut recent = self.more.started_within.is_some();
+            if ui
+                .toggle_value(
+                    &mut recent,
+                    crate::i18n::format(
+                        "Started in the last {0} min",
+                        &[self.recent_minutes.to_string()],
+                    ),
+                )
+                .on_hover_text(crate::i18n::tr(
+                    "Only processes that started recently; change the minutes under More filters",
+                ))
+                .changed()
+            {
+                self.set_recent(recent);
+            }
+            self.more_filters_menu(ui);
+            self.filter_chips(ui);
             if paused.is_some() {
                 ui.label(
                     RichText::new(crate::i18n::tr("Paused · monitoring continues"))
@@ -477,14 +690,17 @@ impl ProcessView {
         ui.separator();
 
         let filter = self.search.trim().to_lowercase();
+        let now = std::time::SystemTime::now();
         let matches = |p: &ProcessInfo| {
             let resource_matches = match self.filter {
                 QuickFilter::All => true,
                 QuickFilter::Cpu => p.pid != 0 && p.cpu_percent >= 5.0,
                 QuickFilter::Memory => p.private_working_set >= 512 * 1024 * 1024,
                 QuickFilter::Managed => !extra.label(p).is_empty(),
+                QuickFilter::NotResponding => extra.hung.contains_key(&p.pid),
             };
             resource_matches
+                && self.more.matches(p, now)
                 && (filter.is_empty()
                     || p.name.to_lowercase().contains(&filter)
                     || p.pid.to_string().contains(&filter)
@@ -508,7 +724,9 @@ impl ProcessView {
         };
         // (process, depth, Some(group index) for an app row)
         let rows: Vec<(&ProcessInfo, usize, Option<usize>)> = match self.mode {
-            ViewMode::Tree if filter.is_empty() && self.filter == QuickFilter::All => {
+            ViewMode::Tree
+                if filter.is_empty() && self.filter == QuickFilter::All && self.more.is_empty() =>
+            {
                 tree_rows(&snap.processes, self.sort, self.descending, extra)
                     .into_iter()
                     .map(|(p, d)| (p, d, None))
@@ -556,6 +774,7 @@ impl ProcessView {
             if ui.button(crate::i18n::tr("Clear filters")).clicked() {
                 self.search.clear();
                 self.filter = QuickFilter::All;
+                self.more = MoreFilters::default();
             }
             return intents;
         }
@@ -631,6 +850,7 @@ impl ProcessView {
                                         Col::Cpu if p.pid != 0 => f64::from(p.cpu_percent) / 100.0,
                                         Col::Memory => p.private_working_set as f64 / memory_total,
                                         Col::Disk => p.io_rate() / DISK_HEAT_FULL,
+                                        Col::Network => p.net_rate() / DISK_HEAT_FULL,
                                         Col::Gpu => f64::from(p.gpu_percent) / 100.0,
                                         _ => 0.0,
                                     };
@@ -662,6 +882,15 @@ impl ProcessView {
                                                 ),
                                                 None => ui.label(&p.name),
                                             };
+                                            if extra.hung.contains_key(&p.pid) {
+                                                ui.label(
+                                                    RichText::new(crate::i18n::tr(
+                                                        "Not responding",
+                                                    ))
+                                                    .color(crate::theme::BAD)
+                                                    .small(),
+                                                );
+                                            }
                                         }
                                         Col::Pid => right(ui, p.pid.to_string()),
                                         Col::Cpu => right(ui, format!("{:.1}%", p.cpu_percent)),
@@ -676,6 +905,9 @@ impl ProcessView {
                                         }
                                         Col::Disk => {
                                             right(ui, format!("{}/s", format_bytes(p.io_rate())))
+                                        }
+                                        Col::Network => {
+                                            right(ui, format!("{}/s", format_bytes(p.net_rate())))
                                         }
                                         Col::Gpu => right(ui, format!("{:.1}%", p.gpu_percent)),
                                         Col::GpuMemory => {
@@ -1006,6 +1238,16 @@ pub fn context_menu(
         intents.push(Intent::AddToKillList(t.name.clone()));
         ui.close();
     }
+    if ui
+        .button(crate::i18n::tr("Block network access"))
+        .on_hover_text(crate::i18n::tr(
+            "Windows Firewall rules that cut this program off the network; undo in the Network tab",
+        ))
+        .clicked()
+    {
+        intents.push(Intent::Network(t.clone(), true));
+        ui.close();
+    }
     ui.separator();
     if ui
         .button(crate::i18n::tr("Notify me when it exits"))
@@ -1043,6 +1285,59 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// FILETIME of `ago` before `now`.
+    fn started(now: std::time::SystemTime, ago: Duration) -> i64 {
+        let unix = now - ago;
+        let since = unix.duration_since(std::time::UNIX_EPOCH).unwrap();
+        116_444_736_000_000_000 + (since.as_nanos() / 100) as i64
+    }
+
+    #[test]
+    fn more_filters_match_start_time_activity_and_session() {
+        let now = std::time::SystemTime::now();
+        let mut fresh = p(10, 0, 0.0, started(now, Duration::from_secs(90)));
+        let old = p(11, 0, 0.0, started(now, Duration::from_secs(3600)));
+        let none = MoreFilters::default();
+        assert!(none.is_empty() && none.matches(&old, now));
+
+        let recent = MoreFilters {
+            started_within: Some(5),
+            ..MoreFilters::default()
+        };
+        assert!(recent.matches(&fresh, now));
+        assert!(!recent.matches(&old, now));
+        // The boundary is inclusive; a start in the future is just now.
+        let edge = p(12, 0, 0.0, started(now, Duration::from_secs(300)));
+        assert!(recent.matches(&edge, now));
+        let skewed = p(13, 0, 0.0, started(now, Duration::ZERO) + 10_000_000);
+        assert!(recent.matches(&skewed, now));
+        // No start time (System Idle Process) never counts as recent.
+        assert!(!recent.matches(&p(0, 0, 0.0, 0), now));
+
+        let active = MoreFilters {
+            disk_active: true,
+            gpu_active: true,
+            ..MoreFilters::default()
+        };
+        assert!(!active.matches(&fresh, now));
+        fresh.io_read_rate = 1024.0 * 1024.0;
+        fresh.gpu_percent = 5.0;
+        assert!(active.matches(&fresh, now));
+
+        let services = MoreFilters {
+            session: SessionFilter::Services,
+            ..MoreFilters::default()
+        };
+        let users = MoreFilters {
+            session: SessionFilter::Users,
+            ..MoreFilters::default()
+        };
+        fresh.session_id = 0;
+        assert!(services.matches(&fresh, now) && !users.matches(&fresh, now));
+        fresh.session_id = 1;
+        assert!(!services.matches(&fresh, now) && users.matches(&fresh, now));
+    }
+
     #[test]
     fn searches_are_url_encoded() {
         assert_eq!(
@@ -1073,6 +1368,8 @@ mod tests {
             gpu_memory: 0,
             io_read_rate: 0.0,
             io_write_rate: 0.0,
+            net_rx_rate: 0.0,
+            net_tx_rate: 0.0,
             create_time,
         }
     }
@@ -1084,6 +1381,7 @@ mod tests {
             command_lines: Box::leak(Box::default()),
             image_paths: Box::leak(Box::default()),
             icons: Box::leak(Box::default()),
+            hung: Box::leak(Box::default()),
         }
     }
 

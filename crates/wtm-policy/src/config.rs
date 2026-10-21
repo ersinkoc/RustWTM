@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::action::{Action, PriorityLevel};
+use crate::game::GameModeConfig;
 use crate::insights::InsightsConfig;
 use crate::kill::KillEntry;
 use crate::limits::AppLimit;
@@ -29,6 +30,8 @@ pub struct Config {
     pub swarm: SwarmConfig,
     /// CPU and memory kept for RustWTM itself.
     pub reserve: ReserveConfig,
+    /// Calms background apps while a full-screen app is in front.
+    pub game_mode: GameModeConfig,
     /// Image names (`xmrig.exe`) that are prevented from starting at all.
     pub block: Vec<String>,
     #[serde(rename = "rule")]
@@ -52,6 +55,7 @@ impl Default for Config {
             memory_guard: MemoryGuardConfig::default(),
             swarm: SwarmConfig::default(),
             reserve: ReserveConfig::default(),
+            game_mode: GameModeConfig::default(),
             block: Vec::new(),
             rules: Vec::new(),
             limits: Vec::new(),
@@ -167,6 +171,9 @@ impl Config {
         self.reserve
             .validate()
             .map_err(|e| format!("reserve: {e}"))?;
+        self.game_mode
+            .validate()
+            .map_err(|e| format!("game_mode: {e}"))?;
         if self.history_days == 0 {
             return Err("history_days must be positive".into());
         }

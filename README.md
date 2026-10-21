@@ -39,7 +39,8 @@ usage history.
 - Pause process-list updates (F6) to inspect a stable snapshot while monitoring
   and protection continue. Quick filters for high CPU (5%+), high memory
   (512 MiB+) and managed processes combine with name, PID, path and command-line
-  search. Wide tables scroll horizontally; the details panel scrolls and closes.
+  search, with processes started in the last N minutes, disk- or GPU-active
+  processes, and user apps versus services. Wide tables scroll horizontally; the details panel scrolls and closes.
 - Monitoring data shows its last receipt age on every page. Sampling failures
   and delayed updates display a warning while retaining the last values.
 - **Reserved for RustWTM**: when the CPU is pinned, a rescue core is kept free
@@ -53,6 +54,40 @@ usage history.
   disk I/O), App history, Startup apps,
   Users, Services (start / stop / startup type), Network connections, Events;
   every list sorts by any column.
+- **Why it hangs, why it won't end**: programs whose window does not respond
+  are marked *Not responding* (with a quick filter and an Overview warning);
+  *Analyze wait chain* shows what their blocked threads wait for, across
+  processes, and spots deadlocks. *Why won't it end?* explains a process that
+  refuses to go: Windows protection, a security or anti-cheat driver that
+  withholds the right, or other programs still holding it open.
+- **Modules**: the DLLs a process loaded and who signed each (offline
+  Authenticode and catalog check); unsigned and invalid ones first.
+- **Network per program**: bytes received and sent per process (ETW, through
+  the service or as administrator), a *Network* column and the busiest
+  programs in the Network tab; *Close* resets an IPv4 TCP connection, and
+  *Block network access* cuts a program off with two Windows Firewall rules
+  (undo with *Unblock* in the Network tab).
+- **Game mode**: while a full-screen app is in front, busy background apps get
+  below-normal priority and efficiency mode (optionally the High performance
+  power plan), all rolled back when it ends. See [`[game_mode]`](docs/configuration.md#game_mode).
+- **Leak detection**: steady growth of memory, handles or threads in the app
+  history is reported as a leak suspect.
+- **Memory dumps from a clone**: the process is snapshotted (copy-on-write) and
+  dumped from the snapshot, so it is frozen for milliseconds, not the whole
+  write. The sign-in secrets processes (lsass, LsaIso) are never dumped.
+- **AI assistants (MCP)**: `wtm mcp` is a Model Context Protocol server on
+  standard input/output, so Claude Desktop, Claude Code and other MCP clients
+  can ask what this PC is doing. Read-only unless started with
+  `--allow-control`; nothing listens on the network.
+- **Disks**: every drive with its free space, live activity per physical disk
+  and the processes reading and writing the most. *Analyze* any drive or folder
+  to see what takes up the space: a folder tree with sizes and shares, the 200
+  largest files and the space per file type, each with *Show in Explorer*. The
+  scan runs on a few background-priority threads (a 2 TB, 6 million file system
+  drive took about a minute) and never follows junctions or symbolic links.
+  *Files being read and written* lists, per program, the files moving the most
+  disk bytes right now (a kernel trace that runs only while the tab is open,
+  through the service or as administrator).
 - Update notice with one-click update: the new installer is downloaded,
   checked against its published SHA-256 and installed; RustWTM restarts
   by itself.
@@ -165,8 +200,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.15.0-x64.msi            # interactive
-msiexec /i RustWTM-0.15.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.17.0-x64.msi            # interactive
+msiexec /i RustWTM-0.17.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
@@ -224,7 +259,21 @@ wtm free-port 3000 --yes           end whatever keeps port 3000 busy
 wtm config show                    the service's configuration
 wtm config check my.toml           validate a file
 wtm config apply my.toml           validate and apply it (elevated)
+wtm mcp [--allow-control]          MCP server for AI assistants (stdio)
 ```
+
+To let an MCP client use it, add RustWTM to its server list, e.g. in Claude
+Desktop's `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "rustwtm": { "command": "C:\\Program Files\\RustWTM\\wtm.exe", "args": ["mcp"] } } }
+```
+
+or with Claude Code: `claude mcp add rustwtm -- "C:\Program Files\RustWTM\wtm.exe" mcp`.
+Tools: `system_overview`, `list_processes`, `process_details`,
+`why_not_responding`, `why_wont_it_end`, `network_connections`, `drives`,
+`recent_events`; with `--allow-control` also `end_process`, `suspend_process`,
+`resume_process`, `set_priority` and `efficiency_mode`.
 
 Targets are PIDs or image names (`.exe` optional, case-insensitive).
 

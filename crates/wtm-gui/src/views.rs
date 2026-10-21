@@ -4,6 +4,8 @@ use std::collections::HashMap;
 
 use eframe::egui::{self, Align, Color32, Layout, Ui};
 use egui_extras::{Column, TableBuilder};
+use std::net::SocketAddr;
+
 use wtm_core::format_bytes;
 
 use crate::backend::Data;
@@ -117,7 +119,92 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
     request
 }
 
-pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u32>) {
+/// The processes moving the most network data right now.
+fn top_talkers(ui: &mut Ui, data: &Data) {
+    let Some(snap) = &data.snapshot else {
+        return;
+    };
+    let mut busy: Vec<_> = snap
+        .processes
+        .iter()
+        .filter(|p| p.net_rate() >= 1.0)
+        .collect();
+    busy.sort_by(|a, b| b.net_rate().total_cmp(&a.net_rate()));
+    ui.horizontal_wrapped(|ui| {
+        ui.strong(crate::i18n::tr("Most traffic:"));
+        if busy.is_empty() {
+            ui.weak(crate::i18n::tr(
+                "none right now (per-program traffic needs the RustWTM service or administrator rights)",
+            ));
+        }
+        for p in busy.into_iter().take(6) {
+            ui.label(format!(
+                "{} ↓{}/s ↑{}/s",
+                p.name,
+                format_bytes(p.net_rx_rate),
+                format_bytes(p.net_tx_rate)
+            ));
+            ui.weak("·");
+        }
+    });
+}
+
+/// An IPv4 TCP connection with a remote end, which Windows can reset.
+pub(crate) fn closable(c: &wtm_core::Connection) -> Option<(SocketAddr, SocketAddr)> {
+    let remote = c.remote?;
+    let open = !matches!(
+        c.state,
+        Some(
+            wtm_core::TcpState::Listen | wtm_core::TcpState::TimeWait | wtm_core::TcpState::Closed
+        )
+    );
+    (c.protocol == wtm_core::Protocol::Tcp && open && c.local.is_ipv4() && remote.is_ipv4())
+        .then_some((c.local, remote))
+}
+
+/// What the user asked for in the Network tab.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetworkAction {
+    Close(SocketAddr, SocketAddr),
+    Unblock(String),
+}
+
+/// Programs cut off the network, each with a way back.
+fn blocked_programs(ui: &mut Ui, data: &Data, action: &mut Option<NetworkAction>) {
+    let Some(Ok(list)) = &data.firewall else {
+        return;
+    };
+    if list.is_empty() {
+        return;
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.strong(crate::i18n::tr("Blocked from the network:"));
+        for path in list {
+            let file = std::path::Path::new(path)
+                .file_name()
+                .map_or_else(|| path.clone(), |f| f.to_string_lossy().into_owned());
+            ui.label(file).on_hover_text(path);
+            if ui
+                .small_button(crate::i18n::tr("Unblock"))
+                .on_hover_text(crate::i18n::tr(
+                    "Remove RustWTM's Windows Firewall rules for it",
+                ))
+                .clicked()
+            {
+                *action = Some(NetworkAction::Unblock(path.clone()));
+            }
+        }
+    });
+}
+
+/// Returns what the user asked for, if anything.
+pub fn network(
+    ui: &mut Ui,
+    data: &Data,
+    filter: &mut String,
+    only_pid: Option<u32>,
+) -> Option<NetworkAction> {
+    let mut close = None;
     ui.horizontal(|ui| {
         ui.label(crate::i18n::tr("Search:"));
         ui.add(
@@ -132,15 +219,17 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
             ));
         }
     });
+    top_talkers(ui, data);
+    blocked_programs(ui, data, &mut close);
     ui.separator();
     let conns = match &data.connections {
         None => {
             ui.spinner();
-            return;
+            return None;
         }
         Some(Err(e)) => {
             ui.colored_label(Color32::RED, e);
-            return;
+            return None;
         }
         Some(Ok(c)) => c,
     };
@@ -192,6 +281,7 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
         .column(Column::initial(50.0))
         .column(Column::initial(200.0).clip(true))
         .column(Column::initial(200.0).clip(true))
+        .column(Column::initial(110.0))
         .column(Column::remainder())
         .header(row_height, |mut h| {
             for (col, (label, numeric)) in [
@@ -227,9 +317,22 @@ pub fn network(ui: &mut Ui, data: &Data, filter: &mut String, only_pid: Option<u
                 row.col(|ui| {
                     ui.label(c.state.map(crate::i18n::debug).unwrap_or_default());
                 });
+                row.col(|ui| {
+                    if let Some(pair) = closable(c)
+                        && ui
+                            .small_button(crate::i18n::tr("Close"))
+                            .on_hover_text(crate::i18n::tr(
+                                "Reset this connection; both ends see it closed (needs administrator rights)",
+                            ))
+                            .clicked()
+                    {
+                        close = Some(NetworkAction::Close(pair.0, pair.1));
+                    }
+                });
             });
         });
     sort.store(ui, "network");
+    close
 }
 
 fn state_color(state: wtm_core::ServiceState) -> Color32 {

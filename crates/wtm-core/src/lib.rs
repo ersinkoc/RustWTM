@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 pub mod control;
+pub mod diskscan;
 pub use wtm_sys::cpu;
 pub mod hardware;
 pub mod launch;
@@ -22,8 +23,13 @@ pub use protection::protection_reason;
 pub use sampler::{Sampler, StartWatcher};
 pub use tree::descendants;
 pub use wtm_sys::disk::DiskUsage;
+pub use wtm_sys::disktrace::{DiskTracer, FileIo};
+pub use wtm_sys::ending::{EndReport, Holder, why_alive};
+pub use wtm_sys::etw::stop_orphans as stop_trace_orphans;
+pub use wtm_sys::firewall;
 pub use wtm_sys::icon::{IconImage, small_icon};
-pub use wtm_sys::net::{Connection, Protocol, TcpState, connections};
+pub use wtm_sys::modules::{Module, Signature, process_modules, signature};
+pub use wtm_sys::net::{Connection, Protocol, TcpState, close_tcp, connections};
 pub use wtm_sys::services::{
     ServiceEntry, ServiceState, StartType, list_services, restart_service, set_start_type,
     start_service, stop_service,
@@ -32,5 +38,9 @@ pub use wtm_sys::sessions::{
     Session, SessionState, disconnect as disconnect_session, log_off as log_off_session, sessions,
 };
 pub use wtm_sys::system_ui_language;
-pub use wtm_sys::window::{self, foreground_pid};
+pub use wtm_sys::volumes::{DriveKind, Volume, volumes};
+pub use wtm_sys::waits::{
+    Chain, HungWindow, Link, LinkStatus, WaitKind, WaitReport, hung_windows, wait_chains,
+};
+pub use wtm_sys::window::{self, foreground_fullscreen, foreground_pid};
 pub use wtm_sys::{Error, Result};

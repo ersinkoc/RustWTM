@@ -39,6 +39,51 @@ pub struct Shared {
     pub config: RwLock<wtm_policy::Config>,
     /// History database, opened read-only per request.
     pub history_path: RwLock<Option<std::path::PathBuf>>,
+    /// Per-file disk tracing while clients ask for it.
+    pub disk_trace: std::sync::Mutex<Option<DiskTrace>>,
+}
+
+/// A running per-file disk trace and when it was last read.
+#[derive(Debug)]
+pub struct DiskTrace {
+    tracer: wtm_core::DiskTracer,
+    taken: std::time::Instant,
+}
+
+impl DiskTrace {
+    /// No client asked for this long.
+    pub fn idle(&self, after: std::time::Duration) -> bool {
+        self.taken.elapsed() >= after
+    }
+}
+
+/// Prefix of the per-file disk trace session.
+pub const DISK_TRACE: &str = "RustWTM-Disk";
+
+fn disk_activity(shared: &Shared) -> Response {
+    let mut trace = shared
+        .disk_trace
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if trace.is_none() {
+        let name = format!("{DISK_TRACE}-{}", std::process::id());
+        match wtm_core::DiskTracer::start(&name) {
+            Ok(tracer) => {
+                *trace = Some(DiskTrace {
+                    tracer,
+                    taken: std::time::Instant::now(),
+                });
+            }
+            Err(e) => return Response::Error(e.to_string()),
+        }
+    }
+    let t = trace.as_mut().expect("started above");
+    let seconds = t.taken.elapsed().as_secs_f64();
+    t.taken = std::time::Instant::now();
+    Response::DiskActivity {
+        files: t.tracer.take(),
+        seconds,
+    }
 }
 
 pub enum EngineMsg {
@@ -50,8 +95,9 @@ pub enum EngineMsg {
         command: Command,
         reply: Sender<Vec<Outcome>>,
     },
-    /// The client's foreground process (already checked to be in its session).
-    Foreground(u32),
+    /// The client's foreground process (already checked to be in its
+    /// session), and whether it is full screen.
+    Foreground(u32, bool),
 }
 
 pub struct Server {
@@ -202,8 +248,8 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 }
             }
             Request::GetConfig => get_config(shared),
-            Request::Foreground { pid } => {
-                foreground(shared, engine, pid, conn.client_session_id())
+            Request::Foreground { pid, fullscreen } => {
+                foreground(shared, engine, pid, fullscreen, conn.client_session_id())
             }
             Request::SetConfig { .. } if !admin => {
                 Response::Error("administrator rights required (run the client elevated)".into())
@@ -228,6 +274,48 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 Ok(text) => Response::Text(text),
                 Err(e) => Response::Error(e),
             },
+            Request::DiskActivity => disk_activity(shared),
+            Request::FirewallBlocked => match wtm_core::firewall::blocked() {
+                Ok(list) => Response::Blocked(list),
+                Err(e) => Response::Error(e.to_string()),
+            },
+            Request::Firewall { .. } if !admin => {
+                Response::Error("administrator rights required (run the client elevated)".into())
+            }
+            Request::Firewall { path, block } => {
+                let result = if block {
+                    wtm_core::firewall::block(&path)
+                } else {
+                    wtm_core::firewall::unblock(&path)
+                };
+                match result {
+                    Ok(()) => {
+                        shared.events.info(
+                            None,
+                            format!(
+                                "network {} for {path}",
+                                if block { "blocked" } else { "unblocked" }
+                            ),
+                        );
+                        Response::Done
+                    }
+                    Err(e) => Response::Error(e.to_string()),
+                }
+            }
+            Request::CloseConnection { .. } if !admin => {
+                Response::Error("administrator rights required (run the client elevated)".into())
+            }
+            Request::CloseConnection { local, remote } => {
+                match wtm_core::close_tcp(local, remote) {
+                    Ok(()) => {
+                        shared
+                            .events
+                            .info(None, format!("connection {local} -> {remote} closed"));
+                        Response::Done
+                    }
+                    Err(e) => Response::Error(e.to_string()),
+                }
+            }
             Request::Control { .. } if !admin => {
                 Response::Error("administrator rights required (run the client elevated)".into())
             }
@@ -269,6 +357,7 @@ fn foreground(
     shared: &Shared,
     engine: &Sender<EngineMsg>,
     pid: u32,
+    fullscreen: bool,
     client_session: wtm_sys::Result<u32>,
 ) -> Response {
     let session = read_lock(&shared.snapshot).and_then(|s| {
@@ -279,7 +368,7 @@ fn foreground(
     });
     match (session, client_session) {
         (Some(s), Ok(c)) if s == c => {
-            let _ = engine.send(EngineMsg::Foreground(pid));
+            let _ = engine.send(EngineMsg::Foreground(pid, fullscreen));
             Response::Done
         }
         (None, _) => Response::Error(format!("process {pid} not found")),
@@ -662,18 +751,24 @@ mod tests {
         *shared.snapshot.write().unwrap() = Some(Arc::new(snap));
         let (tx, rx) = mpsc::channel();
         assert!(matches!(
-            foreground(&shared, &tx, me.pid, Ok(me.session_id)),
+            foreground(&shared, &tx, me.pid, true, Ok(me.session_id)),
             Response::Done
         ));
-        assert!(matches!(rx.try_recv(), Ok(EngineMsg::Foreground(pid)) if pid == me.pid));
-        let other = error(foreground(&shared, &tx, me.pid, Ok(me.session_id + 1)));
+        assert!(matches!(rx.try_recv(), Ok(EngineMsg::Foreground(pid, true)) if pid == me.pid));
+        let other = error(foreground(
+            &shared,
+            &tx,
+            me.pid,
+            false,
+            Ok(me.session_id + 1),
+        ));
         assert_eq!(other, "not a process of your session");
         let failed = wtm_sys::Error::Nt {
             call: "x",
             status: 1,
         };
-        assert!(error(foreground(&shared, &tx, me.pid, Err(failed))).contains("session"));
-        assert!(error(foreground(&shared, &tx, 0xFFFF_FFF0, Ok(0))).contains("not found"));
+        assert!(error(foreground(&shared, &tx, me.pid, false, Err(failed))).contains("session"));
+        assert!(error(foreground(&shared, &tx, 0xFFFF_FFF0, false, Ok(0))).contains("not found"));
         assert!(rx.try_recv().is_err(), "rejected reports are not forwarded");
     }
 }

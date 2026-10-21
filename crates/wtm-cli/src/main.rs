@@ -3,6 +3,7 @@
 mod actions;
 mod config;
 mod kill;
+mod mcp;
 mod parse;
 mod ports;
 mod power;
@@ -56,6 +57,13 @@ enum Command {
         /// Also show each process's command line
         #[arg(long, short = 'c')]
         cmdline: bool,
+    },
+    /// Model Context Protocol server on stdin/stdout, for AI assistants
+    /// (Claude Desktop, Claude Code). Read-only unless --allow-control.
+    Mcp {
+        /// Also offer tools that end, suspend or deprioritize processes
+        #[arg(long)]
+        allow_control: bool,
     },
     /// Live, auto-refreshing process monitor
     Top {
@@ -356,6 +364,10 @@ fn main() -> anyhow::Result<ExitCode> {
             sample_ms,
             cmdline,
         } => list(sort.into(), limit, sample_ms, cmdline).map(|()| ExitCode::SUCCESS),
+        Command::Mcp { allow_control } => {
+            mcp::run(io::stdin().lock(), io::stdout().lock(), allow_control)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Top { sort, interval_ms } => {
             top::run(sort.into(), Duration::from_millis(interval_ms.max(100)))
                 .map(|()| ExitCode::SUCCESS)
@@ -680,6 +692,7 @@ mod tests {
             mem_growth_per_hour: 64.0 * 1024.0 * 1024.0,
             mem_growth_fit: 0.9,
             cpu_core_seconds: 600.0,
+            ..AppStats::default()
         }
     }
 

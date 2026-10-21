@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -77,11 +77,29 @@ pub enum Request {
     /// own session.
     Foreground {
         pid: u32,
+        /// Its window covers the whole monitor (a game); game mode reacts.
+        fullscreen: bool,
     },
     Hardware,
     SetCooling {
         channel: String,
         profile: wtm_policy::CoolingProfile,
+    },
+    /// Blocks or unblocks a program's network access with Windows Firewall
+    /// (admin only).
+    Firewall {
+        path: String,
+        block: bool,
+    },
+    /// Programs blocked with [`Request::Firewall`].
+    FirewallBlocked,
+    /// Disk bytes per process and file since the previous request. The
+    /// service traces only while someone asks (a Disks view is open).
+    DiskActivity,
+    /// Resets an IPv4 TCP connection (admin only).
+    CloseConnection {
+        local: std::net::SocketAddr,
+        remote: std::net::SocketAddr,
     },
 }
 
@@ -130,6 +148,13 @@ pub enum Response {
     Text(String),
     Error(String),
     Hardware(wtm_core::hardware::HardwareReport),
+    /// Paths of programs blocked from the network.
+    Blocked(Vec<String>),
+    /// Disk bytes per process and file over `seconds`.
+    DiskActivity {
+        files: Vec<wtm_core::FileIo>,
+        seconds: f64,
+    },
 }
 
 /// System-wide load at one sample, for history graphs.
@@ -184,6 +209,16 @@ pub struct Status {
     pub foreground: Option<String>,
     /// What the rescue core keeps free while it is engaged.
     pub rescue_core: Option<RescueStatus>,
+    /// The game in front while game mode is active.
+    pub game: Option<GameStatus>,
+}
+
+/// Game mode while a full-screen app is in front.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GameStatus {
+    pub name: String,
+    /// Background processes calmed meanwhile.
+    pub calmed: usize,
 }
 
 /// The rescue core while engaged: processors left to RustWTM and Windows.

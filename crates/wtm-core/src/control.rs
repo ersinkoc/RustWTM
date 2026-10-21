@@ -10,7 +10,7 @@ use std::collections::hash_map::Entry;
 use serde::{Deserialize, Serialize};
 
 use wtm_sys::control::{Access, ProcessHandle};
-pub use wtm_sys::control::{EcoQos, PriorityClass, raise_current_thread};
+pub use wtm_sys::control::{EcoQos, PriorityClass, enter_background_mode, raise_current_thread};
 use wtm_sys::job::Job;
 
 use crate::ProcessInfo;
@@ -280,7 +280,19 @@ pub fn create_dump(
     target: &ProcessRef,
     dir: &std::path::Path,
 ) -> ControlResult<std::path::PathBuf> {
-    let h = open_verified(target, Access::DUMP)?;
+    // Their memory holds the sign-in secrets of this PC; dumping them is what
+    // credential theft does, and antivirus software rightly stops it.
+    if ["lsass.exe", "lsaiso.exe"]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(&target.name))
+    {
+        return Err(ControlError::Protected {
+            pid: target.pid,
+            reason: "holds this PC's sign-in secrets",
+        });
+    }
+    let h = open_verified(target, Access::DUMP_CLONE)
+        .or_else(|_| open_verified(target, Access::DUMP))?;
     let path = dump_path(dir, &target.name);
     sys(target.pid, h.write_dump(&path))?;
     Ok(path)
@@ -444,6 +456,21 @@ mod tests {
             name: "gone.exe".into(),
         };
         assert!(create_dump(&gone, &std::env::temp_dir()).is_err());
+    }
+
+    #[test]
+    fn sign_in_secrets_are_never_dumped() {
+        for name in ["lsass.exe", "LsaIso.exe"] {
+            let t = ProcessRef {
+                pid: std::process::id(),
+                create_time: 0,
+                name: name.into(),
+            };
+            assert!(matches!(
+                create_dump(&t, &std::env::temp_dir()),
+                Err(ControlError::Protected { .. })
+            ));
+        }
     }
 
     #[test]

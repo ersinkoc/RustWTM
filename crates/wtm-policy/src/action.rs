@@ -92,6 +92,8 @@ pub enum Source {
     Manual,
     /// Relieves memory pressure.
     MemoryGuard,
+    /// Calms background apps while a full-screen app is in front.
+    GameMode,
 }
 
 #[derive(Debug, Clone, PartialEq)]

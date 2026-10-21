@@ -160,6 +160,26 @@ Windows has no hard CPU or memory reservation for ordinary programs; these
 are the strongest guarantees it offers. A machine that has run out of commit
 (RAM plus page file) can still refuse new allocations.
 
+## `[game_mode]`
+
+While a full-screen app is in front (a game, a full-screen video or
+presentation, as reported by the RustWTM window), background apps using at
+least `background_cpu_percent` of the machine get `actions`; everything is
+rolled back when the full-screen app leaves the foreground, and when the
+service stops. Only apps in the full-screen app's own session are calmed,
+never services (session 0) or other signed-in users' apps. The Overview and
+the status bar show *Game mode* meanwhile.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | |
+| `background_cpu_percent` | `2.0` | Background apps using at least this share of the machine are calmed. |
+| `actions` | below-normal priority + efficiency mode | `cpu_cap_relative` is not allowed. |
+| `power_plan` | `false` | Switch to the High performance power plan meanwhile and back to the previous plan afterwards. |
+| `exempt` | `["obs*.exe", "discord.exe", "audiodg.exe", "explorer.exe"]` | Image-name wildcards never calmed. |
+
+Applied only when `dry_run = false`.
+
 ## `[[limit]]` — app limits
 
 ```toml
@@ -210,6 +230,10 @@ Long-term analysis of the usage history.
 | `growth_actions` | `[]` | Empty = report only (event + notification). |
 | `chronic_gpu_percent` | `30.0` | Average GPU (busiest engine, all instances, capped at 100) that flags a chronic GPU user. |
 | `chronic_gpu_actions` | `[]` | Empty = report only. Priority and efficiency mode do not limit GPU work. |
+| `handle_growth_per_hour` | `1000.0` | Steady handle growth (fit: `growth_min_fit`) that flags a handle leak, report only... |
+| `handle_min` | `10000` | ...once the app holds at least this many handles. |
+| `thread_growth_per_hour` | `50.0` | Steady thread growth that flags a thread leak, report only... |
+| `thread_min` | `500` | ...once the app runs at least this many threads. |
 | `exempt` | `["explorer.exe", "Taskmgr.exe"]` | |
 | `protect_foreground` | `true` | Never throttle the app in the foreground and the processes it started (reported by the RustWTM window while it runs). |
 

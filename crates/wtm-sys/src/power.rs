@@ -97,6 +97,14 @@ pub fn write_frequency(plan: &str, class: u8, source: PowerSource, value: u32) -
     Ok(())
 }
 
+/// The built-in High performance power plan.
+pub const HIGH_PERFORMANCE: &str = "8C5E7FDA-E8BF-4A96-9A85-A6E23A8C635C";
+
+/// Makes `plan` (a GUID) the active power plan.
+pub fn set_active_scheme(plan: &str) -> Result<()> {
+    refresh_scheme(plan)
+}
+
 pub fn refresh_scheme(plan: &str) -> Result<()> {
     let plan = GUID::try_from(plan)?;
     // SAFETY: the scheme GUID reference is valid for the synchronous call.

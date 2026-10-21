@@ -39,6 +39,8 @@ pub fn proc(pid: u32, parent_pid: u32, name: &str, cpu: f32) -> ProcessInfo {
         gpu_memory: 1 << 20,
         io_read_rate: 1000.0,
         io_write_rate: 0.0,
+        net_rx_rate: 0.0,
+        net_tx_rate: 0.0,
         create_time: 116_444_736_000_000_000 + i64::from(pid),
     }
 }
@@ -169,6 +171,7 @@ pub fn data() -> Data {
         mem_avg: 100 << 20,
         mem_peak: 120 << 20,
         processes: 1,
+        ..MinuteRow::default()
     };
     let mut d = Data {
         mode: Mode::Local,
@@ -209,6 +212,7 @@ pub fn data() -> Data {
                 cpus: vec![14, 15],
                 moved: 42,
             }),
+            game: None,
         }),
         details: Some((
             alpha.clone(),
@@ -297,6 +301,7 @@ pub fn data() -> Data {
                 mem_growth_per_hour: 5.0 * 1024.0 * 1024.0,
                 mem_growth_fit: 0.4,
                 cpu_core_seconds: 3600.0,
+                ..AppStats::default()
             }],
             vec![Finding {
                 app: "alpha.exe".into(),
@@ -330,6 +335,7 @@ struct ProcState {
     snap: Snapshot,
     intents: Vec<String>,
     managed: ManagedMap,
+    hung: crate::backend::HungMap,
 }
 
 fn describe_intent(i: &Intent) -> String {
@@ -345,6 +351,10 @@ fn describe_intent(i: &Intent) -> String {
         Intent::ShowPorts => "show ports".into(),
         Intent::Dump(t) => format!("dump {}", t.pid),
         Intent::WatchExit(t) => format!("watch exit {}", t.pid),
+        Intent::WaitChain(t) => format!("wait chain {}", t.pid),
+        Intent::WhyAlive(t) => format!("why alive {}", t.pid),
+        Intent::Modules(t) => format!("modules {}", t.pid),
+        Intent::Network(t, block) => format!("network {} {block}", t.pid),
     }
 }
 
@@ -355,7 +365,7 @@ fn process_harness() -> Harness<'static, ProcState> {
         .build_ui_state(
             |ui, st: &mut ProcState| {
                 let snap = st.snap.clone();
-                let intents = st.view.ui(ui, &snap, &extra(&st.managed));
+                let intents = st.view.ui(ui, &snap, &extra_with(&st.managed, &st.hung));
                 st.intents.extend(intents.iter().map(describe_intent));
             },
             ProcState {
@@ -363,6 +373,7 @@ fn process_harness() -> Harness<'static, ProcState> {
                 snap: snapshot(),
                 intents: Vec::new(),
                 managed: ManagedMap::new(),
+                hung: HashMap::new(),
             },
         )
 }
@@ -537,8 +548,8 @@ fn read_only_views_render() {
         .with_size([1200.0, 900.0])
         .build_ui(|ui| {
             views::users(ui, &d);
-            views::network(ui, &d, &mut filter, None);
-            views::network(ui, &d, &mut "8080".to_owned(), Some(100));
+            let _ = views::network(ui, &d, &mut filter, None);
+            let _ = views::network(ui, &d, &mut "8080".to_owned(), Some(100));
         });
     h.run();
     assert!(h.query_by_label(r"PC\alice").is_some());
@@ -550,7 +561,7 @@ fn read_only_views_render() {
     d.connections = Some(Err("boom".into()));
     let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
         views::users(ui, &d);
-        views::network(ui, &d, &mut String::new(), None);
+        let _ = views::network(ui, &d, &mut String::new(), None);
     });
     h.run_steps(2);
     assert!(h.query_by_label("boom").is_some());
@@ -813,7 +824,7 @@ fn views_show_alternative_states() {
         .build_ui(|ui| {
             ui.columns(3, |cols| {
                 views::users(&mut cols[0], &d);
-                views::network(&mut cols[0], &d, &mut filter, None);
+                let _ = views::network(&mut cols[0], &d, &mut filter, None);
                 let _ = views::services(&mut cols[1], &d, &mut services_filter);
                 if let Some(c) = views::startup(&mut cols[1], &d, &mut startup) {
                     command = Some(c);
@@ -862,7 +873,9 @@ fn every_table_sorts_by_every_column() {
         .with_size([1600.0, 1400.0])
         .build_ui(|ui| {
             ui.push_id("u", |ui| views::users(ui, &d));
-            ui.push_id("n", |ui| views::network(ui, &d, &mut String::new(), None));
+            ui.push_id("n", |ui| {
+                let _ = views::network(ui, &d, &mut String::new(), None);
+            });
             ui.push_id("s", |ui| views::services(ui, &d, &mut String::new()));
             ui.push_id("st", |ui| views::startup(ui, &d, &mut selected));
         });
@@ -1022,12 +1035,22 @@ fn icons() -> &'static (crate::backend::CommandLines, Icons) {
 }
 
 fn extra(managed: &ManagedMap) -> crate::processes::Extra<'_> {
+    static NONE_HUNG: std::sync::LazyLock<crate::backend::HungMap> =
+        std::sync::LazyLock::new(HashMap::new);
+    extra_with(managed, &NONE_HUNG)
+}
+
+fn extra_with<'a>(
+    managed: &'a ManagedMap,
+    hung: &'a crate::backend::HungMap,
+) -> crate::processes::Extra<'a> {
     crate::processes::Extra {
         topology: None,
         labels: managed,
         command_lines: command_lines(),
         image_paths: &icons().0,
         icons: &icons().1,
+        hung,
     }
 }
 
@@ -1132,6 +1155,67 @@ fn paused_process_list_keeps_its_snapshot_and_resumes_live_data() {
     h.key_press(eframe::egui::Key::F6);
     h.run();
     assert!(h.state().view.paused.is_some());
+}
+
+#[test]
+fn not_responding_programs_are_marked_and_filterable() {
+    let mut h = process_harness();
+    h.run();
+    assert!(
+        h.query_by_label("Not responding").is_some(),
+        "the quick filter"
+    );
+    h.state_mut().hung.insert(100, "Alpha - Document".into());
+    h.run();
+    assert_eq!(
+        h.get_all_by_label("Not responding").count(),
+        2,
+        "filter and badge"
+    );
+    h.get_all_by_label("Not responding").next().unwrap().click();
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_some());
+    assert!(h.query_by_label("beta.exe").is_none());
+}
+
+#[test]
+fn recent_and_extra_filters_narrow_the_list_and_clear() {
+    let mut h = process_harness();
+    h.run();
+    h.get_by_label("Started in the last 5 min").click();
+    h.run();
+    assert!(h.query_by_label("No matching processes").is_some());
+    assert!(
+        h.state()
+            .view
+            .visible
+            .contains(&crate::processes::Col::Started)
+    );
+    // A process started a minute ago appears.
+    let minute_ago = std::time::SystemTime::now() - Duration::from_secs(60);
+    let since = minute_ago.duration_since(std::time::UNIX_EPOCH).unwrap();
+    h.state_mut().snap.processes[2].create_time =
+        116_444_736_000_000_000 + (since.as_nanos() / 100) as i64;
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_some());
+    assert!(h.query_by_label("beta.exe").is_none());
+    assert!(h.query_by_label("More filters (1)").is_some());
+
+    // Session filter shows as a removable chip.
+    h.state_mut().view.more.session = crate::processes::SessionFilter::Services;
+    h.run();
+    assert!(h.query_by_label("No matching processes").is_some());
+    h.get_by_label("Services and system  ✖").click();
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_some());
+
+    h.state_mut().view.more.disk_active = true;
+    h.state_mut().view.search = "nothing-matches".into();
+    h.run();
+    h.get_by_label("Clear filters").click();
+    h.run();
+    assert!(h.state().view.more.is_empty());
+    assert!(h.query_by_label("beta.exe").is_some());
 }
 
 #[test]

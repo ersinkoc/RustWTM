@@ -164,6 +164,14 @@ fn strip(ui: &mut Ui, color: Color32, icon: &str, text: &str) {
         });
 }
 
+/// The game in front and what game mode does for it.
+pub(crate) fn game_text(game: &wtm_ipc::GameStatus) -> String {
+    crate::i18n::format(
+        "Game mode: {0} is in front; {1} background apps calmed until it ends",
+        &[game.name.clone(), game.calmed.to_string()],
+    )
+}
+
 /// What the rescue core keeps free while the machine is overloaded.
 pub(crate) fn rescue_text(rescue: &wtm_ipc::RescueStatus) -> String {
     let cpus: Vec<_> = rescue.cpus.iter().map(u8::to_string).collect();
@@ -287,6 +295,45 @@ const STUCK_MINS: u64 = 10;
 
 /// Hundreds of copies of one program: who started them and one click to end
 /// them all, or only those nothing waits for any more.
+/// A strip per program whose window does not respond, with a way to find out why.
+fn not_responding(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Intent>) {
+    let mut hung: Vec<_> = data.hung.iter().collect();
+    hung.sort();
+    for (pid, title) in hung.into_iter().take(3) {
+        let Some(p) = procs.iter().find(|p| p.pid == *pid) else {
+            continue;
+        };
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .fill(BAD.gamma_multiply(0.12))
+            .stroke(egui::Stroke::new(1.0, BAD.gamma_multiply(0.5)))
+            .corner_radius(8)
+            .inner_margin(egui::Margin::symmetric(12, 8))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(crate::i18n::format(
+                            "⚠  {0} is not responding (\"{1}\")",
+                            &[p.name.clone(), title.clone()],
+                        ))
+                        .size(15.0)
+                        .color(crate::theme::text_color(ui, BAD)),
+                    );
+                    if ui
+                        .button(crate::i18n::tr("Why?"))
+                        .on_hover_text(crate::i18n::tr("Show it and analyze its wait chain"))
+                        .clicked()
+                    {
+                        let target = ProcessRef::from(p);
+                        intents.push(Intent::Reveal(target.clone()));
+                        intents.push(Intent::WaitChain(target));
+                    }
+                });
+            });
+    }
+}
+
 fn swarms(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut Vec<Intent>) {
     let swarms = wtm_policy::find_swarms(procs, &data.swarm);
     if swarms.is_empty() {
@@ -479,6 +526,11 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
             ui.add_space(4.0);
             strip(ui, crate::theme::CPU, "⛨", &rescue_text(rescue));
         }
+        if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
+            ui.add_space(4.0);
+            strip(ui, crate::theme::GPU, "▶", &game_text(game));
+        }
+        not_responding(ui, data, &snap.processes, &mut intents);
         swarms(ui, data, &snap.processes, &mut intents);
     } else {
         ui.spinner();

@@ -28,6 +28,69 @@ pub fn foreground_pid() -> Option<u32> {
     (pid != 0).then_some(pid)
 }
 
+/// The foreground process and whether its window covers its whole monitor
+/// (a game, a full-screen video or presentation). The desktop and the
+/// taskbar never count as full screen.
+pub fn foreground_fullscreen() -> Option<(u32, bool)> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetWindowRect};
+    // SAFETY: no arguments; returns a null HWND when there is no window.
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_invalid() {
+        return None;
+    }
+    let mut pid = 0u32;
+    // SAFETY: `hwnd` came from the system; `pid` is a writable u32.
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    if pid == 0 {
+        return None;
+    }
+    let mut class = [0u16; 64];
+    // SAFETY: `class` is writable for its length.
+    let len = unsafe { GetClassNameW(hwnd, &mut class) } as usize;
+    let class = String::from_utf16_lossy(&class[..len.min(class.len())]);
+    if [
+        "Progman",
+        "WorkerW",
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd",
+    ]
+    .contains(&class.as_str())
+    {
+        return Some((pid, false));
+    }
+    let mut rect = RECT::default();
+    // SAFETY: `rect` is writable.
+    if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+        return Some((pid, false));
+    }
+    // SAFETY: a valid window handle; the monitor handle needs no release.
+    let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
+    let mut info = MONITORINFO {
+        cbSize: size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `info` is sized for MONITORINFO.
+    if !unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        return Some((pid, false));
+    }
+    Some((pid, covers(rect, info.rcMonitor)))
+}
+
+/// A window covers its monitor when it reaches every edge.
+fn covers(
+    window: windows::Win32::Foundation::RECT,
+    monitor: windows::Win32::Foundation::RECT,
+) -> bool {
+    window.left <= monitor.left
+        && window.top <= monitor.top
+        && window.right >= monitor.right
+        && window.bottom >= monitor.bottom
+}
+
 /// A top-level window (shown or hidden) with exactly this title that belongs
 /// to another process: its handle and process id.
 pub fn find_other(title: &str) -> Option<(isize, u32)> {
@@ -152,6 +215,40 @@ pub fn is_visible(raw: isize) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn full_screen_means_reaching_every_edge() {
+        use windows::Win32::Foundation::RECT;
+        let monitor = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        assert!(covers(monitor, monitor));
+        // Exclusive full screen often overshoots by the border width.
+        assert!(covers(
+            RECT {
+                left: -8,
+                top: -8,
+                right: 1928,
+                bottom: 1088
+            },
+            monitor
+        ));
+        let maximized = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1040,
+        };
+        assert!(
+            !covers(maximized, monitor),
+            "a maximized window leaves the taskbar"
+        );
+        let _ = foreground_fullscreen();
+    }
+
     use super::*;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW,

@@ -16,6 +16,10 @@ use wtm_core::{Sampler, Snapshot};
 use wtm_policy::{AppStats, Finding, MinuteRow};
 
 pub type CommandLines = std::collections::HashMap<(u32, i64), String>;
+/// A process's modules with who signed each.
+pub type ModuleList = Vec<(wtm_core::Module, wtm_core::Signature)>;
+/// Processes with a window Windows marks as not responding, and its title.
+pub type HungMap = std::collections::HashMap<u32, String>;
 
 /// Per-app summaries plus the service's current long-term findings.
 pub type AppHistory = (Vec<AppStats>, Vec<Finding>);
@@ -103,6 +107,19 @@ pub struct Data {
     /// Per process, so a selected process shows its recent past at once.
     pub process_history: ProcessHistories,
     pub details: Option<(ProcessRef, Result<ProcessDetails, String>)>,
+    /// Processes whose window does not respond, refreshed every sample.
+    pub hung: HungMap,
+    /// The last wait chain analysis; `None` inside while it runs.
+    pub wait_report: Option<(ProcessRef, Option<Result<wtm_core::WaitReport, String>>)>,
+    /// The loaded modules of a process with their signatures; `None`
+    /// inside while they are read.
+    pub modules: Option<(ProcessRef, Option<Result<ModuleList, String>>)>,
+    /// Programs blocked from the network with Windows Firewall.
+    pub firewall: Option<Result<Vec<String>, String>>,
+    /// Disk bytes per process and file over a few seconds.
+    pub disk_activity: Option<Result<(Vec<wtm_core::FileIo>, f64), String>>,
+    /// The last "why won't it end" report; `None` inside while it runs.
+    pub end_report: Option<(ProcessRef, Option<Result<wtm_core::EndReport, String>>)>,
     pub services: Option<Result<Vec<ServiceEntry>, String>>,
     pub sessions: Option<Result<Vec<Session>, String>>,
     pub connections: Option<Result<Vec<Connection>, String>>,
@@ -186,6 +203,22 @@ pub enum UiCommand {
         command: Command,
     },
     Inspect(ProcessRef),
+    /// What the threads of a process wait for.
+    WaitChain(ProcessRef),
+    /// Why a process cannot be ended.
+    WhyAlive(ProcessRef),
+    /// The modules a process has loaded, with their signatures.
+    Modules(ProcessRef),
+    /// Blocks (`true`) or unblocks a program's network access.
+    Firewall {
+        path: String,
+        block: bool,
+    },
+    /// Resets an IPv4 TCP connection.
+    CloseConnection {
+        local: std::net::SocketAddr,
+        remote: std::net::SocketAddr,
+    },
     /// Refresh one of the on-demand lists.
     Load(Panel),
     LoadHistory {
@@ -280,6 +313,8 @@ pub enum Panel {
     Config,
     /// The Telegram bot settings.
     Telegram,
+    /// Which files are read and written right now (Disks tab).
+    DiskActivity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,8 +369,9 @@ impl Backend {
             open: open_location,
             launch: wtm_core::launch::run,
             restart: wtm_core::launch::restart_elevated,
-            foreground: wtm_core::foreground_pid,
-            sampler: Sampler::new(),
+            foreground: wtm_core::foreground_fullscreen,
+            sampler: local_sampler(),
+            disk_trace: None,
             limiter: Limiter::new(),
         };
         std::thread::Builder::new()
@@ -397,9 +433,13 @@ struct Worker {
     launch: fn(&str, bool) -> Result<(), String>,
     /// Starts RustWTM elevated.
     restart: fn() -> Result<(), String>,
-    /// The process owning the foreground window.
-    foreground: fn() -> Option<u32>,
+    /// The process owning the foreground window, and whether that window
+    /// covers its monitor (game mode).
+    foreground: fn() -> Option<(u32, bool)>,
     sampler: Sampler,
+    /// Per-file disk trace when running elevated without the service, and
+    /// when it was last read.
+    disk_trace: Option<(wtm_core::DiskTracer, Instant)>,
     /// Job handles for limits applied in local mode.
     limiter: Limiter,
 }
@@ -457,8 +497,8 @@ impl Worker {
             let verified = client.is_verified();
             // Lets the governor spare the app the user is working in; a
             // refusal (e.g. an exited process) is harmless.
-            if let Some(pid) = (self.foreground)() {
-                let _ = client.call(&Request::Foreground { pid });
+            if let Some((pid, fullscreen)) = (self.foreground)() {
+                let _ = client.call(&Request::Foreground { pid, fullscreen });
             }
             // Right after connecting: the service's last minutes, so the
             // graphs start full.
@@ -481,8 +521,10 @@ impl Worker {
                         .as_ref()
                         .map(|s| Lookups::fetch(&self.data, &s.processes))
                         .unwrap_or_default();
+                    let hung = hung_map();
                     let mut data = self.data();
                     lookups.apply(&mut data);
+                    data.hung = hung;
                     if let Some(points) = backfill
                         && data.history.cpu.len() < points.len()
                     {
@@ -515,8 +557,10 @@ impl Worker {
             .as_ref()
             .map(|s| Lookups::fetch(&self.data, &s.processes))
             .unwrap_or_default();
+        let hung = hung_map();
         let mut data = self.data();
         lookups.apply(&mut data);
+        data.hung = hung;
         publish_local(&mut data, sample);
         drop(data);
         refresh_icons(&self.data);
@@ -905,6 +949,127 @@ impl Worker {
                     }),
                 });
             }
+            UiCommand::WaitChain(target) => {
+                self.data().wait_report = Some((target.clone(), None));
+                let (data, ctx) = (self.data.clone(), self.ctx.clone());
+                std::thread::spawn(move || {
+                    let report = wtm_core::wait_chains(target.pid, WAIT_CHAIN_BUDGET)
+                        .map_err(|e| e.to_string());
+                    let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
+                    // Unless another analysis was asked for meanwhile.
+                    if d.wait_report.as_ref().is_some_and(|(t, _)| *t == target) {
+                        d.wait_report = Some((target, Some(report)));
+                    }
+                    drop(d);
+                    ctx.request_repaint();
+                });
+            }
+            UiCommand::Firewall { path, block } => {
+                let via_service = self.client.as_ref().is_some_and(Client::is_admin);
+                let result = if via_service {
+                    let client = self.client.as_mut().expect("checked above");
+                    match client.call(&Request::Firewall {
+                        path: path.clone(),
+                        block,
+                    }) {
+                        Ok(Response::Done) => Ok(()),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    }
+                } else if block {
+                    wtm_core::firewall::block(&path).map_err(|e| e.to_string())
+                } else {
+                    wtm_core::firewall::unblock(&path).map_err(|e| e.to_string())
+                };
+                self.data().message = Some(match (result, block) {
+                    (Ok(()), true) => (
+                        EventLevel::Info,
+                        crate::i18n::format("Network blocked for {0}", std::slice::from_ref(&path)),
+                    ),
+                    (Ok(()), false) => (
+                        EventLevel::Info,
+                        crate::i18n::format(
+                            "Network unblocked for {0}",
+                            std::slice::from_ref(&path),
+                        ),
+                    ),
+                    (Err(e), _) => (
+                        EventLevel::Error,
+                        crate::i18n::format(
+                            "Windows Firewall refused the change for {0}: {1}",
+                            &[path.clone(), e],
+                        ),
+                    ),
+                });
+                self.data().firewall = Some(firewall_blocked(self.client.as_mut()));
+            }
+            UiCommand::CloseConnection { local, remote } => {
+                let via_service = self.client.as_ref().is_some_and(Client::is_admin);
+                let result = if via_service {
+                    let client = self.client.as_mut().expect("checked above");
+                    match client.call(&Request::CloseConnection { local, remote }) {
+                        Ok(Response::Done) => Ok(()),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    }
+                } else {
+                    wtm_core::close_tcp(local, remote).map_err(|e| e.to_string())
+                };
+                self.data().message = Some(match result {
+                    Ok(()) => (
+                        EventLevel::Info,
+                        crate::i18n::format(
+                            "Connection {0} → {1} closed",
+                            &[local.to_string(), remote.to_string()],
+                        ),
+                    ),
+                    Err(e) => (
+                        EventLevel::Error,
+                        crate::i18n::format(
+                            "Cannot close the connection {0} → {1}: {2}",
+                            &[local.to_string(), remote.to_string(), e],
+                        ),
+                    ),
+                });
+                self.load(Panel::Network);
+            }
+            UiCommand::Modules(target) => {
+                self.data().modules = Some((target.clone(), None));
+                let (data, ctx) = (self.data.clone(), self.ctx.clone());
+                std::thread::spawn(move || {
+                    // Off the critical path: reading files and catalogs.
+                    let _ = wtm_core::control::enter_background_mode();
+                    let result = wtm_core::process_modules(target.pid)
+                        .map(|mods| {
+                            mods.into_iter()
+                                .map(|m| {
+                                    let s = cached_signature(&m.path);
+                                    (m, s)
+                                })
+                                .collect()
+                        })
+                        .map_err(|e| e.to_string());
+                    let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
+                    if d.modules.as_ref().is_some_and(|(t, _)| *t == target) {
+                        d.modules = Some((target, Some(result)));
+                    }
+                    drop(d);
+                    ctx.request_repaint();
+                });
+            }
+            UiCommand::WhyAlive(target) => {
+                self.data().end_report = Some((target.clone(), None));
+                let (data, ctx) = (self.data.clone(), self.ctx.clone());
+                std::thread::spawn(move || {
+                    let report = wtm_core::why_alive(target.pid).map_err(|e| e.to_string());
+                    let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
+                    if d.end_report.as_ref().is_some_and(|(t, _)| *t == target) {
+                        d.end_report = Some((target, Some(report)));
+                    }
+                    drop(d);
+                    ctx.request_repaint();
+                });
+            }
             UiCommand::Inspect(target) => {
                 let result = match self.client.as_mut() {
                     Some(c) => match c.call(&Request::Inspect(target.clone())) {
@@ -1002,11 +1167,46 @@ impl Worker {
             Panel::Startup => {
                 self.data().startup = Some(wtm_core::startup::list_startup());
             }
+            Panel::DiskActivity => {
+                let result = match self.client.as_mut() {
+                    Some(c) => match c.call(&Request::DiskActivity) {
+                        Ok(Response::DiskActivity { files, seconds }) => Ok((files, seconds)),
+                        Ok(other) => Err(unexpected(other).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    },
+                    None if wtm_core::launch::is_elevated() => self.local_disk_activity(),
+                    None => Err(crate::i18n::tr(
+                        "Which files are read and written needs the RustWTM service or administrator rights.",
+                    )
+                    .to_owned()),
+                };
+                self.data().disk_activity = Some(result);
+            }
             Panel::Network => {
                 let r = wtm_core::connections().map_err(|e| e.to_string());
                 self.data().connections = Some(r);
+                // Rules change rarely: read once, then after each change.
+                if self.data().firewall.is_none() {
+                    let blocked = firewall_blocked(self.client.as_mut());
+                    self.data().firewall = Some(blocked);
+                }
             }
         }
+    }
+
+    /// Reads the window's own per-file disk trace, starting it if needed.
+    fn local_disk_activity(&mut self) -> Result<(Vec<wtm_core::FileIo>, f64), String> {
+        if self.disk_trace.is_none() {
+            const GUI_DISK_TRACE: &str = "RustWTM-GUI-Disk";
+            wtm_core::stop_trace_orphans(GUI_DISK_TRACE);
+            let name = format!("{GUI_DISK_TRACE}-{}", std::process::id());
+            let tracer = wtm_core::DiskTracer::start(&name).map_err(|e| e.to_string())?;
+            self.disk_trace = Some((tracer, Instant::now()));
+        }
+        let (tracer, taken) = self.disk_trace.as_mut().expect("started above");
+        let seconds = taken.elapsed().as_secs_f64();
+        *taken = Instant::now();
+        Ok((tracer.take(), seconds))
     }
 
     fn run_local(&mut self, t: &ProcessRef, command: Command) -> Vec<Outcome> {
@@ -1329,6 +1529,65 @@ fn update_process_history(histories: &mut ProcessHistories, procs: &[wtm_core::P
     }
 }
 
+/// The sampler used without the service. Started as administrator it also
+/// counts network bytes per process (an ETW session that needs the rights).
+fn local_sampler() -> Sampler {
+    let mut sampler = Sampler::new();
+    if wtm_core::launch::is_elevated() {
+        wtm_core::stop_trace_orphans(GUI_NET_TRACE);
+        let _ = sampler.enable_network_trace(&format!("{GUI_NET_TRACE}-{}", std::process::id()));
+    }
+    sampler
+}
+
+/// Prefix of the window's own network trace session.
+const GUI_NET_TRACE: &str = "RustWTM-GUI-Network";
+
+/// Who signed a file, remembered per path: the same system DLLs appear in
+/// nearly every process.
+fn cached_signature(path: &str) -> wtm_core::Signature {
+    static CACHE: std::sync::LazyLock<
+        Mutex<std::collections::HashMap<String, wtm_core::Signature>>,
+    > = std::sync::LazyLock::new(Mutex::default);
+    let key = path.to_lowercase();
+    if let Some(s) = CACHE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&key)
+    {
+        return s.clone();
+    }
+    let s = wtm_core::signature(path);
+    CACHE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(key, s.clone());
+    s
+}
+
+/// Programs blocked from the network, from the service when connected.
+fn firewall_blocked(client: Option<&mut Client>) -> Result<Vec<String>, String> {
+    match client {
+        Some(c) => match c.call(&Request::FirewallBlocked) {
+            Ok(Response::Blocked(list)) => Ok(list),
+            Ok(other) => Err(unexpected(other).to_string()),
+            Err(e) => Err(e.to_string()),
+        },
+        None => wtm_core::firewall::blocked().map_err(|e| e.to_string()),
+    }
+}
+
+/// A wait chain analysis gives up after this long.
+const WAIT_CHAIN_BUDGET: Duration = Duration::from_secs(15);
+
+/// Processes with a not-responding window. Reads window state only.
+fn hung_map() -> HungMap {
+    wtm_core::hung_windows()
+        .into_iter()
+        .map(|w| (w.pid, w.title))
+        .collect()
+}
+
 /// Command lines and image paths of processes not seen before. Each one is a
 /// call into the process, so they are read without holding the data lock the
 /// window needs for every frame.
@@ -1466,6 +1725,11 @@ pub fn notify_blocked(name: &str) {
     let _ = blocked_notification(name).show();
 }
 
+/// Opens Explorer with `path` (a file or a folder) selected.
+pub fn reveal(path: &std::path::Path) -> io::Result<()> {
+    open_location(&path.display().to_string())
+}
+
 /// Opens Explorer with `path` selected.
 fn open_location(path: &str) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
@@ -1590,6 +1854,7 @@ mod tests {
             restart: || Ok(()),
             foreground: || None,
             sampler: Sampler::new(),
+            disk_trace: None,
             limiter: Limiter::new(),
         }
     }
@@ -2106,6 +2371,13 @@ mod tests {
             Request::TestTelegram => Response::Text("sent".into()),
             Request::Hardware => Response::Hardware(wtm_core::hardware::HardwareReport::default()),
             Request::SetCooling { .. } => Response::Done,
+            Request::CloseConnection { .. } => Response::Done,
+            Request::Firewall { .. } => Response::Done,
+            Request::FirewallBlocked => Response::Blocked(Vec::new()),
+            Request::DiskActivity => Response::DiskActivity {
+                files: Vec::new(),
+                seconds: 1.0,
+            },
             Request::Foreground { .. } => Response::Done,
         })
     }
@@ -2121,7 +2393,7 @@ mod tests {
 
         let mut w = worker();
         w.client = Some(Client::connect_to(&pipe).unwrap());
-        w.foreground = || Some(1);
+        w.foreground = || Some((1, false));
         w.tick();
         {
             let d = w.data();
@@ -2246,6 +2518,13 @@ mod tests {
             Request::TestTelegram => Response::Error("chat 1: chat not found".into()),
             Request::Hardware => Response::Hardware(wtm_core::hardware::HardwareReport::default()),
             Request::SetCooling { .. } => Response::Done,
+            Request::CloseConnection { .. } => Response::Done,
+            Request::Firewall { .. } => Response::Done,
+            Request::FirewallBlocked => Response::Blocked(Vec::new()),
+            Request::DiskActivity => Response::DiskActivity {
+                files: Vec::new(),
+                seconds: 1.0,
+            },
             Request::Foreground { .. } => Response::Error("not a process of your session".into()),
         });
 
@@ -2253,7 +2532,7 @@ mod tests {
         w.pipe = pipe;
         w.next_connect = Instant::now();
         w.notify = count_notification;
-        w.foreground = || Some(1);
+        w.foreground = || Some((1, false));
         w.notifications.store(true, Ordering::Relaxed);
         w.tick();
         assert!(w.client.is_some(), "tick connects to the pipe");

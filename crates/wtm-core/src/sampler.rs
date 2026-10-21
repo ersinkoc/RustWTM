@@ -18,6 +18,8 @@ pub struct Sampler {
     disks: Option<DiskSampler>,
     logical_cpus: u32,
     prev: Option<Previous>,
+    /// Network bytes per process; needs administrator rights.
+    net_trace: Option<wtm_sys::nettrace::NetTracer>,
 }
 
 #[derive(Debug)]
@@ -67,6 +69,8 @@ impl ProcessInfo {
             gpu_memory: 0,
             io_read_rate: 0.0,
             io_write_rate: 0.0,
+            net_rx_rate: 0.0,
+            net_tx_rate: 0.0,
             create_time: p.create_time,
         }
     }
@@ -118,7 +122,21 @@ impl Sampler {
             disks: DiskSampler::new().ok(),
             logical_cpus: system::logical_cpu_count(),
             prev: None,
+            net_trace: None,
         }
+    }
+
+    /// Starts counting network bytes per process (an ETW session called
+    /// `session`). Needs administrator rights; without them the rates stay 0.
+    pub fn enable_network_trace(&mut self, session: &str) -> crate::Result<()> {
+        if self.net_trace.is_none() {
+            self.net_trace = Some(wtm_sys::nettrace::NetTracer::start(session)?);
+        }
+        Ok(())
+    }
+
+    pub fn network_traced(&self) -> bool {
+        self.net_trace.is_some()
     }
 
     pub fn sample(&mut self) -> crate::Result<Snapshot> {
@@ -176,6 +194,11 @@ impl Sampler {
             }
         }
 
+        let traffic = self
+            .net_trace
+            .as_ref()
+            .map(wtm_sys::nettrace::NetTracer::take)
+            .unwrap_or_default();
         let mut counters = HashMap::with_capacity(raw.len());
         let mut processes = Vec::with_capacity(raw.len());
         for p in raw {
@@ -205,6 +228,12 @@ impl Sampler {
             info.cpu_percent = cpu_percent;
             info.io_read_rate = io_read_rate;
             info.io_write_rate = io_write_rate;
+            if elapsed_secs > 0.0
+                && let Some((rx, tx)) = traffic.get(&info.pid)
+            {
+                info.net_rx_rate = *rx as f64 / elapsed_secs;
+                info.net_tx_rate = *tx as f64 / elapsed_secs;
+            }
             if let Some(g) = gpu.per_process.get(&info.pid) {
                 info.gpu_percent = g.percent;
                 info.gpu_memory = g.dedicated_bytes;

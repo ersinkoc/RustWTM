@@ -15,6 +15,8 @@ struct Acc {
     mem_sum: f64,
     mem_peak: u64,
     processes: u32,
+    handles_sum: f64,
+    threads_sum: f64,
     samples: u32,
 }
 
@@ -35,6 +37,8 @@ const SCHEMA: &str = "
         mem_peak INTEGER NOT NULL,
         processes INTEGER NOT NULL,
         gpu_avg REAL NOT NULL DEFAULT 0,
+        handles_avg INTEGER NOT NULL DEFAULT 0,
+        threads_avg INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (app, minute)
     ) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS app_minute_time ON app_minute (minute);
@@ -47,16 +51,23 @@ impl History {
 
     pub(crate) fn with(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
-        // Databases created by 0.1.x have no GPU column.
-        let has_gpu: bool = conn.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('app_minute') WHERE name = 'gpu_avg'",
-            [],
-            |r| r.get::<_, i64>(0).map(|n| n > 0),
-        )?;
-        if !has_gpu {
-            conn.execute_batch(
-                "ALTER TABLE app_minute ADD COLUMN gpu_avg REAL NOT NULL DEFAULT 0",
+        // Older databases lack the later columns: GPU (0.1.x), handles and
+        // threads (0.15).
+        for (column, kind) in [
+            ("gpu_avg", "REAL"),
+            ("handles_avg", "INTEGER"),
+            ("threads_avg", "INTEGER"),
+        ] {
+            let present: bool = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('app_minute') WHERE name = ?1",
+                [column],
+                |r| r.get::<_, i64>(0).map(|n| n > 0),
             )?;
+            if !present {
+                conn.execute_batch(&format!(
+                    "ALTER TABLE app_minute ADD COLUMN {column} {kind} NOT NULL DEFAULT 0"
+                ))?;
+            }
         }
         Ok(Self {
             conn,
@@ -81,15 +92,17 @@ impl History {
         }
         self.minute = Some(minute);
 
-        let mut per_app: HashMap<String, (f32, f32, u64, u32)> = HashMap::new();
+        let mut per_app: HashMap<String, (f32, f32, u64, u32, u64, u64)> = HashMap::new();
         for p in snap.processes.iter().filter(|p| p.pid != 0) {
             let e = per_app.entry(p.name.to_lowercase()).or_default();
             e.0 += p.cpu_percent;
             e.1 += p.gpu_percent;
             e.2 += p.private_working_set;
             e.3 += 1;
+            e.4 += u64::from(p.handle_count);
+            e.5 += u64::from(p.thread_count);
         }
-        for (app, (cpu, gpu, mem, count)) in per_app {
+        for (app, (cpu, gpu, mem, count, handles, threads)) in per_app {
             let acc = self.apps.entry(app).or_default();
             acc.cpu_sum += f64::from(cpu);
             acc.cpu_peak = acc.cpu_peak.max(cpu);
@@ -98,6 +111,8 @@ impl History {
             acc.mem_sum += mem as f64;
             acc.mem_peak = acc.mem_peak.max(mem);
             acc.processes = acc.processes.max(count);
+            acc.handles_sum += handles as f64;
+            acc.threads_sum += threads as f64;
             acc.samples += 1;
         }
         Ok(())
@@ -112,8 +127,9 @@ impl History {
         {
             let mut stmt = tx.prepare(
                 "INSERT OR REPLACE INTO app_minute
-                 (app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 (app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
+                  handles_avg, threads_avg)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             )?;
             for (app, a) in self.apps.drain() {
                 let n = f64::from(a.samples.max(1));
@@ -126,6 +142,8 @@ impl History {
                     a.mem_peak as i64,
                     a.processes,
                     a.gpu_sum / n,
+                    (a.handles_sum / n) as i64,
+                    (a.threads_sum / n) as i64,
                 ])?;
             }
         }
@@ -146,7 +164,8 @@ pub fn stats(
     logical_cpus: u32,
 ) -> rusqlite::Result<Vec<AppStats>> {
     let mut stmt = conn.prepare(
-        "SELECT app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg
+        "SELECT app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
+                handles_avg, threads_avg
          FROM app_minute WHERE minute >= ?1",
     )?;
     let mut grouped: HashMap<String, Vec<MinuteRow>> = HashMap::new();
@@ -168,7 +187,8 @@ pub fn stats(
 /// Minute rows of one app since `since_minute`, oldest first.
 pub fn series(conn: &Connection, app: &str, since_minute: i64) -> rusqlite::Result<Vec<MinuteRow>> {
     let mut stmt = conn.prepare(
-        "SELECT minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg
+        "SELECT minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
+                handles_avg, threads_avg
          FROM app_minute WHERE app = ?1 AND minute >= ?2 ORDER BY minute",
     )?;
     let rows = stmt.query_map(params![app.to_lowercase(), since_minute], |r| row(r, 0))?;
@@ -184,6 +204,8 @@ fn row(r: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<MinuteRow> {
         mem_peak: r.get::<_, i64>(first + 4)? as u64,
         processes: r.get(first + 5)?,
         gpu_avg: r.get::<_, f64>(first + 6)? as f32,
+        handles_avg: r.get::<_, i64>(first + 7)?.clamp(0, i64::from(u32::MAX)) as u32,
+        threads_avg: r.get::<_, i64>(first + 8)?.clamp(0, i64::from(u32::MAX)) as u32,
     })
 }
 
@@ -211,6 +233,8 @@ mod tests {
             gpu_memory: 0,
             io_read_rate: 0.0,
             io_write_rate: 0.0,
+            net_rx_rate: 0.0,
+            net_tx_rate: 0.0,
             create_time: i64::from(pid),
         }
     }
@@ -282,6 +306,25 @@ mod tests {
     }
 
     #[test]
+    fn handles_and_threads_are_summed_per_app_and_averaged() {
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        let p = |pid, handles, threads| ProcessInfo {
+            handle_count: handles,
+            thread_count: threads,
+            ..proc(pid, "svc.exe", 1.0, 10)
+        };
+        h.record(&snap(vec![p(1, 1000, 10), p(2, 500, 5)]), 60)
+            .unwrap();
+        h.record(&snap(vec![p(1, 1200, 12), p(2, 500, 5)]), 90)
+            .unwrap();
+        h.flush().unwrap();
+        let rows = series(h.connection(), "svc.exe", 0).unwrap();
+        assert_eq!((rows[0].handles_avg, rows[0].threads_avg), (1600, 16));
+        let s = stats(h.connection(), 0, 4).unwrap();
+        assert_eq!((s[0].handles_last, s[0].threads_last), (1600, 16));
+    }
+
+    #[test]
     fn migrates_databases_without_a_gpu_column() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -298,6 +341,7 @@ mod tests {
         let rows = series(h.connection(), "old.exe", 0).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].gpu_avg, 0.0);
+        assert_eq!((rows[0].handles_avg, rows[0].threads_avg), (0, 0));
         // Opening again does not try to add the column twice.
         let conn = h.conn;
         History::with(conn).unwrap();

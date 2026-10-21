@@ -7,6 +7,7 @@ pub enum Icon {
     Overview,
     Processes,
     Performance,
+    Disk,
     Sensors,
     History,
     Shield,
@@ -63,6 +64,12 @@ fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             (14.0, 8.0),
             (18.0, 8.0),
         ]),
+        Icon::Disk => {
+            // A drive: a box with a light and a platter line.
+            box_at(2.0, 5.0, 15.0, 10.0);
+            line(&[(5.0, 10.0), (11.0, 10.0)]);
+            circle(14.0, 10.0, 0.8);
+        }
         Icon::Sensors => {
             circle(9.5, 14.0, 4.0);
             line(&[

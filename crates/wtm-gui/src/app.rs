@@ -18,6 +18,7 @@ enum Tab {
     Overview,
     Processes,
     Performance,
+    Disks,
     Sensors,
     Governor,
     Events,
@@ -34,12 +35,13 @@ enum Tab {
 }
 
 /// Navigation follows the task: observe, protect, inspect the system, configure.
-const NAV: [(Tab, crate::navigation::Icon, &str); 16] = {
+const NAV: [(Tab, crate::navigation::Icon, &str); 17] = {
     use crate::navigation::Icon as I;
     [
         (Tab::Overview, I::Overview, "Overview"),
         (Tab::Processes, I::Processes, "Processes"),
         (Tab::Performance, I::Performance, "Performance"),
+        (Tab::Disks, I::Disk, "Disks"),
         (Tab::Sensors, I::Sensors, "Sensors & cooling"),
         (Tab::History, I::History, "App history"),
         (Tab::Governor, I::Shield, "Governor"),
@@ -86,6 +88,7 @@ impl Tab {
             Self::Overview => crate::i18n::tr("Your machine at a glance"),
             Self::Processes => crate::i18n::tr("Find what is busy. Keep what matters running."),
             Self::Performance => crate::i18n::tr("Live resource usage and recent trends"),
+            Self::Disks => crate::i18n::tr("Free space, disk activity and what takes up the space"),
             Self::Sensors => crate::i18n::tr("Temperatures, fan speeds and thermal control"),
             Self::History => crate::i18n::tr("Understand resource usage over time"),
             Self::Governor => crate::i18n::tr("How automatic protection keeps your PC responsive"),
@@ -142,9 +145,9 @@ fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
     for (i, (tab, icon, label)) in NAV.iter().enumerate() {
         let group = match i {
             0 => Some(crate::i18n::tr("MONITOR")),
-            5 => Some(crate::i18n::tr("PROTECT")),
-            9 => Some(crate::i18n::tr("SYSTEM")),
-            14 => Some("RUSTWTM"),
+            6 => Some(crate::i18n::tr("PROTECT")),
+            10 => Some(crate::i18n::tr("SYSTEM")),
+            15 => Some("RUSTWTM"),
             _ => None,
         };
         if let Some(group) = group {
@@ -197,6 +200,7 @@ struct UiState {
     limits: crate::limits_tab::LimitsView,
     kill: crate::kill_tab::KillView,
     ports: crate::ports_tab::PortsView,
+    disks: crate::disks_tab::DisksView,
     /// The panic confirmation is open.
     panic: bool,
     /// `None`: collapse automatically on narrow windows.
@@ -365,6 +369,7 @@ impl Default for UiState {
             limits: crate::limits_tab::LimitsView::default(),
             kill: crate::kill_tab::KillView::default(),
             ports: crate::ports_tab::PortsView::default(),
+            disks: crate::disks_tab::DisksView::default(),
             panic: false,
             nav_collapsed: None,
             run_task: None,
@@ -488,6 +493,14 @@ impl eframe::App for App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     mode_badge(ui, data.mode);
+                    if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
+                        ui.label(
+                            RichText::new(crate::i18n::tr("▶ Game mode"))
+                                .color(crate::theme::text_color(ui, crate::theme::GPU))
+                                .strong(),
+                        )
+                        .on_hover_text(crate::overview::game_text(game));
+                    }
                     if let Some(rescue) = data.status.as_ref().and_then(|s| s.rescue_core.as_ref()) {
                         ui.label(
                             RichText::new(crate::i18n::tr("⛨ Rescue core"))
@@ -555,6 +568,7 @@ impl eframe::App for App {
             let scroll_page = matches!(
                 state.tab,
                 Tab::Overview
+                    | Tab::Disks
                     | Tab::Sensors
                     | Tab::Settings
                     | Tab::Governor
@@ -572,6 +586,7 @@ impl eframe::App for App {
                             command_lines: &data.command_lines,
                             image_paths: &data.image_paths,
                             icons: &data.icons,
+                            hung: &data.hung,
                         };
                         intents.extend(state.processes.ui(ui, snap, &extra));
                     }
@@ -580,6 +595,7 @@ impl eframe::App for App {
                     }
                 },
                 Tab::Performance => performance(ui, &data),
+                Tab::Disks => crate::disks_tab::disks_tab(ui, &data, &mut state.disks),
                 Tab::Sensors => {
                     service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
                 }
@@ -660,7 +676,15 @@ impl eframe::App for App {
                 }
                 Tab::Network => {
                     let only = state.processes.selected.as_ref().map(|r| r.pid);
-                    views::network(ui, &data, &mut state.network_filter, only);
+                    match views::network(ui, &data, &mut state.network_filter, only) {
+                        Some(views::NetworkAction::Close(local, remote)) => {
+                            service_cmds.push(UiCommand::CloseConnection { local, remote });
+                        }
+                        Some(views::NetworkAction::Unblock(path)) => {
+                            service_cmds.push(UiCommand::Firewall { path, block: false });
+                        }
+                        None => {}
+                    }
                 }
                 Tab::Ports => {
                     crate::ports_tab::ports_tab(ui, &data, &mut state.ports, &mut intents);
@@ -867,6 +891,7 @@ impl eframe::App for App {
             Tab::Sensors => Some((Panel::Sensors, Duration::from_secs(2))),
             Tab::Users => Some((Panel::Users, Duration::from_secs(5))),
             Tab::Network | Tab::Ports => Some((Panel::Network, Duration::from_secs(2))),
+            Tab::Disks => Some((Panel::DiskActivity, Duration::from_secs(2))),
             Tab::Services => Some((Panel::Services, Duration::from_secs(5))),
             Tab::History => None,
             Tab::Startup => Some((Panel::Startup, Duration::from_secs(10))),
@@ -927,6 +952,28 @@ impl eframe::App for App {
                 Intent::ShowPorts => state.tab = Tab::Ports,
                 Intent::Dump(target) => backend.send(UiCommand::CreateDump(target)),
                 Intent::WatchExit(target) => backend.send(UiCommand::WatchExit(target)),
+                Intent::WaitChain(target) => backend.send(UiCommand::WaitChain(target)),
+                Intent::WhyAlive(target) => backend.send(UiCommand::WhyAlive(target)),
+                Intent::Modules(target) => backend.send(UiCommand::Modules(target)),
+                Intent::Network(target, block) => {
+                    let path = backend
+                        .data()
+                        .image_paths
+                        .get(&(target.pid, target.create_time))
+                        .cloned()
+                        .unwrap_or_default();
+                    if path.is_empty() {
+                        backend.data().message = Some((
+                            EventLevel::Error,
+                            crate::i18n::format(
+                                "The program file of {0} is unknown, so it cannot be blocked",
+                                std::slice::from_ref(&target.name),
+                            ),
+                        ));
+                    } else {
+                        backend.send(UiCommand::Firewall { path, block });
+                    }
+                }
             }
         }
         let pages: Vec<&str> = NAV.iter().map(|n| n.2).collect();
@@ -1193,6 +1240,329 @@ fn uptime(start: Option<SystemTime>) -> String {
     }
 }
 
+/// Why the program does not respond: its hung window and, on request, what
+/// its threads wait for.
+fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Intent>) {
+    ui.add_space(8.0);
+    ui.strong(crate::i18n::tr("Diagnostics"));
+    if let Some(title) = data.hung.get(&sel.pid) {
+        ui.colored_label(
+            BAD,
+            crate::i18n::format("Not responding: \"{0}\"", std::slice::from_ref(title)),
+        );
+    }
+    let report = data.wait_report.as_ref().filter(|(r, _)| r == sel);
+    let running = report.is_some_and(|(_, r)| r.is_none());
+    let ending = data.end_report.as_ref().filter(|(r, _)| r == sel);
+    let checking = ending.is_some_and(|(_, r)| r.is_none());
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .add_enabled(
+                !running,
+                egui::Button::new(crate::i18n::tr("Analyze wait chain")),
+            )
+            .on_hover_text(crate::i18n::tr(
+                "What the program's blocked threads are waiting for, across processes",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::WaitChain(sel.clone()));
+        }
+        if ui
+            .add_enabled(
+                !checking,
+                egui::Button::new(crate::i18n::tr("Why won't it end?")),
+            )
+            .on_hover_text(crate::i18n::tr(
+                "Protection, drivers that block ending it, and who still holds it open",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::WhyAlive(sel.clone()));
+        }
+        let modules = data.modules.as_ref().filter(|(r, _)| r == sel);
+        if ui
+            .add_enabled(
+                !modules.is_some_and(|(_, m)| m.is_none()),
+                egui::Button::new(crate::i18n::tr("Modules")),
+            )
+            .on_hover_text(crate::i18n::tr(
+                "The DLLs it has loaded and who signed each one",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::Modules(sel.clone()));
+        }
+    });
+    match data
+        .modules
+        .as_ref()
+        .filter(|(r, _)| r == sel)
+        .map(|(_, m)| m)
+    {
+        Some(None) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(crate::i18n::tr("Reading modules and checking signatures…"));
+            });
+        }
+        Some(Some(Err(e))) => {
+            ui.colored_label(BAD, e);
+        }
+        Some(Some(Ok(list))) => modules_list(ui, list),
+        None => {}
+    }
+    match ending.map(|(_, r)| r) {
+        Some(None) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(crate::i18n::tr("Checking…"));
+            });
+        }
+        Some(Some(Err(e))) => {
+            ui.colored_label(BAD, e);
+        }
+        Some(Some(Ok(r))) => end_report(ui, r, data.elevated),
+        None => {}
+    }
+    match report.map(|(_, r)| r) {
+        Some(None) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(crate::i18n::tr("Analyzing…"));
+            });
+        }
+        Some(Some(Err(e))) => {
+            ui.colored_label(BAD, e);
+        }
+        Some(Some(Ok(r))) => wait_report(ui, r),
+        None => {}
+    }
+}
+
+/// Unsigned and invalid modules first: they are the ones worth a look.
+fn modules_list(ui: &mut Ui, list: &[(wtm_core::Module, wtm_core::Signature)]) {
+    use wtm_core::Signature;
+    let rank = |s: &Signature| match s {
+        Signature::Invalid(_) => 0,
+        Signature::Unsigned => 1,
+        Signature::Signed { .. } => 2,
+    };
+    let mut sorted: Vec<_> = list.iter().collect();
+    sorted.sort_by_key(|(m, s)| (rank(s), m.name.to_lowercase()));
+    let unsigned = list.iter().filter(|(_, s)| rank(s) == 1).count();
+    let invalid = list.iter().filter(|(_, s)| rank(s) == 0).count();
+    ui.label(crate::i18n::format(
+        "{0} modules: {1} unsigned, {2} with an invalid signature",
+        &[
+            list.len().to_string(),
+            unsigned.to_string(),
+            invalid.to_string(),
+        ],
+    ));
+    egui::ScrollArea::vertical()
+        .id_salt("modules_list")
+        .max_height(260.0)
+        .show(ui, |ui| {
+            for (m, s) in sorted {
+                let (color, state) = match s {
+                    Signature::Invalid(e) => (
+                        BAD,
+                        crate::i18n::format("invalid signature: {0}", std::slice::from_ref(e)),
+                    ),
+                    Signature::Unsigned => (WARN, crate::i18n::tr("unsigned").to_owned()),
+                    Signature::Signed { signer, .. } => (
+                        ui.visuals().weak_text_color(),
+                        signer
+                            .clone()
+                            .unwrap_or_else(|| crate::i18n::tr("signed").to_owned()),
+                    ),
+                };
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(&m.name).small().strong())
+                        .on_hover_text(&m.path);
+                    ui.label(RichText::new(state).small().color(color));
+                });
+            }
+        });
+}
+
+/// The reasons a process stays, most decisive first.
+pub(crate) fn end_reasons(r: &wtm_core::EndReport, elevated: bool) -> Vec<(bool, String)> {
+    let mut out = Vec::new();
+    if r.deleting || r.exited {
+        let holders: Vec<String> = r
+            .holders
+            .iter()
+            .take(5)
+            .map(|h| {
+                crate::i18n::format(
+                    "{0} (PID {1}, {2} handles)",
+                    &[h.name.clone(), h.pid.to_string(), h.handles.to_string()],
+                )
+            })
+            .collect();
+        out.push((
+            true,
+            if holders.is_empty() {
+                crate::i18n::format(
+                    "Windows is already ending it ({0} threads left) and cannot remove it yet.",
+                    &[r.threads.to_string()],
+                )
+            } else {
+                crate::i18n::format(
+                    "Windows is already ending it, but these keep it open: {0}. Closing them lets it go.",
+                    &[holders.join(", ")],
+                )
+            },
+        ));
+    }
+    if r.critical {
+        out.push((
+            true,
+            crate::i18n::tr("It is a critical system process: ending it would stop Windows.")
+                .into(),
+        ));
+    }
+    if let Some(p) = &r.protection {
+        out.push((
+            true,
+            crate::i18n::format(
+                "Windows protects it ({0}); no program may end it.",
+                std::slice::from_ref(p),
+            ),
+        ));
+    }
+    if r.can_end == Some(false) {
+        let guards: Vec<String> = r
+            .guards
+            .iter()
+            .map(|(_, product)| product.clone())
+            .collect();
+        out.push((
+            true,
+            if guards.is_empty() {
+                crate::i18n::tr(
+                    "The right to end it is withheld, usually by a security or anti-cheat driver.",
+                )
+                .into()
+            } else {
+                crate::i18n::format(
+                    "The right to end it is withheld; loaded drivers known to do this: {0}.",
+                    &[guards.join(", ")],
+                )
+            },
+        ));
+    }
+    if let Some(e) = &r.open_error {
+        out.push((
+            true,
+            if elevated {
+                crate::i18n::format("It cannot be opened to end it: {0}", std::slice::from_ref(e))
+            } else {
+                crate::i18n::format(
+                    "It cannot be opened to end it: {0}. Restart RustWTM as administrator and try again.",
+                    std::slice::from_ref(e),
+                )
+            },
+        ));
+    }
+    if out.is_empty() {
+        out.push((
+            false,
+            crate::i18n::tr("Nothing stops it: it can be ended normally.").into(),
+        ));
+    }
+    if !r.holders_known && !elevated {
+        out.push((
+            false,
+            crate::i18n::tr("Run as administrator to also see which programs hold it open.").into(),
+        ));
+    }
+    out
+}
+
+fn end_report(ui: &mut Ui, r: &wtm_core::EndReport, elevated: bool) {
+    for (problem, text) in end_reasons(r, elevated) {
+        if problem {
+            ui.colored_label(BAD, text);
+        } else {
+            ui.label(text);
+        }
+    }
+}
+
+fn wait_report(ui: &mut Ui, r: &wtm_core::WaitReport) {
+    if r.deadlocked() {
+        ui.colored_label(
+            BAD,
+            crate::i18n::tr("Deadlock: threads wait for each other and will never continue."),
+        );
+    }
+    ui.weak(crate::i18n::format(
+        "{0} threads, {1} blocked, {2} with a wait chain",
+        &[
+            r.threads.to_string(),
+            r.analyzed.to_string(),
+            r.chains.len().to_string(),
+        ],
+    ));
+    if r.skipped > 0 {
+        ui.weak(crate::i18n::format(
+            "{0} threads could not be analyzed in time",
+            &[r.skipped.to_string()],
+        ));
+    }
+    for chain in r.chains.iter().take(12) {
+        let text: Vec<String> = chain.links.iter().map(link_text).collect();
+        let mut line = RichText::new(text.join("  →  ")).small().monospace();
+        if chain.cycle {
+            line = line.color(BAD);
+        }
+        ui.label(line);
+    }
+}
+
+fn link_text(link: &wtm_core::Link) -> String {
+    use wtm_core::{Link, LinkStatus, WaitKind};
+    match link {
+        Link::Thread { pid, tid, status } => {
+            let state = match status {
+                LinkStatus::Blocked => crate::i18n::tr("blocked"),
+                LinkStatus::Running => crate::i18n::tr("running"),
+                LinkStatus::NoAccess => crate::i18n::tr("no access"),
+                _ => "",
+            };
+            crate::i18n::format(
+                "thread {0} (PID {1}) {2}",
+                &[tid.to_string(), pid.to_string(), state.to_owned()],
+            )
+            .trim_end()
+            .to_owned()
+        }
+        Link::Object { kind, name, .. } => {
+            let kind = match kind {
+                WaitKind::CriticalSection => crate::i18n::tr("critical section"),
+                WaitKind::SendMessage => crate::i18n::tr("window message"),
+                WaitKind::Mutex => crate::i18n::tr("mutex"),
+                WaitKind::Alpc => "ALPC",
+                WaitKind::Com => "COM",
+                WaitKind::Thread => crate::i18n::tr("thread exit"),
+                WaitKind::Process => crate::i18n::tr("process exit"),
+                WaitKind::ComActivation => crate::i18n::tr("COM activation"),
+                WaitKind::Socket => crate::i18n::tr("network socket"),
+                WaitKind::Smb => crate::i18n::tr("network share (SMB)"),
+                WaitKind::Unknown => crate::i18n::tr("unknown"),
+            };
+            if name.is_empty() {
+                kind.to_owned()
+            } else {
+                format!("{kind} \"{name}\"")
+            }
+        }
+    }
+}
+
 fn details_panel(
     ui: &mut Ui,
     data: &Data,
@@ -1247,6 +1617,14 @@ fn details_panel(
             row(
                 crate::i18n::tr("Disk write"),
                 format!("{}/s", format_bytes(p.io_write_rate)),
+            );
+            row(
+                crate::i18n::tr("Network receive"),
+                format!("{}/s", format_bytes(p.net_rx_rate)),
+            );
+            row(
+                crate::i18n::tr("Network send"),
+                format!("{}/s", format_bytes(p.net_tx_rate)),
             );
             row(crate::i18n::tr("Threads"), p.thread_count.to_string());
             row(crate::i18n::tr("Handles"), p.handle_count.to_string());
@@ -1316,6 +1694,8 @@ fn details_panel(
             }
         }
     }
+
+    diagnostics(ui, data, sel, intents);
 
     if let Some(Ok(conns)) = &data.connections {
         let uses: Vec<_> = wtm_core::ports::port_uses(conns)
@@ -2458,6 +2838,11 @@ mod tests {
         match c {
             UiCommand::Control { target, command } => format!("control {} {command:?}", target.pid),
             UiCommand::Inspect(t) => format!("inspect {}", t.pid),
+            UiCommand::WaitChain(t) => format!("wait chain {}", t.pid),
+            UiCommand::WhyAlive(t) => format!("why alive {}", t.pid),
+            UiCommand::Modules(t) => format!("modules {}", t.pid),
+            UiCommand::CloseConnection { local, remote } => format!("close {local} {remote}"),
+            UiCommand::Firewall { path, block } => format!("firewall {path} {block}"),
             UiCommand::Load(panel) => format!("load {panel:?}"),
             UiCommand::LoadHistory { hours } => format!("history {hours}"),
             UiCommand::SetStartup { entry, enabled } => {
@@ -2989,6 +3374,367 @@ mod tests {
         h.get_by_label("Run").click();
         assert_eq!(sent(&mut h), ["run cmd false"]);
         assert!(h.query_by_label("Restart as administrator").is_none());
+    }
+
+    #[test]
+    fn established_ipv4_connections_can_be_closed_from_the_network_tab() {
+        let mut d = data();
+        let established = wtm_core::Connection {
+            protocol: wtm_core::Protocol::Tcp,
+            local: "10.0.0.5:51000".parse().unwrap(),
+            remote: Some("93.184.216.34:443".parse().unwrap()),
+            state: Some(wtm_core::TcpState::Established),
+            pid: 100,
+        };
+        assert!(views::closable(&established).is_some());
+        let listening = wtm_core::Connection {
+            remote: None,
+            state: Some(wtm_core::TcpState::Listen),
+            ..established.clone()
+        };
+        assert!(views::closable(&listening).is_none());
+        let v6 = wtm_core::Connection {
+            local: "[::1]:51000".parse().unwrap(),
+            remote: Some("[::1]:443".parse().unwrap()),
+            ..established.clone()
+        };
+        assert!(views::closable(&v6).is_none());
+
+        d.connections = Some(Ok(vec![established, listening]));
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Network,
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        assert_eq!(
+            h.get_all_by_label("Close").count(),
+            1,
+            "only the open IPv4 one"
+        );
+        h.get_by_label("Close").click();
+        h.run_steps(2);
+        let sent: Vec<String> = rx.try_iter().map(describe_command).collect();
+        assert!(
+            sent.contains(&"close 10.0.0.5:51000 93.184.216.34:443".to_owned()),
+            "{sent:?}"
+        );
+    }
+
+    #[test]
+    fn modules_list_puts_unsigned_and_invalid_first() {
+        use wtm_core::{Module, Signature};
+        let m = |name: &str| Module {
+            name: name.into(),
+            path: format!("C:/x/{name}"),
+            size: 4096,
+        };
+        let mut d = data();
+        let alpha = ProcessRef::from(&crate::ui_tests::proc(100, 0, "alpha.exe", 20.0));
+        d.modules = Some((
+            alpha.clone(),
+            Some(Ok(vec![
+                (
+                    m("kernel32.dll"),
+                    Signature::Signed {
+                        signer: Some("Microsoft Windows".into()),
+                        catalog: true,
+                    },
+                ),
+                (m("hook.dll"), Signature::Unsigned),
+                (m("evil.dll"), Signature::Invalid("bad digest".into())),
+            ])),
+        ));
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Processes,
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.state_mut().state.processes.selected = Some(alpha);
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("3 modules: 1 unsigned, 1 with an invalid signature")
+                .is_some()
+        );
+        assert!(h.query_by_label("invalid signature: bad digest").is_some());
+        assert!(h.query_by_label("Microsoft Windows").is_some());
+        let names: Vec<_> = ["evil.dll", "hook.dll", "kernel32.dll"]
+            .iter()
+            .map(|n| h.get_by_label(n).rect().min.y)
+            .collect();
+        assert!(
+            names.windows(2).all(|w| w[0] < w[1]),
+            "invalid, unsigned, signed"
+        );
+        h.get_by_label("Modules").click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .map(describe_command)
+                .any(|c| c == "modules 100")
+        );
+    }
+
+    #[test]
+    fn game_mode_shows_on_the_overview_and_in_the_status_bar() {
+        let mut d = data();
+        d.status.as_mut().unwrap().game = Some(wtm_ipc::GameStatus {
+            name: "game.exe".into(),
+            calmed: 3,
+        });
+        let (backend, _rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        assert!(
+            h.query_by_label_contains(
+                "Game mode: game.exe is in front; 3 background apps calmed until it ends"
+            )
+            .is_some()
+        );
+        assert!(h.query_by_label("▶ Game mode").is_some());
+    }
+
+    #[test]
+    fn programs_are_blocked_from_and_given_back_the_network() {
+        let mut d = data();
+        let alpha = crate::ui_tests::proc(100, 0, "alpha.exe", 20.0);
+        d.image_paths
+            .insert((alpha.pid, alpha.create_time), "C:/Apps/alpha.exe".into());
+        d.firewall = Some(Ok(vec!["C:/Apps/beta.exe".into()]));
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Network,
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        assert!(h.query_by_label("beta.exe").is_some());
+        h.get_by_label("Unblock").click();
+        h.run_steps(2);
+        let sent: Vec<String> = rx.try_iter().map(describe_command).collect();
+        assert!(
+            sent.contains(&"firewall C:/Apps/beta.exe false".to_owned()),
+            "{sent:?}"
+        );
+
+        // From the process menu: its known program file is blocked.
+        h.state_mut().state.tab = Tab::Processes;
+        h.run_steps(2);
+        h.get_by_label("alpha.exe").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Block network access").click();
+        h.run_steps(2);
+        let sent: Vec<String> = rx.try_iter().map(describe_command).collect();
+        assert!(
+            sent.contains(&"firewall C:/Apps/alpha.exe true".to_owned()),
+            "{sent:?}"
+        );
+    }
+
+    #[test]
+    fn end_reasons_explain_why_a_process_stays() {
+        let base = wtm_core::EndReport {
+            deleting: false,
+            exited: false,
+            threads: 3,
+            protection: None,
+            critical: false,
+            can_end: Some(true),
+            open_error: None,
+            holders: vec![],
+            holders_known: true,
+            guards: vec![],
+        };
+        let texts = |r: &wtm_core::EndReport, elevated| -> Vec<String> {
+            end_reasons(r, elevated)
+                .into_iter()
+                .map(|(_, t)| t)
+                .collect()
+        };
+        assert_eq!(
+            texts(&base, true),
+            ["Nothing stops it: it can be ended normally."]
+        );
+        assert!(!end_reasons(&base, true)[0].0, "not a problem");
+
+        let zombie = wtm_core::EndReport {
+            deleting: true,
+            threads: 0,
+            holders: vec![wtm_core::Holder {
+                pid: 42,
+                name: "backup.exe".into(),
+                handles: 2,
+            }],
+            ..base.clone()
+        };
+        assert_eq!(
+            texts(&zombie, true),
+            [
+                "Windows is already ending it, but these keep it open: backup.exe (PID 42, 2 handles). Closing them lets it go."
+            ]
+        );
+
+        let guarded = wtm_core::EndReport {
+            can_end: Some(false),
+            protection: Some("light protection, Antimalware".into()),
+            guards: vec![("vgk.sys".into(), "Riot Vanguard anti-cheat".into())],
+            holders_known: false,
+            ..base.clone()
+        };
+        let t = texts(&guarded, false);
+        assert_eq!(
+            t[0],
+            "Windows protects it (light protection, Antimalware); no program may end it."
+        );
+        assert_eq!(
+            t[1],
+            "The right to end it is withheld; loaded drivers known to do this: Riot Vanguard anti-cheat."
+        );
+        assert_eq!(
+            t[2],
+            "Run as administrator to also see which programs hold it open."
+        );
+
+        let denied = wtm_core::EndReport {
+            can_end: None,
+            open_error: Some("Access is denied.".into()),
+            critical: true,
+            ..base
+        };
+        let t = texts(&denied, false);
+        assert!(t[0].contains("critical system process"));
+        assert!(t[1].ends_with("Restart RustWTM as administrator and try again."));
+    }
+
+    #[test]
+    fn hung_programs_are_flagged_and_their_wait_chain_shown() {
+        use wtm_core::{Chain, Link, LinkStatus, WaitKind, WaitReport};
+        let mut d = data();
+        d.hung.insert(100, "Alpha - Document".into());
+        let alpha = ProcessRef::from(&crate::ui_tests::proc(100, 0, "alpha.exe", 20.0));
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        // The Overview warns and offers to find out why.
+        assert!(
+            h.query_by_label_contains("alpha.exe is not responding")
+                .is_some()
+        );
+        h.get_by_label("Why?").click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Processes);
+        let sent: Vec<String> = rx.try_iter().map(describe_command).collect();
+        assert!(sent.contains(&"wait chain 100".to_owned()), "{sent:?}");
+
+        // The details panel shows the result: a deadlock between two threads.
+        h.state().backend.data().wait_report = Some((
+            alpha.clone(),
+            Some(Ok(WaitReport {
+                chains: vec![Chain {
+                    links: vec![
+                        Link::Thread {
+                            pid: 100,
+                            tid: 7,
+                            status: LinkStatus::Blocked,
+                        },
+                        Link::Object {
+                            kind: WaitKind::Mutex,
+                            name: "Lock".into(),
+                            status: LinkStatus::Owned,
+                        },
+                        Link::Thread {
+                            pid: 100,
+                            tid: 8,
+                            status: LinkStatus::Blocked,
+                        },
+                    ],
+                    cycle: true,
+                }],
+                threads: 12,
+                analyzed: 2,
+                skipped: 1,
+            })),
+        ));
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("Not responding: \"Alpha - Document\"")
+                .is_some()
+        );
+        assert!(h.query_by_label_contains("Deadlock").is_some());
+        assert!(
+            h.query_by_label("12 threads, 2 blocked, 1 with a wait chain")
+                .is_some()
+        );
+        assert!(
+            h.query_by_label("1 threads could not be analyzed in time")
+                .is_some()
+        );
+        assert!(
+            h.query_by_label(
+                "thread 7 (PID 100) blocked  →  mutex \"Lock\"  →  thread 8 (PID 100) blocked"
+            )
+            .is_some()
+        );
+        h.get_by_label("Analyze wait chain").click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .map(describe_command)
+                .any(|c| c == "wait chain 100")
+        );
+
+        // While an analysis runs the button waits.
+        h.state().backend.data().wait_report = Some((alpha, None));
+        h.run_steps(2);
+        assert!(h.query_by_label("Analyzing…").is_some());
     }
 
     #[test]
@@ -3733,6 +4479,7 @@ mod tests {
                         Tab::Overview,
                         Tab::Processes,
                         Tab::Performance,
+                        Tab::Disks,
                         Tab::Sensors,
                         Tab::Settings,
                     ] {
@@ -3803,6 +4550,7 @@ mod tests {
                                         sensors,
                                         autostart: Some(false),
                                         check_updates: false,
+                                        disks: crate::disks_tab::review_fixture(),
                                         ..UiState::default()
                                     },
                                     tray: None,

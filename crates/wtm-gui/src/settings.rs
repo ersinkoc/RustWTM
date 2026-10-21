@@ -334,6 +334,37 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
             });
             ui.end_row();
 
+            let g = &c.game_mode;
+            ui.strong(crate::i18n::tr("Game mode"));
+            ui.vertical(|ui| {
+                let mut on = g.enabled;
+                if ui
+                    .checkbox(
+                        &mut on,
+                        crate::i18n::tr("Calm busy background apps while a full-screen app is in front"),
+                    )
+                    .on_hover_text(crate::i18n::tr(
+                        "Lower priority and efficiency mode, rolled back when it ends",
+                    ))
+                    .changed()
+                {
+                    set("game_mode", "enabled", toml_edit_value::V::Bool(on));
+                }
+                ui.add_enabled_ui(g.enabled, |ui| {
+                    let mut plan = g.power_plan;
+                    if ui
+                        .checkbox(
+                            &mut plan,
+                            crate::i18n::tr("Switch to the High performance power plan meanwhile"),
+                        )
+                        .changed()
+                    {
+                        set("game_mode", "power_plan", toml_edit_value::V::Bool(plan));
+                    }
+                });
+            });
+            ui.end_row();
+
             let r = &c.reserve;
             ui.strong(crate::i18n::tr("Reserved for RustWTM"));
             ui.vertical(|ui| {

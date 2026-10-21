@@ -82,6 +82,14 @@ growth_actions = []
 chronic_gpu_percent = 30.0
 chronic_gpu_actions = []
 
+# Handle and thread leaks (report only): a steady climb of this many per hour
+# (steadiness: growth_min_fit) once the app holds at least handle_min handles
+# or runs at least thread_min threads.
+handle_growth_per_hour = 1000.0
+handle_min = 10000
+thread_growth_per_hour = 50.0
+thread_min = 500
+
 exempt = ["explorer.exe", "Taskmgr.exe"]
 
 # Memory guard: when physical memory stays above high_percent, the biggest
@@ -122,6 +130,17 @@ release_cpu_percent = 75.0
 release_secs = 10
 working_set_mb = 48
 exempt = []
+
+# Game mode: while a full-screen app is in front (a game, a video, a
+# presentation), background apps using at least background_cpu_percent of the
+# machine get `actions`, rolled back when it ends. power_plan switches to the
+# High performance power plan meanwhile and back afterwards.
+[game_mode]
+enabled = true
+background_cpu_percent = 2.0
+actions = [{ priority = "below_normal" }, "eco_qos"]
+power_plan = false
+exempt = ["obs*.exe", "discord.exe", "audiodg.exe", "explorer.exe"]
 
 # App limits: every process of an app and everything it starts share a CPU
 # and/or memory budget (job object). scope = "each" gives every top-level

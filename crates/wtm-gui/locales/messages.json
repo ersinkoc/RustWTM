@@ -4822,5 +4822,851 @@
     "de": "Nie ausgelagerter Dienstspeicher",
     "fr": "Mémoire du service jamais déchargée",
     "es": "Memoria del servicio que nunca se pagina"
+  },
+  "Started in the last {0} min": {
+    "tr": "Son {0} dk içinde başlayanlar",
+    "de": "In den letzten {0} Min. gestartet",
+    "fr": "Lancés ces {0} dernières min",
+    "es": "Iniciados en los últimos {0} min"
+  },
+  "Only processes that started recently; change the minutes under More filters": {
+    "tr": "Yalnızca yakın zamanda başlayan işlemler; dakikayı Diğer filtreler altında değiştirin",
+    "de": "Nur kürzlich gestartete Prozesse; die Minuten unter Weitere Filter ändern",
+    "fr": "Seulement les processus lancés récemment ; modifiez les minutes dans Autres filtres",
+    "es": "Solo procesos iniciados recientemente; cambie los minutos en Más filtros"
+  },
+  "More filters": {
+    "tr": "Diğer filtreler",
+    "de": "Weitere Filter",
+    "fr": "Autres filtres",
+    "es": "Más filtros"
+  },
+  "More filters ({0})": {
+    "tr": "Diğer filtreler ({0})",
+    "de": "Weitere Filter ({0})",
+    "fr": "Autres filtres ({0})",
+    "es": "Más filtros ({0})"
+  },
+  "Started in the last": {
+    "tr": "Şu süre içinde başlayanlar",
+    "de": "Gestartet in den letzten",
+    "fr": "Lancés depuis",
+    "es": "Iniciados en los últimos"
+  },
+  "{0} h": {
+    "tr": "{0} sa",
+    "de": "{0} Std.",
+    "fr": "{0} h",
+    "es": "{0} h"
+  },
+  "{0} min": {
+    "tr": "{0} dk",
+    "de": "{0} Min.",
+    "fr": "{0} min",
+    "es": "{0} min"
+  },
+  "Custom": {
+    "tr": "Özel",
+    "de": "Benutzerdefiniert",
+    "fr": "Personnalisé",
+    "es": "Personalizado"
+  },
+  "Activity": {
+    "tr": "Etkinlik",
+    "de": "Aktivität",
+    "fr": "Activité",
+    "es": "Actividad"
+  },
+  "Disk active (1 MiB/s or more)": {
+    "tr": "Disk etkin (1 MiB/sn veya fazla)",
+    "de": "Datenträger aktiv (ab 1 MiB/s)",
+    "fr": "Disque actif (1 Mio/s ou plus)",
+    "es": "Disco activo (1 MiB/s o más)"
+  },
+  "GPU active (5% or more)": {
+    "tr": "GPU etkin (%5 veya fazla)",
+    "de": "GPU aktiv (ab 5 %)",
+    "fr": "GPU actif (5 % ou plus)",
+    "es": "GPU activa (5 % o más)"
+  },
+  "All sessions": {
+    "tr": "Tüm oturumlar",
+    "de": "Alle Sitzungen",
+    "fr": "Toutes les sessions",
+    "es": "Todas las sesiones"
+  },
+  "User apps": {
+    "tr": "Kullanıcı uygulamaları",
+    "de": "Benutzer-Apps",
+    "fr": "Applis utilisateur",
+    "es": "Apps de usuario"
+  },
+  "Services and system (session 0)": {
+    "tr": "Servisler ve sistem (oturum 0)",
+    "de": "Dienste und System (Sitzung 0)",
+    "fr": "Services et système (session 0)",
+    "es": "Servicios y sistema (sesión 0)"
+  },
+  "Services and system": {
+    "tr": "Servisler ve sistem",
+    "de": "Dienste und System",
+    "fr": "Services et système",
+    "es": "Servicios y sistema"
+  },
+  "Reset these filters": {
+    "tr": "Bu filtreleri sıfırla",
+    "de": "Diese Filter zurücksetzen",
+    "fr": "Réinitialiser ces filtres",
+    "es": "Restablecer estos filtros"
+  },
+  "Remove this filter": {
+    "tr": "Bu filtreyi kaldır",
+    "de": "Diesen Filter entfernen",
+    "fr": "Retirer ce filtre",
+    "es": "Quitar este filtro"
+  },
+  "Disk active": {
+    "tr": "Disk etkin",
+    "de": "Datenträger aktiv",
+    "fr": "Disque actif",
+    "es": "Disco activo"
+  },
+  "GPU active": {
+    "tr": "GPU etkin",
+    "de": "GPU aktiv",
+    "fr": "GPU actif",
+    "es": "GPU activa"
+  },
+  "Disks": {
+    "tr": "Diskler",
+    "de": "Laufwerke",
+    "fr": "Disques",
+    "es": "Discos"
+  },
+  "Free space, disk activity and what takes up the space": {
+    "tr": "Boş alan, disk etkinliği ve yeri neyin kapladığı",
+    "de": "Freier Speicher, Datenträgeraktivität und was den Platz belegt",
+    "fr": "Espace libre, activité des disques et ce qui occupe l'espace",
+    "es": "Espacio libre, actividad de disco y qué ocupa el espacio"
+  },
+  " · {0} folders could not be read (restart as administrator to include them)": {
+    "tr": " · {0} klasör okunamadı (dahil etmek için yönetici olarak yeniden başlatın)",
+    "de": " · {0} Ordner konnten nicht gelesen werden (als Administrator neu starten, um sie einzuschließen)",
+    "fr": " · {0} dossiers illisibles (redémarrez en administrateur pour les inclure)",
+    "es": " · {0} carpetas no se pudieron leer (reinicie como administrador para incluirlas)"
+  },
+  "(files in this folder)": {
+    "tr": "(bu klasördeki dosyalar)",
+    "de": "(Dateien in diesem Ordner)",
+    "fr": "(fichiers de ce dossier)",
+    "es": "(archivos de esta carpeta)"
+  },
+  "(no extension)": {
+    "tr": "(uzantısız)",
+    "de": "(ohne Endung)",
+    "fr": "(sans extension)",
+    "es": "(sin extensión)"
+  },
+  "All other types": {
+    "tr": "Diğer tüm türler",
+    "de": "Alle anderen Typen",
+    "fr": "Tous les autres types",
+    "es": "Todos los demás tipos"
+  },
+  "Analyze": {
+    "tr": "Analiz et",
+    "de": "Analysieren",
+    "fr": "Analyser",
+    "es": "Analizar"
+  },
+  "Cannot open {0}: {1}": {
+    "tr": "{0} açılamıyor: {1}",
+    "de": "{0} kann nicht geöffnet werden: {1}",
+    "fr": "Impossible d'ouvrir {0} : {1}",
+    "es": "No se puede abrir {0}: {1}"
+  },
+  "Choose a drive above, or type a folder, to see which folders and files take up the space.": {
+    "tr": "Hangi klasör ve dosyaların yer kapladığını görmek için yukarıdan bir sürücü seçin veya bir klasör yazın.",
+    "de": "Wählen Sie oben ein Laufwerk oder geben Sie einen Ordner ein, um zu sehen, welche Ordner und Dateien den Platz belegen.",
+    "fr": "Choisissez un lecteur ci-dessus ou saisissez un dossier pour voir quels dossiers et fichiers occupent l'espace.",
+    "es": "Elija una unidad arriba o escriba una carpeta para ver qué carpetas y archivos ocupan el espacio."
+  },
+  "Could not be read": {
+    "tr": "Okunamadı",
+    "de": "Konnte nicht gelesen werden",
+    "fr": "Illisible",
+    "es": "No se pudo leer"
+  },
+  "Disk activity right now": {
+    "tr": "Şu anki disk etkinliği",
+    "de": "Aktuelle Datenträgeraktivität",
+    "fr": "Activité des disques en ce moment",
+    "es": "Actividad de disco ahora"
+  },
+  "Disk counters are not available.": {
+    "tr": "Disk sayaçları kullanılamıyor.",
+    "de": "Datenträgerzähler sind nicht verfügbar.",
+    "fr": "Les compteurs de disque ne sont pas disponibles.",
+    "es": "Los contadores de disco no están disponibles."
+  },
+  "Drive": {
+    "tr": "Sürücü",
+    "de": "Laufwerk",
+    "fr": "Lecteur",
+    "es": "Unidad"
+  },
+  "Drives": {
+    "tr": "Sürücüler",
+    "de": "Laufwerke",
+    "fr": "Lecteurs",
+    "es": "Unidades"
+  },
+  "File": {
+    "tr": "Dosya",
+    "de": "Datei",
+    "fr": "Fichier",
+    "es": "Archivo"
+  },
+  "File types": {
+    "tr": "Dosya türleri",
+    "de": "Dateitypen",
+    "fr": "Types de fichiers",
+    "es": "Tipos de archivo"
+  },
+  "Files": {
+    "tr": "Dosyalar",
+    "de": "Dateien",
+    "fr": "Fichiers",
+    "es": "Archivos"
+  },
+  "Find what takes up the space on this drive": {
+    "tr": "Bu sürücüde yeri neyin kapladığını bulun",
+    "de": "Finden, was auf diesem Laufwerk Platz belegt",
+    "fr": "Trouver ce qui occupe l'espace sur ce lecteur",
+    "es": "Ver qué ocupa el espacio en esta unidad"
+  },
+  "Folder:": {
+    "tr": "Klasör:",
+    "de": "Ordner:",
+    "fr": "Dossier :",
+    "es": "Carpeta:"
+  },
+  "Folders": {
+    "tr": "Klasörler",
+    "de": "Ordner",
+    "fr": "Dossiers",
+    "es": "Carpetas"
+  },
+  "Includes file, network and device I/O of each process.": {
+    "tr": "Her işlemin dosya, ağ ve aygıt G/Ç'sini içerir.",
+    "de": "Enthält Datei-, Netzwerk- und Geräte-E/A jedes Prozesses.",
+    "fr": "Inclut les E/S fichier, réseau et périphérique de chaque processus.",
+    "es": "Incluye la E/S de archivos, red y dispositivos de cada proceso."
+  },
+  "Largest files": {
+    "tr": "En büyük dosyalar",
+    "de": "Größte Dateien",
+    "fr": "Plus gros fichiers",
+    "es": "Archivos más grandes"
+  },
+  "Local disk": {
+    "tr": "Yerel disk",
+    "de": "Lokaler Datenträger",
+    "fr": "Disque local",
+    "es": "Disco local"
+  },
+  "Modified": {
+    "tr": "Değiştirilme",
+    "de": "Geändert",
+    "fr": "Modifié",
+    "es": "Modificado"
+  },
+  "Network drive": {
+    "tr": "Ağ sürücüsü",
+    "de": "Netzlaufwerk",
+    "fr": "Lecteur réseau",
+    "es": "Unidad de red"
+  },
+  "No drives could be read.": {
+    "tr": "Hiçbir sürücü okunamadı.",
+    "de": "Keine Laufwerke lesbar.",
+    "fr": "Aucun lecteur n'a pu être lu.",
+    "es": "No se pudo leer ninguna unidad."
+  },
+  "No files found.": {
+    "tr": "Dosya bulunamadı.",
+    "de": "Keine Dateien gefunden.",
+    "fr": "Aucun fichier trouvé.",
+    "es": "No se encontraron archivos."
+  },
+  "No process is reading or writing right now.": {
+    "tr": "Şu anda okuma veya yazma yapan işlem yok.",
+    "de": "Derzeit liest oder schreibt kein Prozess.",
+    "fr": "Aucun processus ne lit ni n'écrit en ce moment.",
+    "es": "Ningún proceso está leyendo ni escribiendo ahora."
+  },
+  "Optical": {
+    "tr": "Optik",
+    "de": "Optisch",
+    "fr": "Optique",
+    "es": "Óptica"
+  },
+  "Physical disks": {
+    "tr": "Fiziksel diskler",
+    "de": "Physische Datenträger",
+    "fr": "Disques physiques",
+    "es": "Discos físicos"
+  },
+  "RAM disk": {
+    "tr": "RAM disk",
+    "de": "RAM-Disk",
+    "fr": "Disque RAM",
+    "es": "Disco RAM"
+  },
+  "Removable": {
+    "tr": "Çıkarılabilir",
+    "de": "Wechseldatenträger",
+    "fr": "Amovible",
+    "es": "Extraíble"
+  },
+  "Runs in the background at low priority; the PC stays responsive": {
+    "tr": "Arka planda düşük öncelikle çalışır; bilgisayar hızlı kalır",
+    "de": "Läuft im Hintergrund mit niedriger Priorität; der PC bleibt reaktionsschnell",
+    "fr": "S'exécute en arrière-plan à basse priorité ; le PC reste réactif",
+    "es": "Se ejecuta en segundo plano con baja prioridad; el PC sigue respondiendo"
+  },
+  "Scanning {0}: {1} files, {2} in {3} folders ({4} s)": {
+    "tr": "{0} taranıyor: {1} dosya, {3} klasörde {2} ({4} sn)",
+    "de": "{0} wird gescannt: {1} Dateien, {2} in {3} Ordnern ({4} s)",
+    "fr": "Analyse de {0} : {1} fichiers, {2} dans {3} dossiers ({4} s)",
+    "es": "Analizando {0}: {1} archivos, {2} en {3} carpetas ({4} s)"
+  },
+  "Share": {
+    "tr": "Pay",
+    "de": "Anteil",
+    "fr": "Part",
+    "es": "Proporción"
+  },
+  "Show in Explorer": {
+    "tr": "Gezginde göster",
+    "de": "Im Explorer anzeigen",
+    "fr": "Afficher dans l'Explorateur",
+    "es": "Mostrar en el Explorador"
+  },
+  "Size": {
+    "tr": "Boyut",
+    "de": "Größe",
+    "fr": "Taille",
+    "es": "Tamaño"
+  },
+  "Stopped early: the numbers cover only what was scanned.": {
+    "tr": "Erken durduruldu: sayılar yalnızca taranan kısmı kapsar.",
+    "de": "Vorzeitig beendet: Die Zahlen umfassen nur den gescannten Teil.",
+    "fr": "Arrêt anticipé : les chiffres ne couvrent que ce qui a été analysé.",
+    "es": "Detenido antes de tiempo: las cifras solo cubren lo analizado."
+  },
+  "Type": {
+    "tr": "Tür",
+    "de": "Typ",
+    "fr": "Type",
+    "es": "Tipo"
+  },
+  "What takes up the space": {
+    "tr": "Yeri ne kaplıyor",
+    "de": "Was den Platz belegt",
+    "fr": "Ce qui occupe l'espace",
+    "es": "Qué ocupa el espacio"
+  },
+  "Who is using the disks": {
+    "tr": "Diskleri kim kullanıyor",
+    "de": "Wer die Datenträger nutzt",
+    "fr": "Qui utilise les disques",
+    "es": "Quién usa los discos"
+  },
+  "read {0}/s": {
+    "tr": "okuma {0}/sn",
+    "de": "Lesen {0}/s",
+    "fr": "lecture {0}/s",
+    "es": "lectura {0}/s"
+  },
+  "read {0}/s · write {1}/s": {
+    "tr": "okuma {0}/sn · yazma {1}/sn",
+    "de": "Lesen {0}/s · Schreiben {1}/s",
+    "fr": "lecture {0}/s · écriture {1}/s",
+    "es": "lectura {0}/s · escritura {1}/s"
+  },
+  "write {0}/s": {
+    "tr": "yazma {0}/sn",
+    "de": "Schreiben {0}/s",
+    "fr": "écriture {0}/s",
+    "es": "escritura {0}/s"
+  },
+  "{0} free of {1}": {
+    "tr": "{1} içinde {0} boş",
+    "de": "{0} von {1} frei",
+    "fr": "{0} libres sur {1}",
+    "es": "{0} libres de {1}"
+  },
+  "{0} in {1} files and {2} folders, scanned in {3} s": {
+    "tr": "{1} dosya ve {2} klasörde {0}, {3} sn'de tarandı",
+    "de": "{0} in {1} Dateien und {2} Ordnern, in {3} s gescannt",
+    "fr": "{0} dans {1} fichiers et {2} dossiers, analysé en {3} s",
+    "es": "{0} en {1} archivos y {2} carpetas, analizado en {3} s"
+  },
+  "{0} is not a folder that can be read": {
+    "tr": "{0} okunabilir bir klasör değil",
+    "de": "{0} ist kein lesbarer Ordner",
+    "fr": "{0} n'est pas un dossier lisible",
+    "es": "{0} no es una carpeta legible"
+  },
+  "{0} smaller folders": {
+    "tr": "{0} daha küçük klasör",
+    "de": "{0} kleinere Ordner",
+    "fr": "{0} dossiers plus petits",
+    "es": "{0} carpetas más pequeñas"
+  },
+  "{0}% busy": {
+    "tr": "%{0} meşgul",
+    "de": "{0} % ausgelastet",
+    "fr": "{0} % occupé",
+    "es": "{0} % ocupado"
+  },
+  "Analyze wait chain": {
+    "tr": "Bekleme zincirini analiz et",
+    "de": "Warteschlange analysieren",
+    "fr": "Analyser la chaîne d'attente",
+    "es": "Analizar cadena de espera"
+  },
+  "Analyzing…": {
+    "tr": "Analiz ediliyor…",
+    "de": "Wird analysiert…",
+    "fr": "Analyse…",
+    "es": "Analizando…"
+  },
+  "COM activation": {
+    "tr": "COM etkinleştirme",
+    "de": "COM-Aktivierung",
+    "fr": "activation COM",
+    "es": "activación COM"
+  },
+  "Deadlock: threads wait for each other and will never continue.": {
+    "tr": "Kilitlenme: iş parçacıkları birbirini bekliyor ve asla devam etmeyecek.",
+    "de": "Deadlock: Threads warten aufeinander und laufen nie weiter.",
+    "fr": "Interblocage : des threads s'attendent mutuellement et ne reprendront jamais.",
+    "es": "Interbloqueo: los hilos se esperan entre sí y nunca continuarán."
+  },
+  "Diagnostics": {
+    "tr": "Tanılama",
+    "de": "Diagnose",
+    "fr": "Diagnostic",
+    "es": "Diagnóstico"
+  },
+  "Not responding": {
+    "tr": "Yanıt vermiyor",
+    "de": "Reagiert nicht",
+    "fr": "Ne répond pas",
+    "es": "No responde"
+  },
+  "Not responding: \"{0}\"": {
+    "tr": "Yanıt vermiyor: \"{0}\"",
+    "de": "Reagiert nicht: \"{0}\"",
+    "fr": "Ne répond pas : « {0} »",
+    "es": "No responde: \"{0}\""
+  },
+  "Programs whose window Windows marks as not responding": {
+    "tr": "Penceresini Windows'un yanıt vermiyor olarak işaretlediği programlar",
+    "de": "Programme, deren Fenster Windows als nicht reagierend markiert",
+    "fr": "Programmes dont Windows signale la fenêtre comme ne répondant pas",
+    "es": "Programas cuya ventana Windows marca como que no responde"
+  },
+  "Show it and analyze its wait chain": {
+    "tr": "Göster ve bekleme zincirini analiz et",
+    "de": "Anzeigen und Warteschlange analysieren",
+    "fr": "L'afficher et analyser sa chaîne d'attente",
+    "es": "Mostrarlo y analizar su cadena de espera"
+  },
+  "What the program's blocked threads are waiting for, across processes": {
+    "tr": "Programın engellenen iş parçacıklarının, işlemler arasında neyi beklediği",
+    "de": "Worauf die blockierten Threads des Programms warten, prozessübergreifend",
+    "fr": "Ce qu'attendent les threads bloqués du programme, entre processus",
+    "es": "Qué esperan los hilos bloqueados del programa, entre procesos"
+  },
+  "Why?": {
+    "tr": "Neden?",
+    "de": "Warum?",
+    "fr": "Pourquoi ?",
+    "es": "¿Por qué?"
+  },
+  "blocked": {
+    "tr": "engellendi",
+    "de": "blockiert",
+    "fr": "bloqué",
+    "es": "bloqueado"
+  },
+  "critical section": {
+    "tr": "kritik bölüm",
+    "de": "kritischer Abschnitt",
+    "fr": "section critique",
+    "es": "sección crítica"
+  },
+  "mutex": {
+    "tr": "mutex",
+    "de": "Mutex",
+    "fr": "mutex",
+    "es": "mutex"
+  },
+  "network share (SMB)": {
+    "tr": "ağ paylaşımı (SMB)",
+    "de": "Netzwerkfreigabe (SMB)",
+    "fr": "partage réseau (SMB)",
+    "es": "recurso de red (SMB)"
+  },
+  "network socket": {
+    "tr": "ağ soketi",
+    "de": "Netzwerk-Socket",
+    "fr": "socket réseau",
+    "es": "socket de red"
+  },
+  "no access": {
+    "tr": "erişim yok",
+    "de": "kein Zugriff",
+    "fr": "pas d'accès",
+    "es": "sin acceso"
+  },
+  "process exit": {
+    "tr": "işlem çıkışı",
+    "de": "Prozessende",
+    "fr": "fin de processus",
+    "es": "fin de proceso"
+  },
+  "running": {
+    "tr": "çalışıyor",
+    "de": "läuft",
+    "fr": "en cours",
+    "es": "en ejecución"
+  },
+  "thread exit": {
+    "tr": "iş parçacığı çıkışı",
+    "de": "Thread-Ende",
+    "fr": "fin de thread",
+    "es": "fin de hilo"
+  },
+  "thread {0} (PID {1}) {2}": {
+    "tr": "iş parçacığı {0} (PID {1}) {2}",
+    "de": "Thread {0} (PID {1}) {2}",
+    "fr": "thread {0} (PID {1}) {2}",
+    "es": "hilo {0} (PID {1}) {2}"
+  },
+  "unknown": {
+    "tr": "bilinmiyor",
+    "de": "unbekannt",
+    "fr": "inconnu",
+    "es": "desconocido"
+  },
+  "window message": {
+    "tr": "pencere mesajı",
+    "de": "Fensternachricht",
+    "fr": "message de fenêtre",
+    "es": "mensaje de ventana"
+  },
+  "{0} threads could not be analyzed in time": {
+    "tr": "{0} iş parçacığı zamanında analiz edilemedi",
+    "de": "{0} Threads konnten nicht rechtzeitig analysiert werden",
+    "fr": "{0} threads n'ont pu être analysés à temps",
+    "es": "{0} hilos no se pudieron analizar a tiempo"
+  },
+  "{0} threads, {1} blocked, {2} with a wait chain": {
+    "tr": "{0} iş parçacığı, {1} engellenmiş, {2} bekleme zincirli",
+    "de": "{0} Threads, {1} blockiert, {2} mit Warteschlange",
+    "fr": "{0} threads, {1} bloqués, {2} avec une chaîne d'attente",
+    "es": "{0} hilos, {1} bloqueados, {2} con cadena de espera"
+  },
+  "⚠  {0} is not responding (\"{1}\")": {
+    "tr": "⚠  {0} yanıt vermiyor (\"{1}\")",
+    "de": "⚠  {0} reagiert nicht (\"{1}\")",
+    "fr": "⚠  {0} ne répond pas (« {1} »)",
+    "es": "⚠  {0} no responde (\"{1}\")"
+  },
+  "Checking…": {
+    "tr": "Denetleniyor…",
+    "de": "Wird geprüft…",
+    "fr": "Vérification…",
+    "es": "Comprobando…"
+  },
+  "It cannot be opened to end it: {0}": {
+    "tr": "Sonlandırmak için açılamıyor: {0}",
+    "de": "Kann zum Beenden nicht geöffnet werden: {0}",
+    "fr": "Impossible de l'ouvrir pour l'arrêter : {0}",
+    "es": "No se puede abrir para finalizarlo: {0}"
+  },
+  "It cannot be opened to end it: {0}. Restart RustWTM as administrator and try again.": {
+    "tr": "Sonlandırmak için açılamıyor: {0}. RustWTM'i yönetici olarak yeniden başlatıp tekrar deneyin.",
+    "de": "Kann zum Beenden nicht geöffnet werden: {0}. Starten Sie RustWTM als Administrator neu und versuchen Sie es erneut.",
+    "fr": "Impossible de l'ouvrir pour l'arrêter : {0}. Redémarrez RustWTM en administrateur et réessayez.",
+    "es": "No se puede abrir para finalizarlo: {0}. Reinicie RustWTM como administrador e inténtelo de nuevo."
+  },
+  "It is a critical system process: ending it would stop Windows.": {
+    "tr": "Kritik bir sistem işlemi: sonlandırmak Windows'u durdurur.",
+    "de": "Kritischer Systemprozess: Ihn zu beenden würde Windows anhalten.",
+    "fr": "Processus système critique : l'arrêter arrêterait Windows.",
+    "es": "Es un proceso crítico del sistema: finalizarlo detendría Windows."
+  },
+  "Nothing stops it: it can be ended normally.": {
+    "tr": "Engel yok: normal şekilde sonlandırılabilir.",
+    "de": "Nichts hindert daran: Er kann normal beendet werden.",
+    "fr": "Rien ne l'empêche : il peut être arrêté normalement.",
+    "es": "Nada lo impide: se puede finalizar normalmente."
+  },
+  "Protection, drivers that block ending it, and who still holds it open": {
+    "tr": "Koruma, sonlandırmayı engelleyen sürücüler ve onu hâlâ açık tutanlar",
+    "de": "Schutz, Treiber, die das Beenden verhindern, und wer ihn noch offen hält",
+    "fr": "Protection, pilotes qui empêchent l'arrêt et qui le garde encore ouvert",
+    "es": "Protección, controladores que impiden finalizarlo y quién lo mantiene abierto"
+  },
+  "Run as administrator to also see which programs hold it open.": {
+    "tr": "Onu hangi programların açık tuttuğunu da görmek için yönetici olarak çalıştırın.",
+    "de": "Als Administrator ausführen, um auch zu sehen, welche Programme ihn offen halten.",
+    "fr": "Exécutez en administrateur pour voir aussi quels programmes le gardent ouvert.",
+    "es": "Ejecute como administrador para ver también qué programas lo mantienen abierto."
+  },
+  "The right to end it is withheld, usually by a security or anti-cheat driver.": {
+    "tr": "Sonlandırma hakkı engelleniyor; genellikle bir güvenlik veya anti-cheat sürücüsü tarafından.",
+    "de": "Das Recht zum Beenden wird verweigert, meist von einem Sicherheits- oder Anti-Cheat-Treiber.",
+    "fr": "Le droit de l'arrêter est retenu, généralement par un pilote de sécurité ou anti-triche.",
+    "es": "Se retiene el derecho a finalizarlo, normalmente un controlador de seguridad o antitrampas."
+  },
+  "The right to end it is withheld; loaded drivers known to do this: {0}.": {
+    "tr": "Sonlandırma hakkı engelleniyor; bunu yaptığı bilinen yüklü sürücüler: {0}.",
+    "de": "Das Recht zum Beenden wird verweigert; geladene Treiber, die das tun: {0}.",
+    "fr": "Le droit de l'arrêter est retenu ; pilotes chargés connus pour cela : {0}.",
+    "es": "Se retiene el derecho a finalizarlo; controladores cargados que lo hacen: {0}."
+  },
+  "Why won't it end?": {
+    "tr": "Neden kapanmıyor?",
+    "de": "Warum endet er nicht?",
+    "fr": "Pourquoi ne s'arrête-t-il pas ?",
+    "es": "¿Por qué no se cierra?"
+  },
+  "Windows is already ending it ({0} threads left) and cannot remove it yet.": {
+    "tr": "Windows onu zaten sonlandırıyor ({0} iş parçacığı kaldı) ama henüz kaldıramıyor.",
+    "de": "Windows beendet ihn bereits ({0} Threads übrig) und kann ihn noch nicht entfernen.",
+    "fr": "Windows est déjà en train de l'arrêter ({0} threads restants) et ne peut pas encore le retirer.",
+    "es": "Windows ya lo está finalizando ({0} hilos restantes) y aún no puede quitarlo."
+  },
+  "Windows is already ending it, but these keep it open: {0}. Closing them lets it go.": {
+    "tr": "Windows onu zaten sonlandırıyor ama şunlar açık tutuyor: {0}. Bunları kapatmak onu serbest bırakır.",
+    "de": "Windows beendet ihn bereits, aber diese halten ihn offen: {0}. Werden sie geschlossen, verschwindet er.",
+    "fr": "Windows est déjà en train de l'arrêter, mais ceux-ci le gardent ouvert : {0}. Les fermer le libère.",
+    "es": "Windows ya lo está finalizando, pero estos lo mantienen abierto: {0}. Cerrarlos lo libera."
+  },
+  "Windows protects it ({0}); no program may end it.": {
+    "tr": "Windows onu koruyor ({0}); hiçbir program sonlandıramaz.",
+    "de": "Windows schützt ihn ({0}); kein Programm darf ihn beenden.",
+    "fr": "Windows le protège ({0}) ; aucun programme ne peut l'arrêter.",
+    "es": "Windows lo protege ({0}); ningún programa puede finalizarlo."
+  },
+  "{0} (PID {1}, {2} handles)": {
+    "tr": "{0} (PID {1}, {2} handle)",
+    "de": "{0} (PID {1}, {2} Handles)",
+    "fr": "{0} (PID {1}, {2} handles)",
+    "es": "{0} (PID {1}, {2} handles)"
+  },
+  "Most traffic:": {
+    "tr": "En çok trafik:",
+    "de": "Höchster Datenverkehr:",
+    "fr": "Plus de trafic :",
+    "es": "Más tráfico:"
+  },
+  "Network receive": {
+    "tr": "Ağ alma",
+    "de": "Netzwerk Empfang",
+    "fr": "Réception réseau",
+    "es": "Recepción de red"
+  },
+  "Network send": {
+    "tr": "Ağ gönderme",
+    "de": "Netzwerk Senden",
+    "fr": "Envoi réseau",
+    "es": "Envío de red"
+  },
+  "none right now (per-program traffic needs the RustWTM service or administrator rights)": {
+    "tr": "şu an yok (program başına trafik için RustWTM servisi veya yönetici hakları gerekir)",
+    "de": "derzeit keiner (Verkehr pro Programm erfordert den RustWTM-Dienst oder Administratorrechte)",
+    "fr": "aucun pour l'instant (le trafic par programme nécessite le service RustWTM ou des droits administrateur)",
+    "es": "ninguno ahora (el tráfico por programa requiere el servicio RustWTM o derechos de administrador)"
+  },
+  "Cannot close the connection {0} → {1}: {2}": {
+    "tr": "{0} → {1} bağlantısı kapatılamıyor: {2}",
+    "de": "Die Verbindung {0} → {1} kann nicht geschlossen werden: {2}",
+    "fr": "Impossible de fermer la connexion {0} → {1} : {2}",
+    "es": "No se puede cerrar la conexión {0} → {1}: {2}"
+  },
+  "Connection {0} → {1} closed": {
+    "tr": "{0} → {1} bağlantısı kapatıldı",
+    "de": "Verbindung {0} → {1} geschlossen",
+    "fr": "Connexion {0} → {1} fermée",
+    "es": "Conexión {0} → {1} cerrada"
+  },
+  "Reset this connection; both ends see it closed (needs administrator rights)": {
+    "tr": "Bu bağlantıyı sıfırla; iki uç da kapandığını görür (yönetici hakları gerekir)",
+    "de": "Diese Verbindung zurücksetzen; beide Seiten sehen sie geschlossen (erfordert Administratorrechte)",
+    "fr": "Réinitialiser cette connexion ; les deux extrémités la voient fermée (droits administrateur requis)",
+    "es": "Restablecer esta conexión; ambos extremos la ven cerrada (requiere derechos de administrador)"
+  },
+  "Modules": {
+    "tr": "Modüller",
+    "de": "Module",
+    "fr": "Modules",
+    "es": "Módulos"
+  },
+  "Reading modules and checking signatures…": {
+    "tr": "Modüller okunuyor ve imzalar denetleniyor…",
+    "de": "Module werden gelesen und Signaturen geprüft…",
+    "fr": "Lecture des modules et vérification des signatures…",
+    "es": "Leyendo módulos y comprobando firmas…"
+  },
+  "The DLLs it has loaded and who signed each one": {
+    "tr": "Yüklediği DLL'ler ve her birini kimin imzaladığı",
+    "de": "Die geladenen DLLs und wer jede signiert hat",
+    "fr": "Les DLL chargées et qui a signé chacune",
+    "es": "Las DLL cargadas y quién firmó cada una"
+  },
+  "invalid signature: {0}": {
+    "tr": "geçersiz imza: {0}",
+    "de": "ungültige Signatur: {0}",
+    "fr": "signature non valide : {0}",
+    "es": "firma no válida: {0}"
+  },
+  "signed": {
+    "tr": "imzalı",
+    "de": "signiert",
+    "fr": "signé",
+    "es": "firmado"
+  },
+  "unsigned": {
+    "tr": "imzasız",
+    "de": "unsigniert",
+    "fr": "non signé",
+    "es": "sin firmar"
+  },
+  "{0} modules: {1} unsigned, {2} with an invalid signature": {
+    "tr": "{0} modül: {1} imzasız, {2} geçersiz imzalı",
+    "de": "{0} Module: {1} unsigniert, {2} mit ungültiger Signatur",
+    "fr": "{0} modules : {1} non signés, {2} avec une signature non valide",
+    "es": "{0} módulos: {1} sin firmar, {2} con firma no válida"
+  },
+  "Calm busy background apps while a full-screen app is in front": {
+    "tr": "Tam ekran bir uygulama öndeyken yoğun arka plan uygulamalarını yatıştır",
+    "de": "Ausgelastete Hintergrund-Apps beruhigen, solange eine Vollbild-App vorne ist",
+    "fr": "Calmer les applis d'arrière-plan chargées pendant qu'une appli plein écran est au premier plan",
+    "es": "Calmar las apps en segundo plano ocupadas mientras una app a pantalla completa está delante"
+  },
+  "Game mode": {
+    "tr": "Oyun modu",
+    "de": "Spielmodus",
+    "fr": "Mode jeu",
+    "es": "Modo juego"
+  },
+  "Game mode: {0} is in front; {1} background apps calmed until it ends": {
+    "tr": "Oyun modu: {0} önde; o bitene kadar {1} arka plan uygulaması yatıştırıldı",
+    "de": "Spielmodus: {0} ist vorne; {1} Hintergrund-Apps beruhigt, bis es endet",
+    "fr": "Mode jeu : {0} est au premier plan ; {1} applis d'arrière-plan calmées jusqu'à la fin",
+    "es": "Modo juego: {0} está delante; {1} apps en segundo plano calmadas hasta que termine"
+  },
+  "Lower priority and efficiency mode, rolled back when it ends": {
+    "tr": "Düşük öncelik ve verimlilik modu; bittiğinde geri alınır",
+    "de": "Niedrigere Priorität und Effizienzmodus, beim Ende zurückgenommen",
+    "fr": "Priorité basse et mode efficacité, annulés à la fin",
+    "es": "Prioridad baja y modo eficiencia, revertidos al terminar"
+  },
+  "Switch to the High performance power plan meanwhile": {
+    "tr": "Bu sırada Yüksek performans güç planına geç",
+    "de": "Währenddessen zum Energiesparplan Höchstleistung wechseln",
+    "fr": "Passer au mode de gestion Performances élevées pendant ce temps",
+    "es": "Cambiar mientras tanto al plan de energía Alto rendimiento"
+  },
+  "▶ Game mode": {
+    "tr": "▶ Oyun modu",
+    "de": "▶ Spielmodus",
+    "fr": "▶ Mode jeu",
+    "es": "▶ Modo juego"
+  },
+  "Block network access": {
+    "tr": "Ağ erişimini engelle",
+    "de": "Netzwerkzugriff sperren",
+    "fr": "Bloquer l'accès réseau",
+    "es": "Bloquear acceso a la red"
+  },
+  "Blocked from the network:": {
+    "tr": "Ağdan engellenenler:",
+    "de": "Vom Netzwerk gesperrt:",
+    "fr": "Bloqués du réseau :",
+    "es": "Bloqueados de la red:"
+  },
+  "Network blocked for {0}": {
+    "tr": "{0} için ağ engellendi",
+    "de": "Netzwerk für {0} gesperrt",
+    "fr": "Réseau bloqué pour {0}",
+    "es": "Red bloqueada para {0}"
+  },
+  "Network unblocked for {0}": {
+    "tr": "{0} için ağ engeli kaldırıldı",
+    "de": "Netzwerksperre für {0} aufgehoben",
+    "fr": "Réseau débloqué pour {0}",
+    "es": "Red desbloqueada para {0}"
+  },
+  "Remove RustWTM's Windows Firewall rules for it": {
+    "tr": "Onun için RustWTM'in Windows Güvenlik Duvarı kurallarını kaldır",
+    "de": "RustWTMs Windows-Firewall-Regeln dafür entfernen",
+    "fr": "Supprimer les règles du Pare-feu Windows de RustWTM pour lui",
+    "es": "Quitar las reglas del Firewall de Windows de RustWTM para él"
+  },
+  "The program file of {0} is unknown, so it cannot be blocked": {
+    "tr": "{0} programının dosyası bilinmiyor, bu yüzden engellenemiyor",
+    "de": "Die Programmdatei von {0} ist unbekannt und kann daher nicht gesperrt werden",
+    "fr": "Le fichier programme de {0} est inconnu, il ne peut donc pas être bloqué",
+    "es": "Se desconoce el archivo del programa {0}, así que no se puede bloquear"
+  },
+  "Unblock": {
+    "tr": "Engeli kaldır",
+    "de": "Freigeben",
+    "fr": "Débloquer",
+    "es": "Desbloquear"
+  },
+  "Windows Firewall refused the change for {0}: {1}": {
+    "tr": "Windows Güvenlik Duvarı {0} için değişikliği reddetti: {1}",
+    "de": "Die Windows-Firewall hat die Änderung für {0} abgelehnt: {1}",
+    "fr": "Le Pare-feu Windows a refusé la modification pour {0} : {1}",
+    "es": "El Firewall de Windows rechazó el cambio para {0}: {1}"
+  },
+  "Windows Firewall rules that cut this program off the network; undo in the Network tab": {
+    "tr": "Bu programı ağdan kesen Windows Güvenlik Duvarı kuralları; Ağ sekmesinden geri alın",
+    "de": "Windows-Firewall-Regeln, die dieses Programm vom Netzwerk trennen; Rückgängig im Tab Netzwerk",
+    "fr": "Règles du Pare-feu Windows qui coupent ce programme du réseau ; annulez dans l'onglet Réseau",
+    "es": "Reglas del Firewall de Windows que desconectan este programa de la red; deshágalo en la pestaña Red"
+  },
+  "(name not known yet)": {
+    "tr": "(adı henüz bilinmiyor)",
+    "de": "(Name noch unbekannt)",
+    "fr": "(nom pas encore connu)",
+    "es": "(nombre aún desconocido)"
+  },
+  "Files being read and written": {
+    "tr": "Okunan ve yazılan dosyalar",
+    "de": "Gelesene und geschriebene Dateien",
+    "fr": "Fichiers lus et écrits",
+    "es": "Archivos que se leen y escriben"
+  },
+  "No disk reads or writes in the last seconds.": {
+    "tr": "Son saniyelerde disk okuması veya yazması yok.",
+    "de": "Keine Lese- oder Schreibvorgänge in den letzten Sekunden.",
+    "fr": "Aucune lecture ni écriture disque ces dernières secondes.",
+    "es": "Sin lecturas ni escrituras de disco en los últimos segundos."
+  },
+  "Which files are read and written needs the RustWTM service or administrator rights.": {
+    "tr": "Hangi dosyaların okunup yazıldığını görmek için RustWTM servisi veya yönetici hakları gerekir.",
+    "de": "Welche Dateien gelesen und geschrieben werden, erfordert den RustWTM-Dienst oder Administratorrechte.",
+    "fr": "Voir quels fichiers sont lus et écrits nécessite le service RustWTM ou des droits administrateur.",
+    "es": "Ver qué archivos se leen y escriben requiere el servicio RustWTM o derechos de administrador."
   }
 }

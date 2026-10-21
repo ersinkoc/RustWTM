@@ -5,9 +5,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, NO_ERROR, WIN32_ERROR};
 use windows::Win32::NetworkManagement::IpHelper::{
-    GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID,
-    MIB_TCPROW_OWNER_PID, MIB_TCPTABLE_OWNER_PID, MIB_UDP6ROW_OWNER_PID, MIB_UDP6TABLE_OWNER_PID,
-    MIB_UDPROW_OWNER_PID, MIB_UDPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
+    GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP_STATE_DELETE_TCB, MIB_TCP6ROW_OWNER_PID,
+    MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_LH, MIB_TCPROW_LH_0, MIB_TCPROW_OWNER_PID,
+    MIB_TCPTABLE_OWNER_PID, MIB_UDP6ROW_OWNER_PID, MIB_UDP6TABLE_OWNER_PID, MIB_UDPROW_OWNER_PID,
+    MIB_UDPTABLE_OWNER_PID, SetTcpEntry, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
 };
 
 use crate::Result;
@@ -115,6 +116,34 @@ unsafe fn rows<R: Copy>(buf: &[u64], rows_offset: usize) -> Vec<R> {
     }
 }
 
+/// Resets an IPv4 TCP connection, as Resource Monitor and TCPView do: both
+/// ends see it closed at once. Needs administrator rights. Windows offers
+/// no way to close an IPv6 connection from outside its owner.
+pub fn close_tcp(local: SocketAddr, remote: SocketAddr) -> Result<()> {
+    let (SocketAddr::V4(l), SocketAddr::V4(r)) = (local, remote) else {
+        return Err(windows::core::Error::from(
+            windows::Win32::Foundation::ERROR_NOT_SUPPORTED.to_hresult(),
+        )
+        .into());
+    };
+    let row = MIB_TCPROW_LH {
+        Anonymous: MIB_TCPROW_LH_0 {
+            dwState: MIB_TCP_STATE_DELETE_TCB.0 as u32,
+        },
+        dwLocalAddr: u32::from_ne_bytes(l.ip().octets()),
+        dwLocalPort: u32::from(l.port().to_be()),
+        dwRemoteAddr: u32::from_ne_bytes(r.ip().octets()),
+        dwRemotePort: u32::from(r.port().to_be()),
+    };
+    // SAFETY: `row` is a fully initialized MIB_TCPROW.
+    let rc = WIN32_ERROR(unsafe { SetTcpEntry(&row) });
+    if rc == NO_ERROR {
+        Ok(())
+    } else {
+        Err(windows::core::Error::from(rc.to_hresult()).into())
+    }
+}
+
 pub fn connections() -> Result<Vec<Connection>> {
     let mut out = Vec::new();
 
@@ -204,6 +233,16 @@ pub fn connections() -> Result<Vec<Connection>> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn closing_needs_ipv4_and_rights() {
+        let v6: SocketAddr = "[::1]:5000".parse().unwrap();
+        let v4: SocketAddr = "127.0.0.1:5000".parse().unwrap();
+        assert!(close_tcp(v6, v6).is_err(), "IPv6 cannot be reset");
+        // No such connection (or no rights): refused, never a crash.
+        assert!(close_tcp(v4, "127.0.0.1:5001".parse().unwrap()).is_err());
+    }
+
     use super::*;
     use std::net::TcpListener;
 

@@ -54,3 +54,23 @@ pub struct SystemProcessInformation {
 
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<SystemProcessInformation>() == 0x100);
+
+/// `SYSTEM_THREAD_INFORMATION`, after each process entry.
+#[repr(C)]
+pub struct SystemThreadInformation {
+    pub kernel_time: i64,
+    pub user_time: i64,
+    pub create_time: i64,
+    pub wait_time: u32,
+    pub start_address: *mut c_void,
+    pub unique_process: *mut c_void,
+    pub unique_thread: *mut c_void,
+    pub priority: i32,
+    pub base_priority: i32,
+    pub context_switches: u32,
+    pub thread_state: u32,
+    pub wait_reason: u32,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(size_of::<SystemThreadInformation>() == 0x50);

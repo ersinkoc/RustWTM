@@ -419,6 +419,7 @@ mod tests {
             include_str!("app.rs"),
             include_str!("about.rs"),
             include_str!("alert.rs"),
+            include_str!("disks_tab.rs"),
             include_str!("backend.rs"),
             include_str!("kill_tab.rs"),
             include_str!("limits_tab.rs"),

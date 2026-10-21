@@ -14,8 +14,8 @@ use wtm_core::control::{self, ControlResult, PriorityClass, ProcessRef};
 use wtm_core::{ProcessInfo, Sampler, Snapshot, StartWatcher};
 use wtm_ipc::{Command, Outcome, Status};
 use wtm_policy::{
-    Action, Config, DEFAULT_CONFIG_TOML, Decision, Governor, InsightPolicy, RuleEngine, Source,
-    analyze,
+    Action, Config, DEFAULT_CONFIG_TOML, Decision, GameChange, GameMode, Governor, InsightPolicy,
+    RuleEngine, Source, analyze,
 };
 
 use crate::app_limits::AppLimiter;
@@ -180,6 +180,7 @@ fn status(
     app_limits: &[wtm_policy::GroupUsage],
     foreground: Option<&str>,
     rescue: &Rescue,
+    game: &GameMode,
 ) -> Status {
     Status {
         dry_run: config.dry_run,
@@ -192,8 +193,18 @@ fn status(
         app_limits: app_limits.to_vec(),
         foreground: foreground.map(str::to_owned),
         rescue_core: rescue.summary(),
+        game: game.game().map(|name| wtm_ipc::GameStatus {
+            name: name.to_owned(),
+            calmed: game.calmed(),
+        }),
     }
 }
+
+/// The per-file disk trace stops this long after the last request.
+const DISK_TRACE_IDLE: Duration = Duration::from_secs(30);
+
+/// Prefix of the ETW session that counts network bytes per process.
+const NET_TRACE: &str = "RustWTM-Network";
 
 /// Runs until [`EngineMsg::Stop`] arrives (or all senders are dropped), then
 /// rolls back every applied limit. `tx` is handed to the IPC server.
@@ -237,6 +248,13 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             .warn(None, format!("Telegram bot unavailable: {e}"));
     }
     let mut sampler = Sampler::new();
+    // Network bytes per process (ETW). The session name carries our PID so a
+    // test run never stops the installed service's session.
+    wtm_sys::etw::stop_orphans(NET_TRACE);
+    wtm_sys::etw::stop_orphans(crate::ipc_server::DISK_TRACE);
+    if let Err(e) = sampler.enable_network_trace(&format!("{NET_TRACE}-{}", std::process::id())) {
+        warn!(error = %e, "per-process network traffic unavailable");
+    }
     let mut governor = Governor::new(config.governor.clone());
     let mut memory_guard = wtm_policy::MemoryGuard::new(config.memory_guard.clone());
     let mut rules = RuleEngine::new(config.rules.clone());
@@ -282,6 +300,11 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     // Last foreground report from a client, and the app it names.
     let mut foreground: Option<(u32, Instant)> = None;
     let mut foreground_app: Option<String> = None;
+    // The foreground window covers its monitor.
+    let mut fullscreen = false;
+    let mut game_mode = GameMode::new(config.game_mode.clone());
+    // The plan active before game mode switched it.
+    let mut saved_plan: Option<String> = None;
     let mut last_snapshot: Option<Arc<Snapshot>> = None;
 
     shared.events.info(
@@ -327,9 +350,13 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                         &app_usage,
                         foreground_app.as_deref(),
                         &rescue,
+                        &game_mode,
                     );
                 }
-                Ok(EngineMsg::Foreground(pid)) => foreground = Some((pid, Instant::now())),
+                Ok(EngineMsg::Foreground(pid, full)) => {
+                    foreground = Some((pid, Instant::now()));
+                    fullscreen = full;
+                }
                 Err(RecvTimeoutError::Timeout) => break,
             }
         }
@@ -347,6 +374,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     app_limiter.configure(new.limits.clone(), new.dry_run);
                     executor.set_dry_run(new.dry_run);
                     rescue.configure(new.reserve.clone(), new.dry_run);
+                    game_mode.set_config(new.game_mode.clone());
                     sync_blocks(blocker.as_ref(), &new, &shared.events);
                     shared.events.info(
                         None,
@@ -424,6 +452,10 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         let now = Instant::now();
         let (keys, app) = foreground_keys(foreground, &snap.processes);
         memory_guard.set_foreground(keys.clone());
+        let game = app
+            .clone()
+            .filter(|_| fullscreen)
+            .map(|name| (name, keys.clone()));
         governor.set_foreground(keys);
         foreground_app = app;
         let mut decisions = governor.tick(now, &snap);
@@ -440,6 +472,21 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             snap.system.cpu_percent,
             &mut |p| cached_command_line(&mut cmdline_cache, p),
         ));
+        // The per-file disk trace runs only while a client keeps asking.
+        {
+            let mut trace = shared
+                .disk_trace
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if trace.as_ref().is_some_and(|t| t.idle(DISK_TRACE_IDLE)) {
+                *trace = None;
+            }
+        }
+        let (calm, change) = game_mode.tick(game, &snap.processes);
+        decisions.extend(calm);
+        if let Some(change) = change {
+            game_changed(&change, &config, &mut saved_plan, &shared.events);
+        }
         for d in &decisions {
             let _ = executor.execute(d);
         }
@@ -476,6 +523,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             &app_usage,
             foreground_app.as_deref(),
             &rescue,
+            &game_mode,
         );
         last_snapshot = Some(snap);
     }
@@ -485,6 +533,11 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         .info(None, "stopping; restoring all processes");
     shared.hardware.stop();
     executor.restore_all("service stopping");
+    *shared
+        .disk_trace
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = None;
+    restore_plan(&mut saved_plan, &shared.events);
     rescue.release_all("service stopping");
     app_limiter.lift_all("service stopping");
     let unblock = Config {
@@ -503,6 +556,52 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
         s.shutdown();
     }
     Ok(())
+}
+
+/// Switches the power plan for a game that starts, and back when it ends.
+fn game_changed(
+    change: &GameChange,
+    config: &Config,
+    saved_plan: &mut Option<String>,
+    events: &EventLog,
+) {
+    match change {
+        GameChange::Started(name) => {
+            events.info(None, format!("game mode: {name} is in front"));
+            if !config.game_mode.power_plan || saved_plan.is_some() {
+                return;
+            }
+            if config.dry_run {
+                events.info(None, "game mode would switch to High performance (dry run)");
+                return;
+            }
+            let Ok(current) = wtm_sys::power::active_scheme() else {
+                return;
+            };
+            match wtm_sys::power::set_active_scheme(wtm_sys::power::HIGH_PERFORMANCE) {
+                Ok(()) => {
+                    events.info(None, "game mode: High performance power plan");
+                    *saved_plan = Some(current.trim_matches(['{', '}']).to_owned());
+                }
+                Err(e) => events.warn(None, format!("game mode: power plan unchanged: {e}")),
+            }
+        }
+        GameChange::Ended(name) => {
+            events.info(None, format!("game mode: {name} ended"));
+            restore_plan(saved_plan, events);
+        }
+    }
+}
+
+fn restore_plan(saved_plan: &mut Option<String>, events: &EventLog) {
+    if let Some(plan) = saved_plan.take()
+        && let Err(e) = wtm_sys::power::set_active_scheme(&plan)
+    {
+        events.warn(
+            None,
+            format!("could not restore the power plan {plan}: {e}"),
+        );
+    }
 }
 
 /// Copies of a swarm ended per sampling tick, so a huge one cannot stall
@@ -1242,6 +1341,49 @@ mod tests {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+
+    #[test]
+    fn game_mode_leaves_the_power_plan_alone_in_dry_run_or_when_off() {
+        let events = EventLog::default();
+        let mut saved = None;
+        let mut config = Config {
+            dry_run: true,
+            ..Config::default()
+        };
+        config.game_mode.power_plan = true;
+        game_changed(
+            &GameChange::Started("game.exe".into()),
+            &config,
+            &mut saved,
+            &events,
+        );
+        assert!(saved.is_none());
+        config.game_mode.power_plan = false;
+        config.dry_run = false;
+        game_changed(
+            &GameChange::Started("game.exe".into()),
+            &config,
+            &mut saved,
+            &events,
+        );
+        assert!(saved.is_none());
+        game_changed(
+            &GameChange::Ended("game.exe".into()),
+            &config,
+            &mut saved,
+            &events,
+        );
+        let log: Vec<String> = events.after(0).into_iter().map(|e| e.message).collect();
+        assert_eq!(
+            log,
+            [
+                "game mode: game.exe is in front",
+                "game mode would switch to High performance (dry run)",
+                "game mode: game.exe is in front",
+                "game mode: game.exe ended",
+            ]
+        );
+    }
     use std::os::windows::process::CommandExt;
     use std::process::{Child, Command as Proc, Stdio};
 
@@ -1474,6 +1616,8 @@ mod unit_tests {
             gpu_memory: 0,
             io_read_rate: 0.0,
             io_write_rate: 0.0,
+            net_rx_rate: 0.0,
+            net_tx_rate: 0.0,
             create_time: 1,
         };
         let applied = insights.tick(std::slice::from_ref(&hog), &config.insights);
@@ -1559,7 +1703,17 @@ mod unit_tests {
         let paths = Paths::under(Path::new(r"C:\x"));
         let executor = Executor::new(true, Default::default());
         let rescue = Rescue::new(config.reserve.clone(), true, Default::default());
-        let s = status(&config, &paths, &executor, &[], Some("game.exe"), &rescue);
+        let game = GameMode::new(config.game_mode.clone());
+        let s = status(
+            &config,
+            &paths,
+            &executor,
+            &[],
+            Some("game.exe"),
+            &rescue,
+            &game,
+        );
+        assert!(s.game.is_none());
         assert_eq!(s.foreground.as_deref(), Some("game.exe"));
         assert!(s.rescue_core.is_none());
         assert!(s.dry_run);

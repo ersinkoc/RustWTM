@@ -49,6 +49,8 @@ mod tests {
             gpu_memory: 0,
             io_read_rate: 0.0,
             io_write_rate: 0.0,
+            net_rx_rate: 0.0,
+            net_tx_rate: 0.0,
             create_time,
         }
     }

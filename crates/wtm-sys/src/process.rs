@@ -33,6 +33,27 @@ pub struct RawProcess {
 }
 
 /// Takes process snapshots, reusing its buffer between calls.
+/// One thread as the system snapshot reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThreadInfo {
+    pub tid: u32,
+    /// `KTHREAD_STATE`; 5 is Waiting.
+    pub state: u32,
+    /// `KWAIT_REASON` while waiting.
+    pub wait_reason: u32,
+    pub context_switches: u32,
+}
+
+impl ThreadInfo {
+    /// Waiting on something that may lead to another thread or process,
+    /// rather than sleeping, suspended or idle in a thread pool.
+    pub fn blocked(&self) -> bool {
+        // DelayExecution, Suspended, WrDelayExecution, WrSuspended, WrQueue.
+        const IDLE: [u32; 5] = [4, 5, 11, 12, 15];
+        self.state == 5 && !IDLE.contains(&self.wait_reason)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ProcessSnapshotter {
     // u64 elements keep the buffer 8-byte aligned for the native structures.
@@ -82,6 +103,46 @@ impl ProcessSnapshotter {
             }
             return Ok((needed as usize).min(capacity));
         }
+    }
+
+    /// The threads of `pid`, from a fresh system snapshot (the process
+    /// itself is not opened). Empty when the process is gone.
+    pub fn threads(&mut self, pid: u32) -> Result<Vec<ThreadInfo>> {
+        let len = self.query()?;
+        let base = self.buf.as_ptr().cast::<u8>();
+        let entry_size = size_of::<ntapi::SystemProcessInformation>();
+        let thread_size = size_of::<ntapi::SystemThreadInformation>();
+        let mut offset = 0usize;
+        while offset + entry_size <= len {
+            // SAFETY: bounds checked above; the kernel aligns every entry to 8 bytes.
+            let info = unsafe { &*base.add(offset).cast::<ntapi::SystemProcessInformation>() };
+            if info.unique_process_id as usize as u32 == pid {
+                let first = offset + entry_size;
+                let count =
+                    (info.number_of_threads as usize).min(len.saturating_sub(first) / thread_size);
+                return Ok((0..count)
+                    .map(|i| {
+                        // SAFETY: `count` entries fit inside the valid bytes.
+                        let t = unsafe {
+                            &*base
+                                .add(first + i * thread_size)
+                                .cast::<ntapi::SystemThreadInformation>()
+                        };
+                        ThreadInfo {
+                            tid: t.unique_thread as usize as u32,
+                            state: t.thread_state,
+                            wait_reason: t.wait_reason,
+                            context_switches: t.context_switches,
+                        }
+                    })
+                    .collect());
+            }
+            if info.next_entry_offset == 0 {
+                break;
+            }
+            offset += info.next_entry_offset as usize;
+        }
+        Ok(Vec::new())
     }
 
     fn parse(&self, len: usize) -> Vec<RawProcess> {

@@ -7,13 +7,19 @@
 pub mod control;
 pub mod cpu;
 pub mod disk;
+pub mod disktrace;
+pub mod ending;
 mod error;
+pub mod etw;
+pub mod firewall;
 pub mod gpu;
 mod handle;
 pub mod http;
 pub mod icon;
 pub mod job;
+pub mod modules;
 pub mod net;
+pub mod nettrace;
 mod ntapi;
 pub mod pipe;
 pub mod power;
@@ -24,6 +30,8 @@ pub mod services;
 pub mod sessions;
 pub mod shell;
 pub mod system;
+pub mod volumes;
+pub mod waits;
 pub mod window;
 
 pub use error::{Error, Result};

@@ -4,6 +4,8 @@
 //! Two findings are detected over a sliding window:
 //! - **Chronic CPU**: an app whose average CPU over the window stays high.
 //! - **Memory growth**: an app whose memory keeps climbing (leak suspect).
+//! - **Handle / thread growth**: an app whose handle or thread count keeps
+//!   climbing, the other two classic leaks (report only).
 
 use std::collections::{HashMap, HashSet};
 
@@ -14,7 +16,7 @@ use wtm_core::{ProcessInfo, protection_reason};
 use crate::{Action, Decision, Key, Source, glob_match};
 
 /// One minute of aggregated usage for one application (all its processes).
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct MinuteRow {
     /// Unix time in minutes.
     pub minute: i64,
@@ -28,9 +30,15 @@ pub struct MinuteRow {
     pub mem_avg: u64,
     pub mem_peak: u64,
     pub processes: u32,
+    /// Average total handles of the app's processes.
+    #[serde(default)]
+    pub handles_avg: u32,
+    /// Average total threads of the app's processes.
+    #[serde(default)]
+    pub threads_avg: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AppStats {
     pub app: String,
     /// Minutes in the window the app was running.
@@ -55,6 +63,39 @@ pub struct AppStats {
     pub mem_growth_fit: f64,
     /// CPU-time used in the window, in core-seconds.
     pub cpu_core_seconds: f64,
+    /// Handles at the end of the window, their slope per hour and fit (R²).
+    #[serde(default)]
+    pub handles_last: u32,
+    #[serde(default)]
+    pub handle_growth_per_hour: f64,
+    #[serde(default)]
+    pub handle_growth_fit: f64,
+    /// Threads at the end of the window, their slope per hour and fit (R²).
+    #[serde(default)]
+    pub threads_last: u32,
+    #[serde(default)]
+    pub thread_growth_per_hour: f64,
+    #[serde(default)]
+    pub thread_growth_fit: f64,
+}
+
+/// Least-squares slope of `ys` against `xs`, and its fit (R², 0..=1).
+fn trend(xs: &[f64], ys: &[f64]) -> (f64, f64) {
+    let n = xs.len() as f64;
+    if n == 0.0 {
+        return (0.0, 0.0);
+    }
+    let (mx, my) = (xs.iter().sum::<f64>() / n, ys.iter().sum::<f64>() / n);
+    let var: f64 = xs.iter().map(|x| (x - mx).powi(2)).sum();
+    let cov: f64 = xs.iter().zip(ys).map(|(x, y)| (x - mx) * (y - my)).sum();
+    let slope = if var > 0.0 { cov / var } else { 0.0 };
+    let var_y: f64 = ys.iter().map(|y| (y - my).powi(2)).sum();
+    let fit = if var > 0.0 && var_y > 0.0 {
+        (cov * cov / (var * var_y)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    (slope, fit)
 }
 
 /// Summarizes `rows` (any order). `logical_cpus` converts shares to core-seconds.
@@ -76,16 +117,12 @@ pub fn summarize(app: &str, rows: &[MinuteRow], logical_cpus: u32) -> Option<App
     let t0 = rows[0].minute;
     let xs: Vec<f64> = rows.iter().map(|r| (r.minute - t0) as f64 / 60.0).collect();
     let ys: Vec<f64> = rows.iter().map(|r| r.mem_avg as f64).collect();
-    let (mx, my) = (xs.iter().sum::<f64>() / n, ys.iter().sum::<f64>() / n);
-    let var: f64 = xs.iter().map(|x| (x - mx).powi(2)).sum();
-    let cov: f64 = xs.iter().zip(&ys).map(|(x, y)| (x - mx) * (y - my)).sum();
-    let slope = if var > 0.0 { cov / var } else { 0.0 };
-    let var_y: f64 = ys.iter().map(|y| (y - my).powi(2)).sum();
-    let fit = if var > 0.0 && var_y > 0.0 {
-        (cov * cov / (var * var_y)).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
+    let (slope, fit) = trend(&xs, &ys);
+    let handles: Vec<f64> = rows.iter().map(|r| f64::from(r.handles_avg)).collect();
+    let (handle_slope, handle_fit) = trend(&xs, &handles);
+    let threads: Vec<f64> = rows.iter().map(|r| f64::from(r.threads_avg)).collect();
+    let (thread_slope, thread_fit) = trend(&xs, &threads);
+    let last = rows.last().copied().unwrap_or_default();
 
     let cpu_sum: f64 = rows.iter().map(|r| f64::from(r.cpu_avg)).sum();
     Some(AppStats {
@@ -98,11 +135,17 @@ pub fn summarize(app: &str, rows: &[MinuteRow], logical_cpus: u32) -> Option<App
         gpu_p95: gpu[p95_index],
         mem_avg: (ys.iter().sum::<f64>() / n) as u64,
         mem_peak: rows.iter().map(|r| r.mem_peak).max().unwrap_or(0),
-        mem_last: rows.last().map_or(0, |r| r.mem_avg),
+        mem_last: last.mem_avg,
         mem_growth_per_hour: slope,
         mem_growth_fit: fit,
         // Each row is one minute: share% / 100 * cpus * 60 s.
         cpu_core_seconds: cpu_sum / 100.0 * f64::from(logical_cpus) * 60.0,
+        handles_last: last.handles_avg,
+        handle_growth_per_hour: handle_slope,
+        handle_growth_fit: handle_fit,
+        threads_last: last.threads_avg,
+        thread_growth_per_hour: thread_slope,
+        thread_growth_fit: thread_fit,
     })
 }
 
@@ -131,6 +174,14 @@ pub struct InsightsConfig {
     pub chronic_gpu_percent: f32,
     /// Empty: only report. Priority and efficiency mode do not limit GPU work.
     pub chronic_gpu_actions: Vec<Action>,
+    /// Handle growth per hour that marks a handle leak suspect, once the
+    /// app holds at least `handle_min` handles (steadiness: `growth_min_fit`).
+    pub handle_growth_per_hour: f64,
+    pub handle_min: u32,
+    /// Thread growth per hour that marks a thread leak suspect, once the
+    /// app runs at least `thread_min` threads.
+    pub thread_growth_per_hour: f64,
+    pub thread_min: u32,
     /// Image-name wildcards never acted on.
     pub exempt: Vec<String>,
 }
@@ -153,6 +204,10 @@ impl Default for InsightsConfig {
             growth_actions: Vec::new(),
             chronic_gpu_percent: 30.0,
             chronic_gpu_actions: Vec::new(),
+            handle_growth_per_hour: 1000.0,
+            handle_min: 10_000,
+            thread_growth_per_hour: 50.0,
+            thread_min: 500,
             exempt: vec!["explorer.exe".into(), "Taskmgr.exe".into()],
         }
     }
@@ -191,6 +246,8 @@ pub enum FindingKind {
     ChronicCpu,
     MemoryGrowth,
     ChronicGpu,
+    HandleGrowth,
+    ThreadGrowth,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -240,6 +297,32 @@ pub fn analyze(stats: &[AppStats], cfg: &InsightsConfig) -> Vec<Finding> {
                     s.minutes,
                     s.mem_growth_fit,
                     mib(s.mem_last as f64)
+                ),
+            });
+        }
+        if s.handle_growth_per_hour >= cfg.handle_growth_per_hour
+            && s.handle_growth_fit >= cfg.growth_min_fit
+            && s.handles_last >= cfg.handle_min
+        {
+            out.push(Finding {
+                app: s.app.clone(),
+                kind: FindingKind::HandleGrowth,
+                detail: format!(
+                    "handles growing {:.0}/h over {} min (fit {:.2}), now {}",
+                    s.handle_growth_per_hour, s.minutes, s.handle_growth_fit, s.handles_last
+                ),
+            });
+        }
+        if s.thread_growth_per_hour >= cfg.thread_growth_per_hour
+            && s.thread_growth_fit >= cfg.growth_min_fit
+            && s.threads_last >= cfg.thread_min
+        {
+            out.push(Finding {
+                app: s.app.clone(),
+                kind: FindingKind::ThreadGrowth,
+                detail: format!(
+                    "threads growing {:.0}/h over {} min (fit {:.2}), now {}",
+                    s.thread_growth_per_hour, s.minutes, s.thread_growth_fit, s.threads_last
                 ),
             });
         }
@@ -358,6 +441,8 @@ fn actions_for(kind: FindingKind, cfg: &InsightsConfig) -> &[Action] {
         FindingKind::ChronicCpu => &cfg.chronic_actions,
         FindingKind::MemoryGrowth => &cfg.growth_actions,
         FindingKind::ChronicGpu => &cfg.chronic_gpu_actions,
+        // A leak of handles or threads is not relieved by any limit.
+        FindingKind::HandleGrowth | FindingKind::ThreadGrowth => &[],
     }
 }
 
@@ -375,6 +460,8 @@ mod tests {
             mem_avg: mem_mb << 20,
             mem_peak: (mem_mb + 10) << 20,
             processes: 1,
+            handles_avg: 100,
+            threads_avg: 10,
         }
     }
 
@@ -396,6 +483,8 @@ mod tests {
             gpu_memory: 0,
             io_read_rate: 0.0,
             io_write_rate: 0.0,
+            net_rx_rate: 0.0,
+            net_tx_rate: 0.0,
             create_time: i64::from(pid),
         }
     }
@@ -442,7 +531,59 @@ mod tests {
             mem_growth_per_hour: growth_mib * 1024.0 * 1024.0,
             mem_growth_fit: 0.9,
             cpu_core_seconds: 0.0,
+            handles_last: 0,
+            handle_growth_per_hour: 0.0,
+            handle_growth_fit: 0.0,
+            threads_last: 0,
+            thread_growth_per_hour: 0.0,
+            thread_growth_fit: 0.0,
         }
+    }
+
+    #[test]
+    fn handle_and_thread_leaks_are_found_from_steady_growth() {
+        // Two hours: handles +2000/h from 12 000, threads +100/h from 600.
+        let rows: Vec<MinuteRow> = (0..120)
+            .map(|m| MinuteRow {
+                minute: m,
+                handles_avg: 12_000 + (m as u32) * 2000 / 60,
+                threads_avg: 600 + (m as u32) * 100 / 60,
+                ..row(m, 1.0, 100)
+            })
+            .collect();
+        let s = summarize("leaky.exe", &rows, 8).unwrap();
+        assert!((s.handle_growth_per_hour - 2000.0).abs() < 50.0, "{s:?}");
+        assert!(s.handle_growth_fit > 0.99 && s.thread_growth_fit > 0.99);
+        assert_eq!((s.handles_last, s.threads_last), (15_966, 798));
+        let found = analyze(std::slice::from_ref(&s), &InsightsConfig::default());
+        let kinds: Vec<_> = found.iter().map(|f| f.kind).collect();
+        assert_eq!(
+            kinds,
+            [FindingKind::HandleGrowth, FindingKind::ThreadGrowth]
+        );
+        assert!(
+            found[0].detail.starts_with("handles growing 2"),
+            "{}",
+            found[0].detail
+        );
+
+        // Small apps and noise are not leaks.
+        let small = AppStats {
+            handles_last: 900,
+            threads_last: 40,
+            ..s.clone()
+        };
+        assert!(analyze(&[small], &InsightsConfig::default()).is_empty());
+        let noisy = AppStats {
+            handle_growth_fit: 0.2,
+            thread_growth_fit: 0.2,
+            ..s
+        };
+        assert!(analyze(&[noisy], &InsightsConfig::default()).is_empty());
+        // Report only: nothing to apply or roll back.
+        let cfg = InsightsConfig::default();
+        assert!(actions_for(FindingKind::HandleGrowth, &cfg).is_empty());
+        assert!(actions_for(FindingKind::ThreadGrowth, &cfg).is_empty());
     }
 
     #[test]

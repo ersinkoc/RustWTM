@@ -6,6 +6,56 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-21
+
+### Added
+
+- Processes: *Started in the last N min* lists only recently started processes
+  (presets from 1 minute to 4 hours, or any number of minutes) and shows the
+  *Running for* column. *More filters* adds disk-active (1 MiB/s+), GPU-active
+  (5%+) and session (user apps, or services and system in session 0) filters;
+  active filters show as removable chips and combine with the quick filters
+  and search.
+- Disks tab: drives with label, file system and free space; live activity per
+  physical disk and the processes with the most disk I/O; and a space analysis
+  of any drive or folder with a folder tree (sizes, share of parent, file
+  counts), the largest files and space per file type, with *Show in Explorer*.
+  Scans run on background-priority worker threads, can be stopped, report
+  unreadable folders and never follow junctions or symbolic links.
+- Disks tab: *Files being read and written* per program, from a kernel ETW
+  trace that runs only while the tab is open (service or administrator).
+- Not responding programs: marked in Processes (with a quick filter) and on
+  the Overview; *Analyze wait chain* in the details panel shows what their
+  blocked threads wait for and flags deadlocks.
+- *Why won't it end?*: protection, drivers that withhold the right to end it,
+  critical processes and the programs still holding it open.
+- *Modules*: loaded DLLs with their Authenticode or catalog signer, unsigned
+  and invalid ones first.
+- Network bytes per process (ETW in the service, or in the window when run as
+  administrator): a *Network* column, details rows and the busiest programs in
+  the Network tab. *Close* resets an IPv4 TCP connection.
+- *Block network access*: two Windows Firewall rules per program, grouped as
+  RustWTM; listed with *Unblock* in the Network tab.
+- Game mode (`[game_mode]`): while a full-screen app is in front, busy
+  background apps get below-normal priority and efficiency mode, optionally the
+  High performance power plan; rolled back when it ends or the service stops.
+  Only apps in the game's own session are calmed, never services or other
+  users' apps.
+  Shown on the Overview and in the status bar, configurable in Settings.
+- Handle and thread leak findings in the app history (report only).
+- `wtm mcp [--allow-control]`: a Model Context Protocol server on stdio for AI
+  assistants, read-only unless `--allow-control`.
+
+### Changed
+
+- Memory dumps are written from a process snapshot (the process is frozen for
+  milliseconds), falling back to a live dump; lsass and LsaIso are refused.
+- IPC protocol version 13: foreground reports carry full screen, status
+  carries game mode, and connection closing, firewall and disk activity
+  requests were added. Install the service of the same version.
+- Usage history stores average handles and threads per app; older databases
+  are upgraded in place.
+
 ## [0.15.0] - 2026-10-21
 
 ### Added
@@ -494,7 +544,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/ersinkoc/RustWTM/compare/v0.15.0...v0.17.0
 [0.15.0]: https://github.com/ersinkoc/RustWTM/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/ersinkoc/RustWTM/compare/v0.13.1...v0.14.0
 [0.13.1]: https://github.com/ersinkoc/RustWTM/compare/v0.13.0...v0.13.1

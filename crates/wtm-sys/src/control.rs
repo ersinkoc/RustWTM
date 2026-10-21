@@ -8,14 +8,22 @@ use std::time::Duration;
 
 use windows::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 use windows::Win32::Foundation::{
-    FILETIME, HANDLE, NTSTATUS, UNICODE_STRING, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    E_FAIL, FILETIME, HANDLE, NTSTATUS, S_FALSE, UNICODE_STRING, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::Security::{
     GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER, TokenUser,
 };
 use windows::Win32::System::Diagnostics::Debug::{
-    MINIDUMP_TYPE, MiniDumpWithFullMemory, MiniDumpWithFullMemoryInfo, MiniDumpWithHandleData,
-    MiniDumpWithThreadInfo, MiniDumpWithUnloadedModules, MiniDumpWriteDump,
+    CONTEXT_FLAGS, IsProcessSnapshotCallback, MINIDUMP_CALLBACK_INFORMATION,
+    MINIDUMP_CALLBACK_INPUT, MINIDUMP_CALLBACK_OUTPUT, MiniDumpWithFullMemory,
+    MiniDumpWithFullMemoryInfo, MiniDumpWithHandleData, MiniDumpWithThreadInfo,
+    MiniDumpWithUnloadedModules, MiniDumpWriteDump,
+};
+use windows::Win32::System::Diagnostics::ProcessSnapshotting::{
+    HPSS, PSS_CAPTURE_HANDLE_BASIC_INFORMATION, PSS_CAPTURE_HANDLE_NAME_INFORMATION,
+    PSS_CAPTURE_HANDLE_TYPE_SPECIFIC_INFORMATION, PSS_CAPTURE_HANDLES, PSS_CAPTURE_THREAD_CONTEXT,
+    PSS_CAPTURE_THREADS, PSS_CAPTURE_VA_CLONE, PSS_CREATE_RELEASE_SECTION,
+    PSS_CREATE_USE_VM_ALLOCATIONS, PssCaptureSnapshot, PssFreeSnapshot,
 };
 use windows::Win32::System::Memory::{
     GetProcessWorkingSetSizeEx, QUOTA_LIMITS_HARDWS_MAX_DISABLE, QUOTA_LIMITS_HARDWS_MIN_ENABLE,
@@ -34,9 +42,13 @@ use windows::Win32::System::Threading::{
     TerminateProcess, WaitForSingleObject,
 };
 use windows::Win32::System::Threading::{
+    GetCurrentProcess, PROCESS_CREATE_PROCESS, PROCESS_DUP_HANDLE,
+};
+use windows::Win32::System::Threading::{
     GetCurrentThread, GetProcessDefaultCpuSets, MEMORY_PRIORITY_INFORMATION,
     MEMORY_PRIORITY_NORMAL, PROCESS_SET_LIMITED_INFORMATION, ProcessMemoryPriority,
-    SetProcessDefaultCpuSets, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+    SetProcessDefaultCpuSets, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN,
+    THREAD_PRIORITY_ABOVE_NORMAL,
 };
 use windows::core::PWSTR;
 
@@ -74,6 +86,14 @@ impl Access {
     /// Required to write a memory dump.
     pub const DUMP: Self = Self(PROCESS_ACCESS_RIGHTS(
         PROCESS_QUERY_INFORMATION.0 | PROCESS_VM_READ.0,
+    ));
+    /// A memory dump from a snapshot clone: the process is frozen for
+    /// milliseconds instead of the whole write.
+    pub const DUMP_CLONE: Self = Self(PROCESS_ACCESS_RIGHTS(
+        PROCESS_QUERY_INFORMATION.0
+            | PROCESS_VM_READ.0
+            | PROCESS_DUP_HANDLE.0
+            | PROCESS_CREATE_PROCESS.0,
     ));
 }
 
@@ -225,7 +245,7 @@ impl ProcessHandle {
     /// The account the process runs as, e.g. NT AUTHORITY\SYSTEM.
     pub fn user(&self) -> Result<String> {
         let mut raw = HANDLE::default();
-        // SAFETY: aw receives a token handle that OwnedHandle closes.
+        // SAFETY: `raw` receives a token handle that OwnedHandle closes.
         unsafe { OpenProcessToken(self.raw(), TOKEN_QUERY, &mut raw)? };
         let token = OwnedHandle::new(raw);
         let mut len = 0u32;
@@ -306,38 +326,58 @@ impl ProcessHandle {
     }
 
     /// Writes a full memory dump (like Task Manager's "Create memory dump
-    /// file") to `path`, replacing it. Requires `Access::DUMP`.
-    pub fn write_dump(&self, path: &Path) -> Result<()> {
+    /// file") to `path`, replacing it. Requires `Access::DUMP`; with
+    /// `Access::DUMP_CLONE` the process is first cloned (a copy-on-write
+    /// process snapshot) and the dump written from the clone, so it is frozen
+    /// for milliseconds rather than for the whole write. Returns whether the
+    /// clone was used.
+    pub fn write_dump(&self, path: &Path) -> Result<bool> {
         let file = std::fs::File::create(path).map_err(|e| {
-            let code = e.raw_os_error().unwrap_or(0) as u32;
-            Error::Win32(windows::core::HRESULT::from_win32(code).into())
+            let hr = e.raw_os_error().map_or(E_FAIL, |code| {
+                windows::core::HRESULT::from_win32(code as u32)
+            });
+            Error::Win32(hr.into())
         })?;
-        let kind = MINIDUMP_TYPE(
-            MiniDumpWithFullMemory.0
-                | MiniDumpWithFullMemoryInfo.0
-                | MiniDumpWithHandleData.0
-                | MiniDumpWithThreadInfo.0
-                | MiniDumpWithUnloadedModules.0,
-        );
-        // SAFETY: valid process handle; `file` is open for writing and
-        // outlives the call.
-        let result = unsafe {
-            MiniDumpWriteDump(
-                self.raw(),
-                self.pid,
-                HANDLE(file.as_raw_handle()),
-                kind,
-                None,
-                None,
-                None,
-            )
+        let out = HANDLE(file.as_raw_handle());
+        let kind = MiniDumpWithFullMemory
+            | MiniDumpWithFullMemoryInfo
+            | MiniDumpWithHandleData
+            | MiniDumpWithThreadInfo
+            | MiniDumpWithUnloadedModules;
+
+        let result = match CloneSnapshot::capture(self.raw()) {
+            Some(snapshot) => {
+                let callback = MINIDUMP_CALLBACK_INFORMATION {
+                    CallbackRoutine: Some(snapshot_callback),
+                    CallbackParam: std::ptr::null_mut(),
+                };
+                // SAFETY: the snapshot handle stays valid until `snapshot` is
+                // dropped after the call; `out` is a writable file handle
+                // owned by `file`; `callback` outlives the call.
+                unsafe {
+                    MiniDumpWriteDump(
+                        HANDLE(snapshot.0.0),
+                        self.pid,
+                        out,
+                        kind,
+                        None,
+                        None,
+                        Some(&raw const callback),
+                    )
+                }
+                .map(|()| true)
+            }
+            // SAFETY: valid process handle owned by `self`; `out` is a
+            // writable file handle owned by `file`.
+            None => unsafe { MiniDumpWriteDump(self.raw(), self.pid, out, kind, None, None, None) }
+                .map(|()| false),
         };
+
         drop(file);
-        if let Err(e) = result {
+        result.map_err(|e| {
             let _ = std::fs::remove_file(path);
-            return Err(e.into());
-        }
-        Ok(())
+            e.into()
+        })
     }
 
     pub fn terminate(&self, exit_code: u32) -> Result<()> {
@@ -542,6 +582,74 @@ pub fn raise_current_thread() -> Result<()> {
     Ok(())
 }
 
+/// Puts the calling thread in background mode: lowest CPU, I/O and memory
+/// priority, so long work such as scanning a disk never slows down the
+/// machine or the window. Lasts until the thread exits.
+pub fn enter_background_mode() -> Result<()> {
+    // SAFETY: the pseudo handle of the current thread needs no closing.
+    unsafe { SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)? };
+    Ok(())
+}
+
+/// A copy-on-write clone of a process (`PssCaptureSnapshot`), freed on drop.
+struct CloneSnapshot(HPSS);
+
+impl CloneSnapshot {
+    /// Clones `process`, or `None` when the handle lacks the rights for it
+    /// (`PROCESS_CREATE_PROCESS`, `PROCESS_DUP_HANDLE`) or cloning fails.
+    fn capture(process: HANDLE) -> Option<Self> {
+        let flags = PSS_CAPTURE_VA_CLONE
+            | PSS_CAPTURE_HANDLES
+            | PSS_CAPTURE_HANDLE_NAME_INFORMATION
+            | PSS_CAPTURE_HANDLE_BASIC_INFORMATION
+            | PSS_CAPTURE_HANDLE_TYPE_SPECIFIC_INFORMATION
+            | PSS_CAPTURE_THREADS
+            | PSS_CAPTURE_THREAD_CONTEXT
+            | PSS_CREATE_USE_VM_ALLOCATIONS
+            | PSS_CREATE_RELEASE_SECTION;
+        let mut snapshot = HPSS::default();
+        // SAFETY: valid process handle; `snapshot` is a writable HPSS.
+        let status =
+            unsafe { PssCaptureSnapshot(process, flags, Some(CONTEXT_ALL.0), &mut snapshot) };
+        (status == 0 && !snapshot.is_invalid()).then_some(Self(snapshot))
+    }
+}
+
+impl Drop for CloneSnapshot {
+    fn drop(&mut self) {
+        // SAFETY: the snapshot was captured into this process and is freed
+        // exactly once.
+        unsafe {
+            let _ = PssFreeSnapshot(GetCurrentProcess(), self.0);
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+const CONTEXT_ALL: CONTEXT_FLAGS = windows::Win32::System::Diagnostics::Debug::CONTEXT_ALL_AMD64;
+#[cfg(target_arch = "aarch64")]
+const CONTEXT_ALL: CONTEXT_FLAGS = windows::Win32::System::Diagnostics::Debug::CONTEXT_ALL_ARM64;
+#[cfg(target_arch = "x86")]
+const CONTEXT_ALL: CONTEXT_FLAGS = windows::Win32::System::Diagnostics::Debug::CONTEXT_ALL_X86;
+
+/// `MiniDumpWriteDump` callback that, asked whether its handle is a process
+/// snapshot, answers `S_FALSE` (yes); every other request keeps its default.
+unsafe extern "system" fn snapshot_callback(
+    _param: *mut core::ffi::c_void,
+    input: *const MINIDUMP_CALLBACK_INPUT,
+    output: *mut MINIDUMP_CALLBACK_OUTPUT,
+) -> windows::core::BOOL {
+    // SAFETY: dbghelp passes valid input and output records; both structs
+    // are packed, so fields are accessed through unaligned reads/writes.
+    unsafe {
+        let kind = std::ptr::addr_of!((*input).CallbackType).read_unaligned();
+        if kind == IsProcessSnapshotCallback.0 as u32 {
+            std::ptr::addr_of_mut!((*output).Anonymous.Status).write_unaligned(S_FALSE);
+        }
+    }
+    true.into()
+}
+
 fn nt_ok(call: &'static str, status: NTSTATUS) -> Result<()> {
     if status.is_ok() {
         Ok(())
@@ -614,14 +722,23 @@ mod tests {
         h.set_normal_memory_priority().unwrap();
         h.lock_working_set(16 << 20).unwrap();
         raise_current_thread().unwrap();
+        std::thread::spawn(|| enter_background_mode().unwrap())
+            .join()
+            .unwrap();
     }
 
     #[test]
     fn writes_a_memory_dump_of_a_child() {
         let child = spawn_ping();
         let path = std::env::temp_dir().join(format!("wtm-dump-test-{}.dmp", std::process::id()));
+        // With the rights to clone it, the dump is written from a snapshot.
+        let h = ProcessHandle::open(child.0.id(), Access::DUMP_CLONE).unwrap();
+        assert!(h.write_dump(&path).unwrap(), "written from a clone");
         let h = ProcessHandle::open(child.0.id(), Access::DUMP).unwrap();
-        h.write_dump(&path).unwrap();
+        assert!(
+            !h.write_dump(&path).unwrap(),
+            "live, without the clone rights"
+        );
         let bytes = std::fs::read(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(&bytes[..4], b"MDMP");

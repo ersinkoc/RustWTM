@@ -29,6 +29,12 @@ pub struct ProcessInfo {
     pub gpu_memory: u64,
     pub io_read_rate: f64,
     pub io_write_rate: f64,
+    /// Network bytes per second, from an ETW trace that needs administrator
+    /// rights; zero when the trace is not running.
+    #[serde(default)]
+    pub net_rx_rate: f64,
+    #[serde(default)]
+    pub net_tx_rate: f64,
     /// Raw FILETIME; together with `pid` it uniquely identifies a process.
     pub create_time: i64,
 }
@@ -46,6 +52,11 @@ impl ProcessInfo {
 
     pub fn io_rate(&self) -> f64 {
         self.io_read_rate + self.io_write_rate
+    }
+
+    /// Network bytes per second, both directions.
+    pub fn net_rate(&self) -> f64 {
+        self.net_rx_rate + self.net_tx_rate
     }
 }
 
@@ -171,6 +182,8 @@ mod tests {
             gpu_memory: 0,
             io_read_rate: 0.0,
             io_write_rate: 0.0,
+            net_rx_rate: 0.0,
+            net_tx_rate: 0.0,
             create_time: FILETIME_UNIX_OFFSET,
         }
     }

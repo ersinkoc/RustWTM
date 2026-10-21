@@ -6,6 +6,7 @@ mod about;
 mod alert;
 mod app;
 mod backend;
+mod disks_tab;
 mod frames;
 mod i18n;
 mod kill_tab;

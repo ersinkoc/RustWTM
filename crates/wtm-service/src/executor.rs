@@ -113,7 +113,12 @@ impl Executor {
     pub fn set_dry_run(&mut self, dry_run: bool) {
         if dry_run && !self.dry_run {
             self.restore_sources(
-                &[Source::Governor, Source::Rule, Source::Insight],
+                &[
+                    Source::Governor,
+                    Source::Rule,
+                    Source::Insight,
+                    Source::GameMode,
+                ],
                 "dry-run enabled",
             );
         }
@@ -288,6 +293,7 @@ impl Executor {
                 Source::Governor,
                 Source::Rule,
                 Source::Insight,
+                Source::GameMode,
                 Source::Manual,
             ],
             reason,
