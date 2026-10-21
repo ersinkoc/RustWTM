@@ -468,6 +468,7 @@ mod tests {
             include_str!("settings.rs"),
             include_str!("sort.rs"),
             include_str!("telegram_settings.rs"),
+            include_str!("theme.rs"),
             include_str!("tray.rs"),
             include_str!("views.rs"),
         ];

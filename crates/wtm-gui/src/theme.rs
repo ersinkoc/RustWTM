@@ -4,7 +4,8 @@
 use std::collections::VecDeque;
 
 use eframe::egui::{
-    self, Color32, CornerRadius, Margin, Pos2, Rect, Shape, Stroke, Theme, Ui, Vec2, epaint,
+    self, Color32, CornerRadius, Margin, Pos2, Rect, RichText, Shape, Stroke, Theme, Ui, Vec2,
+    epaint,
 };
 
 /// The logo's orange.
@@ -145,6 +146,9 @@ pub fn apply(ctx: &egui::Context) {
                 v.panel_fill = Color32::from_rgb(246, 247, 249);
                 v.window_fill = Color32::WHITE;
                 v.extreme_bg_color = Color32::WHITE;
+                // Text fields stand out from the white cards they sit on.
+                v.text_edit_bg_color = Some(FIELD_LIGHT);
+                v.widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(206, 212, 221));
                 v.faint_bg_color = Color32::from_rgb(238, 240, 244);
                 v.widgets.noninteractive.fg_stroke.color = Color32::from_rgb(55, 65, 78);
                 v.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(218, 224, 231);
@@ -154,17 +158,157 @@ pub fn apply(ctx: &egui::Context) {
     }
 }
 
+/// Background of text fields on light surfaces.
+const FIELD_LIGHT: Color32 = Color32::from_rgb(241, 243, 247);
+
+/// Size of card titles and section labels.
+const TITLE_SIZE: f32 = 16.0;
+
 /// A rounded panel with a title, for one section of a tab.
-pub fn card<R>(
+pub fn card<R>(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    card_with(ui, title, &[], add)
+}
+
+/// A [`card`] whose title goes on with `parts` in their colours: current
+/// values, or the legend of the graph inside. An empty `title` is left out.
+pub fn card_with<R>(
     ui: &mut Ui,
-    title: impl Into<egui::WidgetText>,
+    title: &str,
+    parts: &[(&str, Color32)],
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
     panel(ui, |ui| {
-        ui.label(title.into());
+        let mut job = egui::text::LayoutJob::default();
+        let format = |color| egui::TextFormat {
+            font_id: egui::FontId::proportional(TITLE_SIZE),
+            color,
+            ..Default::default()
+        };
+        if !title.is_empty() {
+            job.append(title, 0.0, format(ui.visuals().strong_text_color()));
+        }
+        for (i, (text, color)) in parts.iter().enumerate() {
+            let gap = if i == 0 && title.is_empty() {
+                0.0
+            } else {
+                12.0
+            };
+            job.append(text, gap, format(text_color(ui, *color)));
+        }
+        job.wrap.max_width = ui.available_width();
+        ui.label(job);
         ui.add_space(4.0);
         add(ui)
     })
+}
+
+/// A heading for a group of cards or a form within a page.
+pub fn section(ui: &mut Ui, title: &str) {
+    ui.label(RichText::new(title).size(TITLE_SIZE + 1.0).strong());
+}
+
+/// Text in a status colour, darkened on light surfaces (see [`text_color`]).
+pub fn colored(ui: &mut Ui, color: Color32, text: impl Into<String>) -> egui::Response {
+    ui.label(RichText::new(text.into()).color(text_color(ui, color)))
+}
+
+/// A spinner and what is being loaded, centred below the controls.
+pub fn loading(ui: &mut Ui, text: &str) {
+    ui.add_space(24.0);
+    ui.vertical_centered(|ui| {
+        ui.spinner();
+        ui.weak(text);
+    });
+}
+
+/// [`loading`] without the spinner, for data that may take long to come:
+/// a spinner repaints the window all the while.
+pub fn loading_still(ui: &mut Ui, text: &str) {
+    ui.add_space(12.0);
+    ui.vertical_centered(|ui| {
+        ui.weak(text);
+    });
+}
+
+/// Nothing to show: a title and a hint how to get something.
+pub fn empty_state(ui: &mut Ui, title: &str, hint: &str) {
+    ui.add_space(16.0);
+    ui.label(RichText::new(title).size(TITLE_SIZE + 2.0).strong());
+    ui.weak(hint);
+}
+
+/// A tinted full-width strip, for verdicts and warnings.
+pub fn strip<R>(ui: &mut Ui, color: Color32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.14))
+        .stroke(Stroke::new(1.0, color.gamma_multiply(0.5)))
+        .corner_radius(8)
+        .inner_margin(Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
+}
+
+/// A [`panel`] for a table whose columns are `min_width` wide together: it
+/// scrolls sideways, with a visible bar, when the window is narrower.
+pub fn table_panel<R>(ui: &mut Ui, id: &str, min_width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    panel(ui, |ui| {
+        let scroll = ui.spacing().scroll;
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        egui::ScrollArea::horizontal()
+            .id_salt(("table_panel", id))
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.spacing_mut().scroll = scroll;
+                ui.set_min_width(min_width);
+                add(ui)
+            })
+            .inner
+    })
+}
+
+/// A cell of a table or grid with its text on the right, for numbers.
+pub fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(text);
+    });
+}
+
+/// Ctrl+F moves the keyboard focus to the search field `field`.
+pub fn focus_on_ctrl_f(ui: &Ui, field: &egui::Response) {
+    if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
+        field.request_focus();
+    }
+}
+
+/// Ends the last cell of a striped grid at the right edge, so its stripes
+/// span the whole card.
+pub fn fill_row(ui: &mut Ui) {
+    let width = ui.available_width();
+    if width > 0.0 {
+        ui.allocate_space(egui::vec2(width, 0.0));
+    }
+}
+
+/// The empty part of a bar or meter.
+pub fn track_color(ui: &Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        ui.visuals().extreme_bg_color
+    } else {
+        Color32::from_rgb(226, 230, 236)
+    }
+}
+
+/// A tile inside a card, such as a drive: set apart from the card in both
+/// themes.
+pub fn tile_fill(ui: &Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(35, 41, 50)
+    } else {
+        FIELD_LIGHT
+    }
 }
 
 /// A [`card`] without a title, for a page that is one section.

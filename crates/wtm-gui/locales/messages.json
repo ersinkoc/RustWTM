@@ -5740,5 +5740,323 @@
     "de": "Beheben Sie die Fehler in config.toml, um dieses Formular zu verwenden.",
     "fr": "Corrigez les erreurs de config.toml pour utiliser ce formulaire.",
     "es": "Corrija los errores de config.toml para usar este formulario."
+  },
+  "Loading processes…": {
+    "tr": "İşlemler yükleniyor…",
+    "de": "Prozesse werden geladen…",
+    "fr": "Chargement des processus…",
+    "es": "Cargando procesos…"
+  },
+  "Theme": {
+    "tr": "Tema",
+    "de": "Design",
+    "fr": "Thème",
+    "es": "Tema"
+  },
+  "Disk & I/O": {
+    "tr": "Disk ve G/Ç",
+    "de": "Datenträger & E/A",
+    "fr": "Disque et E/S",
+    "es": "Disco y E/S"
+  },
+  "Decisions of the service and actions taken from this window are listed here.": {
+    "tr": "Servisin kararları ve bu pencereden yapılan işlemler burada listelenir.",
+    "de": "Hier stehen die Entscheidungen des Dienstes und die Aktionen aus diesem Fenster.",
+    "fr": "Les décisions du service et les actions effectuées depuis cette fenêtre sont listées ici.",
+    "es": "Aquí se muestran las decisiones del servicio y las acciones realizadas desde esta ventana."
+  },
+  "All events": {
+    "tr": "Tüm olaylar",
+    "de": "Alle Ereignisse",
+    "fr": "Tous les événements",
+    "es": "Todos los eventos"
+  },
+  "Information": {
+    "tr": "Bilgi",
+    "de": "Information",
+    "fr": "Information",
+    "es": "Información"
+  },
+  "Warnings": {
+    "tr": "Uyarılar",
+    "de": "Warnungen",
+    "fr": "Avertissements",
+    "es": "Avisos"
+  },
+  "Errors": {
+    "tr": "Hatalar",
+    "de": "Fehler",
+    "fr": "Erreurs",
+    "es": "Errores"
+  },
+  "No events of this kind": {
+    "tr": "Bu türde olay yok",
+    "de": "Keine Ereignisse dieser Art",
+    "fr": "Aucun événement de ce type",
+    "es": "No hay eventos de este tipo"
+  },
+  "Choose another level to see more.": {
+    "tr": "Daha fazlasını görmek için başka bir düzey seçin.",
+    "de": "Wählen Sie eine andere Stufe, um mehr zu sehen.",
+    "fr": "Choisissez un autre niveau pour en voir plus.",
+    "es": "Elija otro nivel para ver más."
+  },
+  "{0} · no data for {1} s": {
+    "tr": "{0} · {1} sn veri yok",
+    "de": "{0} · seit {1} s keine Daten",
+    "fr": "{0} · aucune donnée depuis {1} s",
+    "es": "{0} · sin datos desde hace {1} s"
+  },
+  "{0} · no data": {
+    "tr": "{0} · veri yok",
+    "de": "{0} · keine Daten",
+    "fr": "{0} · aucune donnée",
+    "es": "{0} · sin datos"
+  },
+  "{0} of {1} events": {
+    "tr": "{0} / {1} olay",
+    "de": "{0} von {1} Ereignissen",
+    "fr": "{0} sur {1} événements",
+    "es": "{0} de {1} eventos"
+  },
+  "Reading the drives…": {
+    "tr": "Sürücüler okunuyor…",
+    "de": "Laufwerke werden gelesen…",
+    "fr": "Lecture des lecteurs…",
+    "es": "Leyendo las unidades…"
+  },
+  "Collecting the files read and written…": {
+    "tr": "Okunan ve yazılan dosyalar toplanıyor…",
+    "de": "Gelesene und geschriebene Dateien werden erfasst…",
+    "fr": "Collecte des fichiers lus et écrits…",
+    "es": "Recopilando los archivos leídos y escritos…"
+  },
+  "Loading the service settings…": {
+    "tr": "Servis ayarları yükleniyor…",
+    "de": "Diensteinstellungen werden geladen…",
+    "fr": "Chargement des paramètres du service…",
+    "es": "Cargando la configuración del servicio…"
+  },
+  "Loading connections…": {
+    "tr": "Bağlantılar yükleniyor…",
+    "de": "Verbindungen werden geladen…",
+    "fr": "Chargement des connexions…",
+    "es": "Cargando conexiones…"
+  },
+  "e.g. {0}": {
+    "tr": "örn. {0}",
+    "de": "z. B. {0}",
+    "fr": "p. ex. {0}",
+    "es": "p. ej. {0}"
+  },
+  "Open {0}": {
+    "tr": "{0} adresini aç",
+    "de": "{0} öffnen",
+    "fr": "Ouvrir {0}",
+    "es": "Abrir {0}"
+  },
+  "High performance": {
+    "tr": "Yüksek performans",
+    "de": "Höchstleistung",
+    "fr": "Performances élevées",
+    "es": "Alto rendimiento"
+  },
+  "Power saver": {
+    "tr": "Güç tasarrufu",
+    "de": "Energiesparmodus",
+    "fr": "Économie d’énergie",
+    "es": "Economizador"
+  },
+  "Ultimate Performance": {
+    "tr": "Nihai Performans",
+    "de": "Ultimative Leistung",
+    "fr": "Performances optimales",
+    "es": "Máximo rendimiento"
+  },
+  "Max frequency": {
+    "tr": "En yüksek frekans",
+    "de": "Höchstfrequenz",
+    "fr": "Fréquence maximale",
+    "es": "Frecuencia máxima"
+  },
+  "Windows decides": {
+    "tr": "Windows karar verir",
+    "de": "Windows entscheidet",
+    "fr": "Windows décide",
+    "es": "Windows decide"
+  },
+  "name, PID, path or command line": {
+    "tr": "ad, PID, yol veya komut satırı",
+    "de": "Name, PID, Pfad oder Befehlszeile",
+    "fr": "nom, PID, chemin ou ligne de commande",
+    "es": "nombre, PID, ruta o línea de comandos"
+  },
+  "Clear search": {
+    "tr": "Aramayı temizle",
+    "de": "Suche leeren",
+    "fr": "Effacer la recherche",
+    "es": "Borrar la búsqueda"
+  },
+  "Sort by {0}": {
+    "tr": "{0} sütununa göre sırala",
+    "de": "Nach {0} sortieren",
+    "fr": "Trier par {0}",
+    "es": "Ordenar por {0}"
+  },
+  "Loading the bot settings…": {
+    "tr": "Bot ayarları yükleniyor…",
+    "de": "Bot-Einstellungen werden geladen…",
+    "fr": "Chargement des paramètres du bot…",
+    "es": "Cargando la configuración del bot…"
+  },
+  "Loading sessions…": {
+    "tr": "Oturumlar yükleniyor…",
+    "de": "Sitzungen werden geladen…",
+    "fr": "Chargement des sessions…",
+    "es": "Cargando sesiones…"
+  },
+  "Loading services…": {
+    "tr": "Hizmetler yükleniyor…",
+    "de": "Dienste werden geladen…",
+    "fr": "Chargement des services…",
+    "es": "Cargando servicios…"
+  },
+  "No matching services": {
+    "tr": "Eşleşen hizmet yok",
+    "de": "Keine passenden Dienste",
+    "fr": "Aucun service correspondant",
+    "es": "Ningún servicio coincide"
+  },
+  "Try another name or part of the description.": {
+    "tr": "Başka bir ad veya açıklamanın bir bölümünü deneyin.",
+    "de": "Versuchen Sie einen anderen Namen oder einen Teil der Beschreibung.",
+    "fr": "Essayez un autre nom ou une partie de la description.",
+    "es": "Pruebe otro nombre o parte de la descripción."
+  },
+  "Loading app history…": {
+    "tr": "Uygulama geçmişi yükleniyor…",
+    "de": "App-Verlauf wird geladen…",
+    "fr": "Chargement de l’historique des applications…",
+    "es": "Cargando el historial de aplicaciones…"
+  },
+  "Loading the usage of this app…": {
+    "tr": "Bu uygulamanın kullanımı yükleniyor…",
+    "de": "Nutzung dieser App wird geladen…",
+    "fr": "Chargement de l’utilisation de cette application…",
+    "es": "Cargando el uso de esta aplicación…"
+  },
+  "Constant CPU use": {
+    "tr": "Sürekli CPU kullanımı",
+    "de": "Dauerhafte CPU-Last",
+    "fr": "Utilisation CPU constante",
+    "es": "Uso constante de CPU"
+  },
+  "Constant GPU use": {
+    "tr": "Sürekli GPU kullanımı",
+    "de": "Dauerhafte GPU-Last",
+    "fr": "Utilisation GPU constante",
+    "es": "Uso constante de GPU"
+  },
+  "Growing memory": {
+    "tr": "Artan bellek",
+    "de": "Wachsender Speicher",
+    "fr": "Mémoire croissante",
+    "es": "Memoria creciente"
+  },
+  "Growing handle count": {
+    "tr": "Artan tanıtıcı sayısı",
+    "de": "Wachsende Handle-Anzahl",
+    "fr": "Nombre de handles croissant",
+    "es": "Número de identificadores creciente"
+  },
+  "Growing thread count": {
+    "tr": "Artan iş parçacığı sayısı",
+    "de": "Wachsende Thread-Anzahl",
+    "fr": "Nombre de threads croissant",
+    "es": "Número de subprocesos creciente"
+  },
+  "Registry (32-bit)": {
+    "tr": "Kayıt defteri (32 bit)",
+    "de": "Registrierung (32-Bit)",
+    "fr": "Registre (32 bits)",
+    "es": "Registro (32 bits)"
+  },
+  "Startup folder": {
+    "tr": "Başlangıç klasörü",
+    "de": "Autostart-Ordner",
+    "fr": "Dossier de démarrage",
+    "es": "Carpeta de inicio"
+  },
+  "Loading startup apps…": {
+    "tr": "Başlangıç uygulamaları yükleniyor…",
+    "de": "Autostart-Apps werden geladen…",
+    "fr": "Chargement des applications de démarrage…",
+    "es": "Cargando aplicaciones de inicio…"
+  },
+  "No startup apps": {
+    "tr": "Başlangıç uygulaması yok",
+    "de": "Keine Autostart-Apps",
+    "fr": "Aucune application de démarrage",
+    "es": "No hay aplicaciones de inicio"
+  },
+  "Nothing is set to start when you sign in.": {
+    "tr": "Oturum açtığınızda başlayacak bir şey ayarlanmamış.",
+    "de": "Beim Anmelden wird nichts automatisch gestartet.",
+    "fr": "Rien n’est configuré pour démarrer à l’ouverture de session.",
+    "es": "No hay nada configurado para iniciarse al iniciar sesión."
+  },
+  "{0} of {1} services": {
+    "tr": "{0} / {1} hizmet",
+    "de": "{0} von {1} Diensten",
+    "fr": "{0} sur {1} services",
+    "es": "{0} de {1} servicios"
+  },
+  "{0} startup apps, {1} enabled": {
+    "tr": "{0} başlangıç uygulaması, {1} etkin",
+    "de": "{0} Autostart-Apps, {1} aktiviert",
+    "fr": "{0} applications de démarrage, {1} activées",
+    "es": "{0} aplicaciones de inicio, {1} habilitadas"
+  },
+  "{0} process limited right now": {
+    "tr": "Şu anda {0} işlem sınırlandırılıyor",
+    "de": "{0} Prozess wird gerade begrenzt",
+    "fr": "{0} processus limité en ce moment",
+    "es": "{0} proceso limitado ahora mismo"
+  },
+  "memory growing {0} MiB/h over {1} min (fit {2}), now {3} MiB": {
+    "tr": "bellek {1} dk boyunca saatte {0} MiB artıyor (uyum {2}), şu an {3} MiB",
+    "de": "Speicher wächst {0} MiB/h über {1} min (Anpassung {2}), jetzt {3} MiB",
+    "fr": "mémoire en hausse de {0} Mio/h sur {1} min (ajustement {2}), actuellement {3} Mio",
+    "es": "memoria creciendo {0} MiB/h durante {1} min (ajuste {2}), ahora {3} MiB"
+  },
+  "handles growing {0}/h over {1} min (fit {2}), now {3}": {
+    "tr": "tanıtıcılar {1} dk boyunca saatte {0} artıyor (uyum {2}), şu an {3}",
+    "de": "Handles wachsen {0}/h über {1} min (Anpassung {2}), jetzt {3}",
+    "fr": "handles en hausse de {0}/h sur {1} min (ajustement {2}), actuellement {3}",
+    "es": "identificadores creciendo {0}/h durante {1} min (ajuste {2}), ahora {3}"
+  },
+  "threads growing {0}/h over {1} min (fit {2}), now {3}": {
+    "tr": "iş parçacıkları {1} dk boyunca saatte {0} artıyor (uyum {2}), şu an {3}",
+    "de": "Threads wachsen {0}/h über {1} min (Anpassung {2}), jetzt {3}",
+    "fr": "threads en hausse de {0}/h sur {1} min (ajustement {2}), actuellement {3}",
+    "es": "subprocesos creciendo {0}/h durante {1} min (ajuste {2}), ahora {3}"
+  },
+  "This PC only": {
+    "tr": "Yalnızca bu bilgisayar",
+    "de": "Nur dieser PC",
+    "fr": "Ce PC uniquement",
+    "es": "Solo este equipo"
+  },
+  "One network": {
+    "tr": "Tek ağ",
+    "de": "Ein Netzwerk",
+    "fr": "Un réseau",
+    "es": "Una red"
+  },
+  "All networks": {
+    "tr": "Tüm ağlar",
+    "de": "Alle Netzwerke",
+    "fr": "Tous les réseaux",
+    "es": "Todas las redes"
   }
 }

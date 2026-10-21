@@ -10,11 +10,19 @@ use wtm_core::format_bytes;
 
 use crate::backend::Data;
 use crate::sort::{Sort, header, num, text};
+use crate::theme::{BAD, GOOD, WARN, right};
 
-fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.label(text);
-    });
+/// A search field that Ctrl+F focuses.
+fn search_field(ui: &mut Ui, id: &str, text: &mut String, hint: &str, width: f32) {
+    let response = ui
+        .add(
+            egui::TextEdit::singleline(text)
+                .id(egui::Id::unique(("search", id)))
+                .hint_text(hint)
+                .desired_width(width),
+        )
+        .on_hover_text("Ctrl+F");
+    crate::theme::focus_on_ctrl_f(ui, &response);
 }
 
 /// Returns a session to disconnect or sign out once confirmed: (id, user, op).
@@ -22,11 +30,11 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
     use crate::backend::SessionOp;
     let sessions = match &data.sessions {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading sessions…"));
             return None;
         }
         Some(Err(e)) => {
-            ui.colored_label(Color32::RED, e);
+            crate::theme::colored(ui, BAD, e);
             return None;
         }
         Some(Ok(s)) => s,
@@ -66,55 +74,58 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
         _ => ta.2.cmp(&tb.2),
     });
     let mut request = None;
-    egui::Grid::new("users_grid")
-        .num_columns(8)
-        .striped(true)
-        .show(ui, |ui| {
-            for (col, (h, numeric)) in [
-                (crate::i18n::tr("User"), false),
-                (crate::i18n::tr("Session"), true),
-                (crate::i18n::tr("Station"), false),
-                (crate::i18n::tr("State"), false),
-                (crate::i18n::tr("Processes"), true),
-                ("CPU", true),
-                (crate::i18n::tr("Memory"), true),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                header(ui, h, col, numeric, &mut sort);
-            }
-            ui.end_row();
-            for (s, (count, cpu, mem)) in rows {
-                ui.label(account(s));
-                ui.label(s.id.to_string());
-                ui.label(&s.station);
-                ui.label(crate::i18n::debug(s.state));
-                ui.label(count.to_string());
-                ui.label(format!("{cpu:.1}%"));
-                ui.label(format_bytes(mem as f64));
-                ui.horizontal(|ui| {
-                    if s.state != wtm_core::SessionState::Disconnected
-                        && ui
-                            .small_button(crate::i18n::tr("Disconnect"))
-                            .on_hover_text(crate::i18n::tr(
-                                "Programs keep running; the user can sign in again",
-                            ))
-                            .clicked()
-                    {
-                        request = Some((s.id, account(s), SessionOp::Disconnect));
-                    }
-                    if ui
-                        .small_button(crate::i18n::tr("Sign off"))
-                        .on_hover_text(crate::i18n::tr("Closes the user's programs"))
-                        .clicked()
-                    {
-                        request = Some((s.id, account(s), SessionOp::SignOff));
-                    }
-                });
+    crate::theme::panel(ui, |ui| {
+        egui::Grid::new("users_grid")
+            .num_columns(8)
+            .striped(true)
+            .show(ui, |ui| {
+                for (col, (h, numeric)) in [
+                    (crate::i18n::tr("User"), false),
+                    (crate::i18n::tr("Session"), true),
+                    (crate::i18n::tr("Station"), false),
+                    (crate::i18n::tr("State"), false),
+                    (crate::i18n::tr("Processes"), true),
+                    ("CPU", true),
+                    (crate::i18n::tr("Memory"), true),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    header(ui, h, col, numeric, &mut sort);
+                }
                 ui.end_row();
-            }
-        });
+                for (s, (count, cpu, mem)) in rows {
+                    ui.label(account(s));
+                    right(ui, s.id.to_string());
+                    ui.label(&s.station);
+                    ui.label(crate::i18n::debug(s.state));
+                    right(ui, count.to_string());
+                    right(ui, format!("{cpu:.1}%"));
+                    right(ui, format_bytes(mem as f64));
+                    ui.horizontal(|ui| {
+                        if s.state != wtm_core::SessionState::Disconnected
+                            && ui
+                                .small_button(crate::i18n::tr("Disconnect"))
+                                .on_hover_text(crate::i18n::tr(
+                                    "Programs keep running; the user can sign in again",
+                                ))
+                                .clicked()
+                        {
+                            request = Some((s.id, account(s), SessionOp::Disconnect));
+                        }
+                        if ui
+                            .small_button(crate::i18n::tr("Sign off"))
+                            .on_hover_text(crate::i18n::tr("Closes the user's programs"))
+                            .clicked()
+                        {
+                            request = Some((s.id, account(s), SessionOp::SignOff));
+                        }
+                        crate::theme::fill_row(ui);
+                    });
+                    ui.end_row();
+                }
+            });
+    });
     sort.store(ui, "users");
     request
 }
@@ -207,10 +218,12 @@ pub fn network(
     let mut close = None;
     ui.horizontal(|ui| {
         ui.label(crate::i18n::tr("Search:"));
-        ui.add(
-            egui::TextEdit::singleline(filter)
-                .hint_text(crate::i18n::tr("process, address or port"))
-                .desired_width(240.0),
+        search_field(
+            ui,
+            "network",
+            filter,
+            crate::i18n::tr("process, address or port"),
+            240.0,
         );
         if let Some(pid) = only_pid {
             ui.label(crate::i18n::format(
@@ -224,11 +237,11 @@ pub fn network(
     ui.separator();
     let conns = match &data.connections {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading connections…"));
             return None;
         }
         Some(Err(e)) => {
-            ui.colored_label(Color32::RED, e);
+            crate::theme::colored(ui, BAD, e);
             return None;
         }
         Some(Ok(c)) => c,
@@ -274,17 +287,31 @@ pub fn network(
 
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
-    TableBuilder::new(ui)
+    // Every header fits at first; narrow windows scroll sideways.
+    let widths: Vec<f32> = [
+        ("Process", 200.0),
+        ("PID", 64.0),
+        ("Proto", 50.0),
+        ("Local", 200.0),
+        ("Remote", 200.0),
+        ("State", 110.0),
+    ]
+    .iter()
+    .map(|(label, width)| crate::sort::width(ui, label, *width))
+    .collect();
+    let min_width = widths.iter().sum::<f32>() + 80.0;
+    crate::theme::table_panel(ui, "network", min_width, |ui| {
+        TableBuilder::new(ui)
         .id_salt("network_table")
         .striped(true)
         .resizable(true)
         .cell_layout(Layout::left_to_right(Align::Center))
-        .column(Column::initial(200.0).clip(true))
-        .column(Column::initial(64.0))
-        .column(Column::initial(50.0))
-        .column(Column::initial(200.0).clip(true))
-        .column(Column::initial(200.0).clip(true))
-        .column(Column::initial(110.0))
+        .column(Column::initial(widths[0]).clip(true))
+        .column(Column::initial(widths[1]))
+        .column(Column::initial(widths[2]))
+        .column(Column::initial(widths[3]).clip(true))
+        .column(Column::initial(widths[4]).clip(true))
+        .column(Column::initial(widths[5]))
         .column(Column::remainder())
         .header(row_height, |mut h| {
             for (col, (label, numeric)) in [
@@ -334,15 +361,18 @@ pub fn network(
                 });
             });
         });
+    });
     sort.store(ui, "network");
     close
 }
 
-fn state_color(state: wtm_core::ServiceState) -> Color32 {
+/// Running services in green, stopped ones in secondary text, the others
+/// (starting, stopping, paused) in orange.
+fn state_color(ui: &Ui, state: wtm_core::ServiceState) -> Color32 {
     match state {
-        wtm_core::ServiceState::Running => Color32::from_rgb(80, 180, 100),
-        wtm_core::ServiceState::Stopped => Color32::GRAY,
-        _ => Color32::from_rgb(230, 140, 40),
+        wtm_core::ServiceState::Running => crate::theme::text_color(ui, GOOD),
+        wtm_core::ServiceState::Stopped => ui.visuals().weak_text_color(),
+        _ => crate::theme::text_color(ui, WARN),
     }
 }
 
@@ -350,20 +380,22 @@ fn state_color(state: wtm_core::ServiceState) -> Color32 {
 pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_core::ServiceEntry> {
     ui.horizontal(|ui| {
         ui.label(crate::i18n::tr("Search:"));
-        ui.add(
-            egui::TextEdit::singleline(filter)
-                .hint_text(crate::i18n::tr("name or description"))
-                .desired_width(240.0),
+        search_field(
+            ui,
+            "services",
+            filter,
+            crate::i18n::tr("name or description"),
+            240.0,
         );
     });
     ui.separator();
     let list = match &data.services {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading services…"));
             return None;
         }
         Some(Err(e)) => {
-            ui.colored_label(Color32::RED, e);
+            crate::theme::colored(ui, BAD, e);
             return None;
         }
         Some(Ok(l)) => l,
@@ -392,69 +424,98 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
         }),
     }
 
+    ui.weak(crate::i18n::format(
+        "{0} of {1} services",
+        &[rows.len().to_string(), list.len().to_string()],
+    ));
+    if rows.is_empty() {
+        crate::theme::empty_state(
+            ui,
+            crate::i18n::tr("No matching services"),
+            crate::i18n::tr("Try another name or part of the description."),
+        );
+        if ui.button(crate::i18n::tr("Clear search")).clicked() {
+            filter.clear();
+        }
+        return None;
+    }
     let mut clicked = None;
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
-    TableBuilder::new(ui)
-        .id_salt("services_table")
-        .striped(true)
-        .resizable(true)
-        .sense(egui::Sense::click())
-        .cell_layout(Layout::left_to_right(Align::Center))
-        .column(Column::initial(180.0).clip(true))
-        .column(Column::initial(300.0).clip(true))
-        .column(Column::initial(64.0))
-        .column(Column::initial(100.0))
-        .column(Column::initial(90.0))
-        .column(Column::remainder().clip(true))
-        .header(row_height, |mut h| {
-            for (col, (label, numeric)) in [
-                (crate::i18n::tr("Name"), false),
-                (crate::i18n::tr("Description"), false),
-                ("PID", true),
-                (crate::i18n::tr("Status"), false),
-                (crate::i18n::tr("Startup"), false),
-                (crate::i18n::tr("Account"), false),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                h.col(|ui| header(ui, label, col, numeric, &mut sort));
-            }
-        })
-        .body(|body| {
-            body.rows(row_height, rows.len(), |mut row| {
-                let s = rows[row.index()];
-                row.col(|ui| {
-                    ui.label(&s.name);
-                });
-                row.col(|ui| {
-                    ui.label(&s.display_name);
-                });
-                row.col(|ui| {
-                    right(
-                        ui,
-                        if s.pid == 0 {
-                            String::new()
-                        } else {
-                            s.pid.to_string()
-                        },
-                    )
-                });
-                row.col(|ui| {
-                    ui.colored_label(state_color(s.state), crate::i18n::debug(s.state));
-                });
-                row.col(|ui| {
-                    ui.label(s.start_type.map(crate::i18n::debug).unwrap_or_default());
-                });
-                row.col(|ui| {
-                    ui.label(s.account.as_deref().unwrap_or(""));
-                });
-                if row.response().secondary_clicked() || row.response().clicked() {
-                    clicked = Some(s.clone());
+    // Every header fits at first; narrow windows scroll sideways.
+    let widths: Vec<f32> = [
+        ("Name", 180.0),
+        ("Description", 300.0),
+        ("PID", 64.0),
+        ("Status", 100.0),
+        ("Startup", 90.0),
+    ]
+    .iter()
+    .map(|(label, width)| crate::sort::width(ui, label, *width))
+    .collect();
+    let min_width = widths.iter().sum::<f32>() + 120.0;
+    crate::theme::table_panel(ui, "services", min_width, |ui| {
+        TableBuilder::new(ui)
+            .id_salt("services_table")
+            .striped(true)
+            .resizable(true)
+            .sense(egui::Sense::click())
+            .cell_layout(Layout::left_to_right(Align::Center))
+            .column(Column::initial(widths[0]).clip(true))
+            .column(Column::initial(widths[1]).clip(true))
+            .column(Column::initial(widths[2]))
+            .column(Column::initial(widths[3]))
+            .column(Column::initial(widths[4]))
+            .column(Column::remainder().clip(true))
+            .header(row_height, |mut h| {
+                for (col, (label, numeric)) in [
+                    (crate::i18n::tr("Name"), false),
+                    (crate::i18n::tr("Description"), false),
+                    ("PID", true),
+                    (crate::i18n::tr("Status"), false),
+                    (crate::i18n::tr("Startup"), false),
+                    (crate::i18n::tr("Account"), false),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    h.col(|ui| header(ui, label, col, numeric, &mut sort));
                 }
+            })
+            .body(|body| {
+                body.rows(row_height, rows.len(), |mut row| {
+                    let s = rows[row.index()];
+                    row.col(|ui| {
+                        ui.label(&s.name);
+                    });
+                    row.col(|ui| {
+                        ui.label(&s.display_name);
+                    });
+                    row.col(|ui| {
+                        right(
+                            ui,
+                            if s.pid == 0 {
+                                String::new()
+                            } else {
+                                s.pid.to_string()
+                            },
+                        )
+                    });
+                    row.col(|ui| {
+                        ui.colored_label(state_color(ui, s.state), crate::i18n::debug(s.state));
+                    });
+                    row.col(|ui| {
+                        ui.label(s.start_type.map(crate::i18n::debug).unwrap_or_default());
+                    });
+                    row.col(|ui| {
+                        ui.label(s.account.as_deref().unwrap_or(""));
+                    });
+                    if row.response().secondary_clicked() || row.response().clicked() {
+                        clicked = Some(s.clone());
+                    }
+                });
             });
-        });
+    });
     sort.store(ui, "services");
     clicked
 }
@@ -510,7 +571,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
 
     let (stats, findings) = match &data.app_history {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading app history…"));
             return changed;
         }
         Some(Err(e)) => {
@@ -530,9 +591,15 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
             crate::i18n::format("Findings ({0})", &[format!("{}", __wtm_i18n_0)])
         });
         for f in findings {
-            ui.colored_label(
-                Color32::from_rgb(230, 140, 40),
-                format!("{}  —  {:?}: {}", f.app, f.kind, f.detail),
+            crate::theme::colored(
+                ui,
+                WARN,
+                format!(
+                    "{}  —  {}: {}",
+                    f.app,
+                    finding_label(f.kind),
+                    crate::i18n::message(&f.detail)
+                ),
             );
         }
     }
@@ -540,7 +607,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
 
     let flagged: HashMap<String, String> = findings
         .iter()
-        .map(|f| (f.app.to_lowercase(), crate::i18n::debug(f.kind)))
+        .map(|f| (f.app.to_lowercase(), finding_label(f.kind).to_owned()))
         .collect();
     let mut rows: Vec<_> = stats.iter().collect();
     let mut sort = Sort::load(ui, "history", Sort::new(2, true));
@@ -568,19 +635,30 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
     let table_height = (ui.available_height() - chart_height).max(120.0);
     let row_height = ui.spacing().interact_size.y;
     let selected = view.selected.clone();
+    // Every numeric header fits at first.
+    let widths: Vec<f32> = [
+        "Seen", "Avg CPU", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time", "Avg mem", "Peak mem",
+        "Growth/h",
+    ]
+    .iter()
+    .map(|label| crate::sort::width(ui, label, 80.0))
+    .collect();
     egui::ScrollArea::vertical()
         .id_salt("history_table")
         .max_height(table_height)
         .show(ui, |ui| {
             ui.style_mut().interaction.selectable_labels = false;
-            TableBuilder::new(ui)
+            let mut table = TableBuilder::new(ui)
                 .id_salt("history_table_rows")
                 .striped(true)
                 .resizable(true)
                 .sense(egui::Sense::click())
                 .cell_layout(Layout::left_to_right(Align::Center))
-                .column(Column::initial(200.0).clip(true))
-                .columns(Column::initial(80.0), 9)
+                .column(Column::initial(200.0).clip(true));
+            for width in &widths {
+                table = table.column(Column::initial(*width));
+            }
+            table
                 .column(Column::remainder())
                 .header(row_height, |mut h| {
                     for (col, label) in [
@@ -638,7 +716,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                         });
                         row.col(|ui| {
                             if let Some(kind) = flagged.get(&s.app.to_lowercase()) {
-                                ui.colored_label(Color32::from_rgb(230, 140, 40), kind);
+                                crate::theme::colored(ui, WARN, kind);
                             }
                         });
                         if row.response().clicked() {
@@ -676,12 +754,32 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         let app = &app;
         match &data.series {
             Some((name, rows)) if name == app && !rows.is_empty() => series_charts(ui, app, rows),
-            _ => {
-                ui.spinner();
-            }
+            _ => crate::theme::loading(ui, crate::i18n::tr("Loading the usage of this app…")),
         }
     }
     changed
+}
+
+/// What a long-term finding is about.
+fn finding_label(kind: wtm_policy::FindingKind) -> &'static str {
+    use wtm_policy::FindingKind as K;
+    match kind {
+        K::ChronicCpu => crate::i18n::tr("Constant CPU use"),
+        K::ChronicGpu => crate::i18n::tr("Constant GPU use"),
+        K::MemoryGrowth => crate::i18n::tr("Growing memory"),
+        K::HandleGrowth => crate::i18n::tr("Growing handle count"),
+        K::ThreadGrowth => crate::i18n::tr("Growing thread count"),
+    }
+}
+
+/// Where a startup entry comes from, in words.
+fn source_label(source: wtm_core::startup::StartupSource) -> &'static str {
+    use wtm_core::startup::StartupSource as S;
+    match source {
+        S::Run => crate::i18n::tr("Registry"),
+        S::Run32 => crate::i18n::tr("Registry (32-bit)"),
+        S::Folder => crate::i18n::tr("Startup folder"),
+    }
 }
 
 /// A budget that covers normal use (p95, a share of the machine) with some
@@ -746,7 +844,7 @@ pub fn startup(
     selected: &mut Option<wtm_core::startup::StartupEntry>,
 ) -> Option<crate::backend::UiCommand> {
     let Some(entries) = &data.startup else {
-        ui.spinner();
+        crate::theme::loading(ui, crate::i18n::tr("Loading startup apps…"));
         return None;
     };
     let mut command = None;
@@ -787,75 +885,94 @@ pub fn startup(
         0 => text(&a.name, &b.name),
         1 => a.enabled.cmp(&b.enabled),
         2 => text(&format!("{:?}", a.scope), &format!("{:?}", b.scope)),
-        3 => text(&format!("{:?}", a.source), &format!("{:?}", b.source)),
+        3 => text(source_label(a.source), source_label(b.source)),
         _ => text(&a.command, &b.command),
     });
+    if rows.is_empty() {
+        crate::theme::empty_state(
+            ui,
+            crate::i18n::tr("No startup apps"),
+            crate::i18n::tr("Nothing is set to start when you sign in."),
+        );
+        return command;
+    }
+    ui.weak(crate::i18n::format(
+        "{0} startup apps, {1} enabled",
+        &[
+            rows.len().to_string(),
+            rows.iter().filter(|e| e.enabled).count().to_string(),
+        ],
+    ));
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
-    TableBuilder::new(ui)
-        .id_salt("startup_table")
-        .striped(true)
-        .resizable(true)
-        .sense(egui::Sense::click())
-        .cell_layout(Layout::left_to_right(Align::Center))
-        .column(Column::initial(220.0).clip(true))
-        .column(Column::initial(80.0))
-        .column(Column::initial(100.0))
-        .column(Column::initial(80.0))
-        .column(Column::remainder().clip(true))
-        .header(row_height, |mut h| {
-            for (col, label) in [
-                crate::i18n::tr("Name"),
-                crate::i18n::tr("Status"),
-                crate::i18n::tr("Scope"),
-                crate::i18n::tr("Source"),
-                crate::i18n::tr("Command"),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                h.col(|ui| header(ui, label, col, false, &mut sort));
-            }
-        })
-        .body(|body| {
-            body.rows(row_height, rows.len(), |mut row| {
-                let e = rows[row.index()];
-                row.set_selected(selected.as_ref().is_some_and(|s| {
-                    s.name == e.name && s.scope == e.scope && s.source == e.source
-                }));
-                row.col(|ui| {
-                    ui.label(&e.name);
-                });
-                row.col(|ui| {
-                    if e.enabled {
-                        ui.colored_label(
-                            Color32::from_rgb(80, 180, 100),
-                            crate::i18n::tr("Enabled"),
-                        );
-                    } else {
-                        ui.weak(crate::i18n::tr("Disabled"));
-                    }
-                });
-                row.col(|ui| {
-                    ui.label(crate::i18n::debug(e.scope));
-                });
-                row.col(|ui| {
-                    ui.label(match e.source {
-                        wtm_core::startup::StartupSource::Run => "Run",
-                        wtm_core::startup::StartupSource::Run32 => "Run32",
-                        wtm_core::startup::StartupSource::Folder => {
-                            crate::i18n::tr("StartupFolder")
+    // Every header fits at first; narrow windows scroll sideways.
+    let widths: Vec<f32> = [
+        ("Name", 220.0),
+        ("Status", 80.0),
+        ("Scope", 100.0),
+        ("Source", 80.0),
+    ]
+    .iter()
+    .map(|(label, width)| crate::sort::width(ui, label, *width))
+    .collect();
+    let min_width = widths.iter().sum::<f32>() + 200.0;
+    crate::theme::table_panel(ui, "startup", min_width, |ui| {
+        TableBuilder::new(ui)
+            .id_salt("startup_table")
+            .striped(true)
+            .resizable(true)
+            .sense(egui::Sense::click())
+            .cell_layout(Layout::left_to_right(Align::Center))
+            .column(Column::initial(widths[0]).clip(true))
+            .column(Column::initial(widths[1]))
+            .column(Column::initial(widths[2]))
+            .column(Column::initial(widths[3]))
+            .column(Column::remainder().clip(true))
+            .header(row_height, |mut h| {
+                for (col, label) in [
+                    crate::i18n::tr("Name"),
+                    crate::i18n::tr("Status"),
+                    crate::i18n::tr("Scope"),
+                    crate::i18n::tr("Source"),
+                    crate::i18n::tr("Command"),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    h.col(|ui| header(ui, label, col, false, &mut sort));
+                }
+            })
+            .body(|body| {
+                body.rows(row_height, rows.len(), |mut row| {
+                    let e = rows[row.index()];
+                    row.set_selected(selected.as_ref().is_some_and(|s| {
+                        s.name == e.name && s.scope == e.scope && s.source == e.source
+                    }));
+                    row.col(|ui| {
+                        ui.label(&e.name);
+                    });
+                    row.col(|ui| {
+                        if e.enabled {
+                            crate::theme::colored(ui, GOOD, crate::i18n::tr("Enabled"));
+                        } else {
+                            ui.weak(crate::i18n::tr("Disabled"));
                         }
                     });
+                    row.col(|ui| {
+                        ui.label(crate::i18n::debug(e.scope));
+                    });
+                    row.col(|ui| {
+                        ui.label(source_label(e.source));
+                    });
+                    row.col(|ui| {
+                        ui.label(&e.command);
+                    });
+                    if row.response().clicked() {
+                        *selected = Some(e.clone());
+                    }
                 });
-                row.col(|ui| {
-                    ui.label(&e.command);
-                });
-                if row.response().clicked() {
-                    *selected = Some(e.clone());
-                }
             });
-        });
+    });
     sort.store(ui, "startup");
     command
 }

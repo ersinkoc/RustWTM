@@ -24,6 +24,17 @@ impl Default for PowerView {
         }
     }
 }
+/// The name of one of Windows' own power plans, from its GUID.
+fn plan_name(guid: &str) -> Option<&'static str> {
+    Some(match guid.to_ascii_lowercase().as_str() {
+        "381b4222-f694-41f0-9685-ff5bb260df2e" => crate::i18n::tr("Balanced"),
+        "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" => crate::i18n::tr("High performance"),
+        "a1841308-3541-4fab-bc81-f71556f20b4a" => crate::i18n::tr("Power saver"),
+        "e9a42b02-d5df-448d-aa00-03f14749eb61" => crate::i18n::tr("Ultimate Performance"),
+        _ => return None,
+    })
+}
+
 pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiCommand> {
     let mut commands = Vec::new();
     ui.add_space(12.0);
@@ -51,10 +62,10 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
                 return;
             }
         };
-        ui.weak({
-            let __wtm_i18n_0 = &(report.plan);
-            crate::i18n::format("Active plan: {0}", std::slice::from_ref(__wtm_i18n_0))
-        });
+        // The plan's name when Windows ships it; its GUID in the hover text.
+        let plan = plan_name(&report.plan).unwrap_or(&report.plan);
+        ui.weak(crate::i18n::format("Active plan: {0}", &[plan.to_owned()]))
+            .on_hover_text(&report.plan);
         egui::Grid::new("frequency_values")
             .spacing([18.0, 6.0])
             .show(ui, |ui| {
@@ -85,33 +96,44 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
                 }
             });
         ui.add_space(8.0);
-        ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::new("power_class", crate::i18n::tr("Policy class"))
-                .selected_text({
-                    let __wtm_i18n_0 = &(view.class);
-                    crate::i18n::format("Class {0}", &[format!("{}", __wtm_i18n_0)])
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut view.class, 0, crate::i18n::tr("Class 0"));
-                    ui.selectable_value(&mut view.class, 1, crate::i18n::tr("Class 1"));
-                });
-            egui::ComboBox::new("power_source", crate::i18n::tr("Power source"))
-                .selected_text(crate::i18n::tr(view.source.label()))
-                .show_ui(ui, |ui| {
-                    for source in [PowerSupply::Ac, PowerSupply::Dc, PowerSupply::Both] {
-                        ui.selectable_value(
-                            &mut view.source,
-                            source,
-                            crate::i18n::tr(source.label()),
-                        );
-                    }
-                });
-            ui.add(
-                egui::DragValue::new(&mut view.mhz)
-                    .range(100..=64000)
-                    .suffix(crate::i18n::tr(" MHz")),
-            );
-        });
+        egui::Grid::new("frequency_request")
+            .num_columns(2)
+            .spacing([12.0, 6.0])
+            .show(ui, |ui| {
+                let label = ui.label(crate::i18n::tr("Policy class"));
+                egui::ComboBox::from_id_salt("power_class")
+                    .selected_text(crate::i18n::format("Class {0}", &[view.class.to_string()]))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut view.class, 0, crate::i18n::tr("Class 0"));
+                        ui.selectable_value(&mut view.class, 1, crate::i18n::tr("Class 1"));
+                    })
+                    .response
+                    .labelled_by(label.id);
+                ui.end_row();
+                let label = ui.label(crate::i18n::tr("Power source"));
+                egui::ComboBox::from_id_salt("power_source")
+                    .selected_text(crate::i18n::tr(view.source.label()))
+                    .show_ui(ui, |ui| {
+                        for source in [PowerSupply::Ac, PowerSupply::Dc, PowerSupply::Both] {
+                            ui.selectable_value(
+                                &mut view.source,
+                                source,
+                                crate::i18n::tr(source.label()),
+                            );
+                        }
+                    })
+                    .response
+                    .labelled_by(label.id);
+                ui.end_row();
+                let label = ui.label(crate::i18n::tr("Max frequency"));
+                ui.add(
+                    egui::DragValue::new(&mut view.mhz)
+                        .range(100..=64000)
+                        .suffix(crate::i18n::tr(" MHz")),
+                )
+                .labelled_by(label.id);
+                ui.end_row();
+            });
         let request = FrequencyRequest {
             plan: report.plan.clone(),
             class: view.class,

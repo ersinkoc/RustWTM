@@ -32,7 +32,11 @@ pub fn limit_labels(status: Option<&wtm_ipc::Status>) -> ManagedMap {
         let sources: Vec<String> = m.sources.iter().map(crate::i18n::debug).collect();
         out.insert(
             (m.target.pid, m.target.create_time),
-            format!("{}: {}", sources.join("+"), m.summary),
+            format!(
+                "{}: {}",
+                sources.join("+"),
+                crate::i18n::message(&m.summary)
+            ),
         );
     }
     for g in &status.app_limits {
@@ -50,6 +54,27 @@ pub fn limit_labels(status: Option<&wtm_ipc::Status>) -> ManagedMap {
         }
     }
     out
+}
+
+/// The name of a priority class, as the Priority menu shows it.
+pub fn priority_label(p: PriorityClass) -> &'static str {
+    match p {
+        PriorityClass::Idle => crate::i18n::tr("Idle"),
+        PriorityClass::BelowNormal => crate::i18n::tr("Below normal"),
+        PriorityClass::Normal => crate::i18n::tr("Normal"),
+        PriorityClass::AboveNormal => crate::i18n::tr("Above normal"),
+        PriorityClass::High => crate::i18n::tr("High"),
+        PriorityClass::Realtime => crate::i18n::tr("Realtime"),
+    }
+}
+
+/// The state of efficiency mode in words.
+pub fn eco_label(e: EcoQos) -> &'static str {
+    match e {
+        EcoQos::On => crate::i18n::tr("On"),
+        EcoQos::Off => crate::i18n::tr("Off"),
+        EcoQos::SystemManaged => crate::i18n::tr("Windows decides"),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -573,10 +598,15 @@ pub fn heat_color(load: f64) -> Option<Color32> {
 /// Disk I/O that counts as a fully busy cell, bytes per second.
 const DISK_HEAT_FULL: f64 = 100.0 * 1024.0 * 1024.0;
 
-fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
-    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.label(text);
-    });
+use crate::theme::right;
+
+/// Below this table width the name column starts narrower.
+const NARROW_TABLE: f32 = 1000.0;
+const NARROW_NAME: f32 = 180.0;
+
+/// Columns whose values (and so their headers) are aligned right.
+fn right_aligned(col: Col) -> bool {
+    !matches!(col, Col::Name | Col::Limits | Col::CommandLine)
 }
 
 impl ProcessView {
@@ -661,9 +691,10 @@ impl ProcessView {
             let search = ui.add(
                 egui::TextEdit::singleline(&mut self.search)
                     .id(egui::Id::unique("process_search"))
-                    .hint_text(crate::i18n::tr("name, PID, path or command line (Ctrl+F)"))
+                    .hint_text(crate::i18n::tr("name, PID, path or command line"))
                     .desired_width(240.0),
-            );
+            )
+            .on_hover_text("Ctrl+F");
             if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
                 search.request_focus();
             }
@@ -673,7 +704,12 @@ impl ProcessView {
             {
                 self.search.clear();
             }
-            if !self.search.is_empty() && ui.small_button("✖").clicked() {
+            if !self.search.is_empty()
+                && ui
+                    .small_button("✖")
+                    .on_hover_text(crate::i18n::tr("Clear search"))
+                    .clicked()
+            {
                 self.search.clear();
             }
             for (mode, label) in [
@@ -763,7 +799,7 @@ impl ProcessView {
             if paused.is_some() {
                 ui.label(
                     RichText::new(crate::i18n::tr("Paused · monitoring continues"))
-                        .color(crate::theme::WARN),
+                        .color(crate::theme::text_color(ui, crate::theme::WARN)),
                 );
             }
         });
@@ -783,13 +819,11 @@ impl ProcessView {
             .weak(),
         );
         if rows.is_empty() {
-            ui.add_space(24.0);
-            ui.label(
-                RichText::new(crate::i18n::tr("No matching processes"))
-                    .size(18.0)
-                    .strong(),
+            crate::theme::empty_state(
+                ui,
+                crate::i18n::tr("No matching processes"),
+                crate::i18n::tr("Try another name, PID or resource filter."),
             );
-            ui.weak(crate::i18n::tr("Try another name, PID or resource filter."));
             if ui.button(crate::i18n::tr("Clear filters")).clicked() {
                 self.search.clear();
                 self.filter = QuickFilter::All;
@@ -808,20 +842,40 @@ impl ProcessView {
             .filter(|c| c.0 == Col::Name || self.visible.contains(&c.0))
             .collect();
 
+        // Every header fits in its column at first, with room for the sort
+        // arrow; the name column gives way on small windows.
+        let narrow = ui.available_width() < NARROW_TABLE;
+        let widths: Vec<f32> = columns
+            .iter()
+            .map(|(col, label, width, ..)| {
+                let width = if *col == Col::Name && narrow {
+                    NARROW_NAME
+                } else {
+                    *width
+                };
+                crate::sort::width(ui, label, width)
+            })
+            .collect();
+
         // Selectable text would swallow clicks meant for the row.
         ui.style_mut().interaction.selectable_labels = false;
+        // A scroll bar that stays visible: on small windows the columns go
+        // on to the right.
+        let scroll_style = ui.spacing().scroll;
+        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
         egui::ScrollArea::horizontal()
             .id_salt("process_columns")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let width: f32 = columns.iter().map(|c| c.2).sum();
+                ui.spacing_mut().scroll = scroll_style;
+                let width: f32 = widths.iter().sum();
                 ui.set_min_width(width + ui.spacing().item_spacing.x * columns.len() as f32);
                 let mut table = TableBuilder::new(ui)
                     .striped(true)
                     .resizable(true)
                     .sense(Sense::click())
                     .cell_layout(Layout::left_to_right(Align::Center));
-                for (i, (col, _, width, ..)) in columns.iter().enumerate() {
+                for (i, ((col, ..), width)) in columns.iter().zip(&widths).enumerate() {
                     table = table.column(match col {
                         Col::Name => Column::initial(*width).at_least(140.0).clip(true),
                         _ if i == columns.len() - 1 => {
@@ -835,18 +889,8 @@ impl ProcessView {
                         for (col, label, _, numeric, _) in &columns {
                             let label = crate::i18n::tr(label);
                             header.col(|ui| {
-                                let arrow = match (self.sort == *col, self.descending) {
-                                    (true, true) => " ↓",
-                                    (true, false) => " ↑",
-                                    _ => "",
-                                };
-                                if ui
-                                    .selectable_label(
-                                        self.sort == *col,
-                                        RichText::new(format!("{label}{arrow}")).strong(),
-                                    )
-                                    .clicked()
-                                {
+                                let current = (self.sort == *col).then_some(self.descending);
+                                if crate::sort::cell(ui, label, right_aligned(*col), current) {
                                     if self.sort == *col {
                                         self.descending = !self.descending;
                                     } else {
@@ -909,7 +953,10 @@ impl ProcessView {
                                                     RichText::new(crate::i18n::tr(
                                                         "Not responding",
                                                     ))
-                                                    .color(crate::theme::BAD)
+                                                    .color(crate::theme::text_color(
+                                                        ui,
+                                                        crate::theme::BAD,
+                                                    ))
                                                     .small(),
                                                 );
                                             }
@@ -942,10 +989,17 @@ impl ProcessView {
                                         Col::Started => right(ui, running_for(p)),
                                         Col::Limits => {
                                             if let Some(label) = extra.labels.get(&key) {
-                                                ui.label(
-                                                    RichText::new(label)
-                                                        .color(Color32::from_rgb(230, 140, 40)),
+                                                let color = crate::theme::text_color(
+                                                    ui,
+                                                    crate::theme::WARN,
                                                 );
+                                                ui.add(
+                                                    egui::Label::new(
+                                                        RichText::new(label).color(color),
+                                                    )
+                                                    .truncate(),
+                                                )
+                                                .on_hover_text(label);
                                             }
                                         }
                                         Col::CommandLine => {
@@ -1211,7 +1265,7 @@ fn app_menu(ui: &mut Ui, g: &AppGroup, procs: &[ProcessInfo], intents: &mut Vec<
                 let __wtm_i18n_0 = &(all.len());
                 crate::i18n::format("End all {0} processes", &[format!("{}", __wtm_i18n_0)])
             })
-            .color(Color32::from_rgb(220, 70, 70)),
+            .color(crate::theme::text_color(ui, crate::theme::BAD)),
         )
         .clicked()
     {
@@ -1263,14 +1317,14 @@ pub fn context_menu(
     cmd(ui, crate::i18n::tr("Resume"), Command::Resume, false);
     ui.separator();
     ui.menu_button(crate::i18n::tr("Priority"), |ui| {
-        for (label, p) in [
-            (crate::i18n::tr("Idle"), PriorityClass::Idle),
-            (crate::i18n::tr("Below normal"), PriorityClass::BelowNormal),
-            (crate::i18n::tr("Normal"), PriorityClass::Normal),
-            (crate::i18n::tr("Above normal"), PriorityClass::AboveNormal),
-            (crate::i18n::tr("High"), PriorityClass::High),
+        for p in [
+            PriorityClass::Idle,
+            PriorityClass::BelowNormal,
+            PriorityClass::Normal,
+            PriorityClass::AboveNormal,
+            PriorityClass::High,
         ] {
-            cmd(ui, label, Command::Priority(p), false);
+            cmd(ui, priority_label(p), Command::Priority(p), false);
         }
     });
     ui.menu_button(crate::i18n::tr("Efficiency mode"), |ui| {

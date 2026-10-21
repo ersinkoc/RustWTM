@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use eframe::egui::{self, Id, RichText, Ui};
+use eframe::egui::{self, Align, Id, Layout, RichText, Ui};
 
 /// Sort column and direction of one table, remembered per table id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -50,24 +50,54 @@ impl Sort {
 /// A header cell: clicking sorts by `col`, clicking again reverses. Numeric
 /// columns start with the largest value, text columns with A.
 pub fn header(ui: &mut Ui, label: &str, col: usize, numeric: bool, sort: &mut Sort) {
-    let label = crate::i18n::tr(label);
-    let arrow = match (sort.col == col, sort.desc) {
-        (true, true) => " ↓",
-        (true, false) => " ↑",
-        _ => "",
-    };
-    let button = egui::Button::new(RichText::new(format!("{label}{arrow}")).strong()).frame(false);
-    if ui
-        .add(button)
-        .on_hover_text(crate::i18n::tr("Sort"))
-        .clicked()
-    {
+    let current = (sort.col == col).then_some(sort.desc);
+    if cell(ui, crate::i18n::tr(label), numeric, current) {
         *sort = if sort.col == col {
             Sort::new(col, !sort.desc)
         } else {
             Sort::new(col, numeric)
         };
     }
+}
+
+/// The look of every sortable header: the column sorted by is highlighted
+/// with its direction, numeric columns are aligned right like their values.
+/// `current` is `Some(descending)` for the sorted column. Returns a click.
+pub fn cell(ui: &mut Ui, label: &str, numeric: bool, current: Option<bool>) -> bool {
+    let arrow = match current {
+        Some(true) => " ↓",
+        Some(false) => " ↑",
+        None => "",
+    };
+    let text = RichText::new(format!("{label}{arrow}")).strong();
+    let hint = crate::i18n::format("Sort by {0}", &[label.to_owned()]);
+    let add = |ui: &mut Ui| {
+        ui.add(egui::Button::selectable(current.is_some(), text))
+            .on_hover_text(hint)
+            .clicked()
+    };
+    if numeric {
+        ui.with_layout(Layout::right_to_left(Align::Center), add)
+            .inner
+    } else {
+        add(ui)
+    }
+}
+
+/// A starting width for a table column: at least `width`, and wide enough
+/// for its translated header `label` with the sort arrow.
+pub fn width(ui: &Ui, label: &str, width: f32) -> f32 {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let text = ui.fonts_mut(|f| {
+        f.layout_no_wrap(
+            format!("{} ↓", crate::i18n::tr(label)),
+            font,
+            egui::Color32::WHITE,
+        )
+        .size()
+        .x
+    });
+    width.max(text + 2.0 * ui.spacing().button_padding.x + 8.0)
 }
 
 /// Case-insensitive text order.

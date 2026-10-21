@@ -581,13 +581,14 @@ fn performance_shows_cores_network_and_io() {
     h.run();
     assert!(h.query_by_label("Per logical processor (4)").is_some());
     assert!(h.query_by_label("CPU 0: 95.0%").is_some());
+    // The card titles carry the current rates as the graphs' legends.
     let net = format!(
-        "Network  ↓ {}/s  ↑ {}/s",
+        "Network● Receive {}/s● Send {}/s",
         wtm_core::format_bytes(2048.0),
         wtm_core::format_bytes(512.0)
     );
     assert!(h.query_by_label(&net).is_some(), "{net}");
-    assert!(h.query_by_label_contains("Disk & I/O  read").is_some());
+    assert!(h.query_by_label_contains("Disk & I/O● Read").is_some());
     assert!(h.query_by_label("Disk 0 C:").is_some());
     assert!(h.query_by_label_contains("37% active").is_some());
     // The four busiest engines; the idle rest on one line.

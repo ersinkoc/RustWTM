@@ -1,6 +1,6 @@
 //! Resolution-independent line icons and accessible navigation rows.
 
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, Ui};
+use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Ui};
 
 #[derive(Clone, Copy)]
 pub enum Icon {
@@ -99,11 +99,24 @@ fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
             ]);
             line(&[(6.0, 9.0), (8.5, 11.5), (13.0, 7.0)]);
         }
-        Icon::Limits | Icon::Settings => {
+        Icon::Limits => {
             for (x, y) in [(4.0, 6.0), (9.5, 13.0), (15.0, 8.0)] {
                 line(&[(x, 2.0), (x, y - 2.0)]);
                 circle(x, y, 2.0);
                 line(&[(x, y + 2.0), (x, 17.0)]);
+            }
+        }
+        Icon::Settings => {
+            // A gear: a hub, a rim and eight teeth.
+            circle(9.5, 9.5, 2.5);
+            circle(9.5, 9.5, 5.5);
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::FRAC_PI_4;
+                let (s, c) = a.sin_cos();
+                line(&[
+                    (9.5 + 5.5 * c, 9.5 + 5.5 * s),
+                    (9.5 + 8.0 * c, 9.5 + 8.0 * s),
+                ]);
             }
         }
         Icon::Stop => {
@@ -181,6 +194,10 @@ fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
     }
 }
 
+/// Where a row's label starts, and the space kept free after it.
+pub const LABEL_LEFT: f32 = 42.0;
+pub const LABEL_RIGHT_GAP: f32 = 14.0;
+
 pub fn row(
     ui: &mut Ui,
     icon: Icon,
@@ -237,11 +254,21 @@ pub fn row(
         color,
     );
     if !collapsed {
-        ui.painter().text(
-            Pos2::new(rect.left() + 42.0, rect.center().y),
-            Align2::LEFT_CENTER,
-            label,
+        // Long translations end in "…" before the right edge; the hover
+        // text has them in full.
+        let left = rect.left() + LABEL_LEFT;
+        let mut job = egui::text::LayoutJob::simple_singleline(
+            label.into(),
             FontId::proportional(14.0),
+            color,
+        );
+        job.wrap = egui::text::TextWrapping::truncate_at_width(
+            (rect.right() - LABEL_RIGHT_GAP - left).max(0.0),
+        );
+        let galley = ui.painter().layout_job(job);
+        ui.painter().galley(
+            Pos2::new(left, rect.center().y - galley.size().y / 2.0),
+            galley,
             color,
         );
     }

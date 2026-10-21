@@ -1,7 +1,7 @@
 //! Limits tab: per-application CPU / memory budgets kept in the service's
 //! configuration, with their live usage.
 
-use eframe::egui::{self, Color32, Ui};
+use eframe::egui::{self, RichText, Ui};
 use wtm_core::format_bytes;
 use wtm_policy::{AppLimit, Config, LimitScope, remove_app_limit, set_app_limit};
 
@@ -9,9 +9,7 @@ use crate::backend::{Data, Mode, Panel, UiCommand};
 use crate::processes::budget_label;
 use crate::sort::{Sort, header, num};
 
-const WARN: Color32 = Color32::from_rgb(230, 140, 40);
-const BAD: Color32 = Color32::from_rgb(220, 70, 70);
-const GOOD: Color32 = Color32::from_rgb(80, 180, 100);
+use crate::theme::{BAD, GOOD, WARN, right};
 
 #[derive(Debug)]
 pub struct LimitsView {
@@ -119,11 +117,11 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
     let mut commands = Vec::new();
     let text = match &data.config {
         None => {
-            ui.spinner();
+            crate::theme::loading(ui, crate::i18n::tr("Loading the service settings…"));
             return commands;
         }
         Some(Err(e)) => {
-            ui.colored_label(Color32::RED, e);
+            crate::theme::colored(ui, BAD, e);
             if ui.button(crate::i18n::tr("Retry")).clicked() {
                 commands.push(UiCommand::Load(Panel::Config));
             }
@@ -134,12 +132,14 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
     let config = match Config::from_toml(text) {
         Ok(c) => c,
         Err(e) => {
-            ui.colored_label(Color32::RED, {
+            crate::theme::colored(
+                ui,
+                BAD,
                 crate::i18n::format(
                     "The configuration is invalid ({0}); fix it in Settings.",
                     &[format!("{}", e)],
-                )
-            });
+                ),
+            );
             return commands;
         }
     };
@@ -155,9 +155,12 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
          Programs that reach the memory budget get out-of-memory errors.",
     ));
     if config.dry_run {
-        ui.colored_label(
+        crate::theme::colored(
+            ui,
             WARN,
-            crate::i18n::tr("Dry-run mode: limits are only previewed in the event log. Switch to enforcing in Settings."),
+            crate::i18n::tr(
+                "Dry-run mode: limits are only previewed in the event log. Switch to enforcing in Settings.",
+            ),
         );
     }
     if !admin {
@@ -224,7 +227,9 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         4 => num(a.cpu.into(), b.cpu.into()),
         _ => a.mem.cmp(&b.mem),
     });
-    egui::Grid::new("app_limits_grid")
+    if !config.limits.is_empty() {
+        crate::theme::panel(ui, |ui| {
+            egui::Grid::new("app_limits_grid")
         .num_columns(7)
         .striped(true)
         .show(ui, |ui| {
@@ -252,7 +257,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                         crate::i18n::format(" ({0}% of machine)", &[format!("{:.1}", p)])
                     });
                 }
-                ui.label(budget);
+                right(ui, budget);
                 ui.label(scope_label(l.scope));
                 let count = match l.scope {
                     LimitScope::Each if r.instances > 0 => {
@@ -266,20 +271,25 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                     _ => r.processes.to_string(),
                 };
                 if r.outside > 0 {
-                    ui.label({
-                        let __wtm_i18n_0 = &(r.outside);
-                        crate::i18n::format(
-                            "{0} ({1} outside)",
-                            &[count.to_string(), format!("{}", __wtm_i18n_0)],
-                        )
-                    })
-                    .on_hover_text(crate::i18n::tr(
-                        "These processes run in a job object of their own (a sandbox or a build \
-                         tool) and Windows does not let them share the budget. They join it once \
-                         the app is restarted.",
-                    ));
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            ui.label({
+                                let __wtm_i18n_0 = &(r.outside);
+                                crate::i18n::format(
+                                    "{0} ({1} outside)",
+                                    &[count.to_string(), format!("{}", __wtm_i18n_0)],
+                                )
+                            })
+                            .on_hover_text(crate::i18n::tr(
+                                "These processes run in a job object of their own (a sandbox or a build \
+                                 tool) and Windows does not let them share the budget. They join it once \
+                                 the app is restarted.",
+                            ));
+                        },
+                    );
                 } else {
-                    ui.label(count);
+                    right(ui, count);
                 }
                 let cores = {
                     let __wtm_i18n_0 = &(r.cpu / 100.0 * cpus as f32);
@@ -298,26 +308,32 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                         .add_enabled(admin, egui::Button::new(crate::i18n::tr("Remove")))
                         .clicked()
                     {
-                        match remove_app_limit(text, &l.name, l.scope) {
-                            Ok(new) => commands.push(UiCommand::SaveConfig(new)),
-                            Err(e) => view.error = Some(e),
+                            match remove_app_limit(text, &l.name, l.scope) {
+                                Ok(new) => commands.push(UiCommand::SaveConfig(new)),
+                                Err(e) => view.error = Some(e),
+                            }
                         }
-                    }
-                });
-                ui.end_row();
-            }
+                        crate::theme::fill_row(ui);
+                    });
+                    ui.end_row();
+                }
+            });
         });
+    }
     sort.store(ui, "app_limits");
     if config.limits.is_empty() {
         ui.weak(crate::i18n::tr("No app limits yet. Add one below, or right-click a process and choose \"Limit this app…\"."));
     }
 
     ui.add_space(12.0);
-    ui.heading(if view.editing.is_some() {
-        crate::i18n::tr("Change limit")
-    } else {
-        crate::i18n::tr("Add limit")
-    });
+    crate::theme::section(
+        ui,
+        if view.editing.is_some() {
+            crate::i18n::tr("Change limit")
+        } else {
+            crate::i18n::tr("Add limit")
+        },
+    );
     egui::Grid::new("app_limit_form")
         .num_columns(2)
         .show(ui, |ui| {
@@ -418,7 +434,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         }
     });
     if let Some(e) = &view.error {
-        ui.colored_label(Color32::RED, e);
+        crate::theme::colored(ui, BAD, e);
     }
     commands
 }
@@ -427,7 +443,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
 /// (memory allocations start failing), orange from 75%.
 fn usage_cell(ui: &mut Ui, text: String, fill: Option<f32>) {
     let Some(fill) = fill else {
-        ui.label(text);
+        right(ui, text);
         return;
     };
     let color = if fill >= 0.95 {
@@ -441,7 +457,7 @@ fn usage_cell(ui: &mut Ui, text: String, fill: Option<f32>) {
         egui::ProgressBar::new(fill.clamp(0.0, 1.0))
             .desired_width(150.0)
             .fill(color.gamma_multiply(0.8))
-            .text(format!("{text} ({:.0}%)", fill * 100.0)),
+            .text(RichText::new(format!("{text} ({:.0}%)", fill * 100.0))),
     )
     .on_hover_text(crate::i18n::tr(
         "Use of the budget; for one budget per instance, the fullest instance",
