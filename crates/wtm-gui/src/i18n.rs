@@ -157,7 +157,44 @@ pub fn debug(value: impl std::fmt::Debug) -> String {
 /// Old service logs remain unchanged. Recognize complete known message templates
 /// only at the presentation boundary; unknown/native diagnostics remain verbatim.
 pub fn message(english: &str) -> std::borrow::Cow<'_, str> {
-    message_at_depth(english, 0)
+    use std::borrow::Cow;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    /// Messages kept per thread; the screen shows far fewer at a time.
+    const KEPT: usize = 1024;
+    // Matching a message against every template takes long enough to show
+    // when a frame does it for each visible event, so results are kept for
+    // the current language: `None` when the text stays as it is.
+    thread_local! {
+        static SEEN: RefCell<(usize, HashMap<String, Option<String>>)> =
+            RefCell::new((0, HashMap::new()));
+    }
+    let language = index();
+    if language == 0 {
+        return Cow::Borrowed(english);
+    }
+    let known = SEEN.with(|seen| {
+        let seen = seen.borrow();
+        (seen.0 == language)
+            .then(|| seen.1.get(english).cloned())
+            .flatten()
+    });
+    if let Some(known) = known {
+        return known.map_or(Cow::Borrowed(english), Cow::Owned);
+    }
+    let text = message_at_depth(english, 0);
+    SEEN.with(|seen| {
+        let mut seen = seen.borrow_mut();
+        if seen.0 != language || seen.1.len() >= KEPT {
+            *seen = (language, HashMap::new());
+        }
+        let translated = match &text {
+            Cow::Borrowed(t) if std::ptr::eq(*t, english) => None,
+            t => Some(t.clone().into_owned()),
+        };
+        seen.1.insert(english.to_owned(), translated);
+    });
+    text
 }
 fn message_at_depth(english: &str, depth: usize) -> std::borrow::Cow<'_, str> {
     use std::borrow::Cow;

@@ -223,6 +223,9 @@ struct UiState {
     update_started: bool,
     last_update_check: Option<Instant>,
     last_load: HashMap<Panel, Instant>,
+    /// The Limits column of the process table, for this data revision and
+    /// language.
+    limit_labels: Option<((u64, crate::i18n::Language), ManagedMap)>,
 }
 
 impl App {
@@ -383,6 +386,7 @@ impl Default for UiState {
             update_started: false,
             last_update_check: None,
             last_load: HashMap::new(),
+            limit_labels: None,
         }
     }
 }
@@ -540,7 +544,13 @@ impl eframe::App for App {
                 });
             });
         });
-        let managed: ManagedMap = limit_labels(data.status.as_ref());
+        // Only the process table shows them; rebuilt once per data update.
+        let labels_key = (data.revision, state.language);
+        let (managed, labels_valid): (ManagedMap, bool) = match state.limit_labels.take() {
+            Some((key, labels)) if key == labels_key => (labels, true),
+            _ if state.tab == Tab::Processes => (limit_labels(data.status.as_ref()), true),
+            _ => (ManagedMap::new(), false),
+        };
 
         if state.tab == Tab::Processes
             && let (Some(sel), Some(snap)) = (state.processes.selected.clone(), &data.snapshot)
@@ -588,7 +598,7 @@ impl eframe::App for App {
                             icons: &data.icons,
                             hung: &data.hung,
                         };
-                        intents.extend(state.processes.ui(ui, snap, &extra));
+                        intents.extend(state.processes.ui_cached(ui, snap, &extra, data.revision));
                     }
                     None => {
                         ui.spinner();
@@ -699,6 +709,9 @@ impl eframe::App for App {
                 content(ui);
             }
         });
+        if labels_valid {
+            state.limit_labels = Some((labels_key, managed));
+        }
 
         if let Some((target, command)) = state.confirm.clone() {
             let modal = egui::Modal::new(egui::Id::unique("confirm")).show(&ctx, |ui| {
@@ -4680,5 +4693,140 @@ mod tests {
         h.run();
         assert!(h.query_by_label_contains("CPU 0 ·").is_none());
         assert!(h.query_by_label_contains("CPU 0:").is_some());
+    }
+}
+
+/// Frame cost with a busy machine's worth of data, per page. Run with
+/// `cargo test -p wtm-gui --release frame_cost -- --ignored --nocapture`.
+#[cfg(test)]
+mod bench {
+    use super::*;
+    use egui_kittest::Harness;
+
+    use crate::backend::Backend;
+    use crate::ui_tests::{data, proc};
+    use std::sync::Arc;
+
+    const PROCESSES: u32 = 2000;
+    const FRAMES: u32 = 100;
+
+    fn busy_data() -> Data {
+        let mut d = data();
+        let mut snap = d.snapshot.as_deref().unwrap().clone();
+        snap.processes = (0..PROCESSES)
+            .map(|i| {
+                let pid = 1000 + i * 4;
+                let parent = if i < 50 { 4 } else { 1000 + (i % 50) * 4 };
+                let mut p = proc(
+                    pid,
+                    parent,
+                    &format!("app{}.exe", i % 300),
+                    (i % 97) as f32 / 10.0,
+                );
+                p.io_read_rate = f64::from(i % 13) * 4096.0;
+                p.session_id = i % 3;
+                p
+            })
+            .collect();
+        for p in &snap.processes {
+            let key = (p.pid, p.create_time);
+            let path = format!(r"C:\Program Files\Vendor {}\{}", p.pid % 40, p.name);
+            d.command_lines
+                .insert(key, format!("\"{path}\" --instance {} --flag", p.pid));
+            d.image_paths.insert(key, path);
+        }
+        d.connections = Some(Ok((0..600u16)
+            .map(|i| wtm_core::Connection {
+                protocol: if i % 3 == 0 {
+                    wtm_core::Protocol::Udp
+                } else {
+                    wtm_core::Protocol::Tcp
+                },
+                local: std::net::SocketAddr::from(([127, 0, 0, 1], 10_000 + i)),
+                remote: (i % 2 == 0)
+                    .then(|| std::net::SocketAddr::from(([10, 0, 0, (i % 250) as u8], 443))),
+                state: (i % 3 != 0).then_some(if i % 2 == 0 {
+                    wtm_core::TcpState::Established
+                } else {
+                    wtm_core::TcpState::Listen
+                }),
+                pid: 1000 + u32::from(i) * 4,
+            })
+            .collect()));
+        for i in 0..200 {
+            d.events.push_back(wtm_ipc::Event {
+                id: i + 2,
+                unix_ms: 1_700_000_000_000 + i * 1000,
+                level: EventLevel::Info,
+                pid: Some(1000),
+                name: Some("app0.exe".into()),
+                message: format!("Custom note number {i} from a rule"),
+                notify: i % 2 == 0,
+            });
+        }
+        d.snapshot = Some(Arc::new(snap));
+        d
+    }
+
+    fn per_frame(language: crate::i18n::Language, setup: impl FnOnce(&mut UiState)) -> Duration {
+        let (backend, _rx) = Backend::offline(busy_data());
+        let mut state = UiState {
+            language,
+            ..Default::default()
+        };
+        setup(&mut state);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(move |_| App {
+                backend,
+                state,
+                tray: None,
+                frames: Default::default(),
+            });
+        for _ in 0..10 {
+            h.step();
+        }
+        let start = Instant::now();
+        for _ in 0..FRAMES {
+            h.step();
+        }
+        start.elapsed() / FRAMES
+    }
+
+    #[test]
+    #[ignore = "benchmark"]
+    fn frame_cost() {
+        use crate::i18n::Language::{English, Turkish};
+        use crate::processes::ViewMode;
+        type Case = (&'static str, crate::i18n::Language, fn(&mut UiState));
+        let cases: [Case; 10] = [
+            ("Overview", English, |s| s.tab = Tab::Overview),
+            ("Processes list", English, |s| s.tab = Tab::Processes),
+            ("Processes list, by name", English, |s| {
+                s.tab = Tab::Processes;
+                s.processes.sort = crate::processes::Col::Name;
+            }),
+            ("Processes search", English, |s| {
+                s.tab = Tab::Processes;
+                s.processes.search = "vendor 1".into();
+            }),
+            ("Processes tree", English, |s| {
+                s.tab = Tab::Processes;
+                s.processes.mode = ViewMode::Tree;
+            }),
+            ("Processes apps", English, |s| {
+                s.tab = Tab::Processes;
+                s.processes.mode = ViewMode::Apps;
+            }),
+            ("Network", English, |s| s.tab = Tab::Network),
+            ("Ports", English, |s| s.tab = Tab::Ports),
+            ("Disks", English, |s| s.tab = Tab::Disks),
+            ("Events (Turkish)", Turkish, |s| s.tab = Tab::Events),
+        ];
+        for (name, language, setup) in cases {
+            let t = per_frame(language, setup);
+            println!("{name:<28} {:>8.1} us/frame", t.as_secs_f64() * 1e6);
+        }
     }
 }

@@ -257,17 +257,20 @@ pub fn network(
         })
         .collect();
     let mut sort = Sort::load(ui, "network", Sort::new(0, false));
-    sort.apply(&mut rows, |(a, an, ar), (b, bn, br), col| match col {
-        0 => text(an, bn),
-        1 => a.pid.cmp(&b.pid),
-        2 => text(&format!("{:?}", a.protocol), &format!("{:?}", b.protocol)),
-        3 => a.local.cmp(&b.local),
-        4 => text(ar, br),
-        _ => text(
-            &a.state.map(crate::i18n::debug).unwrap_or_default(),
-            &b.state.map(crate::i18n::debug).unwrap_or_default(),
-        ),
-    });
+    if sort.col == 2 {
+        sort.apply_text(&mut rows, |(c, ..)| format!("{:?}", c.protocol));
+    } else if sort.col >= 5 {
+        sort.apply_text(&mut rows, |(c, ..)| {
+            c.state.map(crate::i18n::debug).unwrap_or_default()
+        });
+    } else {
+        sort.apply(&mut rows, |(a, an, ar), (b, bn, br), col| match col {
+            0 => text(an, bn),
+            1 => a.pid.cmp(&b.pid),
+            3 => a.local.cmp(&b.local),
+            _ => text(ar, br),
+        });
+    }
 
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
@@ -375,18 +378,19 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
         })
         .collect();
     let mut sort = Sort::load(ui, "services", Sort::new(0, false));
-    let debug = |v: &dyn std::fmt::Debug| format!("{v:?}");
-    sort.apply(&mut rows, |a, b, col| match col {
-        0 => text(&a.name, &b.name),
-        1 => text(&a.display_name, &b.display_name),
-        2 => a.pid.cmp(&b.pid),
-        3 => text(&debug(&a.state), &debug(&b.state)),
-        4 => text(&debug(&a.start_type), &debug(&b.start_type)),
-        _ => text(
-            a.account.as_deref().unwrap_or(""),
-            b.account.as_deref().unwrap_or(""),
-        ),
-    });
+    match sort.col {
+        3 => sort.apply_text(&mut rows, |s| format!("{:?}", s.state)),
+        4 => sort.apply_text(&mut rows, |s| format!("{:?}", s.start_type)),
+        _ => sort.apply(&mut rows, |a, b, col| match col {
+            0 => text(&a.name, &b.name),
+            1 => text(&a.display_name, &b.display_name),
+            2 => a.pid.cmp(&b.pid),
+            _ => text(
+                a.account.as_deref().unwrap_or(""),
+                b.account.as_deref().unwrap_or(""),
+            ),
+        }),
+    }
 
     let mut clicked = None;
     let row_height = ui.spacing().interact_size.y;
