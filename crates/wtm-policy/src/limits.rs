@@ -170,8 +170,9 @@ impl LimitPlanner {
         let index: HashMap<u32, usize> =
             procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
         // Ancestor chain, nearest first; a parent must predate its child.
-        let chain = |mut i: usize| {
-            let mut out = vec![i];
+        let chain = |mut i: usize, out: &mut Vec<usize>| {
+            out.clear();
+            out.push(i);
             while let Some(&parent) = index.get(&procs[i].parent_pid) {
                 if parent == i
                     || procs[parent].create_time > procs[i].create_time
@@ -182,8 +183,12 @@ impl LimitPlanner {
                 out.push(parent);
                 i = parent;
             }
-            out
         };
+        // Whether process `i` matches limit `l`, at `i * limits + l`: every
+        // process is an ancestor of many others, so each name is matched
+        // against each limit once per call rather than once per descendant.
+        let mut matched: Vec<Option<bool>> = vec![None; procs.len() * self.limits.len()];
+        let mut ancestors = Vec::new();
         // Parents first, so a child joins its parent's group.
         let mut order: Vec<usize> = (0..procs.len()).collect();
         order.sort_by_key(|&i| procs[i].create_time);
@@ -195,19 +200,19 @@ impl LimitPlanner {
             if self.members.contains_key(&key) || protection_reason(p.pid, &p.name).is_some() {
                 continue;
             }
-            let ancestors = chain(i);
+            chain(i, &mut ancestors);
             // An ancestor that already has a budget passes it on.
             let inherited = ancestors[1..]
                 .iter()
                 .find_map(|&a| self.members.get(&(procs[a].pid, procs[a].create_time)));
+            let count = self.limits.len();
             let group = match inherited {
                 Some(g) => Some(g.clone()),
-                None => self.limits.iter().find_map(|l| {
+                None => self.limits.iter().enumerate().find_map(|(li, l)| {
                     // The topmost matching process in the chain is the root.
-                    let root = ancestors
-                        .iter()
-                        .rev()
-                        .find(|&&a| l.matches(&procs[a].name))?;
+                    let root = ancestors.iter().rev().find(|&&a| {
+                        *matched[a * count + li].get_or_insert_with(|| l.matches(&procs[a].name))
+                    })?;
                     Some(GroupId {
                         app: l.name.to_lowercase(),
                         scope: l.scope,

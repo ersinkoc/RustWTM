@@ -7,6 +7,8 @@
 #![forbid(unsafe_code)]
 
 mod action;
+#[cfg(test)]
+mod bench;
 mod config;
 mod cooling;
 mod game;

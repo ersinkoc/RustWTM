@@ -117,8 +117,10 @@ impl GameMode {
             _ => None,
         };
         self.game = game;
-        let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
-        self.calmed.retain(|k, _| live.contains(k));
+        if !self.calmed.is_empty() {
+            let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
+            self.calmed.retain(|k, _| live.contains(k));
+        }
 
         let mut out = Vec::new();
         let Some((name, keys)) = &self.game else {
