@@ -50,7 +50,8 @@ pub fn cpu_times() -> Result<CpuTimes> {
 /// Cumulative times of each logical processor of the calling thread's
 /// processor group (all of them on machines with up to 64).
 pub fn per_cpu_times() -> Result<Vec<CpuTimes>> {
-    let mut buf = vec![ProcessorPerformance::default(); 64];
+    // On the stack: called every sample, and a group has at most 64.
+    let mut buf = [ProcessorPerformance::default(); 64];
     let mut len = 0u32;
     // SAFETY: `buf` is writable for its whole byte size; `len` receives the
     // number of bytes written.
@@ -58,7 +59,7 @@ pub fn per_cpu_times() -> Result<Vec<CpuTimes>> {
         NtQuerySystemInformation(
             PROCESSOR_PERFORMANCE,
             buf.as_mut_ptr().cast(),
-            size_of_val(buf.as_slice()) as u32,
+            size_of_val(&buf) as u32,
             &mut len,
         )
     };
@@ -68,8 +69,8 @@ pub fn per_cpu_times() -> Result<Vec<CpuTimes>> {
             status: status.0 as u32,
         });
     }
-    buf.truncate(len as usize / size_of::<ProcessorPerformance>());
-    Ok(buf
+    let n = (len as usize / size_of::<ProcessorPerformance>()).min(buf.len());
+    Ok(buf[..n]
         .iter()
         .map(|p| CpuTimes {
             idle: p.idle as u64,

@@ -17,6 +17,7 @@ use windows::Win32::System::Diagnostics::Etw::{
 };
 
 use crate::etw::{self, Session};
+use crate::fasthash::FastMap;
 
 /// Send and receive opcodes, the same for TCP and UDP: IPv4, then IPv6.
 const OPCODE_SEND: u8 = 10;
@@ -26,6 +27,10 @@ const OPCODE_RECEIVE_V6: u8 = 27;
 
 /// Bytes received and sent per process since the last [`NetTracer::take`].
 pub type Traffic = HashMap<u32, (u64, u64)>;
+
+/// What the consumer counts into: updated on every packet, so hashed with
+/// the cheap hasher, and copied into a [`Traffic`] once per take.
+type Counts = FastMap<u32, (u64, u64)>;
 
 /// Which way a packet went.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +51,7 @@ fn transfer(opcode: u8, payload: &[u8]) -> Option<(u32, u64, Direction)> {
     Some((pid, u64::from(bytes), direction))
 }
 
-fn count(traffic: &mut Traffic, pid: u32, bytes: u64, direction: Direction) {
+fn count(traffic: &mut Counts, pid: u32, bytes: u64, direction: Direction) {
     let (received, sent) = traffic.entry(pid).or_default();
     let total = match direction {
         Direction::Received => received,
@@ -58,7 +63,7 @@ fn count(traffic: &mut Traffic, pid: u32, bytes: u64, direction: Direction) {
 /// Counts network bytes per process while it lives.
 #[derive(Debug)]
 pub struct NetTracer {
-    traffic: Arc<Mutex<Traffic>>,
+    traffic: Arc<Mutex<Counts>>,
     _session: Session,
 }
 
@@ -66,7 +71,7 @@ impl NetTracer {
     /// `name` names the ETW session (one per process at a time).
     pub fn start(name: &str) -> crate::Result<Self> {
         let session = Session::start_kernel(name, EVENT_TRACE_FLAG_NETWORK_TCPIP.0)?;
-        let traffic = Arc::new(Mutex::new(Traffic::new()));
+        let traffic = Arc::new(Mutex::new(Counts::default()));
         let sink = Arc::clone(&traffic);
         session.consume(move |record: &EVENT_RECORD| {
             let header = &record.EventHeader;
@@ -87,7 +92,11 @@ impl NetTracer {
 
     /// Everything counted since the previous call.
     pub fn take(&self) -> Traffic {
-        std::mem::take(&mut *self.traffic.lock().unwrap_or_else(PoisonError::into_inner))
+        let mut counts = self.traffic.lock().unwrap_or_else(PoisonError::into_inner);
+        // Draining keeps the map's table for the next interval's packets.
+        let mut out = Traffic::with_capacity(counts.len());
+        out.extend(counts.drain());
+        out
     }
 }
 
@@ -124,7 +133,7 @@ mod tests {
 
     #[test]
     fn counts_per_process_and_direction() {
-        let mut t = Traffic::new();
+        let mut t = Counts::default();
         count(&mut t, 7, 100, Direction::Received);
         count(&mut t, 7, 50, Direction::Sent);
         count(&mut t, 7, 1, Direction::Received);

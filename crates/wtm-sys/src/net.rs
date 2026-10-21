@@ -1,6 +1,7 @@
 //! TCP/UDP endpoints with their owning process.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, NO_ERROR, WIN32_ERROR};
@@ -79,16 +80,25 @@ fn v4(raw: u32) -> IpAddr {
     IpAddr::V4(Ipv4Addr::from(raw.to_ne_bytes()))
 }
 
+/// Bytes the TCPv4, TCPv6, UDPv4 and UDPv6 tables needed last time.
+static SIZE_HINTS: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
+
 /// Calls a `GetExtended*Table` function until the buffer is large enough.
+///
+/// Every call walks the whole kernel table, a size-only one included, so
+/// the first call already offers a buffer as large as the one that sufficed
+/// last time (`hint`, in bytes): one call per table instead of two.
 fn fetch(
+    hint: &AtomicUsize,
     mut call: impl FnMut(Option<*mut core::ffi::c_void>, &mut u32) -> u32,
 ) -> Result<Vec<u64>> {
-    let mut size = 0u32;
-    let mut buf: Vec<u64> = Vec::new();
+    let mut buf: Vec<u64> = vec![0; hint.load(Ordering::Relaxed).div_ceil(8)];
+    let mut size = (buf.len() * 8) as u32;
     loop {
         let ptr = (!buf.is_empty()).then(|| buf.as_mut_ptr().cast());
         let rc = WIN32_ERROR(call(ptr, &mut size));
         if rc == NO_ERROR {
+            hint.store(buf.len() * 8, Ordering::Relaxed);
             return Ok(buf);
         }
         if rc != ERROR_INSUFFICIENT_BUFFER {
@@ -147,7 +157,7 @@ pub fn close_tcp(local: SocketAddr, remote: SocketAddr) -> Result<()> {
 pub fn connections() -> Result<Vec<Connection>> {
     let mut out = Vec::new();
 
-    let tcp4 = fetch(|p, size| {
+    let tcp4 = fetch(&SIZE_HINTS[0], |p, size| {
         // SAFETY: `p` is None or a buffer of `*size` bytes.
         unsafe { GetExtendedTcpTable(p, size, false, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) }
     })?;
@@ -166,7 +176,7 @@ pub fn connections() -> Result<Vec<Connection>> {
         });
     }
 
-    let tcp6 = fetch(|p, size| {
+    let tcp6 = fetch(&SIZE_HINTS[1], |p, size| {
         // SAFETY: as above.
         unsafe { GetExtendedTcpTable(p, size, false, AF_INET6, TCP_TABLE_OWNER_PID_ALL, 0) }
     })?;
@@ -192,7 +202,7 @@ pub fn connections() -> Result<Vec<Connection>> {
         });
     }
 
-    let udp4 = fetch(|p, size| {
+    let udp4 = fetch(&SIZE_HINTS[2], |p, size| {
         // SAFETY: as above.
         unsafe { GetExtendedUdpTable(p, size, false, AF_INET, UDP_TABLE_OWNER_PID, 0) }
     })?;
@@ -209,7 +219,7 @@ pub fn connections() -> Result<Vec<Connection>> {
         });
     }
 
-    let udp6 = fetch(|p, size| {
+    let udp6 = fetch(&SIZE_HINTS[3], |p, size| {
         // SAFETY: as above.
         unsafe { GetExtendedUdpTable(p, size, false, AF_INET6, UDP_TABLE_OWNER_PID, 0) }
     })?;
@@ -331,14 +341,38 @@ mod tests {
     #[test]
     fn fetch_reports_errors_and_empty_tables() {
         const ERROR_INVALID_PARAMETER: u32 = 87;
-        let err = fetch(|_, _| ERROR_INVALID_PARAMETER).unwrap_err();
+        let hint = AtomicUsize::new(0);
+        let err = fetch(&hint, |_, _| ERROR_INVALID_PARAMETER).unwrap_err();
         assert!(err.is_invalid_parameter(), "{err}");
 
         // Success on the first (size-only) call leaves the buffer empty.
-        let buf = fetch(|_, _| 0).unwrap();
+        let buf = fetch(&hint, |_, _| 0).unwrap();
         assert!(buf.is_empty());
         // SAFETY: an empty buffer is never dereferenced.
         let parsed = unsafe { rows::<MIB_TCPROW_OWNER_PID>(&buf, 4) };
         assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn fetch_offers_the_size_that_sufficed_last_time() {
+        let hint = AtomicUsize::new(0);
+        let mut calls = Vec::new();
+        // A table of 100 bytes: too small a buffer is refused with its size.
+        let mut table = |p: Option<*mut core::ffi::c_void>, size: &mut u32| {
+            calls.push((p.is_some(), *size));
+            if *size < 100 {
+                *size = 100;
+                ERROR_INSUFFICIENT_BUFFER.0
+            } else {
+                0
+            }
+        };
+        let first = fetch(&hint, &mut table).unwrap();
+        let second = fetch(&hint, &mut table).unwrap();
+        assert_eq!(first.len(), second.len());
+        // Size query and fill the first time; a single call afterwards.
+        assert_eq!(calls.len(), 3, "{calls:?}");
+        assert!(!calls[0].0 && calls[1].0 && calls[2].0);
+        assert_eq!(hint.load(Ordering::Relaxed), first.len() * 8);
     }
 }

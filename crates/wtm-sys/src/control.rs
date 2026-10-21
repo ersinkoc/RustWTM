@@ -188,7 +188,18 @@ impl ProcessHandle {
     }
 
     pub fn image_path(&self) -> Result<String> {
-        let mut buf = vec![0u16; 32 * 1024];
+        // Almost every path fits on the stack; long ones get the most a
+        // path can be.
+        let mut small = [0u16; 1024];
+        match self.image_path_into(&mut small) {
+            Err(Error::Win32(e)) if e.code() == ERROR_INSUFFICIENT_BUFFER.to_hresult() => {
+                self.image_path_into(&mut vec![0u16; 32 * 1024])
+            }
+            r => r,
+        }
+    }
+
+    fn image_path_into(&self, buf: &mut [u16]) -> Result<String> {
         let mut len = buf.len() as u32;
         // SAFETY: `buf` holds `len` u16s; on success `len` is the written length.
         unsafe {
@@ -199,7 +210,7 @@ impl ProcessHandle {
                 &mut len,
             )?
         };
-        Ok(String::from_utf16_lossy(&buf[..len as usize]))
+        Ok(crate::utf16_lossy(&buf[..len as usize]))
     }
 
     /// The command line the process was started with.
@@ -239,7 +250,7 @@ impl ProcessHandle {
                 std::slice::from_raw_parts(s.Buffer.0, usize::from(s.Length) / 2)
             }
         };
-        Ok(String::from_utf16_lossy(text))
+        Ok(crate::utf16_lossy(text))
     }
 
     /// The account the process runs as, e.g. NT AUTHORITY\SYSTEM.
