@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- *Files being read and written* through the service shows a client without
+  administrator rights only the programs of its own session.
+
 ## [0.17.0] - 2026-10-21
 
 ### Added

@@ -57,10 +57,26 @@ impl DiskTrace {
     }
 }
 
+/// Keeps the rows of processes in `session`; none when it is unknown.
+fn keep_session(
+    files: &mut Vec<wtm_core::FileIo>,
+    procs: &[wtm_core::ProcessInfo],
+    session: Option<u32>,
+) {
+    let ours: std::collections::HashSet<u32> = procs
+        .iter()
+        .filter(|p| Some(p.session_id) == session)
+        .map(|p| p.pid)
+        .collect();
+    files.retain(|f| ours.contains(&f.pid));
+}
+
 /// Prefix of the per-file disk trace session.
 pub const DISK_TRACE: &str = "RustWTM-Disk";
 
-fn disk_activity(shared: &Shared) -> Response {
+/// File paths reveal what other users work on, so a client without
+/// administrator rights sees only the processes of its own session.
+fn disk_activity(shared: &Shared, admin: bool, client_session: wtm_sys::Result<u32>) -> Response {
     let mut trace = shared
         .disk_trace
         .lock()
@@ -80,10 +96,14 @@ fn disk_activity(shared: &Shared) -> Response {
     let t = trace.as_mut().expect("started above");
     let seconds = t.taken.elapsed().as_secs_f64();
     t.taken = std::time::Instant::now();
-    Response::DiskActivity {
-        files: t.tracer.take(),
-        seconds,
+    let mut files = t.tracer.take();
+    drop(trace);
+    if !admin {
+        let snap = read_lock(&shared.snapshot);
+        let procs = snap.as_deref().map_or(&[][..], |s| &s.processes[..]);
+        keep_session(&mut files, procs, client_session.ok());
     }
+    Response::DiskActivity { files, seconds }
 }
 
 pub enum EngineMsg {
@@ -274,7 +294,7 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                 Ok(text) => Response::Text(text),
                 Err(e) => Response::Error(e),
             },
-            Request::DiskActivity => disk_activity(shared),
+            Request::DiskActivity => disk_activity(shared, admin, conn.client_session_id()),
             Request::FirewallBlocked => match wtm_core::firewall::blocked() {
                 Ok(list) => Response::Blocked(list),
                 Err(e) => Response::Error(e.to_string()),
@@ -770,5 +790,35 @@ mod tests {
         assert!(error(foreground(&shared, &tx, me.pid, false, Err(failed))).contains("session"));
         assert!(error(foreground(&shared, &tx, 0xFFFF_FFF0, false, Ok(0))).contains("not found"));
         assert!(rx.try_recv().is_err(), "rejected reports are not forwarded");
+    }
+
+    #[test]
+    fn disk_activity_of_other_sessions_is_hidden() {
+        let snap = wtm_core::Sampler::new().sample().unwrap();
+        let me = snap
+            .processes
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap()
+            .clone();
+        let row = |pid| wtm_core::FileIo {
+            pid,
+            path: Some(format!(r"C:\{pid}.txt")),
+            read: 1,
+            write: 0,
+        };
+        let stranger = snap
+            .processes
+            .iter()
+            .find(|p| p.session_id != me.session_id)
+            .map_or(0xFFFF_FFF0, |p| p.pid);
+        let all = vec![row(me.pid), row(stranger)];
+
+        let mut files = all.clone();
+        keep_session(&mut files, &snap.processes, Some(me.session_id));
+        assert_eq!(files, [row(me.pid)]);
+        let mut files = all;
+        keep_session(&mut files, &snap.processes, None);
+        assert!(files.is_empty(), "an unknown session sees nothing");
     }
 }
