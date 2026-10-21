@@ -587,7 +587,13 @@ mod tests {
             f.sync_all().unwrap();
         }
         let me = std::process::id();
-        let wanted = path.to_string_lossy().to_lowercase();
+        // The temp directory may be spelled with short (8.3) names, as on
+        // CI runners, while the trace reports the long ones: match the file
+        // name, which carries our PID.
+        let wanted = format!(
+            r"\{}",
+            path.file_name().unwrap().to_string_lossy().to_lowercase()
+        );
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut found = false;
         while !found && Instant::now() < deadline {
@@ -597,7 +603,7 @@ mod tests {
                     && r.write > 0
                     && r.path
                         .as_deref()
-                        .is_some_and(|p| p.to_lowercase() == wanted)
+                        .is_some_and(|p| p.to_lowercase().ends_with(&wanted))
             });
         }
         drop(tracer);

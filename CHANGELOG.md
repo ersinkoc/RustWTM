@@ -6,11 +6,6 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-
-- *Files being read and written* through the service shows a client without
-  administrator rights only the programs of its own session.
-
 ## [0.17.0] - 2026-10-21
 
 ### Added
@@ -29,6 +24,7 @@ All notable changes to this project are documented here. The format follows
   unreadable folders and never follow junctions or symbolic links.
 - Disks tab: *Files being read and written* per program, from a kernel ETW
   trace that runs only while the tab is open (service or administrator).
+  Without administrator rights the service shows only your session's programs.
 - Not responding programs: marked in Processes (with a quick filter) and on
   the Overview; *Analyze wait chain* in the details panel shows what their
   blocked threads wait for and flags deadlocks.
