@@ -154,6 +154,9 @@ pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory
 
 #[derive(Debug, Default)]
 pub struct Data {
+    /// The process owning the foreground window, as last seen (also without
+    /// the service, whose status names its app).
+    pub foreground_pid: Option<u32>,
     /// Receipt time in this GUI.
     pub sample_received_at: Option<Instant>,
     /// When the shown sample was measured, on this GUI's clock. A sample
@@ -654,12 +657,14 @@ impl Worker {
             }
         }
 
+        let foreground = (self.foreground)();
+        self.data().foreground_pid = foreground.map(|(pid, _)| pid);
         if let Some(client) = self.client.as_mut() {
             let admin = client.is_admin();
             let verified = client.is_verified();
             // Lets the governor spare the app the user is working in; a
             // refusal (e.g. an exited process) is harmless.
-            if let Some((pid, fullscreen)) = (self.foreground)() {
+            if let Some((pid, fullscreen)) = foreground {
                 let _ = client.call(&Request::Foreground { pid, fullscreen });
             }
             // Right after connecting: the service's last minutes, so the

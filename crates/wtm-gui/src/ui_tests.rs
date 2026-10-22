@@ -544,8 +544,46 @@ fn processes_row_click_and_context_menu_produce_intents() {
 }
 
 #[test]
+fn the_network_list_narrows_to_a_selection_only_while_it_runs() {
+    let d = data();
+    let alpha = ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0));
+    let shown = |only: Option<ProcessRef>| {
+        let mut action = None;
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1200.0, 900.0])
+            .build_ui(|ui| {
+                if let Some(a) = views::network(ui, &d, &mut String::new(), only.as_ref()) {
+                    action = Some(a);
+                }
+            });
+        h.run_steps(2);
+        let other = h.query_by_label("[::1]:53").is_some();
+        let button = h.query_by_label("Show all").is_some();
+        if button {
+            h.get_by_label("Show all").click();
+            h.run_steps(2);
+        }
+        drop(h);
+        (other, button, action)
+    };
+    // The selected process runs: only its connections, and a way out.
+    let (other, button, action) = shown(Some(alpha.clone()));
+    assert!(!other && button);
+    assert!(matches!(action, Some(views::NetworkAction::ShowAll)));
+    // Its PID now belongs to a later process: everything is listed.
+    let stale = ProcessRef {
+        create_time: alpha.create_time + 1,
+        ..alpha
+    };
+    let (other, button, _) = shown(Some(stale));
+    assert!(other && !button);
+}
+
+#[test]
 fn read_only_views_render() {
     let mut d = data();
+    let alpha = ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0));
     let mut filter = String::new();
     let mut h = Harness::builder()
         .allow_missing_glyphs()
@@ -553,7 +591,7 @@ fn read_only_views_render() {
         .build_ui(|ui| {
             views::users(ui, &d);
             let _ = views::network(ui, &d, &mut filter, None);
-            let _ = views::network(ui, &d, &mut "8080".to_owned(), Some(100));
+            let _ = views::network(ui, &d, &mut "8080".to_owned(), Some(&alpha));
         });
     h.run();
     assert!(h.query_by_label(r"PC\alice").is_some());
@@ -1203,7 +1241,12 @@ fn table_searches_clear_and_explain_an_empty_result() {
         .with_size([360.0, 700.0])
         .with_pixels_per_point(2.0)
         .build_ui(|ui| {
-            let _ = views::network(ui, &d, &mut pages.network, Some(100));
+            let _ = views::network(
+                ui,
+                &d,
+                &mut pages.network,
+                Some(&ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0))),
+            );
             let _ = views::services(ui, &d, &mut pages.services);
             crate::ports_tab::ports_tab(ui, &d, &mut pages.ports, &mut Vec::new());
         });

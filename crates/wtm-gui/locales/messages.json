@@ -5734,7 +5734,7 @@
     "de": "Welche Dateien gelesen und geschrieben werden, erfordert den RustWTM-Dienst oder Administratorrechte.",
     "fr": "Voir quels fichiers sont lus et écrits nécessite le service RustWTM ou des droits administrateur.",
     "es": "Ver qué archivos se leen y escriben requiere el servicio RustWTM o derechos de administrador."
-    },
+  },
   "More below": {
     "tr": "Aşağıda devamı var",
     "de": "Weiter unten mehr",
@@ -6106,7 +6106,7 @@
     "de": "Alle Netzwerke",
     "fr": "Tous les réseaux",
     "es": "Todas las redes"
-    },
+  },
   "Suspended": {
     "tr": "Askıya alındı",
     "de": "Angehalten",
@@ -6130,5 +6130,41 @@
     "de": "Der Dienst konnte config.toml nicht laden und behält seine vorherigen oder Standardeinstellungen; siehe Einstellungen.",
     "fr": "Le service n'a pas pu charger config.toml et garde ses paramètres précédents ou par défaut ; voir Paramètres.",
     "es": "El servicio no pudo cargar config.toml y mantiene su configuración anterior o predeterminada; consulte Ajustes."
+  },
+  "PID {0} is not in the process list yet; try again in a moment": {
+    "tr": "PID {0} henüz işlem listesinde değil; birazdan yeniden deneyin",
+    "de": "PID {0} ist noch nicht in der Prozessliste; versuchen Sie es gleich noch einmal",
+    "fr": "Le PID {0} n'est pas encore dans la liste des processus ; réessayez dans un instant",
+    "es": "El PID {0} aún no está en la lista de procesos; inténtelo de nuevo en un momento"
+  },
+  "Stop the service \"{0}\"? Programs that rely on it may stop working until it runs again.": {
+    "tr": "\"{0}\" hizmeti durdurulsun mu? Ona bağlı programlar, hizmet yeniden çalışana kadar düzgün çalışmayabilir.",
+    "de": "Dienst \"{0}\" beenden? Programme, die ihn brauchen, funktionieren womöglich nicht, bis er wieder läuft.",
+    "fr": "Arrêter le service « {0} » ? Les programmes qui en dépendent peuvent cesser de fonctionner jusqu'à ce qu'il redémarre.",
+    "es": "¿Detener el servicio \"{0}\"? Los programas que dependen de él pueden dejar de funcionar hasta que vuelva a ejecutarse."
+  },
+  "Restart the service \"{0}\"? It stops for a moment; programs that rely on it may lose their connection to it.": {
+    "tr": "\"{0}\" hizmeti yeniden başlatılsın mı? Bir an için durur; ona bağlı programlar bağlantılarını kaybedebilir.",
+    "de": "Dienst \"{0}\" neu starten? Er hält kurz an; Programme, die ihn brauchen, können die Verbindung zu ihm verlieren.",
+    "fr": "Redémarrer le service « {0} » ? Il s'arrête un instant ; les programmes qui en dépendent peuvent perdre leur connexion.",
+    "es": "¿Reiniciar el servicio \"{0}\"? Se detiene un momento; los programas que dependen de él pueden perder la conexión."
+  },
+  "Disable the service \"{0}\"? It will no longer start, not even when Windows or a program needs it.": {
+    "tr": "\"{0}\" hizmeti devre dışı bırakılsın mı? Windows veya bir program ihtiyaç duysa bile artık başlamayacak.",
+    "de": "Dienst \"{0}\" deaktivieren? Er startet nicht mehr, auch nicht, wenn Windows oder ein Programm ihn braucht.",
+    "fr": "Désactiver le service « {0} » ? Il ne démarrera plus, même quand Windows ou un programme en a besoin.",
+    "es": "¿Deshabilitar el servicio \"{0}\"? Ya no se iniciará, ni siquiera cuando Windows o un programa lo necesite."
+  },
+  "Block network access for {0}? It cannot connect until you unblock it in the Network tab.": {
+    "tr": "{0} için ağ erişimi engellensin mi? Ağ sekmesinden engeli kaldırana kadar bağlanamaz.",
+    "de": "Netzwerkzugriff für {0} sperren? Es kann sich nicht verbinden, bis Sie es auf der Registerkarte Netzwerk freigeben.",
+    "fr": "Bloquer l'accès réseau de {0} ? Il ne pourra plus se connecter tant que vous ne le débloquez pas dans l'onglet Réseau.",
+    "es": "¿Bloquear el acceso a la red de {0}? No podrá conectarse hasta que lo desbloquee en la pestaña Red."
+  },
+  "Show all": {
+    "tr": "Tümünü göster",
+    "de": "Alle anzeigen",
+    "fr": "Tout afficher",
+    "es": "Mostrar todo"
   }
 }

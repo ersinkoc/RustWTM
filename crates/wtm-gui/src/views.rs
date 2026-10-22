@@ -165,6 +165,8 @@ pub(crate) fn closable(c: &wtm_core::Connection) -> Option<(SocketAddr, SocketAd
 pub enum NetworkAction {
     Close(SocketAddr, SocketAddr),
     Unblock(String),
+    /// Stop narrowing the list to the selected process.
+    ShowAll,
 }
 
 /// Programs cut off the network, each with a way back.
@@ -195,13 +197,22 @@ fn blocked_programs(ui: &mut Ui, data: &Data, action: &mut Option<NetworkAction>
     });
 }
 
-/// Returns what the user asked for, if anything.
+/// Returns what the user asked for, if anything. `only` narrows the list to
+/// one process while it still runs: its PID may have gone to another one.
 pub fn network(
     ui: &mut Ui,
     data: &Data,
     filter: &mut String,
-    only_pid: Option<u32>,
+    only: Option<&wtm_core::control::ProcessRef>,
 ) -> Option<NetworkAction> {
+    let only_pid = only
+        .filter(|r| {
+            data.snapshot
+                .iter()
+                .flat_map(|s| &s.processes)
+                .any(|p| p.pid == r.pid && p.create_time == r.create_time)
+        })
+        .map(|r| r.pid);
     let mut close = None;
     ui.horizontal_wrapped(|ui| {
         crate::theme::search_bar(
@@ -216,6 +227,9 @@ pub fn network(
                 "(selected process {0} only)",
                 &[format!("{}", pid)],
             ));
+            if ui.small_button(crate::i18n::tr("Show all")).clicked() {
+                close = Some(NetworkAction::ShowAll);
+            }
         }
     });
     top_talkers(ui, data);

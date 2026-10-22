@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Stopping, restarting or disabling a service and blocking a program's
+  network access are asked first.
 - Snapshots and the service's recent points carry the time they were
   measured (IPC protocol 15). The data age and the out-of-date warning use
   it, so a snapshot received again from the service's cache ages instead of
@@ -61,6 +63,15 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- The Ports tab no longer ends a program missing from the process list (it
+  could have been a later program with the same PID); it says to try again.
+- Without the service, "Calm them all down" spares the app in front as it
+  does with the service.
+- The Network tab narrows to the selected process only while that process
+  runs (not a later one with its PID), and offers *Show all*.
+- The Apps view adds up the network rates of an app's processes.
+- The Disks tab checks a typed folder off the window's thread: a sleeping
+  network drive no longer freezes the window.
 - GPU engine load per type is its busiest engine, as in Task Manager: two
   video engines at 60% each read 60%, not 100%; a process shows its busiest
   engine instead of the sum of engines of one type.

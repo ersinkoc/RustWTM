@@ -46,20 +46,15 @@ struct PortRow<'a> {
 }
 
 impl PortRow<'_> {
+    /// The programs holding the port. Only those in the process list: a
+    /// target without its start time would be ended even if its PID went to
+    /// another program meanwhile ([`blocked`] says so instead).
     fn targets(&self) -> Vec<ProcessRef> {
         let mut out: Vec<ProcessRef> = Vec::new();
-        for (u, p) in &self.uses {
-            if out.iter().any(|t| t.pid == u.pid) {
-                continue;
+        for p in self.uses.iter().filter_map(|(_, p)| *p) {
+            if !out.iter().any(|t| t.pid == p.pid) {
+                out.push(ProcessRef::from(p));
             }
-            out.push(p.map_or_else(
-                || ProcessRef {
-                    pid: u.pid,
-                    create_time: 0,
-                    name: format!("PID {}", u.pid),
-                },
-                ProcessRef::from,
-            ));
         }
         out
     }
@@ -92,6 +87,12 @@ impl PortRow<'_> {
 
 /// Why the programs holding a port cannot be ended from here, if so.
 fn blocked(row: &PortRow<'_>) -> Option<String> {
+    if let Some((u, _)) = row.uses.iter().find(|(_, p)| p.is_none()) {
+        return Some(crate::i18n::format(
+            "PID {0} is not in the process list yet; try again in a moment",
+            &[u.pid.to_string()],
+        ));
+    }
     row.uses.iter().find_map(|(u, p)| {
         let name = p.map_or("", |p| p.name.as_str());
         ports::end_blocked(u.pid, name).map(|r| format!("{name} ({}): {r}", u.pid))
@@ -786,6 +787,26 @@ mod tests {
         h.state_mut().view.show_catalog = true;
         h.run();
         assert!(h.query_by_label("Ollama").is_some());
+    }
+
+    #[test]
+    fn a_port_of_a_program_not_listed_yet_is_not_ended() {
+        let mut h = harness(PortsView {
+            free_input: "41999".into(),
+            ..PortsView::default()
+        });
+        // PID 999 holds the port but is not in the process list.
+        if let Some(Ok(connections)) = h.state_mut().data.connections.as_mut() {
+            connections.push(listen("127.0.0.1:41999", 999));
+        }
+        h.run();
+        h.get_by_label("End what uses port 41999").click();
+        h.run();
+        assert!(h.state().intents.is_empty());
+        assert!(
+            h.query_by_label_contains("PID 999 is not in the process list yet")
+                .is_some()
+        );
     }
 
     #[test]
