@@ -803,7 +803,10 @@ fn end_stuck_swarms(
     let mut budget = SWARM_END_PER_TICK;
     for swarm in wtm_policy::find_swarms(procs, &config.swarm) {
         let stuck = swarm.older_than(age, now);
-        if stuck.is_empty() || budget == 0 {
+        // Not through the executor: its check for what no policy may end
+        // is made here.
+        if stuck.is_empty() || budget == 0 || wtm_core::automatic_end_blocked(&swarm.name).is_some()
+        {
             continue;
         }
         let mins = config.swarm.end_after_mins;
