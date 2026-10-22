@@ -77,6 +77,10 @@ enum Command {
     /// Entry point used by the Service Control Manager
     #[command(hide = true)]
     Service,
+    /// Make DIR a folder only SYSTEM and Administrators can change (used by
+    /// install.ps1; elevated)
+    #[command(hide = true)]
+    PrepareInstallDir { dir: PathBuf },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -101,6 +105,7 @@ fn run(
         Command::Start => service::start(),
         Command::Stop => service::stop(),
         Command::Service => service::dispatch(),
+        Command::PrepareInstallDir { dir } => service::prepare_install_dir(&dir),
         Command::Console { data_dir } => {
             let paths = engine::Paths::under(&data_dir.unwrap_or_else(engine::default_data_dir));
             let (tx, rx) = mpsc::channel();
@@ -126,6 +131,10 @@ mod tests {
             (&["stop"], "Stop"),
             (&["service"], "Service"),
             (&["console"], "Console"),
+            (
+                &["prepare-install-dir", r"C:\Program Files\RustWTM"],
+                "PrepareInstallDir",
+            ),
         ] {
             let name = match parse(args).unwrap().command {
                 Command::Install => "Install",
@@ -134,6 +143,10 @@ mod tests {
                 Command::Start => "Start",
                 Command::Stop => "Stop",
                 Command::Service => "Service",
+                Command::PrepareInstallDir { dir } => {
+                    assert_eq!(dir, PathBuf::from(r"C:\Program Files\RustWTM"));
+                    "PrepareInstallDir"
+                }
                 Command::Console { data_dir } => {
                     assert!(data_dir.is_none());
                     "Console"

@@ -47,7 +47,7 @@ Assert (Test-Path (Join-Path $InstallDir 'docs/localization.md')) 'Language supp
 if ($Mode -eq 'script') {
     # Only SYSTEM and administrators may change what the service runs.
     $sddl = (Get-Acl -LiteralPath $InstallDir).Sddl
-    Assert ($sddl -like 'O:BA*D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)*') "install dir is admin-only ($sddl)"
+    Assert ($sddl -match '^O:(BA|SY).*D:PA?I?\(A;OICI;FA;;;SY\)\(A;OICI;FA;;;BA\)\(A;OICI;0x1200a9;;;BU\)$') "install dir is admin-only ($sddl)"
 }
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
 Assert ($machinePath -contains $InstallDir -or $machinePath -contains "$InstallDir\") 'install dir is on the machine PATH'

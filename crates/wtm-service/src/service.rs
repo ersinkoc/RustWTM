@@ -19,6 +19,7 @@ use crate::blocker::Blocker;
 use crate::engine::{self, Paths};
 use crate::ipc_server::EngineMsg;
 use crate::logging;
+use wtm_sys::security::Secured;
 
 pub const SERVICE_NAME: &str = "RustWTM";
 const DISPLAY_NAME: &str = "RustWTM Governor";
@@ -39,7 +40,6 @@ pub fn dispatch() -> anyhow::Result<()> {
 const DATA_DIR_SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)";
 
 fn service_main(_args: Vec<OsString>) {
-    use wtm_sys::security::Secured;
     let data_dir = engine::default_data_dir();
     // A folder a standard user made before installation (with a config or
     // bot token of theirs in it, or a link elsewhere) is set aside first.
@@ -148,6 +148,39 @@ fn check_location(exe: &std::path::Path, allow_any: bool) -> anyhow::Result<()> 
              the MSI), or set {ALLOW_ANY_INSTALL_DIR}=1 on a development machine",
             exe.display()
         );
+    }
+    Ok(())
+}
+
+/// Who may change the install folder: SYSTEM and Administrators; users may
+/// run what is in it.
+pub const INSTALL_DIR_SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)";
+
+/// Makes `dir` a folder only SYSTEM and Administrators can change, for
+/// `install.ps1` to copy the programs into: done through handles, never
+/// following a link, and anything in it that is not theirs is set aside.
+/// Refused when a folder above lets anyone else move it, which would let
+/// them put another folder in its place afterwards.
+pub fn prepare_install_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        wtm_sys::security::only_admins_move(dir)
+            .with_context(|| format!("checking the folders above {}", dir.display()))?,
+        "{} is not a plain absolute path, or a folder above it is a link or can be moved by \
+         others than administrators; install under Program Files",
+        dir.display()
+    );
+    match wtm_sys::security::secure_program_dir(dir, INSTALL_DIR_SDDL)
+        .with_context(|| format!("securing {}", dir.display()))?
+    {
+        Secured::Contested => {
+            anyhow::bail!("{} kept changing while it was secured", dir.display())
+        }
+        Secured::Replaced(aside) => println!(
+            "{} held what was not only administrators'; moved to {}",
+            dir.display(),
+            aside.display()
+        ),
+        Secured::Created | Secured::Kept => {}
     }
     Ok(())
 }
@@ -400,6 +433,15 @@ mod tests {
         std::thread::spawn(move || done.send(run_service(&paths).is_err()));
         assert_eq!(result.recv_timeout(Duration::from_secs(30)), Ok(true));
         assert!(!dir.exists(), "the engine never started");
+    }
+
+    #[test]
+    fn an_install_folder_others_could_move_is_refused_untouched() {
+        let dir = std::env::temp_dir().join(format!("wtm-install-dir-{}", std::process::id()));
+        let e = prepare_install_dir(&dir).unwrap_err();
+        assert!(e.to_string().contains("Program Files"), "{e}");
+        assert!(!dir.exists());
+        assert!(prepare_install_dir(std::path::Path::new(r"RustWTM")).is_err());
     }
 
     #[test]

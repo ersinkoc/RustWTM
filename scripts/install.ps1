@@ -45,17 +45,12 @@ $Repo = 'ersinkoc/RustWTM'
 $Asset = 'rustwtm-x86_64-pc-windows-msvc.zip'
 $Binaries = 'rustwtm.exe', 'wtm.exe', 'wtm-service.exe'
 $ServiceName = 'RustWTM'
-# The service runs as SYSTEM from the install directory: only SYSTEM and
-# administrators may change it; users may run what is in it.
-$InstallDirSddl = 'O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)'
+# The download is checked and copied from a folder only SYSTEM and
+# administrators can reach.
 $WorkDirSddl = 'O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
 
 function Write-Step([string]$Message) {
     Write-Host "==> $Message" -ForegroundColor Cyan
-}
-
-function Test-ReparsePoint([string]$Path) {
-    [bool]([IO.File]::GetAttributes($Path) -band [IO.FileAttributes]::ReparsePoint)
 }
 
 function Set-Sddl([string]$Path, [string]$Sddl) {
@@ -64,36 +59,15 @@ function Set-Sddl([string]$Path, [string]$Sddl) {
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
-# Makes $Dir a folder only SYSTEM and administrators can change, everything
-# in it included. A link is refused rather than followed: the permissions
-# would land on whatever it points to.
-function Protect-InstallDir([string]$Dir) {
-    if (Test-Path -LiteralPath $Dir) {
-        if (Test-ReparsePoint $Dir) { throw "$Dir is a link; install to a real folder." }
-        takeown.exe /F $Dir /A | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Could not take ownership of $Dir." }
-    } else {
-        New-Item -ItemType Directory -Path $Dir | Out-Null
-    }
-    # Cut everyone else off first, then look inside: nothing can be added
-    # behind the check.
-    Set-Sddl $Dir $InstallDirSddl
-    $pending = [Collections.Generic.Stack[string]]::new()
-    $pending.Push($Dir)
-    $any = $false
-    while ($pending.Count) {
-        foreach ($child in [IO.Directory]::EnumerateFileSystemEntries($pending.Pop())) {
-            $any = $true
-            if (Test-ReparsePoint $child) { throw "$child is a link; remove it before installing to $Dir." }
-            if ([IO.File]::GetAttributes($child) -band [IO.FileAttributes]::Directory) { $pending.Push($child) }
-        }
-    }
-    if ($any) {
-        # What was there gets the folder's permissions and owner.
-        icacls.exe (Join-Path $Dir '*') /setowner '*S-1-5-32-544' /T /C /L /Q | Out-Null
-        icacls.exe (Join-Path $Dir '*') /reset /T /C /L /Q | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Could not reset the permissions inside $Dir." }
-    }
+# Makes $Dir a folder only SYSTEM and administrators can change, as the
+# service runs as SYSTEM from it. wtm-service does it through handles,
+# never following a link (checking for one first and then changing the
+# folder by name would leave a moment to swap it), sets aside anything in it
+# that is not only administrators', and refuses a folder that others could
+# move away from under its name.
+function Protect-InstallDir([string]$Dir, [string]$Source) {
+    & (Join-Path $Source 'wtm-service.exe') prepare-install-dir $Dir
+    if ($LASTEXITCODE -ne 0) { throw "Could not make $Dir an administrators-only folder." }
     # A DLL next to the programs would be loaded by them, the service too;
     # RustWTM ships none.
     $stray = Get-ChildItem -LiteralPath $Dir -Filter '*.dll' -File -Force
@@ -184,6 +158,9 @@ if (-not $DownloadOnly -and -not (Test-Admin)) {
     throw 'Run this script from an elevated PowerShell (Run as administrator), or use -DownloadOnly.'
 }
 
+# A plain absolute path: what is checked is what is installed to.
+$InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\')
+
 # Elevated, the download is checked and copied from a folder only
 # administrators can change: in the user's own temp folder, anything running
 # as the user could swap the files between the checksum and the copy.
@@ -212,7 +189,7 @@ try {
     if ($DownloadOnly) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     } else {
-        Protect-InstallDir $InstallDir
+        Protect-InstallDir $InstallDir $source
     }
     $files = $Binaries + 'uninstall.ps1', 'README.md', 'LICENSE', 'CHANGELOG.md'
     foreach ($f in $files) {

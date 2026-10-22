@@ -31,9 +31,11 @@ All notable changes to this project are documented here. The format follows
   Administrators and TrustedInstaller can change, or a folder above it they
   could rename or take: whoever can replace the program gets SYSTEM. Set
   `RUSTWTM_ALLOW_ANY_INSTALL_DIR=1` on a development machine to install from
-  a build folder.
-- `install.ps1` makes the install folder admin-only before copying (taking
-  it over, resetting what is inside, refusing links and stray DLLs), checks
+  a build folder. No folder on the way may be a link.
+- `install.ps1` makes the install folder admin-only before copying, through
+  handles and without following links (`wtm-service prepare-install-dir`
+  sets aside what is not only administrators' and refuses a folder others
+  could move, or one reached through a link), refuses stray DLLs, checks
   and copies the download from an admin-only folder, and `uninstall.ps1`
   continues from a fresh admin-only folder instead of a fixed name in the
   user's temp folder. Both delete folders without following links in them.

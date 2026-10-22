@@ -111,6 +111,14 @@ pub fn secure_dir(path: &Path, sddl: &str) -> Result<Secured> {
     secure_dir_with(path, sddl, trusted_owner)
 }
 
+/// [`secure_dir`] for a folder of programs, which may hold what Windows
+/// gives TrustedInstaller under Program Files.
+pub fn secure_program_dir(path: &Path, sddl: &str) -> Result<Secured> {
+    secure_dir_with(path, sddl, |sid| {
+        trusted_owner(sid) || is_trusted_installer(sid)
+    })
+}
+
 fn secure_dir_with(path: &Path, sddl: &str, trusted: impl Fn(PSID) -> bool) -> Result<Secured> {
     let sd = Descriptor::from_sddl(sddl)?;
     let dacl = sd.dacl()?;
@@ -319,27 +327,44 @@ pub fn only_admins_control(path: &Path) -> Result<bool> {
         return Ok(false);
     }
     // Its folder: nobody else may add a file (a DLL) or change one.
-    let Some(folder) = path.parent().filter(|d| !d.as_os_str().is_empty()) else {
+    let Some(folder) = path.parent() else {
         return Ok(false);
     };
-    let handle = open(&folder.as_os_str().encode_wide_nul(), READ_CONTROL)?;
-    if trustworthy(&handle, &trusted)? != Some(true) {
+    if !only_admins_move(folder)? {
         return Ok(false);
     }
-    // The folders above: nobody else may move or remove what is in them,
-    // or take them.
+    let handle = open(&folder.as_os_str().encode_wide_nul(), READ_CONTROL)?;
+    Ok(trustworthy(&handle, &trusted)? == Some(true))
+}
+
+/// Whether nobody but SYSTEM, Administrators and TrustedInstaller can move,
+/// remove or take any folder `path` lies in, so that `path` keeps naming
+/// what it names. The path must be absolute and plain (no `.` or `..`), and
+/// no folder on the way may be a link: the folders checked are then the
+/// ones the path goes through.
+pub fn only_admins_move(path: &Path) -> Result<bool> {
+    use std::path::Component;
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|c| matches!(c, Component::CurDir | Component::ParentDir))
+    {
+        return Ok(false);
+    }
+    let trusted = |sid: PSID| trusted_owner(sid) || is_trusted_installer(sid);
     const TAKE_OR_MOVE: u32 = 0x0040 // FILE_DELETE_CHILD
         | 0x0001_0000 // DELETE
         | 0x0004_0000 // WRITE_DAC
         | 0x0008_0000 // WRITE_OWNER
         | 0x1000_0000; // GENERIC_ALL
-    for above in folder
-        .ancestors()
-        .skip(1)
-        .filter(|d| !d.as_os_str().is_empty())
-    {
+    for above in path.ancestors().skip(1) {
         let handle = open(&above.as_os_str().encode_wide_nul(), READ_CONTROL)?;
-        if !guarded(&handle, TAKE_OR_MOVE, false, &trusted)? {
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // SAFETY: `handle` is valid; `info` is writable.
+        unsafe { GetFileInformationByHandle(handle.raw(), &mut info)? };
+        if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+            || !guarded(&handle, TAKE_OR_MOVE, false, &trusted)?
+        {
             return Ok(false);
         }
     }
@@ -577,11 +602,41 @@ mod tests {
     }
 
     #[test]
+    fn folders_above_must_be_plain_and_held_by_administrators() {
+        let windows = std::env::var("SystemRoot").unwrap();
+        assert!(only_admins_move(&Path::new(&windows).join("System32")).unwrap());
+        // Relative, or going up and down: not judged.
+        assert!(!only_admins_move(Path::new(r"Windows\System32")).unwrap());
+        let odd = Path::new(&windows).join(r"..\Windows\System32");
+        assert!(!only_admins_move(&odd).unwrap());
+
+        // A folder reached through a link is refused, wherever it leads.
+        let dir = scratch("above");
+        let link = dir.join("link");
+        let made = std::process::Command::new("cmd.exe")
+            .args(["/d", "/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&windows)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{made:?}");
+        assert!(!only_admins_move(&link.join("System32")).unwrap());
+        std::fs::remove_dir(&link).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_missing_directory_is_created_secured() {
         let parent = scratch("create");
         let dir = parent.join("data");
         assert_eq!(secure_dir(&dir, SDDL).unwrap(), Secured::Created);
         assert!(protected(&dir));
+        let programs = parent.join("programs");
+        assert_eq!(
+            secure_program_dir(&programs, SDDL).unwrap(),
+            Secured::Created
+        );
+        assert!(protected(&programs));
         std::fs::remove_dir_all(&parent).unwrap();
     }
 
