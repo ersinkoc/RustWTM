@@ -441,6 +441,12 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     if new.game_mode != config.game_mode {
                         executor.restore_sources(&[Source::GameMode], "game mode settings changed");
                         game_mode = GameMode::new(new.game_mode.clone());
+                        // The new game mode never reports the game in front
+                        // as ended: the plan goes back now unless it is
+                        // still wanted.
+                        if !(new.game_mode.enabled && new.game_mode.power_plan) {
+                            restore_plan(&mut saved_plan, &shared.events);
+                        }
                     }
                     governor.set_config(new.governor.clone());
                     memory_guard.set_config(new.memory_guard.clone());
