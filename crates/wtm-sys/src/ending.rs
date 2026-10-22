@@ -169,7 +169,8 @@ pub fn protection_label(protection: u8) -> String {
 
 /// Everything that explains why `pid` is still there. Opens it twice (a
 /// limited query, and once with the right to end it, which is only checked,
-/// never used) and reads the system handle table.
+/// never used) and reads the system handle table. An exit status of 259
+/// costs a third open, to wait on it without blocking.
 pub fn why_alive(pid: u32) -> crate::Result<EndReport> {
     let mut report = EndReport {
         deleting: false,
@@ -195,7 +196,12 @@ pub fn why_alive(pid: u32) -> crate::Result<EndReport> {
     if let Ok(handle) = &query {
         if let Ok(basic) = extended_basic(handle) {
             report.deleting = basic.flags & FLAG_IS_DELETING != 0;
-            report.exited = basic.exit_status != STILL_ACTIVE;
+            // An exit code of 259 reads like STILL_ACTIVE; only the signaled
+            // process object tells it apart from a running process.
+            report.exited = basic.exit_status != STILL_ACTIVE
+                || ProcessHandle::open(pid, Access::SYNCHRONIZE)
+                    .and_then(|h| h.wait_exit(std::time::Duration::ZERO))
+                    .unwrap_or(false);
         }
         report.critical = handle.is_critical().unwrap_or(false);
         report.protection = protection(handle);

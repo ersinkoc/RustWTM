@@ -208,15 +208,13 @@ impl Executor {
             }
             r
         } else {
-            let entry = self.touched.entry(key(t)).or_insert_with(|| {
-                let details = control::inspect(t).ok();
-                Touched {
-                    target: t.clone(),
-                    original_priority: details.as_ref().and_then(|d| d.priority),
-                    original_eco: details.as_ref().and_then(|d| d.eco_qos),
-                    actions: HashMap::new(),
-                    applied: Effective::default(),
-                }
+            // The originals are read when a setting is first taken (in `reconcile`).
+            let entry = self.touched.entry(key(t)).or_insert_with(|| Touched {
+                target: t.clone(),
+                original_priority: None,
+                original_eco: None,
+                actions: HashMap::new(),
+                applied: Effective::default(),
             });
             notable |= source == Source::Governor && !entry.actions.contains_key(&source);
             // A newer action of the same kind from the same source replaces the old one.
@@ -330,6 +328,21 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
     let target = &t.target;
     let mut errors = Vec::new();
 
+    // What the process has when RustWTM takes a setting over is what a
+    // rollback returns to; an earlier touch for another reason (a cap) may
+    // predate a change made outside RustWTM.
+    let takes_priority = new.priority.is_some() && old.priority.is_none();
+    let takes_eco = new.eco_qos && !old.eco_qos;
+    if (takes_priority || takes_eco)
+        && let Ok(d) = control::inspect(target)
+    {
+        if takes_priority {
+            t.original_priority = d.priority.or(t.original_priority);
+        }
+        if takes_eco {
+            t.original_eco = d.eco_qos.or(t.original_eco);
+        }
+    }
     if new.priority != old.priority {
         let priority = new
             .priority

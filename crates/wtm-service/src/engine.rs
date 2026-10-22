@@ -438,7 +438,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 .recent
                 .write()
                 .unwrap_or_else(PoisonError::into_inner);
-            recent.push_back(wtm_ipc::SystemPoint::of(&snap.system));
+            recent.push_back(wtm_ipc::SystemPoint::of(&snap));
             while recent.len() > RECENT_LEN {
                 recent.pop_front();
             }
@@ -1254,10 +1254,15 @@ mod tests {
             "cannot block b.exe: another program set its debugger"
         );
 
-        // A marked entry without a debugger cannot be removed cleanly.
+        // A marked entry whose debugger vanished is still taken out.
         let (broken, _) = hkcu.create_subkey(format!(r"{key}\c.exe")).unwrap();
         broken.set_value("RustWTMBlock", &1u32).unwrap();
         sync_blocks(Some(&b), &Config::default(), &events);
+        assert_eq!(messages().last().unwrap(), "no longer blocked: c.exe");
+
+        // Registry key names are limited to 255 characters.
+        config.block = vec![format!("{}.exe", "x".repeat(300))];
+        sync_blocks(Some(&b), &config, &events);
         assert!(
             messages()
                 .last()
@@ -1697,6 +1702,7 @@ mod unit_tests {
             },
             processes: Vec::new(),
             net_traced: false,
+            taken_at_ms: 0,
         };
         let shared = Shared::default();
         let mut insights = InsightPolicy::new();
@@ -1783,6 +1789,7 @@ mod unit_tests {
             system: Default::default(),
             processes: Vec::new(),
             net_traced: false,
+            taken_at_ms: 0,
         };
         let shared = Shared::default();
         let mut executor = Executor::new(true, shared.events.clone());

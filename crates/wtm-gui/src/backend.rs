@@ -120,6 +120,9 @@ pub enum Mode {
 
 #[derive(Debug, Default)]
 pub struct History {
+    /// When each point was measured, in Unix milliseconds: one per entry of
+    /// every series below, and of the last entries of `cores`.
+    pub times: VecDeque<u64>,
     pub cpu: VecDeque<f32>,
     pub memory: VecDeque<f32>,
     pub gpu: VecDeque<f32>,
@@ -135,6 +138,8 @@ pub struct History {
 /// Recent samples of one process, oldest first.
 #[derive(Debug, Default)]
 pub struct ProcessHistory {
+    /// When each sample was measured, in Unix milliseconds.
+    pub times: VecDeque<u64>,
     pub cpu: VecDeque<f32>,
     /// Private working set, bytes.
     pub memory: VecDeque<f32>,
@@ -144,8 +149,11 @@ pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory
 
 #[derive(Debug, Default)]
 pub struct Data {
-    /// Receipt time in this GUI, not the service's measurement timestamp.
+    /// Receipt time in this GUI.
     pub sample_received_at: Option<Instant>,
+    /// When the shown sample was measured, on this GUI's clock. A sample
+    /// received again from the service's cache keeps its old time.
+    pub sample_measured_at: Option<Instant>,
     /// Latest sampling failure; cleared only by a successful snapshot.
     pub sample_error: Option<String>,
     pub frequency: Option<Result<wtm_core::power::FrequencyReport, String>>,
@@ -224,7 +232,8 @@ pub enum SampleFreshness {
 impl Data {
     pub fn sample_freshness(&self, now: Instant) -> SampleFreshness {
         let age = self
-            .sample_received_at
+            .sample_measured_at
+            .or(self.sample_received_at)
             .map(|at| now.saturating_duration_since(at));
         if self.sample_error.is_some() {
             return SampleFreshness::Stale(age);
@@ -972,6 +981,9 @@ impl Worker {
             UiCommand::CheckUpdate => {
                 let (data, ctx, latest) =
                     (self.data.clone(), self.ctx.clone(), self.updater.latest);
+                if updating(&data) {
+                    return;
+                }
                 set_update(&data, UpdateState::Checking);
                 std::thread::spawn(move || {
                     let state = match latest() {
@@ -981,12 +993,18 @@ impl Worker {
                         Ok(_) => UpdateState::UpToDate,
                         Err(e) => UpdateState::Failed(e),
                     };
-                    set_update(&data, state);
+                    finish_check(&data, state);
                     ctx.request_repaint();
                 });
             }
             UiCommand::InstallUpdate(release) => {
                 let (data, ctx, updater) = (self.data.clone(), self.ctx.clone(), self.updater);
+                if matches!(
+                    data.lock().unwrap_or_else(PoisonError::into_inner).update,
+                    UpdateState::Installing(_)
+                ) {
+                    return;
+                }
                 set_update(&data, UpdateState::Installing(release.clone()));
                 std::thread::spawn(move || {
                     let dir = std::env::temp_dir().join("RustWTM-update");
@@ -1602,6 +1620,7 @@ fn publish_local(data: &mut Data, sample: wtm_core::Result<Snapshot>) {
 fn fill_history(h: &mut History, points: &[wtm_ipc::SystemPoint]) {
     let points = &points[points.len().saturating_sub(HISTORY_LEN)..];
     let series = |f: fn(&wtm_ipc::SystemPoint) -> f32| points.iter().map(f).collect();
+    h.times = points.iter().map(|p| p.at_ms).collect();
     h.cpu = series(|p| p.cpu);
     h.memory = series(|p| p.memory);
     h.gpu = series(|p| p.gpu);
@@ -1622,8 +1641,21 @@ fn fill_history(h: &mut History, points: &[wtm_ipc::SystemPoint]) {
 }
 
 fn publish(data: &mut Data, snapshot: Snapshot) {
-    data.sample_received_at = Some(Instant::now());
+    let (now, unix_now) = (Instant::now(), wtm_core::hardware::unix_ms());
+    // The service answers from its latest sample; asked again before it
+    // measures anew, it returns the same one, which adds nothing to graphs.
+    let new = snapshot.taken_at_ms == 0
+        || data
+            .snapshot
+            .as_ref()
+            .is_none_or(|s| s.taken_at_ms != snapshot.taken_at_ms);
+    data.sample_received_at = Some(now);
+    data.sample_measured_at = Some(measured_at(now, unix_now, snapshot.taken_at_ms));
     data.sample_error = None;
+    let at_ms = match snapshot.taken_at_ms {
+        0 => unix_now,
+        t => t,
+    };
     let s = &snapshot.system;
     let mem = if s.memory_total > 0 {
         s.memory_used() as f32 / s.memory_total as f32 * 100.0
@@ -1631,8 +1663,10 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
         0.0
     };
     // The very first local sample has no interval and reads 0% everywhere.
-    if snapshot.interval.is_some() {
+    if snapshot.interval.is_some() && new {
         let h = &mut data.history;
+        h.times.push_back(at_ms);
+        trim(&mut h.times, HISTORY_LEN);
         for (series, value) in [
             (&mut h.cpu, s.cpu_percent),
             (&mut h.memory, mem),
@@ -1650,7 +1684,7 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
             series.push_back(load);
             trim(series, CORE_HISTORY_LEN);
         }
-        update_process_history(&mut data.process_history, &snapshot.processes);
+        update_process_history(&mut data.process_history, &snapshot.processes, at_ms);
     }
     trim(&mut data.events, EVENTS_KEPT);
     update_command_lines(&mut data.command_lines, &snapshot.processes);
@@ -1658,8 +1692,34 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     data.snapshot = Some(Arc::new(snapshot));
 }
 
+/// `taken_at_ms` (Unix milliseconds) on the monotonic clock, given that it
+/// is `unix_now` at `now`; `now` when unknown or ahead of this clock.
+fn measured_at(now: Instant, unix_now: u64, taken_at_ms: u64) -> Instant {
+    if taken_at_ms == 0 {
+        return now;
+    }
+    now.checked_sub(Duration::from_millis(unix_now.saturating_sub(taken_at_ms)))
+        .unwrap_or(now)
+}
+
 fn set_update(data: &Mutex<Data>, state: UpdateState) {
     data.lock().unwrap_or_else(PoisonError::into_inner).update = state;
+}
+
+/// An update is being checked for or installed.
+fn updating(data: &Mutex<Data>) -> bool {
+    matches!(
+        data.lock().unwrap_or_else(PoisonError::into_inner).update,
+        UpdateState::Checking | UpdateState::Installing(_)
+    )
+}
+
+/// Shows the outcome of a check, unless an install began while it ran.
+fn finish_check(data: &Mutex<Data>, state: UpdateState) {
+    let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+    if data.update == UpdateState::Checking {
+        data.update = state;
+    }
 }
 
 /// Shows the window above everything and keeps RustWTM responsive while
@@ -1680,14 +1740,20 @@ fn calm_window(window: isize) {
 }
 
 /// Appends the latest sample of every process and forgets exited ones.
-fn update_process_history(histories: &mut ProcessHistories, procs: &[wtm_core::ProcessInfo]) {
+fn update_process_history(
+    histories: &mut ProcessHistories,
+    procs: &[wtm_core::ProcessInfo],
+    at_ms: u64,
+) {
     let live: std::collections::HashSet<(u32, i64)> =
         procs.iter().map(|p| (p.pid, p.create_time)).collect();
     histories.retain(|k, _| live.contains(k));
     for p in procs {
         let h = histories.entry((p.pid, p.create_time)).or_default();
+        h.times.push_back(at_ms);
         h.cpu.push_back(p.cpu_percent);
         h.memory.push_back(p.private_working_set as f32);
+        trim(&mut h.times, PROCESS_HISTORY_LEN);
         trim(&mut h.cpu, PROCESS_HISTORY_LEN);
         trim(&mut h.memory, PROCESS_HISTORY_LEN);
     }
@@ -2040,20 +2106,67 @@ mod tests {
         let b = crate::ui_tests::proc(11, 0, "b.exe", 1.0);
         for i in 0..PROCESS_HISTORY_LEN + 5 {
             a.cpu_percent = i as f32;
-            update_process_history(&mut h, &[a.clone(), b.clone()]);
+            update_process_history(&mut h, &[a.clone(), b.clone()], i as u64 * 1000);
         }
         let ha = &h[&(10, a.create_time)];
         assert_eq!(ha.cpu.len(), PROCESS_HISTORY_LEN);
+        assert_eq!(ha.times.len(), PROCESS_HISTORY_LEN);
+        assert_eq!(
+            ha.times.back(),
+            Some(&((PROCESS_HISTORY_LEN + 4) as u64 * 1000))
+        );
         assert_eq!(ha.cpu.back(), Some(&((PROCESS_HISTORY_LEN + 4) as f32)));
         assert_eq!(ha.memory.len(), PROCESS_HISTORY_LEN);
         // b exits.
-        update_process_history(&mut h, &[a.clone()]);
+        update_process_history(&mut h, &[a.clone()], 0);
         assert_eq!(h.len(), 1);
+    }
+
+    #[test]
+    fn a_sample_received_again_adds_no_point_and_keeps_its_age() {
+        let mut d = Data::default();
+        let measured = wtm_core::hardware::unix_ms() - 30_000;
+        let sample = |taken_at_ms, cpu| Snapshot {
+            interval: Some(Duration::from_secs(2)),
+            taken_at_ms,
+            system: wtm_core::SystemStats {
+                cpu_percent: cpu,
+                ..Default::default()
+            },
+            ..crate::ui_tests::snapshot()
+        };
+        publish(&mut d, sample(measured, 10.0));
+        publish(&mut d, sample(measured, 10.0));
+        assert_eq!(d.history.cpu, [10.0]);
+        assert_eq!(d.history.times, [measured]);
+        // Received just now, measured half a minute ago: out of date.
+        let now = Instant::now();
+        assert!(d.sample_received_at.unwrap() <= now);
+        assert!(matches!(
+            d.sample_freshness(now),
+            SampleFreshness::Stale(Some(age)) if age >= Duration::from_secs(29)
+        ));
+
+        publish(&mut d, sample(measured + 2000, 20.0));
+        assert_eq!(d.history.cpu, [10.0, 20.0]);
+        assert_eq!(d.history.times, [measured, measured + 2000]);
+    }
+
+    #[test]
+    fn measurement_times_map_onto_the_monotonic_clock() {
+        let now = Instant::now();
+        assert_eq!(measured_at(now, 10_000, 0), now, "unknown");
+        assert_eq!(measured_at(now, 10_000, 12_000), now, "clock behind");
+        assert_eq!(
+            now.duration_since(measured_at(now, 10_000, 7_500)),
+            Duration::from_millis(2500)
+        );
     }
 
     #[test]
     fn history_is_filled_from_the_services_recent_points() {
         let point = |i: usize| wtm_ipc::SystemPoint {
+            at_ms: i as u64 * 2000,
             cpu: i as f32,
             memory: 1.0,
             gpu: 2.0,
@@ -2070,6 +2183,8 @@ mod tests {
         );
         assert_eq!(h.cpu.len(), HISTORY_LEN);
         assert_eq!(h.cpu.front(), Some(&10.0), "the oldest are dropped");
+        assert_eq!(h.times.len(), HISTORY_LEN);
+        assert_eq!(h.times.front(), Some(&20_000), "times match the points");
         assert_eq!((h.net_tx[0], h.io_write[0]), (4.0, 6.0));
         assert_eq!(h.cores.len(), 2);
         assert_eq!(h.cores[1].len(), CORE_HISTORY_LEN);
@@ -2094,6 +2209,7 @@ mod tests {
                 system: wtm_core::SystemStats::default(),
                 processes: procs,
                 net_traced: false,
+                taken_at_ms: 0,
             }))
         };
         w.data().snapshot = snapshot(vec![a.clone(), b.clone()]);
@@ -2177,6 +2293,24 @@ mod tests {
             assert!(Instant::now() < deadline, "update never settled");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn a_check_never_disturbs_an_install_under_way() {
+        let mut w = worker();
+        w.updater.latest = || panic!("no check while installing");
+        w.updater.download = |_, _| panic!("no second install");
+        set_update(&w.data, UpdateState::Installing(release(99)));
+        w.handle(UiCommand::CheckUpdate);
+        w.handle(UiCommand::InstallUpdate(release(98)));
+        assert_eq!(w.data().update, UpdateState::Installing(release(99)));
+
+        // A check that was already running when the install began.
+        finish_check(&w.data, UpdateState::Available(release(99)));
+        assert_eq!(w.data().update, UpdateState::Installing(release(99)));
+        set_update(&w.data, UpdateState::Checking);
+        finish_check(&w.data, UpdateState::UpToDate);
+        assert_eq!(w.data().update, UpdateState::UpToDate);
     }
 
     #[test]
@@ -2539,6 +2673,7 @@ mod tests {
             Request::Recent => Response::Recent(
                 (0..400)
                     .map(|i| wtm_ipc::SystemPoint {
+                        at_ms: 1 + i * 1000,
                         cpu: i as f32 / 4.0,
                         memory: 50.0,
                         gpu: 1.0,

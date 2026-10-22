@@ -268,6 +268,7 @@ impl Sampler {
             system,
             processes,
             net_traced: self.network_traced(),
+            taken_at_ms: crate::hardware::unix_ms(),
         })
     }
 }

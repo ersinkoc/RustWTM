@@ -26,7 +26,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// are authorized individually by the server).
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 14;
+pub const PROTOCOL_VERSION: u32 = 15;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -160,6 +160,8 @@ pub enum Response {
 /// System-wide load at one sample, for history graphs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SystemPoint {
+    /// When it was measured, in milliseconds since the Unix epoch.
+    pub at_ms: u64,
     pub cpu: f32,
     /// Share of physical memory in use, 0..=100.
     pub memory: f32,
@@ -174,8 +176,10 @@ pub struct SystemPoint {
 }
 
 impl SystemPoint {
-    pub fn of(s: &wtm_core::SystemStats) -> Self {
+    pub fn of(snap: &Snapshot) -> Self {
+        let s = &snap.system;
         Self {
+            at_ms: snap.taken_at_ms,
             cpu: s.cpu_percent,
             memory: s.memory_used() as f32 * 100.0 / s.memory_total.max(1) as f32,
             gpu: s.gpu_percent,
@@ -304,9 +308,12 @@ pub fn read_frame_with<T: DeserializeOwned>(r: &mut impl Read, buf: &mut Vec<u8>
     if len > MAX_FRAME {
         return Err(invalid("frame too large"));
     }
+    // Grown as the body arrives: a header alone commits nothing.
     buf.clear();
-    buf.resize(len, 0);
-    r.read_exact(buf)?;
+    r.take(len as u64).read_to_end(buf)?;
+    if buf.len() < len {
+        return Err(io::ErrorKind::UnexpectedEof.into());
+    }
     postcard::from_bytes(buf).map_err(invalid)
 }
 
@@ -524,6 +531,24 @@ mod tests {
     }
 
     #[test]
+    fn a_large_announced_body_takes_memory_only_as_it_arrives() {
+        /// A pipe-like reader: no size hint, a few bytes per read.
+        struct Trickle(Cursor<Vec<u8>>);
+        impl Read for Trickle {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let n = buf.len().min(2);
+                self.0.read(&mut buf[..n])
+            }
+        }
+        let mut wire = (MAX_FRAME as u32).to_le_bytes().to_vec();
+        wire.extend([1, 2, 3]);
+        let mut buf = Vec::new();
+        let e = read_frame_with::<Request>(&mut Trickle(Cursor::new(wire)), &mut buf).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(buf.capacity() < 64 << 10, "{} bytes taken", buf.capacity());
+    }
+
+    #[test]
     fn rejects_truncated_and_garbled_frames() {
         // Length promises more bytes than follow.
         let mut buf = 8u32.to_le_bytes().to_vec();
@@ -724,6 +749,7 @@ mod tests {
             },
             processes,
             net_traced: false,
+            taken_at_ms: 0,
         }
     }
 

@@ -17,11 +17,11 @@
     "fr": "Les valeurs affichées proviennent du dernier échantillon reçu. Elles ne représentent pas l’activité actuelle.",
     "es": "Los valores mostrados corresponden a la última muestra recibida. No indican la actividad actual."
   },
-  "Last data received {0}s ago": {
-    "tr": "Son veri {0} sn önce alındı",
-    "de": "Letzte Daten vor {0} s empfangen",
-    "fr": "Dernières données reçues il y a {0} s",
-    "es": "Últimos datos recibidos hace {0} s"
+  "Data measured {0}s ago": {
+    "tr": "Veri {0} sn önce ölçüldü",
+    "de": "Daten vor {0} s gemessen",
+    "fr": "Données mesurées il y a {0} s",
+    "es": "Datos medidos hace {0} s"
   },
   "The service has not supplied a sample.": {
     "tr": "Servis henüz bir ölçüm sağlamadı.",

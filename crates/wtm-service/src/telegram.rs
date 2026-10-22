@@ -1601,6 +1601,7 @@ mod tests {
                 system: wtm_core::SystemStats::default(),
                 processes: self.procs.clone(),
                 net_traced: false,
+                taken_at_ms: 0,
             }))
         }
         fn status(&self) -> Status {

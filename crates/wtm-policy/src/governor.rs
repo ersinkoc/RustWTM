@@ -213,6 +213,7 @@ mod tests {
             },
             processes: procs,
             net_traced: false,
+            taken_at_ms: 0,
         }
     }
 

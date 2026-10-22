@@ -1260,7 +1260,7 @@ fn data_age(ui: &mut Ui, data: &Data, now: Instant) {
         SampleFreshness::Stale(Some(age)) => (age, true),
         SampleFreshness::Stale(None) => return,
     };
-    let text = crate::i18n::format("Last data received {0}s ago", &[age.as_secs().to_string()]);
+    let text = crate::i18n::format("Data measured {0}s ago", &[age.as_secs().to_string()]);
     if stale {
         crate::theme::colored(ui, WARN, text);
     } else {
@@ -1910,8 +1910,15 @@ fn details_panel(
     {
         ui.add_space(8.0);
         ui.label(RichText::new(crate::i18n::tr("Last two minutes")).strong());
-        process_plot(ui, "proc_cpu", "CPU", &h.cpu, false);
-        process_plot(ui, "proc_mem", crate::i18n::tr("Memory"), &h.memory, true);
+        process_plot(ui, "proc_cpu", "CPU", &h.times, &h.cpu, false);
+        process_plot(
+            ui,
+            "proc_mem",
+            crate::i18n::tr("Memory"),
+            &h.times,
+            &h.memory,
+            true,
+        );
     }
 
     ui.add_space(8.0);
@@ -1947,15 +1954,11 @@ fn process_plot(
     ui: &mut Ui,
     id: &str,
     label: &str,
+    times: &std::collections::VecDeque<u64>,
     values: &std::collections::VecDeque<f32>,
     bytes: bool,
 ) {
-    let len = values.len() as f64;
-    let points: PlotPoints = values
-        .iter()
-        .enumerate()
-        .map(|(i, v)| [i as f64 - len, f64::from(*v)])
-        .collect();
+    let points = series_points(times, values);
     let unit = move |v: f64| {
         if bytes {
             format_bytes(v.max(0.0))
@@ -1985,12 +1988,23 @@ fn process_plot(
 /// Height of the large graphs on the Performance tab.
 const PLOT_HEIGHT: f32 = 120.0;
 
-fn series_points(values: &std::collections::VecDeque<f32>) -> PlotPoints<'static> {
-    let len = values.len() as f64;
-    values
+/// `values` at the times they were measured (Unix milliseconds), in seconds
+/// before the newest, so a slower sampling interval or a delayed sample
+/// keeps its real place on the time axis. The newest entries of both pair up.
+fn series_points(
+    times: &std::collections::VecDeque<u64>,
+    values: &std::collections::VecDeque<f32>,
+) -> PlotPoints<'static> {
+    let n = times.len().min(values.len());
+    let newest = times.back().copied().unwrap_or_default();
+    times
         .iter()
-        .enumerate()
-        .map(|(i, v)| [i as f64 - len, f64::from(*v)])
+        .skip(times.len() - n)
+        .zip(values.iter().skip(values.len() - n))
+        .map(|(t, v)| {
+            let before = newest.saturating_sub(*t) as f64 / 1000.0;
+            [-before, f64::from(*v)]
+        })
         .collect()
 }
 
@@ -2017,6 +2031,7 @@ fn history_plot(
     ui: &mut Ui,
     id: &str,
     label: &str,
+    times: &std::collections::VecDeque<u64>,
     values: &std::collections::VecDeque<f32>,
     color: Color32,
 ) {
@@ -2033,7 +2048,7 @@ fn history_plot(
         })
         .show(ui, |plot| {
             plot.line(
-                Line::new(label.to_owned(), series_points(values))
+                Line::new(label.to_owned(), series_points(times, values))
                     .color(color)
                     .width(2.0)
                     .fill(0.0)
@@ -2047,6 +2062,7 @@ fn history_plot(
 fn rate_plot(
     ui: &mut Ui,
     id: &str,
+    times: &std::collections::VecDeque<u64>,
     series: [(&str, &std::collections::VecDeque<f32>, Color32); 2],
 ) {
     perf_plot(id)
@@ -2056,7 +2072,7 @@ fn rate_plot(
         .show(ui, |plot| {
             for (label, values, color) in series {
                 plot.line(
-                    Line::new(label.to_owned(), series_points(values))
+                    Line::new(label.to_owned(), series_points(times, values))
                         .color(color)
                         .width(2.0)
                         .fill(0.0)
@@ -2256,7 +2272,14 @@ fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             crate::theme::load_color(s.cpu_percent),
         )],
         |ui| {
-            history_plot(ui, "cpu_plot", "CPU", &data.history.cpu, crate::theme::CPU);
+            history_plot(
+                ui,
+                "cpu_plot",
+                "CPU",
+                &data.history.times,
+                &data.history.cpu,
+                crate::theme::CPU,
+            );
             if !s.core_percent.is_empty() {
                 ui.add_space(6.0);
                 ui.weak({
@@ -2325,6 +2348,7 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                 ui,
                 "mem_plot",
                 crate::i18n::tr("Memory"),
+                &data.history.times,
                 &data.history.memory,
                 crate::theme::MEMORY,
             );
@@ -2363,7 +2387,14 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             crate::theme::GPU,
         )],
         |ui| {
-            history_plot(ui, "gpu_plot", "GPU", &data.history.gpu, crate::theme::GPU);
+            history_plot(
+                ui,
+                "gpu_plot",
+                "GPU",
+                &data.history.times,
+                &data.history.gpu,
+                crate::theme::GPU,
+            );
             if !s.gpu_engines.is_empty() {
                 // The busiest engines; most of the others idle at 0%.
                 let mut engines: Vec<&(String, f32)> = s.gpu_engines.iter().collect();
@@ -2410,6 +2441,7 @@ fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             rate_plot(
                 ui,
                 "net_plot",
+                &data.history.times,
                 [
                     (
                         crate::i18n::tr("Receive"),
@@ -2448,6 +2480,7 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             rate_plot(
                 ui,
                 "io_plot",
+                &data.history.times,
                 [
                     (
                         crate::i18n::tr("Read"),
@@ -2858,6 +2891,22 @@ mod tests {
 
     use crate::backend::Backend;
     use crate::ui_tests::data;
+
+    #[test]
+    fn graphs_place_points_at_their_measurement_time() {
+        use std::collections::VecDeque;
+        // Every 2 s, then a sample that arrived 5 s late.
+        let times = VecDeque::from([10_000, 12_000, 14_000, 21_000]);
+        let values = VecDeque::from([9.0, 1.0, 2.0, 3.0, 4.0]);
+        let xy: Vec<[f64; 2]> = series_points(&times, &values)
+            .points()
+            .iter()
+            .map(|p| [p.x, p.y])
+            .collect();
+        // The extra oldest value has no time and is left out.
+        assert_eq!(xy, [[-11.0, 1.0], [-9.0, 2.0], [-7.0, 3.0], [0.0, 4.0]]);
+        assert!(series_points(&VecDeque::new(), &values).points().is_empty());
+    }
 
     #[test]
     fn full_app_navigates_every_tab() {
@@ -4831,7 +4880,7 @@ mod tests {
                     h.query_by_label(tab.subtitle()).is_some(),
                     "{language:?} {tab:?}"
                 );
-                let received = crate::i18n::tr("Last data received {0}s ago");
+                let received = crate::i18n::tr("Data measured {0}s ago");
                 assert!(
                     h.query_by_label_contains(received.split("{0}").next().unwrap())
                         .is_some()
@@ -5047,7 +5096,7 @@ mod tests {
             h.run();
             assert!(
                 h.query_by_label(&crate::i18n::format(
-                    "Last data received {0}s ago",
+                    "Data measured {0}s ago",
                     &["2".into()]
                 ))
                 .is_some()
@@ -5117,13 +5166,14 @@ mod bench {
     use crate::ui_tests::{data, proc};
     use std::sync::Arc;
 
-    const PROCESSES: u32 = 2000;
+    /// The fixed process-list sizes measured (see docs/0.13.0-review.md).
+    const SIZES: [u32; 2] = [1_000, 10_000];
     const FRAMES: u32 = 100;
 
-    fn busy_data() -> Data {
+    fn busy_data(processes: u32) -> Data {
         let mut d = data();
         let mut snap = d.snapshot.as_deref().unwrap().clone();
-        snap.processes = (0..PROCESSES)
+        snap.processes = (0..processes)
             .map(|i| {
                 let pid = 1000 + i * 4;
                 let parent = if i < 50 { 4 } else { 1000 + (i % 50) * 4 };
@@ -5178,8 +5228,16 @@ mod bench {
         d
     }
 
-    fn per_frame(language: crate::i18n::Language, setup: impl FnOnce(&mut UiState)) -> Duration {
-        let (backend, _rx) = Backend::offline(busy_data());
+    /// Median frame time, which other load on the machine skews less than
+    /// the mean. With `fresh`, every frame sees a new data revision,
+    /// as when a sample arrives: nothing cached from the previous frame holds.
+    fn per_frame(
+        processes: u32,
+        fresh: bool,
+        language: crate::i18n::Language,
+        setup: impl FnOnce(&mut UiState),
+    ) -> Duration {
+        let (backend, _rx) = Backend::offline(busy_data(processes));
         let mut state = UiState {
             language,
             ..Default::default()
@@ -5197,11 +5255,19 @@ mod bench {
         for _ in 0..10 {
             h.step();
         }
-        let start = Instant::now();
-        for _ in 0..FRAMES {
-            h.step();
-        }
-        start.elapsed() / FRAMES
+        let mut frames: Vec<Duration> = (0..FRAMES)
+            .map(|_| {
+                if fresh {
+                    let mut data = h.state_mut().backend.data();
+                    data.revision = data.revision.wrapping_add(1);
+                }
+                let start = Instant::now();
+                h.step();
+                start.elapsed()
+            })
+            .collect();
+        frames.sort_unstable();
+        frames[frames.len() / 2]
     }
 
     #[test]
@@ -5234,9 +5300,17 @@ mod bench {
             ("Disks", English, |s| s.tab = Tab::Disks),
             ("Events (Turkish)", Turkish, |s| s.tab = Tab::Events),
         ];
-        for (name, language, setup) in cases {
-            let t = per_frame(language, setup);
-            println!("{name:<28} {:>8.1} us/frame", t.as_secs_f64() * 1e6);
+        for processes in SIZES {
+            println!("{processes} processes:");
+            for (name, language, setup) in cases {
+                let still = per_frame(processes, false, language, setup);
+                let fresh = per_frame(processes, true, language, setup);
+                println!(
+                    "  {name:<28} {:>9.1} us/frame, {:>9.1} with new data",
+                    still.as_secs_f64() * 1e6,
+                    fresh.as_secs_f64() * 1e6
+                );
+            }
         }
     }
 }

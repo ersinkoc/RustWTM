@@ -150,23 +150,22 @@ pub fn start(shared: Arc<Shared>, engine: Sender<EngineMsg>, pipe: &str) -> anyh
                         continue;
                     }
                 };
-                if clients.fetch_add(1, Ordering::SeqCst) >= MAX_CLIENTS {
-                    clients.fetch_sub(1, Ordering::SeqCst);
-                    warn!("too many IPC clients; connection dropped");
-                    continue;
-                }
-                let (shared, engine, clients) = (shared.clone(), engine.clone(), clients.clone());
-                let spawned =
+                let (shared, engine) = (shared.clone(), engine.clone());
+                let work = move || {
+                    if let Err(e) = serve(conn, &shared, &engine) {
+                        debug!(error = %e, "IPC client disconnected");
+                    }
+                };
+                let spawn = |f: Box<dyn FnOnce() + Send>| {
                     std::thread::Builder::new()
                         .name("ipc-client".into())
-                        .spawn(move || {
-                            if let Err(e) = serve(conn, &shared, &engine) {
-                                debug!(error = %e, "IPC client disconnected");
-                            }
-                            clients.fetch_sub(1, Ordering::SeqCst);
-                        });
-                if spawned.is_err() {
-                    warn!("could not spawn IPC client thread");
+                        .spawn(f)
+                        .map(drop)
+                };
+                match run_client(&clients, work, spawn) {
+                    Ok(()) => {}
+                    Err(Refused::Full) => warn!("too many IPC clients; connection dropped"),
+                    Err(Refused::NoThread) => warn!("could not spawn IPC client thread"),
                 }
             }
         })?;
@@ -175,6 +174,38 @@ pub fn start(shared: Arc<Shared>, engine: Sender<EngineMsg>, pipe: &str) -> anyh
         stop,
         pipe: pipe.to_owned(),
         thread: Some(thread),
+    })
+}
+
+/// Why a connection was dropped instead of served.
+#[derive(Debug, PartialEq)]
+enum Refused {
+    /// Every client slot is taken.
+    Full,
+    /// No thread could be started for it.
+    NoThread,
+}
+
+/// Takes a client slot and runs `work` on a thread started by `spawn`. The
+/// slot is given back when `work` ends or when the thread cannot start, so
+/// a passing resource shortage never shrinks the number of clients served.
+fn run_client(
+    clients: &Arc<AtomicUsize>,
+    work: impl FnOnce() + Send + 'static,
+    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> io::Result<()>,
+) -> Result<(), Refused> {
+    if clients.fetch_add(1, Ordering::SeqCst) >= MAX_CLIENTS {
+        clients.fetch_sub(1, Ordering::SeqCst);
+        return Err(Refused::Full);
+    }
+    let slot = clients.clone();
+    let spawned = spawn(Box::new(move || {
+        work();
+        slot.fetch_sub(1, Ordering::SeqCst);
+    }));
+    spawned.map_err(|_| {
+        clients.fetch_sub(1, Ordering::SeqCst);
+        Refused::NoThread
     })
 }
 
@@ -743,6 +774,33 @@ mod tests {
     }
 
     #[test]
+    fn a_client_thread_that_cannot_start_gives_its_slot_back() {
+        let clients = Arc::new(AtomicUsize::new(0));
+        let no_thread = |_: Box<dyn FnOnce() + Send>| Err(io::Error::other("no thread"));
+        for _ in 0..MAX_CLIENTS + 2 {
+            assert_eq!(
+                run_client(&clients, || {}, no_thread),
+                Err(Refused::NoThread)
+            );
+        }
+        assert_eq!(clients.load(Ordering::SeqCst), 0, "no slot leaked");
+
+        // Served clients hold their slot until their work ends.
+        let inline = |f: Box<dyn FnOnce() + Send>| {
+            f();
+            Ok(())
+        };
+        assert_eq!(run_client(&clients, || {}, inline), Ok(()));
+        assert_eq!(clients.load(Ordering::SeqCst), 0);
+        let parked = |_: Box<dyn FnOnce() + Send>| Ok(());
+        for _ in 0..MAX_CLIENTS {
+            assert_eq!(run_client(&clients, || {}, parked), Ok(()));
+        }
+        assert_eq!(run_client(&clients, || {}, inline), Err(Refused::Full));
+        assert_eq!(clients.load(Ordering::SeqCst), MAX_CLIENTS);
+    }
+
+    #[test]
     fn binding_a_taken_pipe_fails() {
         let (server, pipe, _rx) = server("taken");
         let (tx, _rx2) = mpsc::channel();
@@ -908,7 +966,7 @@ mod tests {
         let mut sent = Vec::new();
         send_locked(&mut sent, &lock, STATUS).unwrap();
         assert_eq!(sent, frame(&Response::Status(status)));
-        let point = wtm_ipc::SystemPoint::of(&snap.system);
+        let point = wtm_ipc::SystemPoint::of(&snap);
         let recent = RwLock::new(std::collections::VecDeque::from([point.clone(), point]));
         let mut sent = Vec::new();
         send_locked(&mut sent, &recent, RECENT).unwrap();

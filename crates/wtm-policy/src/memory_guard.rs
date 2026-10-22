@@ -175,6 +175,7 @@ mod tests {
                 proc(4, "System", 9999),
             ],
             net_traced: false,
+            taken_at_ms: 0,
         }
     }
 

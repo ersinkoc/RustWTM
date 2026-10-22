@@ -115,6 +115,11 @@ pub struct Snapshot {
     /// zero and should read as unknown.
     #[serde(default)]
     pub net_traced: bool,
+    /// When the sample was measured, in milliseconds since the Unix epoch;
+    /// 0 when unknown. A snapshot served again from a cache keeps it, so it
+    /// tells a new measurement from an old one received again.
+    #[serde(default)]
+    pub taken_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

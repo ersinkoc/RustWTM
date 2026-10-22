@@ -50,6 +50,11 @@ impl Server {
         {
             return Ok(snap);
         }
+        self.local_snapshot()
+    }
+
+    /// A snapshot taken here, never the service's.
+    fn local_snapshot(&mut self) -> Result<Snapshot, String> {
         if self.sampled.is_none_or(|at| at.elapsed() > FRESH) {
             self.sampler.sample().map_err(|e| e.to_string())?;
             std::thread::sleep(WINDOW);
@@ -61,6 +66,12 @@ impl Server {
 
     /// Answers one JSON-RPC message; `None` for notifications.
     pub fn handle(&mut self, message: &Value) -> Option<Value> {
+        if !message.is_object() {
+            return Some(error_reply(
+                -32600,
+                "invalid request: expected one JSON-RPC object (batches are not supported)",
+            ));
+        }
         let id = message.get("id").cloned();
         let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -212,13 +223,20 @@ impl Server {
             .and_then(Value::as_u64)
             .and_then(|p| u32::try_from(p).ok())
             .ok_or("`pid` is required")?;
-        let snap = self.snapshot()?;
-        let target = snap
-            .processes
-            .iter()
-            .find(|p| p.pid == pid)
-            .map(ProcessRef::from)
-            .ok_or_else(|| format!("no process with PID {pid}"))?;
+        let find = |snap: Snapshot| {
+            snap.processes
+                .iter()
+                .find(|p| p.pid == pid)
+                .map(ProcessRef::from)
+        };
+        // The service publishes every few seconds; a process started since
+        // is only in a snapshot taken now.
+        let target = match find(self.snapshot()?) {
+            Some(t) => Some(t),
+            None if self.use_service => find(self.local_snapshot()?),
+            None => None,
+        }
+        .ok_or_else(|| format!("no process with PID {pid}"))?;
         check_identity(&target, args.get("create_time"))?;
         Ok(target)
     }
@@ -310,7 +328,14 @@ impl Server {
                 Ok(serde_json::to_string_pretty(&r).unwrap_or_default())
             }
             "network_connections" => {
-                let pid = args.get("pid").and_then(Value::as_u64);
+                let pid = match args.get("pid") {
+                    None | Some(Value::Null) => None,
+                    Some(pid) => Some(
+                        pid.as_u64()
+                            .and_then(|p| u32::try_from(p).ok())
+                            .ok_or("`pid` must be a process ID")?,
+                    ),
+                };
                 let snap = self.snapshot()?;
                 let names: std::collections::HashMap<u32, &str> = snap
                     .processes
@@ -320,7 +345,7 @@ impl Server {
                 let conns = wtm_core::connections().map_err(|e| e.to_string())?;
                 Ok(conns
                     .iter()
-                    .filter(|c| pid.is_none_or(|p| u64::from(c.pid) == p))
+                    .filter(|c| pid.is_none_or(|p| c.pid == p))
                     .take(300)
                     .map(|c| {
                         format!(
@@ -554,18 +579,15 @@ pub fn run(
     allow_control: bool,
 ) -> std::io::Result<()> {
     let mut server = Server::new(allow_control);
-    for line in input.lines() {
+    // Raw lines: one that is not UTF-8 is a parse error, not the end.
+    for line in input.split(b'\n') {
         let line = line?;
-        if line.trim().is_empty() {
+        if line.trim_ascii().is_empty() {
             continue;
         }
-        let reply = match serde_json::from_str::<Value>(&line) {
+        let reply = match serde_json::from_slice::<Value>(&line) {
             Ok(message) => server.handle(&message),
-            Err(e) => Some(json!({
-                "jsonrpc": "2.0",
-                "id": null,
-                "error": { "code": -32700, "message": format!("parse error: {e}") },
-            })),
+            Err(e) => Some(error_reply(-32700, &format!("parse error: {e}"))),
         };
         if let Some(reply) = reply {
             writeln!(output, "{reply}")?;
@@ -575,9 +597,49 @@ pub fn run(
     Ok(())
 }
 
+/// An error for a message whose id could not be read.
+fn error_reply(code: i32, message: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": { "code": code, "message": message },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bad_lines_and_non_objects_are_answered_and_the_server_goes_on() {
+        let ping = json!({"jsonrpc":"2.0","id":1,"method":"ping"});
+        let mut input = b"\xff\xfe not utf-8\n[1, 2]\n42\n".to_vec();
+        input.extend(format!("{ping}\r\n").into_bytes());
+        let mut out = Vec::new();
+        run(&input[..], &mut out, false).unwrap();
+        let replies: Vec<Value> = String::from_utf8(out)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(replies.len(), 4, "{replies:#?}");
+        assert_eq!(replies[0]["error"]["code"], -32700);
+        assert_eq!(replies[1]["error"]["code"], -32600);
+        assert_eq!(replies[2]["error"]["code"], -32600);
+        assert_eq!(replies[3]["id"], 1, "still serving after bad input");
+        assert!(replies[3]["result"].is_object());
+    }
+
+    #[test]
+    fn connections_refuse_a_pid_that_is_not_one() {
+        for pid in [json!("4"), json!(-1), json!(1u64 << 33)] {
+            let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"network_connections","arguments":{"pid":pid}}});
+            let replies = talk(&[call], false);
+            assert_eq!(replies[0]["result"]["isError"], true, "{pid}");
+            let text = replies[0]["result"]["content"][0]["text"].as_str().unwrap();
+            assert!(text.contains("`pid` must be"), "{text}");
+        }
+    }
 
     fn talk(lines: &[Value], allow_control: bool) -> Vec<Value> {
         let input: String = lines.iter().map(|l| format!("{l}\n")).collect();

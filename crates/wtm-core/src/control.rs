@@ -4,8 +4,8 @@
 //! still matches (guarding against PID reuse) and refuses protected or
 //! critical processes.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -190,10 +190,21 @@ pub fn trim_memory(target: &ProcessRef) -> ControlResult<()> {
 
 /// Kills `root` first (so it cannot respawn children), then its descendants.
 pub fn kill_tree(root: &ProcessRef, procs: &[ProcessInfo]) -> Vec<(ProcessRef, ControlResult<()>)> {
+    // When the PID now belongs to a newer process, that process's subtree is
+    // not the root's, although it is younger than the root: leave it alone.
+    let foreign: HashSet<(u32, i64)> = procs
+        .iter()
+        .find(|p| root.create_time != 0 && p.pid == root.pid && p.create_time > root.create_time)
+        .map(|owner| descendants(owner.pid, owner.create_time, procs))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.pid, p.create_time))
+        .collect();
     let mut targets = vec![root.clone()];
     targets.extend(
         descendants(root.pid, root.create_time, procs)
             .into_iter()
+            .filter(|p| !foreign.contains(&(p.pid, p.create_time)))
             .map(ProcessRef::from),
     );
     targets

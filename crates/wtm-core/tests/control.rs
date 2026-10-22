@@ -173,6 +173,35 @@ fn kill_tree_kills_descendants() {
     assert!(!is_running(root_ref.pid, root_ref.create_time));
 }
 
+#[test]
+fn kill_tree_spares_the_children_of_a_reused_pid() {
+    let root = spawn_cmd("ping -n 60 127.0.0.1");
+    let root_ref = find(root.0.id());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let ping = loop {
+        let procs = snapshot();
+        if let Some(p) = wtm_core::descendants(root_ref.pid, root_ref.create_time, &procs).first() {
+            break ProcessRef::from(*p);
+        }
+        assert!(Instant::now() < deadline, "ping child never appeared");
+        sleep(Duration::from_millis(50));
+    };
+
+    // The client still holds an earlier process that had this PID; the
+    // PID's current owner and its child are not that process's tree.
+    let earlier = ProcessRef {
+        create_time: root_ref.create_time - 1,
+        ..root_ref.clone()
+    };
+    let results = control::kill_tree(&earlier, &snapshot());
+    assert!(
+        matches!(results[..], [(_, Err(ControlError::Stale { .. }))]),
+        "{results:?}"
+    );
+    assert!(is_running(ping.pid, ping.create_time));
+    control::kill(&ping).unwrap();
+}
+
 fn measure_cpu(target: &ProcessRef, window: Duration) -> f32 {
     let mut s = Sampler::new();
     s.sample().unwrap();

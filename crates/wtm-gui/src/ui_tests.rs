@@ -87,6 +87,7 @@ pub fn snapshot() -> Snapshot {
             proc(200, 4, "beta.exe", 0.5),
         ],
         net_traced: false,
+        taken_at_ms: 0,
     }
 }
 

@@ -123,9 +123,9 @@ toast notifications.
 The [system review](docs/0.13.0-review.md) records the current review, delivered
 interface improvements and remaining validation. The Sensors workspace and
 capability-based Cooling controls are implemented; see [hardware setup](docs/hardware.md).
-Next gates are physical fan/rollback validation, timestamped chart history and
-a measured large-process-list benchmark. General GUI data receipt age and stale
-update warnings are implemented; service measurement timestamps remain pending.
+The next gate is physical fan/rollback validation; the large-process-list
+benchmark (1k/10k) found every frame well inside budget. Snapshots carry their measurement time (IPC
+protocol 15): data age, stale warnings and graph time axes use it.
 
 ### Implementation phases
 

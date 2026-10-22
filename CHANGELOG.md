@@ -6,6 +6,42 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Snapshots and the service's recent points carry the time they were
+  measured (IPC protocol 15). The data age and the out-of-date warning use
+  it, so a snapshot received again from the service's cache ages instead of
+  reading as new; the age now reads *Data measured N s ago*.
+- Performance and process graphs place each point at its measurement time:
+  a slower `sample_interval_ms` or a delayed sample keeps its real place on
+  the time axis, and a snapshot received twice is drawn once.
+
+### Fixed
+
+- The service stopped accepting clients for good after 16 client threads
+  failed to start (for example during a memory shortage); a failed start now
+  gives its slot back.
+- A connection's announced frame length no longer reserves up to 32 MiB
+  before any of the body has arrived.
+- Unblocking a program deleted a `Debugger` value another program had put
+  in its place, and failed outright when RustWTM's own value was already
+  gone.
+- App history lost the earlier part of a minute written twice (the service
+  restarted within it, or the clock went back); the parts are now merged,
+  weighted by sample count.
+- An update check started while an update was installing replaced the
+  install's progress and offered the install again.
+- A priority or efficiency mode rolled back to the value from before an
+  unrelated earlier limit instead of the one in place when RustWTM took it.
+- *End process tree* on a PID reused by a newer process ended that
+  process's children.
+- A process whose exit code is 259 was reported as still running, and a
+  window title longer than 63 characters could match a different window.
+- MCP server: a process started since the service's last snapshot was
+  reported as missing; a line that is not UTF-8 ended the server; batches
+  and non-object messages got no answer; `network_connections` with a
+  malformed `pid` listed every process's connections.
+
 ## [0.19.0] - 2026-10-21
 
 ### Added
