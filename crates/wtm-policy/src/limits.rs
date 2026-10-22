@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use wtm_core::{ProcessInfo, protection_reason};
 
+use crate::glob::eq_lowercase;
 use crate::{Key, glob_match};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -71,11 +72,6 @@ impl AppLimit {
     fn matches(&self, name: &str) -> bool {
         glob_match(&self.name, name)
     }
-
-    /// Same app and scope; only the budgets may differ.
-    fn same_target(&self, other: &AppLimit) -> bool {
-        self.name.eq_ignore_ascii_case(&other.name) && self.scope == other.scope
-    }
 }
 
 /// One budget: an app limit plus, for `each`, the top-level instance.
@@ -85,6 +81,14 @@ pub struct GroupId {
     pub scope: LimitScope,
     /// The top-level instance for `each`; `None` for `group`.
     pub root: Option<(u32, i64)>,
+}
+
+impl GroupId {
+    /// Whether this budget is one of `limit`'s: `app` is the limit's name
+    /// lowercased (Unicode), so `Çizim.exe` owns `çizim.exe`.
+    pub fn is_for(&self, limit: &AppLimit) -> bool {
+        self.scope == limit.scope && eq_lowercase(&limit.name, &self.app)
+    }
 }
 
 /// Current usage of one budget.
@@ -127,11 +131,7 @@ impl LimitPlanner {
     /// their budgets should be lifted. Groups of kept apps stay (with their
     /// possibly new budgets).
     pub fn set_limits(&mut self, limits: Vec<AppLimit>) -> Vec<GroupId> {
-        let kept = |g: &GroupId| {
-            limits
-                .iter()
-                .any(|l| l.name.eq_ignore_ascii_case(&g.app) && l.scope == g.scope)
-        };
+        let kept = |g: &GroupId| limits.iter().any(|l| g.is_for(l));
         let mut dropped: Vec<GroupId> = self
             .members
             .values()
@@ -147,14 +147,7 @@ impl LimitPlanner {
 
     /// The limit governing `group`.
     pub fn limit_of(&self, group: &GroupId) -> Option<&AppLimit> {
-        self.limits.iter().find(|l| {
-            l.same_target(&AppLimit {
-                name: group.app.clone(),
-                scope: group.scope,
-                cpu_cores: None,
-                memory_gb: None,
-            })
-        })
+        self.limits.iter().find(|l| group.is_for(l))
     }
 
     /// Assigns new processes to budgets. Returns the processes to put into
@@ -552,5 +545,20 @@ mod tests {
         assert!(set_app_limit("limit = 3", &zen).is_err());
         zen.name.clear();
         assert!(set_app_limit(text, &zen).is_err());
+    }
+
+    #[test]
+    fn non_ascii_app_names_keep_their_limit() {
+        let procs = [p(10, 1, "Çizim.exe", 10), p(11, 10, "child.exe", 11)];
+        let limits = vec![limit("Çizim.exe", LimitScope::Group)];
+        let mut planner = LimitPlanner::new(limits.clone());
+        let plan = planner.plan(&procs);
+        assert_eq!(plan.len(), 2);
+        assert_eq!(planner.limit_of(&plan[0].0), Some(&limits[0]));
+        assert_eq!(planner.usage(&procs).len(), 1);
+        assert!(planner.set_limits(limits).is_empty());
+        let upper = limit("ÇIZIM.EXE", LimitScope::Group);
+        assert!(planner.set_limits(vec![upper.clone()]).is_empty());
+        assert_eq!(planner.limit_of(&plan[0].0), Some(&upper));
     }
 }
