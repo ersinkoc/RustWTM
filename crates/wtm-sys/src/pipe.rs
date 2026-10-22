@@ -14,9 +14,10 @@ use windows::Win32::Security::{
 };
 use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, GetNamedPipeClientSessionId,
-    GetNamedPipeServerProcessId, ImpersonateNamedPipeClient, PIPE_READMODE_BYTE,
-    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId,
+    GetNamedPipeClientSessionId, GetNamedPipeServerProcessId, ImpersonateNamedPipeClient,
+    PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
+    PIPE_WAIT,
 };
 use windows::core::PCWSTR;
 
@@ -101,7 +102,9 @@ impl PipeListener {
         Ok(unsafe { File::from_raw_handle(handle.0 as RawHandle) })
     }
 
-    /// Blocks until a client connects.
+    /// Blocks until a client connects. The pipe name never goes without an
+    /// instance of ours: otherwise any user could create the pipe meanwhile
+    /// and keep the service from serving it again.
     pub fn accept(&mut self) -> Result<PipeConnection> {
         let file = match self.pending.take() {
             Some(f) => f,
@@ -111,9 +114,18 @@ impl PipeListener {
         match unsafe { ConnectNamedPipe(raw(&file), None) } {
             Ok(()) => {}
             Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => {}
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                // A client that came and went: reset the instance for the
+                // next one instead of closing it.
+                // SAFETY: `file` owns a valid pipe handle.
+                let _ = unsafe { DisconnectNamedPipe(raw(&file)) };
+                self.pending = Some(file);
+                return Err(e.into());
+            }
         }
-        self.pending = Some(self.create_instance(false)?);
+        // The connected instance holds the name meanwhile; without a next
+        // one now, the next accept() tries again.
+        self.pending = self.create_instance(false).ok();
         Ok(PipeConnection { file })
     }
 }
@@ -286,9 +298,12 @@ mod tests {
         // Connect and disconnect before accept(): ConnectNamedPipe fails.
         drop(open_client(&name).unwrap());
         assert!(listener.accept().is_err());
+        // The instance was reset, not closed: the name is still ours (busy
+        // until the next accept, not missing), so nobody else can take it.
+        let e = open_client(&name).unwrap_err();
+        assert_eq!(e.raw_os_error(), Some(231), "ERROR_PIPE_BUSY: {e}");
 
-        // No pending instance is left, so the next accept() creates one; the
-        // client retries until it exists.
+        // The next accept() serves it; the client retries until it listens.
         let client_name = name.clone();
         let client = std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);

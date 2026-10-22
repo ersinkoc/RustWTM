@@ -1,21 +1,23 @@
 //! Small icons of executables, as RGBA pixels.
 
 use windows::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, GetDC, GetDIBits, HBITMAP,
-    HGDIOBJ, ReleaseDC,
+    BI_RGB, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, GetDC, GetDIBits,
+    GetObjectW, HBITMAP, HGDIOBJ, ReleaseDC,
 };
 use windows::Win32::UI::Shell::ExtractIconExW;
 use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
 use windows::core::PCWSTR;
 
-/// An icon image: `size` x `size` RGBA pixels, not premultiplied.
+/// An icon image: `size` x `size` RGBA pixels, not premultiplied. Small
+/// icons are 16 px at 100 % display scale and larger on scaled displays.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IconImage {
     pub size: u32,
     pub rgba: Vec<u8>,
 }
 
-/// The small (16 px) icon of the executable at `path`; `None` when the file
+/// The small icon of the executable at `path` (16 px at 100 % display scale,
+/// 20 or 24 px at 125 or 150 % in a DPI-aware process); `None` when the file
 /// has no icon or cannot be read.
 pub fn small_icon(path: &str) -> Option<IconImage> {
     let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
@@ -51,7 +53,21 @@ fn read_bitmaps(color: HBITMAP, mask: HBITMAP) -> Option<IconImage> {
     if color.is_invalid() {
         return None;
     }
-    let size = 16u32;
+    // Read at the bitmap's own size: GetDIBits converts the pixel format but
+    // does not scale, so a fixed 16 px would crop larger icons to a corner.
+    let mut bitmap = BITMAP::default();
+    // SAFETY: `color` is a valid bitmap; `bitmap` is a writable BITMAP.
+    let got = unsafe {
+        GetObjectW(
+            HGDIOBJ(color.0),
+            size_of::<BITMAP>() as i32,
+            Some((&raw mut bitmap).cast()),
+        )
+    };
+    if got == 0 || bitmap.bmWidth != bitmap.bmHeight || !(1..=256).contains(&bitmap.bmWidth) {
+        return None;
+    }
+    let size = bitmap.bmWidth as u32;
     let read = |bitmap: HBITMAP| -> Option<Vec<u8>> {
         let mut header = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -115,6 +131,40 @@ mod tests {
             icon.rgba.as_chunks::<4>().0.iter().any(|p| p[3] > 0),
             "not fully transparent"
         );
+    }
+
+    #[test]
+    fn icons_larger_than_16_px_are_read_whole() {
+        use windows::Win32::Graphics::Gdi::CreateBitmap;
+        use windows::Win32::UI::WindowsAndMessaging::CreateIconIndirect;
+        // A 24 px icon (a small icon at 150 % scale): opaque red, with the
+        // bottom-right pixel blue, which a 16 px read would never reach.
+        let size = 24usize;
+        let mut bgra = [0u8, 0, 255, 255].repeat(size * size);
+        let last = bgra.len() - 4;
+        bgra[last..].copy_from_slice(&[255, 0, 0, 255]);
+        let mask = vec![0u8; size * size / 8];
+        // SAFETY: the buffers hold `size` rows of 32 and 1 bits per pixel;
+        // the bitmaps and the icon are freed below.
+        unsafe {
+            let color = CreateBitmap(size as i32, size as i32, 1, 32, Some(bgra.as_ptr().cast()));
+            let mask = CreateBitmap(size as i32, size as i32, 1, 1, Some(mask.as_ptr().cast()));
+            let icon = CreateIconIndirect(&ICONINFO {
+                fIcon: true.into(),
+                hbmColor: color,
+                hbmMask: mask,
+                ..Default::default()
+            })
+            .unwrap();
+            let image = pixels(icon).expect("pixels");
+            let _ = DestroyIcon(icon);
+            let _ = DeleteObject(HGDIOBJ(color.0));
+            let _ = DeleteObject(HGDIOBJ(mask.0));
+            assert_eq!(image.size, 24);
+            assert_eq!(image.rgba.len(), size * size * 4);
+            assert_eq!(image.rgba[..4], [255, 0, 0, 255], "red, as RGBA");
+            assert_eq!(image.rgba[last..], [0, 0, 255, 255], "the far corner");
+        }
     }
 
     #[test]

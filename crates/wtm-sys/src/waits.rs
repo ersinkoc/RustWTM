@@ -13,6 +13,7 @@
 //! does all the time. So it never walks our own process, and only one walk
 //! runs at a time.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -170,6 +171,11 @@ pub fn wait_chains(pid: u32, budget: Duration) -> crate::Result<WaitReport> {
         )
         .into());
     }
+    // A walk stuck in a frozen process holds the next ones forever; past a
+    // few of them, no more threads are left waiting behind it.
+    if !take_slot(&WALKERS, MAX_WALKERS) {
+        return Ok(Progress::default().finish(false));
+    }
     let progress = Arc::new(Mutex::new(Progress::default()));
     let (tx, rx) = mpsc::channel();
     let worker = Arc::clone(&progress);
@@ -177,6 +183,7 @@ pub fn wait_chains(pid: u32, budget: Duration) -> crate::Result<WaitReport> {
     // block forever, and abandoning this thread is how we honour `budget`.
     std::thread::spawn(move || {
         let report = analyze(pid, &worker);
+        WALKERS.fetch_sub(1, Ordering::SeqCst);
         let _ = tx.send(report);
     });
 
@@ -186,6 +193,19 @@ pub fn wait_chains(pid: u32, budget: Duration) -> crate::Result<WaitReport> {
         Err(RecvTimeoutError::Timeout) => Ok(progress.lock().unwrap().finish(false)),
         Err(RecvTimeoutError::Disconnected) => Ok(progress.lock().unwrap().finish(false)),
     }
+}
+
+/// Walk threads alive: running, or waiting for the one walk at a time.
+static WALKERS: AtomicUsize = AtomicUsize::new(0);
+const MAX_WALKERS: usize = 4;
+
+/// Takes one of `max` places counted by `count`; false when all are taken.
+fn take_slot(count: &AtomicUsize, max: usize) -> bool {
+    count
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+            (n < max).then_some(n + 1)
+        })
+        .is_ok()
 }
 
 /// Counts and chains gathered so far, shared with the caller so a partial
@@ -361,6 +381,16 @@ fn wide_to_string(name: &[u16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn walk_threads_are_capped() {
+        let count = AtomicUsize::new(0);
+        assert!((0..3).all(|_| take_slot(&count, 3)));
+        assert!(!take_slot(&count, 3), "all places taken");
+        assert_eq!(count.load(Ordering::SeqCst), 3);
+        count.fetch_sub(1, Ordering::SeqCst);
+        assert!(take_slot(&count, 3), "a finished walk frees its place");
+    }
 
     #[test]
     fn deadlock_is_reported_when_any_chain_cycles() {
