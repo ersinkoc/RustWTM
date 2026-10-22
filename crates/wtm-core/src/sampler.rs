@@ -136,6 +136,16 @@ impl Sampler {
         }
     }
 
+    /// Forgets the previous sample, as after a pause in which something else
+    /// measured: the next sample starts afresh (no interval, zero rates)
+    /// instead of averaging CPU, disk, GPU and network over the whole pause.
+    /// A network trace keeps running.
+    pub fn restart(&mut self) {
+        self.prev = None;
+        self.gpu = GpuSampler::new().ok();
+        self.disks = DiskSampler::new().ok();
+    }
+
     /// Starts counting network bytes per process (an ETW session called
     /// `session`). Needs administrator rights; without them the rates stay 0.
     pub fn enable_network_trace(&mut self, session: &str) -> crate::Result<()> {
@@ -314,6 +324,19 @@ mod tests {
         // A counter that went down was reset: no traffic, not a wrap.
         assert_eq!(net_delta(&[(1, c(800, 80))], &[(1, c(100, 10))]), c(0, 0));
         assert_eq!(net_delta(&[], &after), c(0, 0));
+    }
+
+    #[test]
+    fn a_restarted_sampler_measures_afresh() {
+        let mut s = Sampler::new();
+        assert!(s.sample().unwrap().interval.is_none());
+        assert!(s.sample().unwrap().interval.is_some());
+        s.restart();
+        assert!(
+            s.sample().unwrap().interval.is_none(),
+            "no average over the pause"
+        );
+        assert!(s.sample().unwrap().interval.is_some());
     }
 
     #[test]

@@ -439,6 +439,7 @@ impl Backend {
             disk_trace: None,
             limiter: Limiter::new(),
             controls: None,
+            sampler_paused: false,
         };
         std::thread::Builder::new()
             .name("backend".into())
@@ -511,6 +512,9 @@ struct Worker {
     /// Control requests for the service, sent one after another over one
     /// connection of their own (see [`Worker::control`]).
     controls: Option<Sender<(ProcessRef, Command)>>,
+    /// The service measured since `sampler` last did: its next sample must
+    /// not average over that time.
+    sampler_paused: bool,
 }
 
 fn unexpected(r: Response) -> io::Error {
@@ -671,6 +675,7 @@ impl Worker {
                     }
                     drop(data);
                     refresh_icons(&self.data);
+                    self.sampler_paused = true;
                     return;
                 }
                 Err(e) => {
@@ -681,6 +686,9 @@ impl Worker {
             }
         }
 
+        if std::mem::take(&mut self.sampler_paused) {
+            self.sampler.restart();
+        }
         let sample = self.sampler.sample();
         let lookups = sample
             .as_ref()
@@ -1290,7 +1298,11 @@ impl Worker {
                 self.data().details = Some((target, result));
             }
             UiCommand::Control { target, command } => {
-                if self.client.as_ref().is_some_and(Client::is_admin) {
+                // A limit this window set while it ran without the service is
+                // held by its own job handle: only it can change or lift it.
+                let ours = matches!(command, Command::Limit(_) | Command::Unlimit)
+                    && self.limiter.is_limited(&target);
+                if !ours && self.client.as_ref().is_some_and(Client::is_admin) {
                     self.control(target, command);
                 } else {
                     let outcomes = self.run_local(&target, command);
@@ -2161,6 +2173,7 @@ mod tests {
             disk_trace: None,
             limiter: Limiter::new(),
             controls: None,
+            sampler_paused: false,
         }
     }
 
@@ -2770,6 +2783,50 @@ mod tests {
             },
             Request::Foreground { .. } => Response::Done,
         })
+    }
+
+    #[test]
+    fn a_limit_set_without_the_service_is_lifted_here_once_it_runs() {
+        let child = spawn();
+        let mut w = worker();
+        w.tick();
+        let t = target_of(&w, child.0.id());
+        let limit = Limits {
+            cpu_percent: Some(50.0),
+            memory_bytes: Some(1 << 30),
+        };
+        w.handle(UiCommand::Control {
+            target: t.clone(),
+            command: Command::Limit(limit),
+        });
+        assert_eq!(message(&w).0, EventLevel::Info);
+        assert!(w.limiter.is_limited(&t));
+        // The service is now connected (any request would be refused).
+        w.client = Some(hang_up_after_hello(&test_pipe("limit-lift"), true));
+        w.handle(UiCommand::Control {
+            target: t.clone(),
+            command: Command::Unlimit,
+        });
+        assert_eq!(message(&w).0, EventLevel::Info, "lifted here, not sent");
+        assert!(!w.limiter.is_limited(&t));
+    }
+
+    #[test]
+    fn local_sampling_after_the_service_starts_afresh() {
+        let mut w = worker();
+        w.tick();
+        w.tick();
+        let interval = |w: &Worker| w.data().snapshot.as_ref().unwrap().interval;
+        assert!(interval(&w).is_some());
+        // The service measured for a while; then the connection was lost.
+        w.sampler_paused = true;
+        w.tick();
+        assert!(
+            interval(&w).is_none(),
+            "no rates averaged over the service's time"
+        );
+        w.tick();
+        assert!(interval(&w).is_some());
     }
 
     #[test]

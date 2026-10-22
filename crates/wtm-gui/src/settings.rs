@@ -44,6 +44,9 @@ pub struct ConfigView {
     pub text: String,
     /// The service's text the edit started from.
     original: Option<String>,
+    /// The service's text changed (another page saved, or the file was
+    /// edited) while this one had unsaved edits: saving would undo that.
+    conflict: bool,
     /// The last validated text and its result, so parsing runs only when
     /// the text changes.
     check: Option<(String, Result<wtm_policy::Config, String>)>,
@@ -54,13 +57,18 @@ impl ConfigView {
         self.original.as_deref() != Some(self.text.as_str())
     }
 
-    /// Takes the service's text unless the user has unsaved edits.
+    /// Takes the service's text unless the user has unsaved edits; then a
+    /// change made elsewhere meanwhile is a conflict to show, not to lose.
     fn sync(&mut self, service_text: &str) {
         if self.original.as_deref() == Some(service_text) {
             return;
         }
-        if !self.dirty() || self.original.is_none() {
+        if !self.dirty() || self.original.is_none() || self.text == service_text {
+            // Nothing of ours to keep, or our own save coming back.
             self.text = service_text.to_owned();
+            self.conflict = false;
+        } else {
+            self.conflict = true;
         }
         self.original = Some(service_text.to_owned());
     }
@@ -148,11 +156,24 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
             ),
         );
     }
-    ui.horizontal(|ui| {
-        let save = ui.add_enabled(
-            admin && dirty && valid.is_ok(),
-            egui::Button::new(crate::i18n::tr("Save")),
+    if view.conflict && dirty {
+        crate::theme::colored(
+            ui,
+            crate::theme::WARN,
+            crate::i18n::tr(
+                "The configuration was changed elsewhere (another page, or the file itself) \
+                 while you were editing. Saving replaces those changes; discard your edits to \
+                 see them.",
+            ),
         );
+    }
+    ui.horizontal(|ui| {
+        let label = if view.conflict {
+            crate::i18n::tr("Save and replace the other changes")
+        } else {
+            crate::i18n::tr("Save")
+        };
+        let save = ui.add_enabled(admin && dirty && valid.is_ok(), egui::Button::new(label));
         if save.clicked() {
             commands.push(UiCommand::SaveConfig(view.text.clone()));
         }
@@ -581,6 +602,27 @@ mod toml_edit_value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_made_elsewhere_while_editing_is_a_conflict() {
+        let mut v = ConfigView::default();
+        v.sync("dry_run = true\n");
+        assert!(!v.dirty() && !v.conflict);
+        v.text = "dry_run = false\n".into();
+        // The kill list page saved meanwhile.
+        v.sync("dry_run = true\n[[kill]]\nname = \"x.exe\"\n");
+        assert!(v.conflict, "saving now would drop the kill entry");
+        assert_eq!(v.text, "dry_run = false\n", "the edit is kept");
+        // Our own save coming back is no conflict.
+        let mut v = ConfigView::default();
+        v.sync("a = 1\n");
+        v.text = "a = 2\n".into();
+        v.sync("a = 2\n");
+        assert!(!v.conflict && !v.dirty());
+        // Without edits the new text is simply taken.
+        v.sync("a = 3\n");
+        assert!(!v.conflict && v.text == "a = 3\n");
+    }
 
     #[test]
     fn set_dry_run_rewrites_only_the_first_key() {

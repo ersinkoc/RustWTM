@@ -4388,11 +4388,15 @@ mod tests {
         assert!(h.query_by_label_contains("0.28 cores (14%)").is_some());
         assert!(h.query_by_label_contains("1.0 GiB (12%)").is_some());
         assert!(h.query_by_label_contains("Dry-run mode").is_some());
-        let saved = |rx: &std::sync::mpsc::Receiver<UiCommand>| {
-            rx.try_iter().find_map(|c| match c {
-                UiCommand::SaveConfig(t) => Some(wtm_policy::Config::from_toml(&t).unwrap()),
+        // What was saved, loaded back as the service does after saving.
+        let saved = |h: &mut Harness<'_, App>, rx: &std::sync::mpsc::Receiver<UiCommand>| {
+            let text = rx.try_iter().find_map(|c| match c {
+                UiCommand::SaveConfig(t) => Some(t),
                 _ => None,
-            })
+            })?;
+            h.state().backend.data().config = Some(Ok(("config.toml".into(), text.clone())));
+            h.run_steps(2);
+            Some(wtm_policy::Config::from_toml(&text).unwrap())
         };
 
         h.get_by_label("Edit").click();
@@ -4402,13 +4406,15 @@ mod tests {
         h.run_steps(1);
         h.get_by_label("Save limit").click();
         h.run_steps(2);
-        let c = saved(&rx).expect("saved");
+        let c = saved(&mut h, &rx).expect("saved");
         assert_eq!(c.limits.len(), 1);
         assert_eq!(c.limits[0].scope, wtm_policy::LimitScope::Each);
+        // Loaded with the change: the form is done.
+        assert!(h.query_by_label("Change limit").is_none());
 
         h.get_by_label("Remove").click();
         h.run_steps(2);
-        assert!(saved(&rx).expect("saved").limits.is_empty());
+        assert!(saved(&mut h, &rx).expect("saved").limits.is_empty());
 
         // A new limit from the form.
         h.get_all_by_role(egui::accesskit::Role::TextInput)
@@ -4423,9 +4429,13 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("Save limit").click();
         h.run_steps(2);
-        let c = saved(&rx).expect("saved");
-        assert_eq!(c.limits.len(), 2);
-        assert_eq!(c.limits[1].name, "node.exe");
+        let c = saved(&mut h, &rx).expect("saved");
+        assert_eq!(c.limits.len(), 1);
+        assert_eq!(c.limits[0].name, "node.exe");
+
+        // Back to the first configuration.
+        h.state().backend.data().config = Some(Ok(("config.toml".into(), text.into())));
+        h.run_steps(2);
 
         // Picking a running app fills in its name; the existing entry is replaced.
         h.get_by_role_and_label(egui::accesskit::Role::ComboBox, "or a running app")
@@ -4435,7 +4445,7 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("Save limit").click();
         h.run_steps(2);
-        let c = saved(&rx).expect("saved");
+        let c = saved(&mut h, &rx).expect("saved");
         assert_eq!(c.limits.len(), 1);
         assert_eq!(c.limits[0].name, "beta.exe");
         assert_eq!(c.limits[0].memory_gb, None);

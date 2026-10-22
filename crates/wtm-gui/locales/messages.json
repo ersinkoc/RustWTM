@@ -5921,6 +5921,24 @@
     "fr": "Essayez un autre port, programme ou nom d’outil.",
     "es": "Pruebe otro puerto, programa o nombre de herramienta."
   },
+  "This entry was changed or removed meanwhile; open it again to change it.": {
+    "tr": "Bu girdi bu arada değiştirildi ya da kaldırıldı; değiştirmek için yeniden açın.",
+    "de": "Dieser Eintrag wurde inzwischen geändert oder entfernt; öffnen Sie ihn erneut, um ihn zu ändern.",
+    "fr": "Cette entrée a été modifiée ou supprimée entre-temps ; rouvrez-la pour la modifier.",
+    "es": "Esta entrada se modificó o eliminó mientras tanto; ábrala de nuevo para cambiarla."
+  },
+  "The configuration was changed elsewhere (another page, or the file itself) while you were editing. Saving replaces those changes; discard your edits to see them.": {
+    "tr": "Siz düzenlerken yapılandırma başka bir yerde (başka bir sayfada ya da dosyanın kendisinde) değiştirildi. Kaydetmek bu değişikliklerin yerine geçer; onları görmek için düzenlemelerinizi atın.",
+    "de": "Die Konfiguration wurde während Ihrer Bearbeitung an anderer Stelle (auf einer anderen Seite oder in der Datei selbst) geändert. Speichern ersetzt diese Änderungen; verwerfen Sie Ihre Bearbeitung, um sie zu sehen.",
+    "fr": "La configuration a été modifiée ailleurs (sur une autre page ou dans le fichier lui-même) pendant votre modification. Enregistrer remplace ces changements ; abandonnez vos modifications pour les voir.",
+    "es": "La configuración se cambió en otro lugar (otra página o el propio archivo) mientras la editaba. Guardar reemplaza esos cambios; descarte sus cambios para verlos."
+  },
+  "Save and replace the other changes": {
+    "tr": "Kaydet ve diğer değişikliklerin yerine geç",
+    "de": "Speichern und die anderen Änderungen ersetzen",
+    "fr": "Enregistrer et remplacer les autres changements",
+    "es": "Guardar y reemplazar los otros cambios"
+  },
   "Clear search": {
     "tr": "Aramayı temizle",
     "de": "Suche leeren",

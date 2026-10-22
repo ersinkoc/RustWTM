@@ -21,6 +21,9 @@ pub struct LimitsView {
     scope: LimitScope,
     /// The entry being edited, replaced on save.
     editing: Option<(String, LimitScope)>,
+    /// The limit sent to the service; the form is kept until the
+    /// configuration loaded afterwards has it, so a failed save loses nothing.
+    saving: Option<AppLimit>,
     error: Option<String>,
 }
 
@@ -34,6 +37,7 @@ impl Default for LimitsView {
             gb: 8.0,
             scope: LimitScope::Group,
             editing: None,
+            saving: None,
             error: None,
         }
     }
@@ -63,6 +67,7 @@ impl LimitsView {
             gb: l.memory_gb.unwrap_or(8.0),
             scope: l.scope,
             editing: Some((l.name.clone(), l.scope)),
+            saving: None,
             error: None,
         };
     }
@@ -143,6 +148,13 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
             return commands;
         }
     };
+    if view
+        .saving
+        .as_ref()
+        .is_some_and(|s| config.limits.contains(s))
+    {
+        *view = LimitsView::default();
+    }
     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
     let cpus = data
         .snapshot
@@ -424,7 +436,8 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
             match view.apply(text) {
                 Ok(new) => {
                     commands.push(UiCommand::SaveConfig(new));
-                    *view = LimitsView::default();
+                    view.saving = Some(candidate);
+                    view.error = None;
                 }
                 Err(e) => view.error = Some(e),
             }

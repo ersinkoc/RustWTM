@@ -125,8 +125,12 @@ pub struct KillView {
     busy_pc: bool,
     system_cpu: f32,
     tree: bool,
-    /// Index of the entry being changed.
-    editing: Option<usize>,
+    /// The entry being changed, as it was: found again by value on save,
+    /// since the list may change meanwhile (a removal, a reload).
+    editing: Option<KillEntry>,
+    /// The entry sent to the service; the form is kept until the list
+    /// loaded afterwards has it, so a failed save loses nothing.
+    saving: Option<KillEntry>,
     error: Option<String>,
 }
 
@@ -142,6 +146,7 @@ impl Default for KillView {
             system_cpu: 85.0,
             tree: true,
             editing: None,
+            saving: None,
             error: None,
         }
     }
@@ -157,7 +162,7 @@ impl KillView {
         };
     }
 
-    fn edit(&mut self, index: usize, e: &KillEntry) {
+    fn edit(&mut self, e: &KillEntry) {
         *self = Self {
             name: e.name.clone(),
             cmdline: e.cmdline.clone().unwrap_or_default(),
@@ -167,9 +172,43 @@ impl KillView {
             busy_pc: e.system_cpu_above.is_some(),
             system_cpu: e.system_cpu_above.unwrap_or(85.0),
             tree: e.tree,
-            editing: Some(index),
+            editing: Some(e.clone()),
+            saving: None,
             error: None,
         };
+    }
+
+    /// The configuration `text` with the form's entry added, or put in place
+    /// of the edited one wherever it is now in `list`; `None` (with the
+    /// error shown) when that entry is gone or the entry is invalid.
+    fn save(&mut self, text: &str, list: &[KillEntry]) -> Option<String> {
+        let index = match &self.editing {
+            None => None,
+            Some(original) => match list.iter().position(|e| e == original) {
+                Some(i) => Some(i),
+                None => {
+                    self.error = Some(
+                        crate::i18n::tr(
+                            "This entry was changed or removed meanwhile; open it again to change it.",
+                        )
+                        .into(),
+                    );
+                    return None;
+                }
+            },
+        };
+        let entry = self.entry();
+        match set_kill_entry(text, &entry, index) {
+            Ok(new) => {
+                self.saving = Some(entry);
+                self.error = None;
+                Some(new)
+            }
+            Err(e) => {
+                self.error = Some(e);
+                None
+            }
+        }
     }
 
     fn entry(&self) -> KillEntry {
@@ -233,6 +272,13 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
         }
         Some(Ok((_, text))) => text,
     };
+    if view
+        .saving
+        .as_ref()
+        .is_some_and(|s| data.kill_list.contains(s))
+    {
+        *view = KillView::default();
+    }
     let admin = matches!(data.mode, Mode::Service { admin: true, .. });
     if data.status.as_ref().is_some_and(|s| s.dry_run) {
         crate::theme::colored(
@@ -285,7 +331,7 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
                                 .add_enabled(admin, egui::Button::new(crate::i18n::tr("Edit")))
                                 .clicked()
                             {
-                                view.edit(i, e);
+                                view.edit(e);
                             }
                             if ui
                                 .add_enabled(admin, egui::Button::new(crate::i18n::tr("Remove")))
@@ -426,12 +472,8 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
             crate::i18n::tr("Add entry")
         };
         if ui.add_enabled(admin, egui::Button::new(label)).clicked() {
-            match set_kill_entry(text, &entry, view.editing) {
-                Ok(new) => {
-                    commands.push(UiCommand::SaveConfig(new));
-                    *view = KillView::default();
-                }
-                Err(e) => view.error = Some(e),
+            if let Some(new) = view.save(text, &data.kill_list) {
+                commands.push(UiCommand::SaveConfig(new));
             }
         }
         if view.editing.is_some() && ui.button(crate::i18n::tr("Cancel")).clicked() {
@@ -442,4 +484,64 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
         crate::theme::colored(ui, BAD, e);
     }
     commands
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(name: &str) -> KillEntry {
+        KillEntry {
+            name: name.into(),
+            cmdline: None,
+            cpu_above: Some(50.0),
+            for_secs: 60,
+            system_cpu_above: None,
+            tree: true,
+        }
+    }
+
+    fn config(entries: &[KillEntry]) -> String {
+        entries.iter().fold(String::new(), |text, e| {
+            set_kill_entry(&text, e, None).unwrap()
+        })
+    }
+
+    fn names(text: &str) -> Vec<String> {
+        wtm_policy::Config::from_toml(text)
+            .unwrap()
+            .kill
+            .into_iter()
+            .map(|e| e.name)
+            .collect()
+    }
+
+    #[test]
+    fn the_edited_entry_is_found_by_value_wherever_it_moved() {
+        let list = [entry("a.exe"), entry("b.exe"), entry("c.exe")];
+        let mut view = KillView::default();
+        view.edit(&list[1]);
+        view.name = "b2.exe".into();
+        // a.exe was removed meanwhile: b.exe is now first.
+        let now = [entry("b.exe"), entry("c.exe")];
+        let new = view.save(&config(&now), &now).unwrap();
+        assert_eq!(names(&new), ["b2.exe", "c.exe"], "c.exe is not overwritten");
+
+        // The entry itself is gone: nothing is saved, nothing is lost.
+        let mut view = KillView::default();
+        view.edit(&list[1]);
+        let gone = [entry("a.exe"), entry("c.exe")];
+        assert!(view.save(&config(&gone), &gone).is_none());
+        assert!(view.error.is_some());
+        assert_eq!(view.name, "b.exe", "the form is kept");
+    }
+
+    #[test]
+    fn the_form_stays_until_the_saved_entry_is_loaded() {
+        let mut view = KillView::default();
+        view.name = "new.exe".into();
+        assert!(view.save(&config(&[]), &[]).is_some());
+        assert_eq!(view.saving, Some(entry("new.exe")));
+        assert_eq!(view.name, "new.exe", "kept while the save is under way");
+    }
 }
