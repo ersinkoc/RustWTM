@@ -1,7 +1,6 @@
 //! Named-pipe server: answers read-only requests from shared state and
 //! forwards control requests (admin only) to the engine thread.
 
-use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -213,7 +212,7 @@ impl Server {
     pub fn shutdown(mut self) {
         self.stop.store(true, Ordering::SeqCst);
         // Wake the accept loop with a throwaway connection.
-        let _ = OpenOptions::new().read(true).write(true).open(&self.pipe);
+        let _ = wtm_sys::pipe::open_client(&self.pipe);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -620,9 +619,7 @@ mod tests {
     /// A raw client: the tests speak the protocol by hand.
     fn open(pipe: &str) -> File {
         // Busy while the server creates the next instance.
-        wait_for(pipe, || {
-            OpenOptions::new().read(true).write(true).open(pipe).ok()
-        })
+        wait_for(pipe, || wtm_sys::pipe::open_client(pipe).ok())
     }
 
     fn call(f: &mut File, request: &Request) -> io::Result<Response> {

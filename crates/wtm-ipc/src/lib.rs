@@ -7,7 +7,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
@@ -23,9 +23,12 @@ pub const PIPE_NAME: &str = r"\\.\pipe\RustWTM";
 /// Name of the Windows service that owns [`PIPE_NAME`].
 pub const SERVICE_NAME: &str = "RustWTM";
 
-/// SYSTEM and Administrators: full; interactive users: read/write (requests
-/// are authorized individually by the server).
-pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
+/// SYSTEM, Administrators and the pipe's owner (the server's account, which
+/// creates its instances): full; interactive users: what a client needs
+/// (`wtm_sys::pipe::CLIENT_ACCESS`; requests are authorized individually by
+/// the server), and not the right to create instances of the pipe, so
+/// nobody else can serve its name alongside the service.
+pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x12008b;;;IU)";
 
 pub const PROTOCOL_VERSION: u32 = 15;
 
@@ -355,7 +358,7 @@ impl Client {
     fn connect_checked(name: &str, service: Presence) -> io::Result<Self> {
         let mut attempts = 0;
         let pipe = loop {
-            match OpenOptions::new().read(true).write(true).open(name) {
+            match wtm_sys::pipe::open_client(name) {
                 Ok(p) => break p,
                 Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && attempts < 10 => {
                     attempts += 1;
@@ -592,11 +595,7 @@ mod tests {
     }
 
     fn listen(name: &str) -> PipeListener {
-        PipeListener::bind(
-            name,
-            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)(A;;GA;;;OW)",
-        )
-        .unwrap()
+        PipeListener::bind(name, PIPE_SDDL).unwrap()
     }
 
     /// Serves one client: answers the handshake with `hello`, then every
@@ -690,24 +689,33 @@ mod tests {
         let name = pipe_name();
         // The only instance is taken by a client that is never accepted.
         let _listener = listen(&name);
-        let _holder = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&name)
-            .unwrap();
+        let _holder = wtm_sys::pipe::open_client(&name).unwrap();
         let e = Client::connect_checked(&name, Presence::Missing).unwrap_err();
         assert_eq!(e.raw_os_error(), Some(ERROR_PIPE_BUSY));
+    }
+
+    #[test]
+    fn the_pipe_grants_clients_exactly_what_they_open_with() {
+        let client = format!("(A;;{:#x};;;IU)", wtm_sys::pipe::CLIENT_ACCESS);
+        assert!(PIPE_SDDL.ends_with(&client));
+        // No other entry for anyone but SYSTEM, Administrators and the owner.
+        let entries: Vec<&str> = PIPE_SDDL["D:P".len()..].split_inclusive(')').collect();
+        assert_eq!(
+            entries,
+            [
+                "(A;;GA;;;SY)",
+                "(A;;GA;;;BA)",
+                "(A;;GA;;;OW)",
+                client.as_str()
+            ]
+        );
     }
 
     #[test]
     fn verifies_the_pipe_server() {
         let name = pipe_name();
         let _listener = listen(&name);
-        let pipe = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&name)
-            .unwrap();
+        let pipe = wtm_sys::pipe::open_client(&name).unwrap();
         // The test process itself serves the pipe.
         let me = std::process::id();
         assert!(verify_server(&pipe, Presence::Running(me)).unwrap());
