@@ -33,16 +33,18 @@ pub fn dispatch() -> anyhow::Result<()> {
         .context("not started by the Service Control Manager; use `console` to run interactively")
 }
 
-/// SYSTEM and Administrators: full control; Users: read. Keeps the config
-/// (which decides what gets throttled or killed) out of reach of standard users.
-const DATA_DIR_SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)";
+/// Owned by Administrators; SYSTEM and Administrators: full control; Users:
+/// read. Keeps the config (which decides what gets throttled or killed) and
+/// the Telegram settings out of reach of standard users, also when one of
+/// them created the folder or files in it before RustWTM was installed.
+const DATA_DIR_SDDL: &str = "O:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)";
 
 fn service_main(_args: Vec<OsString>) {
     let data_dir = engine::default_data_dir();
     let dacl = std::fs::create_dir_all(&data_dir)
         .map_err(|e| e.to_string())
         .and_then(|()| {
-            wtm_sys::security::set_dacl(&data_dir, DATA_DIR_SDDL).map_err(|e| e.to_string())
+            wtm_sys::security::secure_tree(&data_dir, DATA_DIR_SDDL).map_err(|e| e.to_string())
         });
     let paths = Paths::under(&data_dir);
     let _guard = logging::init(&paths.logs, false);
