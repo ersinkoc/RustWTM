@@ -471,10 +471,10 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
         } else {
             crate::i18n::tr("Add entry")
         };
-        if ui.add_enabled(admin, egui::Button::new(label)).clicked() {
-            if let Some(new) = view.save(text, &data.kill_list) {
-                commands.push(UiCommand::SaveConfig(new));
-            }
+        if ui.add_enabled(admin, egui::Button::new(label)).clicked()
+            && let Some(new) = view.save(text, &data.kill_list)
+        {
+            commands.push(UiCommand::SaveConfig(new));
         }
         if view.editing.is_some() && ui.button(crate::i18n::tr("Cancel")).clicked() {
             *view = KillView::default();
@@ -538,8 +538,10 @@ mod tests {
 
     #[test]
     fn the_form_stays_until_the_saved_entry_is_loaded() {
-        let mut view = KillView::default();
-        view.name = "new.exe".into();
+        let mut view = KillView {
+            name: "new.exe".into(),
+            ..KillView::default()
+        };
         assert!(view.save(&config(&[]), &[]).is_some());
         assert_eq!(view.saving, Some(entry("new.exe")));
         assert_eq!(view.name, "new.exe", "kept while the save is under way");

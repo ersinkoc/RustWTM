@@ -18,6 +18,25 @@ All notable changes to this project are documented here. The format follows
 - Performance and process graphs place each point at its measurement time:
   a slower `sample_interval_ms` or a delayed sample keeps its real place on
   the time axis, and a snapshot received twice is drawn once.
+- The block list refuses programs whose blocking would break signing in,
+  elevation, services, consoles or installers (`consent.exe`,
+  `svchost.exe`, `msiexec.exe` and others). A rule's `cpu_cap_relative`
+  needs `when.cpu_above`, which is also the least it resolves against.
+- The MCP server offers `create_time` as text: JavaScript clients round it
+  as a JSON number, which a rounded value still matches.
+
+### Security
+
+- The service makes sure its data folder is its own before it reads it: a
+  folder (or anything in it) owned by someone else, writable by others, a
+  link or a file with a second name is set aside under an unguessable name
+  and created anew, without following any link. If that cannot be done the
+  service stops with a service-specific error instead of running on it.
+- Clients no longer trust the service pipe while the service is installed
+  but not running, and the service keeps its pipe name even when a client
+  vanishes before it is accepted.
+- Protection rules judge the image of the process actually opened, not the
+  name a request gives (also for refusing to dump `lsass.exe`).
 
 ### Fixed
 
@@ -40,6 +59,28 @@ All notable changes to this project are documented here. The format follows
   process's children.
 - A process whose exit code is 259 was reported as still running, and a
   window title longer than 63 characters could match a different window.
+- Panic, *End all* and *Calm them all* lost requests past the service's 16
+  clients and showed only the last success; requests now go in order over
+  one connection and failures are reported.
+- Removing or editing a rule left what it applied in place; switching from
+  dry-run to enforcing never acted on processes already running.
+- A network adapter coming back up showed a burst of its whole traffic
+  since boot; a failed sensor provider was never started again; lifting a
+  CPU and memory limit stopped at the first failure and lost the job.
+- App history counted an app's CPU only over the samples it was seen in,
+  so a short-lived helper looked like a chronic hog; fully throttled
+  processes held the governor's slots.
+- Wait-chain requests behind a walk stuck in a frozen process each left a
+  thread blocked; process icons were cropped on scaled displays.
+- The first local sample after losing the service averaged over all the
+  time the service was used; limits set without the service could not be
+  lifted once it connected; acting on a process that is not shown replaced
+  the details of the one that is.
+- The kill list saved an edit over whichever entry had moved into its
+  place; kill and limit forms emptied before the save was confirmed;
+  Settings saved over changes made elsewhere meanwhile without a warning.
+- `wtm kill <name> --tree` failed on matches inside another match's tree;
+  `wtm free-port` could end a process that got a port owner's PID.
 - MCP server: a process started since the service's last snapshot was
   reported as missing; a line that is not UTF-8 ended the server; batches
   and non-object messages got no answer; `network_connections` with a
