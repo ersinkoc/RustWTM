@@ -336,8 +336,8 @@ pub fn analyze(stats: &[AppStats], cfg: &InsightsConfig) -> Vec<Finding> {
 pub struct InsightPolicy {
     /// Currently flagged (app lowercase, kind).
     flagged: HashMap<(String, FindingKind), Finding>,
-    /// Instances already acted on.
-    applied: HashSet<Key>,
+    /// Instances already acted on, with the findings whose actions they got.
+    applied: HashMap<Key, HashSet<FindingKind>>,
     targets: HashMap<Key, ProcessRef>,
 }
 
@@ -371,15 +371,20 @@ impl InsightPolicy {
         self.flagged = new;
 
         let mut restores = Vec::new();
-        let still: HashSet<String> = self
-            .flagged
-            .keys()
-            .filter(|(_, kind)| !actions_for(*kind, cfg).is_empty())
-            .map(|(app, _)| app.clone())
-            .collect();
-        self.applied.retain(|key| {
+        let mut still: HashMap<&str, HashSet<FindingKind>> = HashMap::new();
+        for (app, kind) in self.flagged.keys() {
+            if !actions_for(*kind, cfg).is_empty() {
+                still.entry(app.as_str()).or_default().insert(*kind);
+            }
+        }
+        // An instance keeps its actions only while every finding behind them
+        // stands; otherwise all are taken back and the next tick applies
+        // those of the findings that remain.
+        self.applied.retain(|key, kinds| {
             let target = &self.targets[key];
-            let keep = still.contains(&target.name.to_lowercase());
+            let keep = still
+                .get(target.name.to_lowercase().as_str())
+                .is_some_and(|now| kinds.is_subset(now));
             if !keep {
                 restores.push(Decision::Restore {
                     source: Source::Insight,
@@ -389,7 +394,7 @@ impl InsightPolicy {
             }
             keep
         });
-        self.targets.retain(|k, _| self.applied.contains(k));
+        self.targets.retain(|k, _| self.applied.contains_key(k));
         (raised, restores)
     }
 
@@ -398,13 +403,14 @@ impl InsightPolicy {
     pub fn tick(&mut self, procs: &[ProcessInfo], cfg: &InsightsConfig) -> Vec<Decision> {
         if !self.applied.is_empty() || !self.targets.is_empty() {
             let live: HashSet<Key> = procs.iter().map(|p| (p.pid, p.create_time)).collect();
-            self.applied.retain(|k| live.contains(k));
+            self.applied.retain(|k, _| live.contains(k));
             self.targets.retain(|k, _| live.contains(k));
         }
 
         // The few flagged apps with something to apply, with their actions
         // in finding order; usually none, and then there is nothing to scan.
         let mut wanted: Vec<(&str, Vec<(Action, &Finding)>)> = Vec::new();
+        let mut kinds_of: HashMap<&str, HashSet<FindingKind>> = HashMap::new();
         for kind in [
             FindingKind::ChronicCpu,
             FindingKind::MemoryGrowth,
@@ -423,6 +429,7 @@ impl InsightPolicy {
                     }
                 };
                 wanted[i].1.extend(actions.iter().map(|a| (*a, f)));
+                kinds_of.entry(app.as_str()).or_default().insert(kind);
             }
         }
         let mut out = Vec::new();
@@ -433,22 +440,29 @@ impl InsightPolicy {
             let key = (p.pid, p.create_time);
             // Services (session 0) share their names with every instance:
             // an hour of 80 svchost.exe together is no one host's doing.
-            if self.applied.contains(&key)
-                || p.session_id == 0
+            if p.session_id == 0
                 || protection_reason(p.pid, &p.name).is_some()
                 || wtm_core::automatic_end_blocked(&p.name).is_some()
             {
                 continue;
             }
             // Flagged apps are keyed lowercase.
-            let Some((_, actions)) = wanted
+            let Some((app, actions)) = wanted
                 .iter()
                 .find(|(app, _)| crate::glob::eq_lowercase(&p.name, app))
             else {
                 continue;
             };
+            // Only findings this instance has not been acted on for yet.
+            let done = self.applied.get(&key);
+            if done.is_some_and(|d| kinds_of[app].is_subset(d)) {
+                continue;
+            }
             let target = ProcessRef::from(p);
             for &(action, finding) in actions {
+                if done.is_some_and(|d| d.contains(&finding.kind)) {
+                    continue;
+                }
                 out.push(Decision::Apply {
                     source: Source::Insight,
                     target: target.clone(),
@@ -456,7 +470,10 @@ impl InsightPolicy {
                     reason: format!("{:?}: {}", finding.kind, finding.detail),
                 });
             }
-            self.applied.insert(key);
+            self.applied
+                .entry(key)
+                .or_default()
+                .extend(kinds_of[app].iter().copied());
             self.targets.insert(key, target);
         }
         out
@@ -804,5 +821,44 @@ mod tests {
         );
         let apps: Vec<String> = p.findings().into_iter().map(|f| f.app).collect();
         assert_eq!(apps, ["a.exe", "b.exe", "c.exe"]);
+    }
+
+    #[test]
+    fn a_later_finding_reaches_running_instances_and_each_clears_alone() {
+        let cfg = InsightsConfig {
+            chronic_actions: vec![Action::EcoQos],
+            growth_actions: vec![Action::MemoryCapMb(4096)],
+            ..InsightsConfig::default()
+        };
+        let found = |kind| Finding {
+            app: "app.exe".into(),
+            kind,
+            detail: "x".into(),
+        };
+        let applied = |d: Vec<Decision>| -> Vec<Action> {
+            d.into_iter()
+                .filter_map(|d| match d {
+                    Decision::Apply { action, .. } => Some(action),
+                    Decision::Restore { .. } => None,
+                })
+                .collect()
+        };
+        let procs = [proc(1, "app.exe")];
+        let mut p = InsightPolicy::new();
+        p.update(vec![found(FindingKind::ChronicCpu)], &cfg);
+        assert_eq!(applied(p.tick(&procs, &cfg)), [Action::EcoQos]);
+        p.update(
+            vec![
+                found(FindingKind::ChronicCpu),
+                found(FindingKind::MemoryGrowth),
+            ],
+            &cfg,
+        );
+        assert_eq!(applied(p.tick(&procs, &cfg)), [Action::MemoryCapMb(4096)]);
+        // Chronic CPU clears: all taken back, the growth action comes again.
+        let (_, restores) = p.update(vec![found(FindingKind::MemoryGrowth)], &cfg);
+        assert_eq!(restores.len(), 1);
+        assert_eq!(applied(p.tick(&procs, &cfg)), [Action::MemoryCapMb(4096)]);
+        assert!(p.tick(&procs, &cfg).is_empty());
     }
 }
