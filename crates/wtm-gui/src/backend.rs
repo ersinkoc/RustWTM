@@ -2603,12 +2603,6 @@ mod tests {
     }
 
     /// Connects to a server that hangs up right after the handshake.
-    /// Clients (rightly) refuse fake service pipes while the RustWTM service
-    /// is installed, so these tests only run without it.
-    fn service_installed() -> bool {
-        wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_some()
-    }
-
     fn hang_up_after_hello(pipe: &str, admin: bool) -> Client {
         let mut listener = wtm_sys::pipe::PipeListener::bind(pipe, wtm_ipc::PIPE_SDDL).unwrap();
         let server = std::thread::spawn(move || {
@@ -2703,9 +2697,6 @@ mod tests {
 
     #[test]
     fn service_mode_fetches_controls_and_falls_back_when_lost() {
-        if service_installed() {
-            return;
-        }
         let pipe = test_pipe("service");
         let snapshot = Sampler::new().sample().unwrap();
         // The main connection, then one each for Control and TestTelegram.
@@ -2800,9 +2791,6 @@ mod tests {
 
     #[test]
     fn connects_notifies_and_handles_odd_answers() {
-        if service_installed() {
-            return;
-        }
         let pipe = test_pipe("odd");
         let mut next_event = 0;
         let server = serve(&pipe, 3, move |request| match request {
@@ -2903,9 +2891,6 @@ mod tests {
 
     #[test]
     fn requests_on_a_dead_connection_fail_cleanly() {
-        if service_installed() {
-            return;
-        }
         let mut w = worker();
         w.pipe = test_pipe("dead");
         w.client = Some(hang_up_after_hello(&w.pipe, true));
@@ -3052,9 +3037,6 @@ mod tests {
 
     #[test]
     fn slow_requests_do_not_hold_up_the_worker() {
-        if service_installed() {
-            return;
-        }
         let pipe = test_pipe("slow");
         let snapshot = Sampler::new().sample().unwrap();
         // The main connection answers at once; the Telegram test takes long.
@@ -3082,9 +3064,6 @@ mod tests {
 
     #[test]
     fn fetch_rejects_unexpected_answers() {
-        if service_installed() {
-            return;
-        }
         for stage in 0..3 {
             let pipe = test_pipe(&format!("fetch{stage}"));
             let server = serve(&pipe, 1, move |request| match (request, stage) {

@@ -386,12 +386,31 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             config_mtime = mtime;
             match Config::load(&paths.config) {
                 Ok(new) => {
+                    // What a removed or edited rule applied is taken back;
+                    // the rules as they are now fire again.
+                    if new.rules != config.rules {
+                        executor.restore_sources(&[Source::Rule], "rules changed");
+                    }
                     governor.set_config(new.governor.clone());
                     memory_guard.set_config(new.memory_guard.clone());
                     rules.set_rules(new.rules.clone());
                     kill_watch.set_entries(new.kill.clone());
                     app_limiter.configure(new.limits.clone(), new.dry_run);
                     executor.set_dry_run(new.dry_run);
+                    if new.dry_run != config.dry_run {
+                        // The policies took their dry-run previews (or the
+                        // actions now rolled back) as done; they start over,
+                        // so enforcing acts on what is already running.
+                        governor = Governor::new(new.governor.clone());
+                        memory_guard = wtm_policy::MemoryGuard::new(new.memory_guard.clone());
+                        rules = RuleEngine::new(new.rules.clone());
+                        kill_watch = wtm_policy::KillWatch::new(new.kill.clone());
+                        insights = InsightPolicy::new();
+                        game_mode = GameMode::new(new.game_mode.clone());
+                        if new.dry_run {
+                            restore_plan(&mut saved_plan, &shared.events);
+                        }
+                    }
                     rescue.configure(new.reserve.clone(), new.dry_run);
                     game_mode.set_config(new.game_mode.clone());
                     watch_starts.store(watches_starts(&new), Ordering::Relaxed);
@@ -971,12 +990,6 @@ mod tests {
         )
     }
 
-    /// Clients (rightly) refuse unverified engines while the RustWTM service
-    /// is installed, so end-to-end engine tests only run without it.
-    fn service_installed() -> bool {
-        wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_some()
-    }
-
     fn connect(pipe: &str) -> Client {
         wait_for(pipe, || Client::connect_to(pipe).ok())
     }
@@ -993,10 +1006,79 @@ mod tests {
     }
 
     #[test]
+    fn rules_act_once_enforcing_and_are_taken_back_when_removed() {
+        let dir = std::env::temp_dir().join(format!("wtm-engine-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let idler = dir.join("wtm-engine-idler.exe");
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &idler).unwrap();
+        let paths = Paths {
+            pipe: format!(r"\\.\pipe\wtm-engine-reload-{}", std::process::id()),
+            ..Paths::under(&dir)
+        };
+        let config = |dry_run: bool, rule: bool| {
+            let mut text = format!(
+                "dry_run = {dry_run}\nsample_interval_ms = 200\n\
+                 [governor]\nenabled = false\n[game_mode]\nenabled = false\n"
+            );
+            if rule {
+                text += "[[rule]]\nname = \"idle it\"\nmatch = { name = \"wtm-engine-idler.exe\" }\n\
+                         actions = [{ priority = \"idle\" }]\n";
+            }
+            text
+        };
+        std::fs::write(&paths.config, config(true, true)).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let stop = tx.clone();
+        let engine_paths = paths.clone();
+        let engine = std::thread::spawn(move || run(&engine_paths, tx, &rx));
+        let mut client = connect(&paths.pipe);
+
+        let child = spawn(&idler);
+        let pid = child.0.id();
+        let target = wait_for("idler sampled", || {
+            snapshot(&mut client)?
+                .processes
+                .iter()
+                .find(|p| p.pid == pid)
+                .map(ProcessRef::from)
+        });
+        let priority = || wtm_core::control::inspect(&target).unwrap().priority;
+        wait_for("dry-run preview", || {
+            events(&mut client)
+                .iter()
+                .any(|e| e.message.contains("would") && e.pid == Some(pid))
+                .then_some(())
+        });
+        assert_eq!(
+            priority(),
+            Some(PriorityClass::Normal),
+            "dry run changes nothing"
+        );
+
+        // Enforcing acts on the process already running.
+        std::thread::sleep(Duration::from_millis(1100)); // distinct mtime
+        std::fs::write(&paths.config, config(false, true)).unwrap();
+        wait_for("idle once enforcing", || {
+            (priority() == Some(PriorityClass::Idle)).then_some(())
+        });
+
+        // Removing the rule takes back what it did.
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&paths.config, config(false, false)).unwrap();
+        wait_for("normal once the rule is gone", || {
+            (priority() == Some(PriorityClass::Normal)).then_some(())
+        });
+
+        drop(client);
+        stop.send(EngineMsg::Stop).unwrap();
+        engine.join().unwrap().unwrap();
+        drop(child);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn engine_serves_clients_enforces_rules_and_reloads_config() {
-        if service_installed() {
-            return;
-        }
         let dir = std::env::temp_dir().join(format!("wtm-engine-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1349,9 +1431,6 @@ mod tests {
 
     #[test]
     fn engine_resolves_rule_paths_and_raises_history_insights() {
-        if service_installed() {
-            return;
-        }
         let dir = temp_dir("engine-insights");
         let victim = dir.join("wtm-engine-path-victim.exe");
         std::fs::copy(r"C:\Windows\System32\cmd.exe", &victim).unwrap();

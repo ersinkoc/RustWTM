@@ -202,7 +202,7 @@ const MAX_WALKERS: usize = 4;
 /// Takes one of `max` places counted by `count`; false when all are taken.
 fn take_slot(count: &AtomicUsize, max: usize) -> bool {
     count
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+        .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
             (n < max).then_some(n + 1)
         })
         .is_ok()

@@ -263,7 +263,7 @@ impl Executor {
         result
     }
 
-    fn restore_sources(&mut self, sources: &[Source], reason: &str) {
+    pub fn restore_sources(&mut self, sources: &[Source], reason: &str) {
         let pending: Vec<(Source, ProcessRef)> = self
             .touched
             .values()
