@@ -27,6 +27,25 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- `wtm-service install` refuses a program folder that others than SYSTEM,
+  Administrators and TrustedInstaller can change, or a folder above it they
+  could rename or take: whoever can replace the program gets SYSTEM. Set
+  `RUSTWTM_ALLOW_ANY_INSTALL_DIR=1` on a development machine to install from
+  a build folder.
+- `install.ps1` makes the install folder admin-only before copying (taking
+  it over, resetting what is inside, refusing links and stray DLLs), checks
+  and copies the download from an admin-only folder, and `uninstall.ps1`
+  continues from a fresh admin-only folder instead of a fixed name in the
+  user's temp folder. Both delete folders without following links in them.
+- The updater checks the installer again after copying it to a folder only
+  administrators can reach, and installs that copy: the download in the
+  user's temp folder could be swapped after it was checked.
+- The hardware provider no longer unpacks native libraries to a temp folder
+  (as SYSTEM possibly `C:\Windows\Temp`, where .NET would reuse files planted
+  beforehand); they ship next to it.
+- Releases are built with read-only permissions, without a build cache and
+  with third-party actions pinned to a commit; only a separate job that runs
+  no project code may publish.
 - The service makes sure its data folder is its own before it reads it: a
   folder (or anything in it) owned by someone else, writable by others, a
   link or a file with a second name is set aside under an unguessable name
@@ -40,6 +59,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A power plan game mode switched is put back after a crash too: it is
+  remembered on disk while replaced and restored at the next start or on
+  uninstall, instead of leaving the machine on High performance.
 - The service stopped accepting clients for good after 16 client threads
   failed to start (for example during a memory shortage); a failed start now
   gives its slot back.

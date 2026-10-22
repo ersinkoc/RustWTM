@@ -130,7 +130,32 @@ fn run_service(paths: &Paths) -> anyhow::Result<()> {
     result
 }
 
+/// Set to `1` to install the service from a folder others may change, such
+/// as a build directory. For development and test machines only: the
+/// service runs as SYSTEM, so whoever can replace its program gets SYSTEM.
+pub const ALLOW_ANY_INSTALL_DIR: &str = "RUSTWTM_ALLOW_ANY_INSTALL_DIR";
+
+/// Refuses to install from where others than administrators can change the
+/// program, unless `allow_any`.
+fn check_location(exe: &std::path::Path, allow_any: bool) -> anyhow::Result<()> {
+    if !allow_any
+        && !wtm_sys::security::only_admins_control(exe)
+            .with_context(|| format!("checking who may change {}", exe.display()))?
+    {
+        anyhow::bail!(
+            "{} is in a folder that not only administrators can change; the service \
+             runs as SYSTEM, so install it from Program Files (scripts/install.ps1 or \
+             the MSI), or set {ALLOW_ANY_INSTALL_DIR}=1 on a development machine",
+            exe.display()
+        );
+    }
+    Ok(())
+}
+
 pub fn install() -> anyhow::Result<()> {
+    let exe = std::env::current_exe()?;
+    let allow_any = std::env::var_os(ALLOW_ANY_INSTALL_DIR).is_some_and(|v| v == "1");
+    check_location(&exe, allow_any)?;
     let manager = ServiceManager::local_computer(
         None::<&str>,
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
@@ -142,7 +167,7 @@ pub fn install() -> anyhow::Result<()> {
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: std::env::current_exe()?,
+        executable_path: exe,
         launch_arguments: vec!["service".into()],
         dependencies: vec![],
         account_name: None, // LocalSystem
@@ -225,8 +250,14 @@ pub fn uninstall() -> anyhow::Result<()> {
 /// entries (Image File Execution Options, which would otherwise keep
 /// pointing at a deleted rustwtm.exe) and its firewall rules. Run by the
 /// MSI on a full uninstall and by [`uninstall`]. Only entries RustWTM marked
-/// and rules in its own group are touched.
+/// and rules in its own group are touched. Also puts back a power plan game
+/// mode left switched.
 pub fn cleanup() -> anyhow::Result<()> {
+    // A power plan game mode replaced before a crash.
+    engine::restore_saved_plan(
+        &Paths::under(&engine::default_data_dir()).power_plan,
+        &mut |line| println!("{line}"),
+    );
     let failures = clean(
         Blocker::system(String::new()),
         wtm_sys::firewall::unblock_all,
@@ -369,6 +400,20 @@ mod tests {
         std::thread::spawn(move || done.send(run_service(&paths).is_err()));
         assert_eq!(result.recv_timeout(Duration::from_secs(30)), Ok(true));
         assert!(!dir.exists(), "the engine never started");
+    }
+
+    #[test]
+    fn installs_only_from_where_administrators_alone_can_change_it() {
+        let built = std::env::current_exe().unwrap();
+        let e = check_location(&built, false).unwrap_err();
+        assert!(e.to_string().contains(ALLOW_ANY_INSTALL_DIR), "{e}");
+        check_location(&built, true).unwrap();
+        let windows = std::env::var("SystemRoot").unwrap();
+        check_location(
+            &std::path::Path::new(&windows).join(r"System32\svchost.exe"),
+            false,
+        )
+        .unwrap();
     }
 
     /// Installs and removes the real service. Needs elevation and changes

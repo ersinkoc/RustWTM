@@ -33,6 +33,8 @@ pub struct Paths {
     pub history: PathBuf,
     /// Telegram bot settings (holds the bot token).
     pub telegram: PathBuf,
+    /// The power plan game mode replaced, while it is replaced.
+    pub power_plan: PathBuf,
     /// Named pipe served for clients (overridden in tests).
     pub pipe: String,
     /// Where blocked programs are registered.
@@ -57,6 +59,7 @@ impl Paths {
             logs: data_dir.join("logs"),
             history: data_dir.join("history.sqlite"),
             telegram: data_dir.join("telegram.toml"),
+            power_plan: data_dir.join("power-plan.txt"),
             pipe: wtm_ipc::PIPE_NAME.to_owned(),
             block_root: BlockRoot::System,
             block_debugger: block_debugger(),
@@ -319,8 +322,15 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     // The foreground window covers its monitor.
     let mut fullscreen = false;
     let mut game_mode = GameMode::new(config.game_mode.clone());
-    // The plan active before game mode switched it.
-    let mut saved_plan: Option<String> = None;
+    // The plan active before game mode switched it; one left by a crash is
+    // put back first.
+    restore_saved_plan(&paths.power_plan, &mut |line| {
+        shared.events.info(None, line)
+    });
+    let mut saved_plan = SavedPlan {
+        plan: None,
+        file: Some(paths.power_plan.clone()),
+    };
     let mut last_snapshot: Option<Arc<Snapshot>> = None;
 
     shared.events.info(
@@ -603,17 +613,27 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     Ok(())
 }
 
+/// The power plan game mode replaced. Kept on disk too while it is
+/// replaced, so that it is put back after a crash ([`restore_saved_plan`]
+/// at the next start, or on uninstall) and the machine is not left on High
+/// performance.
+#[derive(Default)]
+struct SavedPlan {
+    plan: Option<String>,
+    file: Option<PathBuf>,
+}
+
 /// Switches the power plan for a game that starts, and back when it ends.
 fn game_changed(
     change: &GameChange,
     config: &Config,
-    saved_plan: &mut Option<String>,
+    saved_plan: &mut SavedPlan,
     events: &EventLog,
 ) {
     match change {
         GameChange::Started(name) => {
             events.info(None, format!("game mode: {name} is in front"));
-            if !config.game_mode.power_plan || saved_plan.is_some() {
+            if !config.game_mode.power_plan || saved_plan.plan.is_some() {
                 return;
             }
             if config.dry_run {
@@ -623,10 +643,23 @@ fn game_changed(
             let Ok(current) = wtm_sys::power::active_scheme() else {
                 return;
             };
+            let current = current.trim_matches(['{', '}']).to_owned();
+            // Written first: a crash right after switching still finds it.
+            if let Some(file) = &saved_plan.file
+                && let Err(e) = std::fs::write(file, &current)
+            {
+                events.warn(
+                    None,
+                    format!(
+                        "game mode: power plan unchanged: cannot remember the current one: {e}"
+                    ),
+                );
+                return;
+            }
             match wtm_sys::power::set_active_scheme(wtm_sys::power::HIGH_PERFORMANCE) {
                 Ok(()) => {
                     events.info(None, "game mode: High performance power plan");
-                    *saved_plan = Some(current.trim_matches(['{', '}']).to_owned());
+                    saved_plan.plan = Some(current);
                 }
                 Err(e) => events.warn(None, format!("game mode: power plan unchanged: {e}")),
             }
@@ -638,14 +671,58 @@ fn game_changed(
     }
 }
 
-fn restore_plan(saved_plan: &mut Option<String>, events: &EventLog) {
-    if let Some(plan) = saved_plan.take()
-        && let Err(e) = wtm_sys::power::set_active_scheme(&plan)
-    {
-        events.warn(
+fn restore_plan(saved_plan: &mut SavedPlan, events: &EventLog) {
+    let Some(plan) = saved_plan.plan.take() else {
+        return;
+    };
+    match wtm_sys::power::set_active_scheme(&plan) {
+        // Left on disk otherwise, to be tried again at the next start.
+        Ok(()) => {
+            if let Some(file) = &saved_plan.file {
+                let _ = std::fs::remove_file(file);
+            }
+        }
+        Err(e) => events.warn(
             None,
             format!("could not restore the power plan {plan}: {e}"),
-        );
+        ),
+    }
+}
+
+/// Puts back the power plan game mode replaced before the service stopped
+/// without restoring it (a crash), as remembered in `file`; reports to
+/// `say`. Run at start and on uninstall.
+pub fn restore_saved_plan(file: &Path, say: &mut dyn FnMut(String)) {
+    let plan = match std::fs::read_to_string(file) {
+        Ok(text) => text.trim().to_owned(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => return say(format!("could not read the saved power plan: {e}")),
+    };
+    let well_formed = plan.len() == 36
+        && plan.char_indices().all(|(i, c)| {
+            if [8, 13, 18, 23].contains(&i) {
+                c == '-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        });
+    let result = if well_formed {
+        wtm_sys::power::set_active_scheme(&plan).map_err(|e| e.to_string())
+    } else {
+        Err("not a power plan".to_owned())
+    };
+    match result {
+        Ok(()) => {
+            say(format!(
+                "restored the power plan {plan} game mode had replaced"
+            ));
+            let _ = std::fs::remove_file(file);
+        }
+        Err(e) if well_formed => say(format!("could not restore the power plan {plan}: {e}")),
+        Err(e) => {
+            say(format!("ignored the saved power plan: {e}"));
+            let _ = std::fs::remove_file(file);
+        }
     }
 }
 
@@ -1506,9 +1583,33 @@ mod unit_tests {
     use super::*;
 
     #[test]
+    fn a_power_plan_left_by_a_crash_is_put_back_once() {
+        let dir = std::env::temp_dir().join(format!("wtm-plan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("power-plan.txt");
+        let mut said = Vec::new();
+        restore_saved_plan(&file, &mut |l| said.push(l));
+        assert!(said.is_empty(), "nothing saved, nothing done");
+
+        // Setting the plan already active changes nothing on the machine.
+        let current = wtm_sys::power::active_scheme().unwrap();
+        std::fs::write(&file, current.trim_matches(['{', '}'])).unwrap();
+        restore_saved_plan(&file, &mut |l| said.push(l));
+        assert!(said[0].starts_with("restored"), "{said:?}");
+        assert!(!file.exists());
+
+        std::fs::write(&file, "../../not-a-plan").unwrap();
+        restore_saved_plan(&file, &mut |l| said.push(l));
+        assert!(said[1].starts_with("ignored"), "{said:?}");
+        assert!(!file.exists());
+        assert_eq!(wtm_sys::power::active_scheme().unwrap(), current);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn game_mode_leaves_the_power_plan_alone_in_dry_run_or_when_off() {
         let events = EventLog::default();
-        let mut saved = None;
+        let mut saved = SavedPlan::default();
         let mut config = Config {
             dry_run: true,
             ..Config::default()
@@ -1520,7 +1621,7 @@ mod unit_tests {
             &mut saved,
             &events,
         );
-        assert!(saved.is_none());
+        assert!(saved.plan.is_none());
         config.game_mode.power_plan = false;
         config.dry_run = false;
         game_changed(
@@ -1529,7 +1630,7 @@ mod unit_tests {
             &mut saved,
             &events,
         );
-        assert!(saved.is_none());
+        assert!(saved.plan.is_none());
         game_changed(
             &GameChange::Ended("game.exe".into()),
             &config,

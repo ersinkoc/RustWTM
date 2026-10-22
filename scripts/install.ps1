@@ -45,9 +45,61 @@ $Repo = 'ersinkoc/RustWTM'
 $Asset = 'rustwtm-x86_64-pc-windows-msvc.zip'
 $Binaries = 'rustwtm.exe', 'wtm.exe', 'wtm-service.exe'
 $ServiceName = 'RustWTM'
+# The service runs as SYSTEM from the install directory: only SYSTEM and
+# administrators may change it; users may run what is in it.
+$InstallDirSddl = 'O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)'
+$WorkDirSddl = 'O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
 
 function Write-Step([string]$Message) {
     Write-Host "==> $Message" -ForegroundColor Cyan
+}
+
+function Test-ReparsePoint([string]$Path) {
+    [bool]([IO.File]::GetAttributes($Path) -band [IO.FileAttributes]::ReparsePoint)
+}
+
+function Set-Sddl([string]$Path, [string]$Sddl) {
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetSecurityDescriptorSddlForm($Sddl)
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+# Makes $Dir a folder only SYSTEM and administrators can change, everything
+# in it included. A link is refused rather than followed: the permissions
+# would land on whatever it points to.
+function Protect-InstallDir([string]$Dir) {
+    if (Test-Path -LiteralPath $Dir) {
+        if (Test-ReparsePoint $Dir) { throw "$Dir is a link; install to a real folder." }
+        takeown.exe /F $Dir /A | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not take ownership of $Dir." }
+    } else {
+        New-Item -ItemType Directory -Path $Dir | Out-Null
+    }
+    # Cut everyone else off first, then look inside: nothing can be added
+    # behind the check.
+    Set-Sddl $Dir $InstallDirSddl
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($Dir)
+    $any = $false
+    while ($pending.Count) {
+        foreach ($child in [IO.Directory]::EnumerateFileSystemEntries($pending.Pop())) {
+            $any = $true
+            if (Test-ReparsePoint $child) { throw "$child is a link; remove it before installing to $Dir." }
+            if ([IO.File]::GetAttributes($child) -band [IO.FileAttributes]::Directory) { $pending.Push($child) }
+        }
+    }
+    if ($any) {
+        # What was there gets the folder's permissions and owner.
+        icacls.exe (Join-Path $Dir '*') /setowner '*S-1-5-32-544' /T /C /L /Q | Out-Null
+        icacls.exe (Join-Path $Dir '*') /reset /T /C /L /Q | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not reset the permissions inside $Dir." }
+    }
+    # A DLL next to the programs would be loaded by them, the service too;
+    # RustWTM ships none.
+    $stray = Get-ChildItem -LiteralPath $Dir -Filter '*.dll' -File -Force
+    if ($stray) {
+        throw "$Dir holds DLLs RustWTM does not ship ($($stray.Name -join ', ')); remove them or choose another folder."
+    }
 }
 
 function Test-Admin {
@@ -132,8 +184,13 @@ if (-not $DownloadOnly -and -not (Test-Admin)) {
     throw 'Run this script from an elevated PowerShell (Run as administrator), or use -DownloadOnly.'
 }
 
-$work = Join-Path ([IO.Path]::GetTempPath()) ("rustwtm-install-" + [Guid]::NewGuid().ToString('N'))
+# Elevated, the download is checked and copied from a folder only
+# administrators can change: in the user's own temp folder, anything running
+# as the user could swap the files between the checksum and the copy.
+$temp = if ($DownloadOnly) { [IO.Path]::GetTempPath() } else { Join-Path $env:SystemRoot 'Temp' }
+$work = Join-Path $temp ("rustwtm-install-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
+if (-not $DownloadOnly) { Set-Sddl $work $WorkDirSddl }
 try {
     $source = if ($FromSource) { Build-FromSource $FromSource } else { Get-ReleaseFiles $Version $work }
     foreach ($b in $Binaries) {
@@ -152,19 +209,24 @@ try {
         Stop-Process -Force
 
     Write-Step "Installing to $InstallDir"
-    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    if ($DownloadOnly) {
+        New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    } else {
+        Protect-InstallDir $InstallDir
+    }
     $files = $Binaries + 'uninstall.ps1', 'README.md', 'LICENSE', 'CHANGELOG.md'
     foreach ($f in $files) {
         $from = Join-Path $source $f
         if (Test-Path $from) { Copy-Item $from $InstallDir -Force }
     }
-    $hardware = Join-Path $source 'hardware'
-    if (Test-Path -LiteralPath $hardware) {
-        Copy-Item -LiteralPath $hardware -Destination $InstallDir -Recurse -Force
-    }
-    $docs = Join-Path $source 'docs'
-    if (Test-Path -LiteralPath $docs) {
-        Copy-Item -LiteralPath $docs -Destination $InstallDir -Recurse -Force
+    foreach ($dir in 'hardware', 'docs') {
+        $from = Join-Path $source $dir
+        if (Test-Path -LiteralPath $from) {
+            # Replaced whole, so nothing of an older version stays behind.
+            $to = Join-Path $InstallDir $dir
+            if (Test-Path -LiteralPath $to) { cmd.exe /c rd /s /q "$to" }
+            Copy-Item -LiteralPath $from -Destination $InstallDir -Recurse -Force
+        }
     }
 
     if ($DownloadOnly) {
@@ -198,5 +260,6 @@ try {
         Write-Host '  Events tab, then set dry_run = false in the config to enforce.'
     }
 } finally {
-    Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    # rd never follows a link inside; Remove-Item in Windows PowerShell may.
+    if (Test-Path -LiteralPath $work) { cmd.exe /c rd /s /q "$work" }
 }

@@ -193,27 +193,7 @@ fn trustworthy(handle: &OwnedHandle, trusted: &impl Fn(PSID) -> bool) -> Result<
     {
         return Ok(None);
     }
-    let mut owner = PSID::default();
-    let mut dacl: *mut ACL = std::ptr::null_mut();
-    let mut sd = PSECURITY_DESCRIPTOR::default();
-    // SAFETY: `handle` is open with READ_CONTROL; `owner` and `dacl` point
-    // into `sd`, which is freed below after their last use.
-    unsafe {
-        GetSecurityInfo(
-            handle.raw(),
-            SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
-            Some(&mut owner),
-            None,
-            Some(&mut dacl),
-            None,
-            Some(&mut sd),
-        )
-        .ok()?;
-        let ok = trusted(owner) && only_trusted_write(dacl, trusted);
-        LocalFree(Some(HLOCAL(sd.0)));
-        Ok(ok.then_some(dir))
-    }
+    Ok(guarded(handle, WRITE_RIGHTS, true, trusted)?.then_some(dir))
 }
 
 /// Rights that change an object or what is in it.
@@ -229,13 +209,20 @@ const WRITE_RIGHTS: u32 = 0x0002 // FILE_WRITE_DATA, FILE_ADD_FILE
     | 0x4000_0000; // GENERIC_WRITE
 
 /// Whether only trusted principals (and the owner, through CREATOR OWNER or
-/// OWNER RIGHTS) are allowed to write, inherited-only entries included. A
-/// missing DACL lets everyone do anything; unusual kinds of allow entries
-/// count as untrusted.
+/// OWNER RIGHTS) are allowed any of `rights`; entries that only pass on to
+/// what is created inside count when `inherited_only` says so. A missing
+/// DACL lets everyone do anything; unusual kinds of allow entries count as
+/// untrusted.
 ///
 /// # Safety
 /// `dacl` must be null or point to a valid ACL.
-unsafe fn only_trusted_write(dacl: *const ACL, trusted: &impl Fn(PSID) -> bool) -> bool {
+unsafe fn only_trusted_may(
+    dacl: *const ACL,
+    rights: u32,
+    inherited_only: bool,
+    trusted: &impl Fn(PSID) -> bool,
+) -> bool {
+    const INHERIT_ONLY: u8 = 0x08;
     const ACCESS_ALLOWED: u8 = 0;
     const DENIED: [u8; 4] = [1, 6, 10, 12];
     if dacl.is_null() {
@@ -264,14 +251,16 @@ unsafe fn only_trusted_write(dacl: *const ACL, trusted: &impl Fn(PSID) -> bool) 
                 return false;
             }
             let header = &*(ace as *const ACE_HEADER);
-            if DENIED.contains(&header.AceType) {
+            if DENIED.contains(&header.AceType)
+                || (!inherited_only && header.AceFlags & INHERIT_ONLY != 0)
+            {
                 return true;
             }
             if header.AceType != ACCESS_ALLOWED {
                 return false;
             }
             let allowed = ace as *const ACCESS_ALLOWED_ACE;
-            if (*allowed).Mask & WRITE_RIGHTS == 0 {
+            if (*allowed).Mask & rights == 0 {
                 return true;
             }
             let sid = PSID((&raw const (*allowed).SidStart).cast_mut().cast());
@@ -308,6 +297,101 @@ fn tree_is_ours(dir: &Path, trusted: &impl Fn(PSID) -> bool, depth: u32) -> Resu
 fn io_error(e: std::io::Error) -> crate::Error {
     let code = e.raw_os_error().unwrap_or(0) as u32;
     windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(code)).into()
+}
+
+/// Whether only SYSTEM, Administrators and TrustedInstaller can change the
+/// program at `path` or put another in its place: the file and its folder
+/// let nobody else write, and no folder above lets anyone else take it,
+/// move or remove what is in it, or change who may. A service running as
+/// SYSTEM from anywhere else hands SYSTEM to whoever can.
+pub fn only_admins_control(path: &Path) -> Result<bool> {
+    let trusted = |sid: PSID| trusted_owner(sid) || is_trusted_installer(sid);
+    // The program itself: other names for it (Windows' own files have them
+    // in WinSxS) share its permissions and need them to be made, so only
+    // links are refused.
+    let file = open(&path.as_os_str().encode_wide_nul(), READ_CONTROL)?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    // SAFETY: `file` is valid; `info` is writable.
+    unsafe { GetFileInformationByHandle(file.raw(), &mut info)? };
+    if info.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT.0 | FILE_ATTRIBUTE_DIRECTORY.0) != 0
+        || !guarded(&file, WRITE_RIGHTS, true, &trusted)?
+    {
+        return Ok(false);
+    }
+    // Its folder: nobody else may add a file (a DLL) or change one.
+    let Some(folder) = path.parent().filter(|d| !d.as_os_str().is_empty()) else {
+        return Ok(false);
+    };
+    let handle = open(&folder.as_os_str().encode_wide_nul(), READ_CONTROL)?;
+    if trustworthy(&handle, &trusted)? != Some(true) {
+        return Ok(false);
+    }
+    // The folders above: nobody else may move or remove what is in them,
+    // or take them.
+    const TAKE_OR_MOVE: u32 = 0x0040 // FILE_DELETE_CHILD
+        | 0x0001_0000 // DELETE
+        | 0x0004_0000 // WRITE_DAC
+        | 0x0008_0000 // WRITE_OWNER
+        | 0x1000_0000; // GENERIC_ALL
+    for above in folder
+        .ancestors()
+        .skip(1)
+        .filter(|d| !d.as_os_str().is_empty())
+    {
+        let handle = open(&above.as_os_str().encode_wide_nul(), READ_CONTROL)?;
+        if !guarded(&handle, TAKE_OR_MOVE, false, &trusted)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Whether what is open at `handle` has an owner `trusted` accepts and lets
+/// nobody else have any of `rights` (see [`only_trusted_may`]).
+fn guarded(
+    handle: &OwnedHandle,
+    rights: u32,
+    inherited_only: bool,
+    trusted: &impl Fn(PSID) -> bool,
+) -> Result<bool> {
+    let mut owner = PSID::default();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
+    let mut sd = PSECURITY_DESCRIPTOR::default();
+    // SAFETY: `handle` is open with READ_CONTROL; `owner` and `dacl` point
+    // into `sd`, which is freed below after their last use.
+    unsafe {
+        GetSecurityInfo(
+            handle.raw(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            Some(&mut owner),
+            None,
+            Some(&mut dacl),
+            None,
+            Some(&mut sd),
+        )
+        .ok()?;
+        let ok = trusted(owner) && only_trusted_may(dacl, rights, inherited_only, trusted);
+        LocalFree(Some(HLOCAL(sd.0)));
+        Ok(ok)
+    }
+}
+
+/// NT SERVICE\TrustedInstaller, which owns much of Windows' own files.
+fn is_trusted_installer(sid: PSID) -> bool {
+    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
+    const TRUSTED_INSTALLER: &str =
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464";
+    let mut text = windows::core::PWSTR::null();
+    // SAFETY: `sid` is a valid SID; `text` is freed below.
+    unsafe {
+        if ConvertSidToStringSidW(sid, &mut text).is_err() {
+            return false;
+        }
+        let same = text.to_string().is_ok_and(|t| t == TRUSTED_INSTALLER);
+        LocalFree(Some(HLOCAL(text.0.cast())));
+        same
+    }
 }
 
 fn trusted_owner(owner: PSID) -> bool {
@@ -471,6 +555,24 @@ mod tests {
         assert!(protected(&path));
         assert_eq!(std::fs::read(&path).unwrap(), b"token = \"x\"");
         assert!(create_private(&path, "O:BA").is_err(), "no DACL, no file");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn programs_are_controlled_by_administrators_only_where_windows_puts_them() {
+        let windows = std::env::var("SystemRoot").unwrap();
+        let notepad = Path::new(&windows).join(r"System32\notepad.exe");
+        assert!(
+            only_admins_control(&notepad).unwrap(),
+            "{}",
+            notepad.display()
+        );
+        // A program in the user's temp folder: anyone running as the user
+        // could replace it.
+        let dir = scratch("program");
+        let exe = dir.join("wtm-service.exe");
+        std::fs::write(&exe, b"MZ").unwrap();
+        assert!(!only_admins_control(&exe).unwrap());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

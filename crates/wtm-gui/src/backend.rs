@@ -350,9 +350,11 @@ pub enum UpdateState {
 #[derive(Clone, Copy)]
 pub struct Updater {
     pub latest: fn() -> Result<wtm_core::update::Release, String>,
-    pub download:
-        fn(&wtm_core::update::Release, &std::path::Path) -> Result<std::path::PathBuf, String>,
-    pub install: fn(&std::path::Path, &std::path::Path) -> Result<(), String>,
+    pub download: fn(
+        &wtm_core::update::Release,
+        &std::path::Path,
+    ) -> Result<wtm_core::update::Download, String>,
+    pub install: fn(&wtm_core::update::Download, &std::path::Path) -> Result<(), String>,
 }
 
 impl Default for Updater {
@@ -2423,9 +2425,15 @@ mod tests {
         // Success hands over to the installer and exits.
         let ctx = egui::Context::default();
         w.ctx = ctx.clone();
-        w.updater.download = |_, dir| Ok(dir.join("a.msi"));
+        w.updater.download = |_, dir| {
+            Ok(wtm_core::update::Download {
+                path: dir.join("a.msi"),
+                sha256: [7; 32],
+            })
+        };
         w.updater.install = |msi, exe| {
-            assert!(msi.ends_with("RustWTM-update\\a.msi"));
+            assert!(msi.path.ends_with("RustWTM-update\\a.msi"));
+            assert_eq!(msi.sha256, [7; 32]);
             assert_eq!(exe, std::env::current_exe().unwrap());
             Ok(())
         };

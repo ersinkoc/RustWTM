@@ -4,23 +4,30 @@ on:
   push:
     tags: ['v*']
 
+# Building gets read access only; the publish job, which runs no project
+# code, is the only one that may write the release.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   ASSET: rustwtm-x86_64-pc-windows-msvc.zip
+  # The tag, read from the environment rather than pasted into scripts.
+  TAG: ${{ github.ref_name }}
 
 jobs:
-  release:
+  build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to a commit: a moved tag cannot change
+      # what builds the release.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
+      # No build cache: a release is built from scratch.
       - name: Toolchain
         run: rustup show
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: Test
         run: cargo test --workspace
@@ -49,7 +56,7 @@ jobs:
         run: |
           dotnet tool restore
           dotnet wix extension add WixToolset.Util.wixext/5.0.2
-          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $version = $env:TAG.TrimStart('v')
           $msi = "RustWTM-$version-x64.msi"
           dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=$version -d BinDir=target/release -o "dist/$msi"
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -59,13 +66,35 @@ jobs:
       - name: Release notes
         shell: pwsh
         run: |
-          $version = '${{ github.ref_name }}'.TrimStart('v')
+          $version = $env:TAG.TrimStart('v')
           $text = Get-Content CHANGELOG.md -Raw
           $match = [regex]::Match($text, "(?ms)^## \[$([regex]::Escape($version))\][^\n]*\n(.*?)(?=^## \[|\z)")
           $notes = if ($match.Success) { $match.Groups[1].Value.Trim() } else { "Release $version" }
           Set-Content -Path dist/notes.md -Value $notes
 
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release
+          path: |
+            dist/${{ env.ASSET }}
+            dist/${{ env.ASSET }}.sha256
+            dist/*.msi
+            dist/*.msi.sha256
+            dist/notes.md
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: dist
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           body_path: dist/notes.md
           files: |

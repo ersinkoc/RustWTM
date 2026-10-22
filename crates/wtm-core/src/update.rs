@@ -135,9 +135,16 @@ pub fn parse_sha256(text: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
+/// A downloaded installer and the SHA-256 it was checked against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Download {
+    pub path: PathBuf,
+    pub sha256: [u8; 32],
+}
+
 /// Downloads the release's installer into `dir` and checks it against the
 /// published SHA-256. Nothing is written when the check fails.
-pub fn download(release: &Release, dir: &Path) -> Result<PathBuf, String> {
+pub fn download(release: &Release, dir: &Path) -> Result<Download, String> {
     let (msi_url, sha_url) = release
         .msi
         .as_ref()
@@ -159,7 +166,10 @@ pub fn download(release: &Release, dir: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
     std::fs::write(&path, msi).map_err(|e| format!("cannot save {}: {e}", path.display()))?;
-    Ok(path)
+    Ok(Download {
+        path,
+        sha256: expected,
+    })
 }
 
 /// Whether `exe` runs from the folder the MSI installed RustWTM into (only
@@ -182,13 +192,77 @@ fn same_dir(install_dir: &Path, exe: &Path) -> bool {
 /// Runs the installer (Windows asks for administrator rights) and starts
 /// `relaunch` once it is done. The caller should exit right away so its
 /// files can be replaced.
-pub fn install(msi: &Path, relaunch: &Path) -> Result<(), String> {
+///
+/// The download sits in the user's temp folder, where anything running as
+/// the user could swap it after it was checked. So the elevated step copies
+/// it to a folder only administrators can reach, checks the copy against
+/// the hash again and installs that.
+pub fn install(msi: &Download, relaunch: &Path) -> Result<(), String> {
     let args = format!(
-        "/d /c start \"\" /wait msiexec.exe /i \"{}\" /passive /norestart & start \"\" \"{}\"",
-        msi.display(),
-        relaunch.display()
+        "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand {}",
+        encode_command(&launcher(msi, relaunch))
     );
-    wtm_sys::shell::launch_hidden("cmd.exe", &args).map_err(|e| e.to_string())
+    wtm_sys::shell::launch_hidden("powershell.exe", &args).map_err(|e| e.to_string())
+}
+
+/// Asks for elevation to run [`elevated_install`], then starts `relaunch`
+/// as the user, also when elevation is declined.
+fn launcher(msi: &Download, relaunch: &Path) -> String {
+    format!(
+        "try {{ Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden \
+         -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','{}' }} \
+         finally {{ Start-Process -FilePath {} }}",
+        encode_command(&elevated_install(msi)),
+        ps_quote(&relaunch.to_string_lossy())
+    )
+}
+
+/// Copies the installer to a fresh folder under the system's temp folder
+/// that only SYSTEM and administrators can reach, checks it and installs it.
+fn elevated_install(msi: &Download) -> String {
+    let hash: String = msi.sha256.iter().map(|b| format!("{b:02X}")).collect();
+    format!(
+        "$ErrorActionPreference = 'Stop'\n\
+         $dir = Join-Path $env:SystemRoot ('Temp\\rustwtm-update-' + [Guid]::NewGuid().ToString('N'))\n\
+         New-Item -ItemType Directory -Path $dir | Out-Null\n\
+         try {{\n\
+         $acl = New-Object Security.AccessControl.DirectorySecurity\n\
+         $acl.SetSecurityDescriptorSddlForm('O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')\n\
+         Set-Acl -LiteralPath $dir -AclObject $acl\n\
+         $msi = Join-Path $dir 'RustWTM.msi'\n\
+         Copy-Item -LiteralPath {} -Destination $msi\n\
+         if ((Get-FileHash -Algorithm SHA256 -LiteralPath $msi).Hash -ne '{hash}') {{ exit 1 }}\n\
+         $p = Start-Process msiexec.exe -ArgumentList '/i', ('\"' + $msi + '\"'), '/passive', '/norestart' -Wait -PassThru\n\
+         exit $p.ExitCode\n\
+         }} finally {{ cmd.exe /d /c rd /s /q \"$dir\" }}\n",
+        ps_quote(&msi.path.to_string_lossy())
+    )
+}
+
+/// `text` as a single-quoted PowerShell string.
+fn ps_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "''"))
+}
+
+/// A script for `powershell -EncodedCommand`: base64 of its UTF-16LE.
+fn encode_command(script: &str) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..4 {
+            out.push(if i <= chunk.len() {
+                ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -254,6 +328,83 @@ mod tests {
         );
     }
 
+    /// The inverse of [`encode_command`], for the tests.
+    fn decode_command(text: &str) -> String {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bits: Vec<u8> = text
+            .bytes()
+            .filter(|b| *b != b'=')
+            .map(|b| ALPHABET.iter().position(|a| *a == b).unwrap() as u8)
+            .collect();
+        let mut bytes = Vec::new();
+        for chunk in bits.chunks(4) {
+            let n = chunk
+                .iter()
+                .enumerate()
+                .fold(0u32, |n, (i, b)| n | u32::from(*b) << (18 - 6 * i));
+            for i in 0..chunk.len() - 1 {
+                bytes.push((n >> (16 - 8 * i)) as u8);
+            }
+        }
+        let units: Vec<u16> = bytes
+            .chunks(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        String::from_utf16(&units).unwrap()
+    }
+
+    #[test]
+    fn commands_are_encoded_as_powershell_expects() {
+        // `powershell -EncodedCommand` takes base64 of UTF-16LE.
+        assert_eq!(encode_command("a"), "YQA=");
+        assert_eq!(encode_command("ab"), "YQBiAA==");
+        assert_eq!(encode_command("abc"), "YQBiAGMA");
+        for text in ["", "x", "Get-Date; 'ç'", "{}[]\"'"] {
+            assert_eq!(decode_command(&encode_command(text)), text);
+        }
+    }
+
+    #[test]
+    fn the_installer_is_checked_again_where_only_administrators_reach() {
+        let msi = Download {
+            path: PathBuf::from(r"C:\Users\o'neil\AppData\Local\Temp\RustWTM-update\a.msi"),
+            sha256: [0xab; 32],
+        };
+        let launcher = launcher(&msi, Path::new(r"C:\Program Files\RustWTM\rustwtm.exe"));
+        assert!(launcher.contains("-Verb RunAs -Wait"), "{launcher}");
+        assert!(launcher.contains(
+            r"finally { Start-Process -FilePath 'C:\Program Files\RustWTM\rustwtm.exe' }"
+        ));
+        let encoded = launcher.split('\'').nth(7).unwrap();
+        let elevated = decode_command(encoded);
+        assert_eq!(elevated, elevated_install(&msi));
+        assert!(
+            elevated.contains(r"Copy-Item -LiteralPath 'C:\Users\o''neil\AppData"),
+            "{elevated}"
+        );
+        assert!(elevated.contains(&format!("-ne '{}'", "AB".repeat(32))));
+        assert!(elevated.contains("O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"));
+        // The copy is installed, never the download.
+        assert!(elevated.contains("'/i', ('\"' + $msi + '\"')"));
+        let args = format!("-EncodedCommand {}", encode_command(&launcher));
+        assert!(args.len() < 32_000, "fits a command line: {}", args.len());
+
+        // PowerShell itself reads both scripts, passed the way they will be.
+        for script in [&launcher, &elevated] {
+            let check = format!(
+                "$e = $null; [void][Management.Automation.Language.Parser]::ParseInput({}, \
+                 [ref]$null, [ref]$e); exit $e.Count",
+                ps_quote(script)
+            );
+            let status = std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
+                .arg(encode_command(&check))
+                .status()
+                .unwrap();
+            assert!(status.success(), "{script}");
+        }
+    }
+
     #[test]
     fn checksum_lines() {
         let line = format!("{}  RustWTM.msi\n", "ab".repeat(32));
@@ -317,10 +468,11 @@ mod tests {
             ),
             ("/a.msi", 200, msi.clone()),
         ]);
-        let path = download(&release(&base), &dir).unwrap();
-        assert_eq!(path, dir.join("a.msi"));
-        assert_eq!(std::fs::read(&path).unwrap(), msi);
-        std::fs::remove_file(&path).unwrap();
+        let got = download(&release(&base), &dir).unwrap();
+        assert_eq!(got.path, dir.join("a.msi"));
+        assert_eq!(got.sha256, wtm_sys::http::sha256(&msi).unwrap());
+        assert_eq!(std::fs::read(&got.path).unwrap(), msi);
+        std::fs::remove_file(&got.path).unwrap();
 
         // A tampered download is refused and not saved.
         let base = serve(vec![
@@ -364,7 +516,7 @@ mod tests {
         let r = latest().unwrap();
         assert!(r.version >= (0, 7, 0), "{r:?}");
         let dir = std::env::temp_dir().join(format!("wtm-update-real-{}", std::process::id()));
-        let path = download(&r, &dir).unwrap();
+        let path = download(&r, &dir).unwrap().path;
         assert!(std::fs::metadata(&path).unwrap().len() > 1_000_000);
         let _ = std::fs::remove_dir_all(&dir);
     }
