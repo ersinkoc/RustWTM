@@ -1449,10 +1449,15 @@ impl<A: Api, H: Host> Bot<A, H> {
             Pressed::Toast(t) => t.clone(),
             _ => String::new(),
         };
-        self.call(
+        // The press has already acted: a failed answer (too old, a network
+        // blip) must not keep its outcome from the chat.
+        match self.call(
             "answerCallbackQuery",
             json!({"callback_query_id": id, "text": clip(&toast, 190)}),
-        )?;
+        ) {
+            Err(ApiError::Other(e)) => debug!(error = %e, "telegram answer failed"),
+            other => drop(other?),
+        }
         match pressed {
             Pressed::Edit(reply) => match message_id {
                 Some(message_id) => self
