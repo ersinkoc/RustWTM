@@ -17,11 +17,11 @@ use windows::Win32::Security::{
     WinCreatorOwnerRightsSid, WinCreatorOwnerSid, WinLocalSystemSid,
 };
 use windows::Win32::Storage::FileSystem::{
-    BY_HANDLE_FILE_INFORMATION, CreateDirectoryW, CreateFileW, FILE_ACCESS_RIGHTS,
-    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    GetFileInformationByHandle, MOVE_FILE_FLAGS, MoveFileExW, OPEN_EXISTING, READ_CONTROL,
-    WRITE_DAC,
+    BY_HANDLE_FILE_INFORMATION, CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ACCESS_RIGHTS,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_WRITE,
+    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+    MOVE_FILE_FLAGS, MoveFileExW, OPEN_EXISTING, READ_CONTROL, WRITE_DAC,
 };
 use windows::core::{BOOL, PCWSTR};
 
@@ -47,6 +47,41 @@ pub fn set_dacl(path: &Path, sddl: &str) -> Result<()> {
         .ok()?
     };
     Ok(())
+}
+
+/// Creates the file `path` (replacing one already there) with the security
+/// descriptor in `sddl` from the start: there is no moment in which its
+/// inherited permissions let anyone else open it, as setting them after
+/// writing would leave (a handle opened meanwhile keeps its access).
+pub fn create_private(path: &Path, sddl: &str) -> Result<std::fs::File> {
+    use std::os::windows::io::FromRawHandle;
+    let sd = Descriptor::from_sddl(sddl)?;
+    sd.dacl()?;
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(io_error(e)),
+        _ => {}
+    }
+    let wide: Vec<u16> = path.as_os_str().encode_wide_nul();
+    let attributes = SECURITY_ATTRIBUTES {
+        nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: sd.0.0,
+        bInheritHandle: false.into(),
+    };
+    // SAFETY: `wide` is NUL-terminated; `attributes` points to the
+    // descriptor in `sd`, alive for the call; the handle is owned below.
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(wide.as_ptr()),
+            FILE_GENERIC_WRITE.0,
+            windows::Win32::Storage::FileSystem::FILE_SHARE_MODE(0),
+            Some(&attributes),
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL,
+            None,
+        )?
+    };
+    // SAFETY: we exclusively own the freshly created handle.
+    Ok(unsafe { std::fs::File::from_raw_handle(handle.0) })
 }
 
 /// What [`secure_dir`] found.
@@ -422,6 +457,21 @@ mod tests {
         assert!(set_dacl(&dir, "not an sddl string").is_err());
         // A descriptor without a DACL would open everything.
         assert!(secure_dir(&dir.join("never-made"), "O:BA").is_err());
+    }
+
+    #[test]
+    fn a_private_file_has_its_permissions_from_the_start() {
+        use std::io::Write;
+        let dir = scratch("private");
+        let path = dir.join("telegram.toml.new");
+        std::fs::write(&path, b"stale").unwrap();
+        let mut f = create_private(&path, SDDL).unwrap();
+        f.write_all(b"token = \"x\"").unwrap();
+        drop(f);
+        assert!(protected(&path));
+        assert_eq!(std::fs::read(&path).unwrap(), b"token = \"x\"");
+        assert!(create_private(&path, "O:BA").is_err(), "no DACL, no file");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -559,11 +559,10 @@ fn set_telegram(shared: &Shared, cfg: &wtm_policy::TelegramConfig) -> Response {
         return Response::Error("configuration is not available yet".into());
     };
     let tmp = path.with_extension("toml.new");
-    let written = std::fs::write(&tmp, cfg.to_toml())
-        .and_then(|()| {
-            wtm_sys::security::set_dacl(&tmp, wtm_policy::TELEGRAM_SDDL)
-                .map_err(|e| io::Error::other(e.to_string()))
-        })
+    // Private from its creation: the token is never readable by others.
+    let written = wtm_sys::security::create_private(&tmp, wtm_policy::TELEGRAM_SDDL)
+        .map_err(|e| io::Error::other(e.to_string()))
+        .and_then(|mut f| f.write_all(cfg.to_toml().as_bytes()))
         .and_then(|()| std::fs::rename(&tmp, &path));
     match written {
         Ok(()) => {
