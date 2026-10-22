@@ -110,6 +110,15 @@ impl KillEntry {
         if self.name.trim() == "*" {
             return Err("name must not be `*`: that would end every program".into());
         }
+        // `*.exe` or `**` too, unless a command line picks some out.
+        if self.cmdline.is_none()
+            && crate::rules::matches_every_program(&self.name, &crate::rules::PROBE_NAMES)
+        {
+            return Err(format!(
+                "name `{}` matches every program; add a cmdline or name the program",
+                self.name
+            ));
+        }
         if let Some(why) = wtm_core::automatic_end_blocked(self.name.trim()) {
             return Err(format!("{} cannot be on the kill list: {why}", self.name));
         }

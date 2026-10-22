@@ -77,6 +77,26 @@ impl Rule {
                 ));
             }
         }
+        // `*.exe`, `**` or a path of `*` hit every program as `*` does, unless
+        // a command line or a narrower name or path picks some out.
+        if self
+            .actions
+            .iter()
+            .any(|a| matches!(a, Action::Kill | Action::Suspend))
+            && self.matcher.cmdline.is_none()
+            && self
+                .matcher
+                .name
+                .as_deref()
+                .is_none_or(|n| matches_every_program(n, &PROBE_NAMES))
+            && self
+                .matcher
+                .path
+                .as_deref()
+                .is_none_or(|p| matches_every_program(p, &PROBE_PATHS))
+        {
+            return Err("kill or suspend with this match would hit every program".into());
+        }
         if let Some(c) = &self.when
             && c.cpu_above.is_none()
             && c.memory_above_mb.is_none()
@@ -102,6 +122,15 @@ impl Rule {
     fn cpu_baseline(&self) -> Option<f32> {
         self.when.as_ref().and_then(|c| c.cpu_above)
     }
+}
+
+/// Unrelated programs: a pattern matching all of them matches any program.
+pub(crate) const PROBE_NAMES: [&str; 3] = ["a.exe", "explorer.exe", "zq9-x_y.exe"];
+const PROBE_PATHS: [&str; 3] = [r"C:\a.exe", r"C:\Windows\explorer.exe", r"D:\zq9\x_y.exe"];
+
+/// Whether `pattern` matches every one of `probes`.
+pub(crate) fn matches_every_program(pattern: &str, probes: &[&str]) -> bool {
+    probes.iter().all(|p| glob_match(pattern, p))
 }
 
 impl Matcher {
@@ -586,5 +615,27 @@ mod tests {
         assert!(e.tick(at(1), &[game(10.0)], &mut no_path).is_empty());
         assert!(e.tick(at(2), &[game(80.0)], &mut no_path).is_empty());
         assert_eq!(e.tick(at(4), &[game(80.0)], &mut no_path).len(), 2);
+    }
+
+    #[test]
+    fn ending_every_program_is_refused_however_spelled() {
+        let rule = |m: &str| {
+            crate::Config::from_toml(&format!(
+                "[[rule]]\nname = \"r\"\nmatch = {{ {m} }}\nactions = [\"kill\"]\n"
+            ))
+        };
+        let kill = |e: &str| crate::Config::from_toml(&format!("[[kill]]\n{e}\n"));
+        for m in [r#"name = "*.exe""#, r#"name = "**""#, r#"path = "*""#] {
+            assert!(rule(m).is_err(), "{m}");
+        }
+        assert!(kill(r#"name = "*.exe""#).is_err());
+        for m in [
+            r#"name = "xmrig*.exe""#,
+            r#"name = "*.exe", cmdline = "vitest""#,
+            r#"path = "*", name = "miner.exe""#,
+        ] {
+            assert!(rule(m).is_ok(), "{m}");
+        }
+        assert!(kill("name = \"*.exe\"\ncmdline = \"vitest\"").is_ok());
     }
 }
