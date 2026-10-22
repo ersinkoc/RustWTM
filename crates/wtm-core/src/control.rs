@@ -224,8 +224,14 @@ pub fn kill_tree(root: &ProcessRef, procs: &[ProcessInfo]) -> Vec<(ProcessRef, C
     );
     targets
         .into_iter()
-        .map(|t| {
-            let r = kill(&t);
+        .enumerate()
+        .map(|(i, t)| {
+            let r = match kill(&t) {
+                // Gone already, as children often go with their parent
+                // (a job that kills on close): what was wanted.
+                Err(ControlError::NotFound { .. } | ControlError::Stale { .. }) if i > 0 => Ok(()),
+                r => r,
+            };
             (t, r)
         })
         .collect()
@@ -492,6 +498,26 @@ impl Limiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tree_whose_children_went_with_it_is_not_a_failure() {
+        // PIDs are multiples of 4: odd ones never exist.
+        let template = crate::Sampler::new().sample().unwrap().processes[0].clone();
+        let fake = |pid, parent_pid, create_time| ProcessInfo {
+            pid,
+            parent_pid,
+            create_time,
+            name: format!("gone-{pid}.exe"),
+            ..template.clone()
+        };
+        let procs = [fake(0xffff_fff1, 4, 10), fake(0xffff_fff3, 0xffff_fff1, 20)];
+        let root = ProcessRef::from(&procs[0]);
+        let results = kill_tree(&root, &procs);
+        assert_eq!(results.len(), 2);
+        // The root itself still reports that it was not there to end.
+        assert!(matches!(results[0].1, Err(ControlError::NotFound { .. })));
+        assert!(results[1].1.is_ok(), "{:?}", results[1].1);
+    }
 
     #[test]
     fn secrets_and_image_names_are_judged_by_file_name() {

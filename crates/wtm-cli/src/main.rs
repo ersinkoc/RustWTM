@@ -279,6 +279,13 @@ impl From<EcoArg> for EcoQos {
 fn run_panic(yes: bool) -> anyhow::Result<ExitCode> {
     let mut client = wtm_ipc::Client::connect()
         .map_err(|e| anyhow::anyhow!("RustWTM service not reachable ({e})"))?;
+    // The kill list decides what is ended, perhaps with our administrator
+    // rights: only the real service may hand it over, not a program that
+    // took the pipe's name while the service is not running.
+    anyhow::ensure!(
+        client.is_verified(),
+        "the RustWTM pipe is not served by the installed service; its kill list is not used"
+    );
     let text = kill::fetch(&mut client)?;
     let entries = wtm_policy::Config::from_toml(&text)?.kill;
     let mut sampler = Sampler::new();
@@ -452,10 +459,15 @@ fn main() -> anyhow::Result<ExitCode> {
             let (uses, procs) = port_uses()?;
             let mut end = |t: &control::ProcessRef| {
                 if tree {
-                    control::kill_tree(t, &procs)
+                    let failed: Vec<String> = control::kill_tree(t, &procs)
                         .into_iter()
-                        .try_for_each(|(_, r)| r)
-                        .map_err(|e| e.to_string())
+                        .filter_map(|(_, r)| r.err().map(|e| e.to_string()))
+                        .collect();
+                    if failed.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(failed.join("; "))
+                    }
                 } else {
                     control::kill(t).map_err(|e| e.to_string())
                 }

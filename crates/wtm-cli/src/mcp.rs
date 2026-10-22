@@ -72,16 +72,26 @@ impl Server {
                 "invalid request: expected one JSON-RPC object (batches are not supported)",
             ));
         }
+        // A message without a method is a client's answer (or junk): never
+        // answered, as JSON-RPC requires.
+        let method = message.get("method")?;
         let id = message.get("id").cloned();
-        let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         let params = message.get("params").cloned().unwrap_or(Value::Null);
         let id = id?;
-        let result = match method {
-            "initialize" => Ok(self.initialize(&params)),
-            "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": self.tools() })),
-            "tools/call" => Ok(self.call(&params)),
-            _ => Err((-32601, format!("method not found: {method}"))),
+        let result = match method.as_str() {
+            _ if message.get("jsonrpc").and_then(Value::as_str) != Some("2.0") => Err((
+                -32600,
+                "invalid request: `jsonrpc` must be \"2.0\"".to_owned(),
+            )),
+            None => Err((
+                -32600,
+                "invalid request: `method` must be a string".to_owned(),
+            )),
+            Some("initialize") => Ok(self.initialize(&params)),
+            Some("ping") => Ok(json!({})),
+            Some("tools/list") => Ok(json!({ "tools": self.tools() })),
+            Some("tools/call") => self.call(&params),
+            Some(method) => Err((-32601, format!("method not found: {method}"))),
         };
         Some(match result {
             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
@@ -179,42 +189,44 @@ impl Server {
         ];
         if self.allow_control {
             tools.extend([
-                tool("end_process", "Ends a process (unsaved data in it is lost).", target(json!({}), &["pid"])),
-                tool("suspend_process", "Freezes every thread of a process.", target(json!({}), &["pid"])),
-                tool("resume_process", "Resumes a suspended process.", target(json!({}), &["pid"])),
+                tool("end_process", "Ends a process (unsaved data in it is lost).", target(json!({}), &["pid", "create_time"])),
+                tool("suspend_process", "Freezes every thread of a process.", target(json!({}), &["pid", "create_time"])),
+                tool("resume_process", "Resumes a suspended process.", target(json!({}), &["pid", "create_time"])),
                 tool("set_priority", "Changes a process's priority class.", target(
                     json!({ "priority": { "type": "string", "enum": ["idle", "below_normal", "normal", "above_normal", "high"] } }),
-                    &["pid", "priority"],
+                    &["pid", "create_time", "priority"],
                 )),
                 tool("efficiency_mode", "Turns efficiency mode (EcoQoS) on or off for a process.", target(
                     json!({ "on": { "type": "boolean" } }),
-                    &["pid", "on"],
+                    &["pid", "create_time", "on"],
                 )),
             ]);
         }
         tools
     }
 
-    fn call(&mut self, params: &Value) -> Value {
+    /// Runs a tool; an unknown one is a JSON-RPC error, as MCP has it.
+    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
         let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+        let known = CONTROL_TOOLS.contains(&name)
+            || self
+                .tools()
+                .iter()
+                .any(|t| t["name"].as_str() == Some(name));
+        if !known {
+            return Err((-32602, format!("unknown tool: {name}")));
+        }
         let args = params.get("arguments").cloned().unwrap_or(json!({}));
-        let control_tool = [
-            "end_process",
-            "suspend_process",
-            "resume_process",
-            "set_priority",
-            "efficiency_mode",
-        ]
-        .contains(&name);
+        let control_tool = CONTROL_TOOLS.contains(&name);
         let result = if control_tool && !self.allow_control {
             Err("control tools are off; start `wtm mcp --allow-control` to enable them".into())
         } else {
             self.run_tool(name, &args)
         };
-        match result {
+        Ok(match result {
             Ok(text) => json!({ "content": [{ "type": "text", "text": text }] }),
             Err(e) => json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
-        }
+        })
     }
 
     fn target(&mut self, args: &Value) -> Result<ProcessRef, String> {
@@ -239,6 +251,20 @@ impl Server {
         .ok_or_else(|| format!("no process with PID {pid}"))?;
         check_identity(&target, args.get("create_time"))?;
         Ok(target)
+    }
+
+    /// [`Self::target`] for a tool that changes the process: its
+    /// `create_time` is required, so a process that took the PID since the
+    /// listing is never the one changed.
+    fn control_target(&mut self, args: &Value) -> Result<ProcessRef, String> {
+        if args.get("create_time").is_none_or(Value::is_null) {
+            return Err(
+                "`create_time` (from list_processes) is required, so that a process that took \
+                 the PID since is never changed"
+                    .into(),
+            );
+        }
+        self.target(args)
     }
 
     fn run_tool(&mut self, name: &str, args: &Value) -> Result<String, String> {
@@ -315,6 +341,13 @@ impl Server {
                     report.analyzed,
                     report.chains.len()
                 ));
+                if report.skipped > 0 {
+                    out.push_str(&format!(
+                        "Analysis incomplete: {} blocked threads were not examined (other \
+                         analyses are running, or it took too long); ask again shortly.\n",
+                        report.skipped
+                    ));
+                }
                 for c in report.chains.iter().take(10) {
                     let links: Vec<String> = c.links.iter().map(link_text).collect();
                     out.push_str(&links.join(" -> "));
@@ -386,6 +419,10 @@ impl Server {
                     .clamp(1, 200);
                 let mut client = wtm_ipc::Client::connect()
                     .map_err(|e| format!("the RustWTM service is not reachable: {e}"))?;
+                // Their text reaches the assistant: only the real service's.
+                if !client.is_verified() {
+                    return Err("the RustWTM pipe is not served by the installed service".into());
+                }
                 match client.call(&wtm_ipc::Request::Events { after: 0 }) {
                     Ok(wtm_ipc::Response::Events(events)) => Ok(events
                         .iter()
@@ -399,22 +436,22 @@ impl Server {
                 }
             }
             "end_process" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 control::kill(&t).map_err(|e| e.to_string())?;
                 Ok(format!("{} (PID {}) ended", t.name, t.pid))
             }
             "suspend_process" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 control::suspend(&t).map_err(|e| e.to_string())?;
                 Ok(format!("{} (PID {}) suspended", t.name, t.pid))
             }
             "resume_process" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 control::resume(&t).map_err(|e| e.to_string())?;
                 Ok(format!("{} (PID {}) resumed", t.name, t.pid))
             }
             "set_priority" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 let priority =
                     match args.get("priority").and_then(Value::as_str) {
                         Some("idle") => PriorityClass::Idle,
@@ -434,7 +471,7 @@ impl Server {
                 ))
             }
             "efficiency_mode" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 let on = args
                     .get("on")
                     .and_then(Value::as_bool)
@@ -503,6 +540,15 @@ impl Server {
         Ok(out)
     }
 }
+
+/// Tools that change a process; offered with `--allow-control` only.
+const CONTROL_TOOLS: [&str; 5] = [
+    "end_process",
+    "suspend_process",
+    "resume_process",
+    "set_priority",
+    "efficiency_mode",
+];
 
 fn tool(name: &str, description: &str, schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": schema })
@@ -733,6 +779,34 @@ mod tests {
     }
 
     #[test]
+    fn only_requests_are_answered_and_malformed_ones_are_named() {
+        let replies = talk(
+            &[
+                // A client's answer, or a message without a method: silence.
+                json!({"jsonrpc":"2.0","id":1,"result":{}}),
+                json!({"jsonrpc":"1.0","id":2,"method":"ping"}),
+                json!({"jsonrpc":"2.0","id":3,"method":5}),
+                json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"no_such_tool"}}),
+                json!({"jsonrpc":"2.0","id":5,"method":"ping"}),
+            ],
+            false,
+        );
+        let codes: Vec<(i64, Value)> = replies
+            .iter()
+            .map(|r| (r["id"].as_i64().unwrap(), r["error"]["code"].clone()))
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                (2, json!(-32600)),
+                (3, json!(-32600)),
+                (4, json!(-32602)),
+                (5, Value::Null)
+            ]
+        );
+    }
+
+    #[test]
     fn control_tools_check_the_process_identity() {
         let t = ProcessRef {
             pid: 7,
@@ -776,8 +850,14 @@ mod tests {
         let priority = tools.iter().find(|t| t["name"] == "set_priority").unwrap();
         assert_eq!(
             priority["inputSchema"]["required"],
-            json!(["pid", "priority"])
+            json!(["pid", "create_time", "priority"])
         );
+        // Without its start time a PID may name a later process: refused.
+        let call = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"suspend_process","arguments":{"pid":me}}});
+        let replies = talk(&[call], true);
+        assert_eq!(replies[0]["result"]["isError"], true);
+        let text = replies[0]["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("`create_time`"), "{text}");
         assert!(priority["inputSchema"]["properties"]["priority"].is_object());
     }
 

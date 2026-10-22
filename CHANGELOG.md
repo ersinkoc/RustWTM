@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- MCP control tools require `create_time`, so a process that took the PID
+  since the listing is never changed; `wtm panic` and `recent_events` use
+  only the installed service's pipe, not one a program took while the
+  service is not running.
 - `wtm-service install` refuses a program folder that others than SYSTEM,
   Administrators and TrustedInstaller can change, or a folder above it they
   could rename or take: whoever can replace the program gets SYSTEM. Set
@@ -63,6 +67,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- `wtm kill --tree` and `free-port --tree` no longer report failure for
+  children that ended with their parent, and `free-port` lists every
+  failure of a tree, not the first.
+- MCP: answers to the client and malformed messages are handled as JSON-RPC
+  requires (`-32600`, unknown tools `-32602`), and *why not responding*
+  says when its analysis is incomplete.
 - The Ports tab no longer ends a program missing from the process list (it
   could have been a later program with the same PID); it says to try again.
 - Without the service, "Calm them all down" spares the app in front as it
