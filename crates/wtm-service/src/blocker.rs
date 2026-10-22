@@ -106,12 +106,13 @@ impl Blocker {
     }
 
     /// Takes RustWTM's entry for `name` back out: its debugger only while it
-    /// is still RustWTM's, then the marker, then the key once it is empty.
+    /// is still RustWTM's (the one this blocker writes, or any RustWTM build
+    /// wrote), then the marker, then the key once it is empty.
     fn clear(&self, name: &str) -> io::Result<()> {
         let key = self.root.open_subkey_with_flags(name, KEY_ALL_ACCESS)?;
         let ours = key
             .get_value::<String, _>(DEBUGGER)
-            .is_ok_and(|d| d.trim_end().ends_with(BLOCKED_ARG));
+            .is_ok_and(|d| d == self.debugger || d.trim_end().ends_with(BLOCKED_ARG));
         if ours {
             key.delete_value(DEBUGGER)?;
         }
@@ -269,6 +270,23 @@ mod tests {
             .unwrap();
         assert_eq!(other, "x.exe");
         assert_eq!(b.remove_all(), (Vec::new(), Vec::new()));
+    }
+
+    #[test]
+    fn unblocking_takes_back_the_debugger_this_blocker_wrote() {
+        let path = format!(r"Software\RustWTM-test-ifeo-own-{}", std::process::id());
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        // A debugger of another shape than RustWTM's `--blocked` one.
+        let b = Blocker::at(
+            RegKey::predef(HKEY_CURRENT_USER),
+            &path,
+            r"C:\Windows\System32\cmd.exe /c exit 7".into(),
+        )
+        .unwrap();
+        b.sync(&names(&["a.exe"])).unwrap();
+        assert_eq!(b.sync(&[]).unwrap().removed, ["a.exe"]);
+        assert!(b.root.open_subkey("a.exe").is_err(), "nothing left behind");
+        let _ = root.delete_subkey_all(&path);
     }
 
     #[test]
