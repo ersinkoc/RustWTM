@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-10-22
+
+### Fixed
+
+- A rule or kill-list entry that ends or suspends `*.exe`, `**`, `*.*` or
+  `match.path = "*"` is refused like `*`: such a rule ended every
+  unprotected program as it started. A command line (or a narrower name or
+  path) still picks programs out, e.g. `*.exe` with `cmdline = "vitest"`.
+  A configuration holding such an entry no longer loads; the service runs on
+  its defaults in dry run and says why.
+- App limits on names that are not plain ASCII (`Çizim.exe`) are applied;
+  before, they planned the processes but capped nothing, and the Limits tab
+  and `wtm app-limit list` showed them without usage.
+- Turning game mode, or its power plan option, off while a game is in front
+  puts the previous power plan back at once instead of when the service
+  stops.
+- A program added to the rescue core's exemptions while it is engaged gets
+  every core back at once, not when the load recovers.
+- Insights: a second finding with actions (memory growth after chronic CPU)
+  reaches the instances already running, and a finding that clears takes its
+  actions back while another one stands.
+- The stuck-swarm cleanup never ends copies of RustWTM's own programs.
+- Updating works from a user folder with a typographic apostrophe
+  (`C:\Users\O’Brien`); such a quote could end the quoted path in the
+  update scripts.
+- Telegram: when the bot cannot answer a button press in time, it still
+  reports what the press ended or suspended.
+
 ## [0.20.0] - 2026-10-22
 
 ### Changed
@@ -807,7 +835,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.20.1...HEAD
+[0.20.1]: https://github.com/ersinkoc/RustWTM/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/ersinkoc/RustWTM/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/ersinkoc/RustWTM/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/ersinkoc/RustWTM/compare/v0.18.0...v0.18.1
