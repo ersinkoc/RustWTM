@@ -438,6 +438,7 @@ impl Backend {
             sampler: local_sampler(),
             disk_trace: None,
             limiter: Limiter::new(),
+            controls: None,
         };
         std::thread::Builder::new()
             .name("backend".into())
@@ -507,6 +508,9 @@ struct Worker {
     disk_trace: Option<(wtm_core::DiskTracer, Instant)>,
     /// Job handles for limits applied in local mode.
     limiter: Limiter,
+    /// Control requests for the service, sent one after another over one
+    /// connection of their own (see [`Worker::control`]).
+    controls: Option<Sender<(ProcessRef, Command)>>,
 }
 
 fn unexpected(r: Response) -> io::Error {
@@ -761,6 +765,60 @@ impl Worker {
 
     /// Runs `job` on its own thread with its own connection to the service,
     /// so a slow request does not hold up the samples of the main one.
+    /// Sends a control request to the service. Requests go one after another
+    /// over one connection: a burst (the panic button, ending a swarm)
+    /// never exceeds the service's client limit and loses requests. Those
+    /// that arrive together are reported together, failures first.
+    fn control(&mut self, target: ProcessRef, command: Command) {
+        let (pipe, data, ctx) = (self.pipe.clone(), self.data.clone(), self.ctx.clone());
+        let controls = self.controls.get_or_insert_with(|| {
+            let (tx, rx) = mpsc::channel::<(ProcessRef, Command)>();
+            std::thread::spawn(move || {
+                while let Ok(first) = rx.recv() {
+                    // One connection per batch, closed after it: no client
+                    // slot of the service is held while nothing is sent.
+                    let mut client: Option<Client> = None;
+                    // A batch lasts while requests keep coming in.
+                    let mut pending = std::collections::VecDeque::from([first]);
+                    let mut reports: Vec<(Command, Vec<Outcome>)> = Vec::new();
+                    while let Some((target, command)) = pending.pop_front() {
+                        // The service may wait up to seconds for the process.
+                        let outcomes = run_on_service(&mut client, &pipe, &target, command);
+                        let details = showing(
+                            &data.lock().unwrap_or_else(PoisonError::into_inner),
+                            &target,
+                        )
+                        .then(|| match client.as_mut() {
+                            Some(c) => inspect_with(c, &target),
+                            None => Err(crate::i18n::tr("The service is not reachable").into()),
+                        });
+                        if let Some(details) = details {
+                            let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+                            if showing(&data, &target) {
+                                data.details = Some((target, details));
+                            }
+                        }
+                        match reports.last_mut() {
+                            Some((c, all)) if *c == command => all.extend(outcomes),
+                            _ => reports.push((command, outcomes)),
+                        }
+                        pending.extend(rx.try_iter());
+                    }
+                    // The last report sets the message: a failing one goes last.
+                    reports.sort_by_key(|(_, o)| o.iter().any(|o| o.result.is_err()));
+                    let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+                    for (command, outcomes) in reports {
+                        report(&mut data, command, outcomes, false);
+                    }
+                    drop(data);
+                    ctx.request_repaint();
+                }
+            });
+            tx
+        });
+        let _ = controls.send((target, command));
+    }
+
     fn aside(&self, job: impl FnOnce(io::Result<Client>, &Mutex<Data>) + Send + 'static) {
         let (pipe, data, ctx) = (self.pipe.clone(), self.data.clone(), self.ctx.clone());
         std::thread::spawn(move || {
@@ -1233,34 +1291,14 @@ impl Worker {
             }
             UiCommand::Control { target, command } => {
                 if self.client.as_ref().is_some_and(Client::is_admin) {
-                    // The service may wait up to seconds for the process.
-                    self.aside(move |client, data| {
-                        let (outcomes, details) = match client {
-                            Ok(mut c) => {
-                                let outcomes = match c.call(&Request::Control {
-                                    target: target.clone(),
-                                    command,
-                                }) {
-                                    Ok(Response::Control(o)) => o,
-                                    Ok(other) => {
-                                        vec![failed(&target, unexpected(other).to_string())]
-                                    }
-                                    Err(e) => vec![failed(&target, e.to_string())],
-                                };
-                                (outcomes, inspect_with(&mut c, &target))
-                            }
-                            Err(e) => (vec![failed(&target, e.to_string())], Err(e.to_string())),
-                        };
-                        let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
-                        report(&mut data, command, outcomes, false);
-                        // So the side panel reflects the change.
-                        data.details = Some((target, details));
-                    });
+                    self.control(target, command);
                 } else {
                     let outcomes = self.run_local(&target, command);
                     report(&mut self.data(), command, outcomes, true);
-                    // Refresh details so the side panel reflects the change.
-                    self.handle(UiCommand::Inspect(target));
+                    // The side panel, if it shows this process, reflects the change.
+                    if showing(&self.data(), &target) {
+                        self.handle(UiCommand::Inspect(target));
+                    }
                 }
             }
         }
@@ -1526,6 +1564,42 @@ fn inspect_with(client: &mut Client, target: &ProcessRef) -> Result<ProcessDetai
         Ok(Response::Details(d)) => Ok(d),
         Ok(other) => Err(unexpected(other).to_string()),
         Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Whether the side panel shows `target` (its details are loaded or loading).
+fn showing(data: &Data, target: &ProcessRef) -> bool {
+    data.details.as_ref().is_some_and(|(r, _)| r == target)
+}
+
+/// One control request over `client`, connecting first (again, after a
+/// failure) when there is no connection.
+fn run_on_service(
+    client: &mut Option<Client>,
+    pipe: &str,
+    target: &ProcessRef,
+    command: Command,
+) -> Vec<Outcome> {
+    if client.is_none() {
+        match Client::connect_to(pipe) {
+            Ok(c) => *client = Some(c),
+            Err(e) => return vec![failed(target, e.to_string())],
+        }
+    }
+    let Some(c) = client.as_mut() else {
+        return Vec::new();
+    };
+    let request = Request::Control {
+        target: target.clone(),
+        command,
+    };
+    match c.call(&request) {
+        Ok(Response::Control(o)) => o,
+        Ok(other) => vec![failed(target, unexpected(other).to_string())],
+        Err(e) => {
+            *client = None;
+            vec![failed(target, e.to_string())]
+        }
     }
 }
 
@@ -2086,6 +2160,7 @@ mod tests {
             sampler: Sampler::new(),
             disk_trace: None,
             limiter: Limiter::new(),
+            controls: None,
         }
     }
 
@@ -2506,6 +2581,8 @@ mod tests {
         let child = spawn();
         w.tick();
         let t = target_of(&w, child.0.id());
+        // Shown in the side panel, so its details follow every command.
+        w.handle(UiCommand::Inspect(t.clone()));
         for command in [
             Command::Suspend,
             Command::Resume,
@@ -2696,6 +2773,61 @@ mod tests {
     }
 
     #[test]
+    fn a_burst_of_controls_goes_through_one_connection_and_reports_failures() {
+        let pipe = test_pipe("burst");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        // The main connection and the one for control requests: more would
+        // be refused by a real service once 16 are open.
+        let server = serve(&pipe, 2, move |request| match request {
+            Request::Hello { .. } => hello(),
+            Request::Control { target, .. } => {
+                log.lock().unwrap().push(target.pid);
+                let result = if target.pid == 13 {
+                    Err("access denied".into())
+                } else {
+                    Ok(())
+                };
+                Response::Control(vec![Outcome { target, result }])
+            }
+            Request::Inspect(_) => Response::Error("denied".into()),
+            other => panic!("{other:?}"),
+        });
+        let mut w = worker();
+        w.pipe = pipe.clone();
+        w.client = Some(Client::connect_to(&pipe).unwrap());
+        // Something else is selected: its panel is left alone.
+        let selected = ProcessRef {
+            pid: 999,
+            create_time: 1,
+            name: "selected.exe".into(),
+        };
+        w.data().details = Some((selected.clone(), Err("kept".into())));
+        for pid in 1..=40 {
+            w.handle(UiCommand::Control {
+                target: ProcessRef {
+                    pid,
+                    create_time: 1,
+                    name: format!("node{pid}.exe"),
+                },
+                command: Command::Kill,
+            });
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while seen.lock().unwrap().len() < 40 {
+            assert!(Instant::now() < deadline, "{:?}", seen.lock().unwrap());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let (level, text) = background_message(&w);
+        assert_eq!(level, EventLevel::Warn, "the failure is not hidden: {text}");
+        assert!(text.contains("node13.exe"), "{text}");
+        assert_eq!(*seen.lock().unwrap(), (1..=40).collect::<Vec<_>>());
+        assert!(matches!(&w.data().details, Some((r, Err(e))) if *r == selected && e == "kept"));
+        drop(w);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn service_mode_fetches_controls_and_falls_back_when_lost() {
         let pipe = test_pipe("service");
         let snapshot = Sampler::new().sample().unwrap();
@@ -2732,6 +2864,8 @@ mod tests {
             create_time: 1,
             name: "x.exe".into(),
         };
+        // The side panel shows it.
+        w.data().details = Some((t.clone(), Err("loading".into())));
         w.handle(UiCommand::Control {
             target: t.clone(),
             command: Command::Suspend,
@@ -2858,6 +2992,7 @@ mod tests {
         assert_eq!(NOTIFIED.load(Ordering::Relaxed), 1);
         assert_eq!(w.last_event, 2);
 
+        w.data().details = Some((x_exe(), Err("loading".into())));
         w.handle(UiCommand::Control {
             target: x_exe(),
             command: Command::Resume,
@@ -2900,6 +3035,7 @@ mod tests {
         assert_eq!(message(&w).0, EventLevel::Error);
         assert!(matches!(w.data().config, Some(Err(_))));
         // The connection for the request cannot be made either.
+        w.data().details = Some((x_exe(), Err("loading".into())));
         w.handle(UiCommand::Control {
             target: x_exe(),
             command: Command::Kill,

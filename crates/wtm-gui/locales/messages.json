@@ -23,6 +23,12 @@
     "fr": "Données mesurées il y a {0} s",
     "es": "Datos medidos hace {0} s"
   },
+  "The service is not reachable": {
+    "tr": "Servise ulaşılamıyor",
+    "de": "Der Dienst ist nicht erreichbar",
+    "fr": "Le service est injoignable",
+    "es": "No se puede contactar con el servicio"
+  },
   "The service has not supplied a sample.": {
     "tr": "Servis henüz bir ölçüm sağlamadı.",
     "de": "Der Dienst hat noch keine Messung geliefert.",
