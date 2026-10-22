@@ -534,7 +534,7 @@ fn tree_rows<'a>(
         .collect()
 }
 
-/// [`tree_rows`] as (index, depth) pairs.
+/// `tree_rows` (a test helper) as (index, depth) pairs.
 fn tree_order(
     procs: &[ProcessInfo],
     col: Col,

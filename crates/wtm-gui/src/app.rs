@@ -2058,7 +2058,7 @@ fn history_plot(
 }
 
 /// Two byte rates (for example download and upload) on an auto-scaled axis.
-/// The card title carries the legend (see [`rate_title`]).
+/// The card title carries the legend (see [`rate_legend`]).
 fn rate_plot(
     ui: &mut Ui,
     id: &str,
