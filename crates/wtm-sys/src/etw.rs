@@ -3,14 +3,16 @@
 //! administrator rights.
 //!
 //! A session is a kernel object that outlives the process which started it,
-//! so names carry the owner's PID and [`stop_orphans`] clears the ones whose
-//! owner is gone.
+//! so names carry the owner's PID and start time ([`owned_name`]) and
+//! [`stop_orphans`] clears the ones whose owner is gone, also when another
+//! process got its PID since.
 
 use core::ffi::c_void;
 use std::mem::size_of;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::thread::JoinHandle;
 
+use windows::Win32::Foundation::FILETIME;
 use windows::Win32::Foundation::{
     ERROR_ALREADY_EXISTS, ERROR_INVALID_PARAMETER, WAIT_TIMEOUT, WIN32_ERROR,
 };
@@ -23,7 +25,10 @@ use windows::Win32::System::Diagnostics::Etw::{
     PROCESS_TRACE_MODE_REAL_TIME, PROCESSTRACE_HANDLE, ProcessTrace, QueryAllTracesW, StartTraceW,
     WNODE_FLAG_TRACED_GUID,
 };
-use windows::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
+use windows::Win32::System::Threading::{
+    GetCurrentProcess, GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SYNCHRONIZE, WaitForSingleObject,
+};
 use windows::core::{GUID, PCWSTR, PWSTR};
 
 use crate::handle::OwnedHandle;
@@ -116,15 +121,69 @@ fn stop_by_name(name: &[u16]) -> WIN32_ERROR {
     }
 }
 
-/// The PID in a session name of the form `{prefix}-{pid}` or
-/// `{prefix}-{pid}-{anything}`.
-fn owner_pid(name: &str, prefix: &str) -> Option<u32> {
-    let rest = name.strip_prefix(prefix)?.strip_prefix('-')?;
-    let digits = rest.split('-').next()?;
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return None;
+/// A session name for this process: `{prefix}-{pid}.{start time}`, which
+/// [`stop_orphans`] can tell from one of a later process with the same PID.
+pub fn owned_name(prefix: &str) -> String {
+    let pid = std::process::id();
+    // SAFETY: GetCurrentProcess returns a pseudo-handle valid in this process.
+    match start_time(unsafe { GetCurrentProcess() }) {
+        Some(t) => format!("{prefix}-{pid}.{t}"),
+        None => format!("{prefix}-{pid}"),
     }
-    digits.parse().ok()
+}
+
+/// The owner in a session name of the form `{prefix}-{pid}[.{start time}]`,
+/// optionally followed by `-{anything}`.
+fn owner(name: &str, prefix: &str) -> Option<(u32, Option<u64>)> {
+    let rest = name.strip_prefix(prefix)?.strip_prefix('-')?;
+    let id = rest.split('-').next()?;
+    let (pid, started) = match id.split_once('.') {
+        Some((pid, started)) => (pid, Some(started)),
+        None => (id, None),
+    };
+    let number = |s: &str| {
+        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse::<u64>().ok())
+            .flatten()
+    };
+    let pid = u32::try_from(number(pid)?).ok()?;
+    match started {
+        Some(t) => Some((pid, Some(number(t)?))),
+        None => Some((pid, None)),
+    }
+}
+
+/// When the process behind `handle` started, in FILETIME units.
+fn start_time(handle: windows::Win32::Foundation::HANDLE) -> Option<u64> {
+    let (mut created, mut exited, mut kernel, mut user) = (
+        FILETIME::default(),
+        FILETIME::default(),
+        FILETIME::default(),
+        FILETIME::default(),
+    );
+    // SAFETY: `handle` allows querying; the outputs are writable.
+    unsafe { GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user) }.ok()?;
+    Some(u64::from(created.dwHighDateTime) << 32 | u64::from(created.dwLowDateTime))
+}
+
+/// Whether the session's owner is gone: no process `pid`, or (`started`
+/// given) one that started at another time. A process we may not ask counts
+/// as the owner.
+fn owner_gone(pid: u32, started: Option<u64>) -> bool {
+    if !process_running(pid) {
+        return true;
+    }
+    let Some(started) = started else {
+        return false;
+    };
+    // SAFETY: plain call; the handle is owned and closed below.
+    match unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) } {
+        Ok(h) => {
+            let h = OwnedHandle::new(h);
+            start_time(h.raw()).is_some_and(|t| t != started)
+        }
+        Err(_) => false,
+    }
 }
 
 /// Whether `pid` names a running process. A process we may not open still
@@ -165,14 +224,15 @@ pub(crate) fn stop_named(name: &str) {
     let _ = stop_by_name(&wide(name));
 }
 
-/// Stops sessions named `{prefix}-{pid}` whose process is gone: sessions
-/// outlive a process that is killed, and Windows allows only 64.
+/// Stops sessions named by [`owned_name`] (or `{prefix}-{pid}`) whose
+/// process is gone: sessions outlive a process that is killed, and Windows
+/// allows only 64.
 pub fn stop_orphans(prefix: &str) {
     for name in session_names() {
-        let Some(pid) = owner_pid(&name, prefix) else {
+        let Some((pid, started)) = owner(&name, prefix) else {
             continue;
         };
-        if !process_running(pid) {
+        if owner_gone(pid, started) {
             let _ = stop_by_name(&wide(&name));
         }
     }
@@ -441,17 +501,38 @@ mod tests {
     }
 
     #[test]
-    fn parses_owner_pid_from_session_names() {
-        assert_eq!(owner_pid("RustWTM-Disk-1234", "RustWTM-Disk"), Some(1234));
-        assert_eq!(
-            owner_pid("RustWTM-Disk-1234-names", "RustWTM-Disk"),
-            Some(1234)
-        );
-        assert_eq!(owner_pid("RustWTM-Disk", "RustWTM-Disk"), None);
-        assert_eq!(owner_pid("RustWTM-Disk-", "RustWTM-Disk"), None);
-        assert_eq!(owner_pid("RustWTM-Disk-x1", "RustWTM-Disk"), None);
-        assert_eq!(owner_pid("RustWTM-Disk2-5", "RustWTM-Disk"), None);
-        assert_eq!(owner_pid("RustWTM-GUI-Disk-5", "RustWTM-Disk"), None);
+    fn parses_the_owner_from_session_names() {
+        let owner = |name| owner(name, "RustWTM-Disk");
+        assert_eq!(owner("RustWTM-Disk-1234"), Some((1234, None)));
+        assert_eq!(owner("RustWTM-Disk-1234-names"), Some((1234, None)));
+        assert_eq!(owner("RustWTM-Disk-1234.99"), Some((1234, Some(99))));
+        assert_eq!(owner("RustWTM-Disk-1234.99-names"), Some((1234, Some(99))));
+        for odd in [
+            "RustWTM-Disk",
+            "RustWTM-Disk-",
+            "RustWTM-Disk-x1",
+            "RustWTM-Disk-1.",
+            "RustWTM-Disk-.5",
+            "RustWTM-Disk-1.x",
+            "RustWTM-Disk-99999999999",
+            "RustWTM-Disk2-5",
+            "RustWTM-GUI-Disk-5",
+        ] {
+            assert_eq!(owner(odd), None, "{odd}");
+        }
+    }
+
+    #[test]
+    fn a_session_outlives_its_name_only_with_its_owner() {
+        let name = owned_name("RustWTM-Disk");
+        let (pid, started) = owner(&name, "RustWTM-Disk").unwrap();
+        assert_eq!(pid, std::process::id());
+        assert!(started.is_some(), "{name}");
+        assert!(!owner_gone(pid, started));
+        assert!(!owner_gone(pid, None));
+        // The same PID, started at another time: a later process.
+        assert!(owner_gone(pid, started.map(|t| t + 1)));
+        assert!(owner_gone(0xffff_fff1, None));
     }
 
     #[test]

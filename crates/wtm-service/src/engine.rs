@@ -215,6 +215,22 @@ const HARDWARE_IDLE: Duration = Duration::from_secs(30);
 
 /// Prefix of the ETW session that counts network bytes per process.
 const NET_TRACE: &str = "RustWTM-Network";
+/// How often trace sessions left by ended processes are cleared: Windows
+/// allows 64 in all.
+const TRACE_SWEEP_EVERY: Duration = Duration::from_secs(600);
+
+/// Stops the trace sessions of RustWTM processes that are gone: earlier
+/// service runs and windows closed without stopping theirs.
+fn stop_trace_orphans() {
+    for prefix in [
+        NET_TRACE,
+        crate::ipc_server::DISK_TRACE,
+        wtm_core::GUI_DISK_TRACE,
+        wtm_core::GUI_NET_TRACE,
+    ] {
+        wtm_sys::etw::stop_orphans(prefix);
+    }
+}
 
 /// Runs until [`EngineMsg::Stop`] arrives (or all senders are dropped), then
 /// rolls back every applied limit. `tx` is handed to the IPC server.
@@ -267,9 +283,9 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut sampler = Sampler::new();
     // Network bytes per process (ETW). The session name carries our PID so a
     // test run never stops the installed service's session.
-    wtm_sys::etw::stop_orphans(NET_TRACE);
-    wtm_sys::etw::stop_orphans(crate::ipc_server::DISK_TRACE);
-    if let Err(e) = sampler.enable_network_trace(&format!("{NET_TRACE}-{}", std::process::id())) {
+    stop_trace_orphans();
+    let mut next_sweep = Instant::now() + TRACE_SWEEP_EVERY;
+    if let Err(e) = sampler.enable_network_trace(&wtm_sys::etw::owned_name(NET_TRACE)) {
         warn!(error = %e, "per-process network traffic unavailable");
     }
     let mut governor = Governor::new(config.governor.clone());
@@ -473,6 +489,10 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             }
         }
         app_usage = app_limiter.tick(&snap.processes, snap.system.logical_cpus);
+        if Instant::now() >= next_sweep {
+            next_sweep = Instant::now() + TRACE_SWEEP_EVERY;
+            stop_trace_orphans();
+        }
         if let Some(h) = history.as_mut() {
             let unix = unix_now();
             if let Err(e) = h.record(&snap, unix) {

@@ -99,6 +99,11 @@ pub fn service_problem(error: Option<&str>) -> ServiceProblem {
 use wtm_ipc::{Client, Command, Event, EventLevel, Outcome, Request, Response, Status};
 
 const TICK: Duration = Duration::from_secs(1);
+/// The window's own disk trace stops when nothing read it for this long.
+const LOCAL_DISK_TRACE_IDLE: Duration = Duration::from_secs(30);
+/// How long closing the window waits for the worker to finish, so the trace
+/// sessions it runs are stopped rather than left to the next sweep.
+const WORKER_EXIT_WAIT: Duration = Duration::from_secs(3);
 const RECONNECT: Duration = Duration::from_secs(5);
 pub const HISTORY_LEN: usize = 300;
 /// Seconds of CPU and memory kept for every running process.
@@ -406,6 +411,25 @@ pub struct Backend {
     /// Native handle of the main window (0 until known), so it can be shown
     /// while the UI is hidden in the tray.
     pub window: Arc<AtomicIsize>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Backend {
+    /// Hangs up on the worker and waits a little for it to end: its trace
+    /// sessions are kernel objects that would outlive the window.
+    fn drop(&mut self) {
+        let (hang_up, _) = mpsc::channel();
+        drop(std::mem::replace(&mut self.tx, hang_up));
+        if let Some(worker) = self.worker.take() {
+            let deadline = Instant::now() + WORKER_EXIT_WAIT;
+            while !worker.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if worker.is_finished() {
+                let _ = worker.join();
+            }
+        }
+    }
 }
 
 impl Backend {
@@ -443,7 +467,7 @@ impl Backend {
             controls: None,
             sampler_paused: false,
         };
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("backend".into())
             .spawn(move || worker.run(&rx))
             .expect("spawn backend thread");
@@ -452,6 +476,7 @@ impl Backend {
             tx,
             notifications,
             window,
+            worker: Some(worker),
         }
     }
 
@@ -473,6 +498,7 @@ impl Backend {
             tx,
             notifications: Arc::new(AtomicBool::new(true)),
             window: Arc::new(AtomicIsize::new(0)),
+            worker: None,
         };
         (backend, rx)
     }
@@ -598,6 +624,7 @@ impl Worker {
                 Err(RecvTimeoutError::Disconnected) => return,
             }
             next_tick = Instant::now() + TICK;
+            self.stop_idle_disk_trace();
             self.tick();
             self.watch_cpu();
             self.check_exits();
@@ -1409,12 +1436,21 @@ impl Worker {
         }
     }
 
+    /// Stops the window's own disk trace when nothing reads it any more, or
+    /// once the service, which runs its own, answers instead.
+    fn stop_idle_disk_trace(&mut self) {
+        if self.disk_trace.as_ref().is_some_and(|(_, taken)| {
+            self.client.is_some() || taken.elapsed() >= LOCAL_DISK_TRACE_IDLE
+        }) {
+            self.disk_trace = None;
+        }
+    }
+
     /// Reads the window's own per-file disk trace, starting it if needed.
     fn local_disk_activity(&mut self) -> Result<(Vec<wtm_core::FileIo>, f64), String> {
         if self.disk_trace.is_none() {
-            const GUI_DISK_TRACE: &str = "RustWTM-GUI-Disk";
-            wtm_core::stop_trace_orphans(GUI_DISK_TRACE);
-            let name = format!("{GUI_DISK_TRACE}-{}", std::process::id());
+            wtm_core::stop_trace_orphans(wtm_core::GUI_DISK_TRACE);
+            let name = wtm_core::trace_session_name(wtm_core::GUI_DISK_TRACE);
             let tracer = wtm_core::DiskTracer::start(&name).map_err(|e| e.to_string())?;
             self.disk_trace = Some((tracer, Instant::now()));
         }
@@ -1852,14 +1888,12 @@ fn update_process_history(
 fn local_sampler() -> Sampler {
     let mut sampler = Sampler::new();
     if wtm_core::launch::is_elevated() {
-        wtm_core::stop_trace_orphans(GUI_NET_TRACE);
-        let _ = sampler.enable_network_trace(&format!("{GUI_NET_TRACE}-{}", std::process::id()));
+        wtm_core::stop_trace_orphans(wtm_core::GUI_NET_TRACE);
+        let _ =
+            sampler.enable_network_trace(&wtm_core::trace_session_name(wtm_core::GUI_NET_TRACE));
     }
     sampler
 }
-
-/// Prefix of the window's own network trace session.
-const GUI_NET_TRACE: &str = "RustWTM-GUI-Network";
 
 /// Who signed a file, remembered per path: the same system DLLs appear in
 /// nearly every process.
@@ -2144,6 +2178,29 @@ mod tests {
         );
         std::thread::sleep(Duration::from_millis(200));
         g
+    }
+
+    #[test]
+    fn closing_the_window_ends_its_worker() {
+        let (tx, rx) = mpsc::channel::<UiCommand>();
+        let ended = Arc::new(AtomicBool::new(false));
+        let flag = ended.clone();
+        let worker = std::thread::spawn(move || {
+            // Like `Worker::run`: serve until the window hangs up.
+            while rx.recv().is_ok() {}
+            std::thread::sleep(Duration::from_millis(50));
+            flag.store(true, Ordering::SeqCst);
+        });
+        let backend = Backend {
+            data: Arc::new(Mutex::new(Data::default())),
+            tx,
+            notifications: Arc::new(AtomicBool::new(true)),
+            window: Arc::new(AtomicIsize::new(0)),
+            worker: Some(worker),
+        };
+        backend.send(UiCommand::RestoreFrequency);
+        drop(backend);
+        assert!(ended.load(Ordering::SeqCst), "the worker finished first");
     }
 
     fn worker() -> Worker {

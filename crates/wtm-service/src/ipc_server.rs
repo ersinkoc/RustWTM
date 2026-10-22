@@ -82,7 +82,7 @@ fn disk_activity(shared: &Shared, admin: bool, client_session: wtm_sys::Result<u
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if trace.is_none() {
-        let name = format!("{DISK_TRACE}-{}", std::process::id());
+        let name = wtm_sys::etw::owned_name(DISK_TRACE);
         match wtm_core::DiskTracer::start(&name) {
             Ok(tracer) => {
                 *trace = Some(DiskTrace {

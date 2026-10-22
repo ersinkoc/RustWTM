@@ -61,6 +61,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- GPU engine load per type is its busiest engine, as in Task Manager: two
+  video engines at 60% each read 60%, not 100%; a process shows its busiest
+  engine instead of the sum of engines of one type.
+- Trace sessions no longer pile up (Windows allows 64): a window waits for
+  its worker to stop its sessions when it closes, its own disk trace stops
+  after 30 s unread or once the service answers, the service clears those
+  closed windows left every 10 minutes, and session names carry the owner's
+  start time so a reused PID no longer keeps an orphan alive.
 - A power plan game mode switched is put back after a crash too: it is
   remembered on disk while replaced and restored at the next start or on
   uninstall, instead of leaving the machine on High performance.

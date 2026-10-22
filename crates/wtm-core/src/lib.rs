@@ -25,7 +25,12 @@ pub use tree::descendants;
 pub use wtm_sys::disk::DiskUsage;
 pub use wtm_sys::disktrace::{DiskTracer, FileIo};
 pub use wtm_sys::ending::{EndReport, Holder, why_alive};
-pub use wtm_sys::etw::stop_orphans as stop_trace_orphans;
+pub use wtm_sys::etw::{owned_name as trace_session_name, stop_orphans as stop_trace_orphans};
+
+/// Prefixes of the trace sessions a window started as administrator runs
+/// without the service. The service clears those a closed window left.
+pub const GUI_DISK_TRACE: &str = "RustWTM-GUI-Disk";
+pub const GUI_NET_TRACE: &str = "RustWTM-GUI-Network";
 pub use wtm_sys::firewall;
 pub use wtm_sys::icon::{IconImage, small_icon};
 pub use wtm_sys::modules::{Module, Signature, process_modules, signature};
