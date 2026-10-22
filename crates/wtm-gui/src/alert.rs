@@ -119,6 +119,14 @@ pub fn dialog(
         .take(APPS_SHOWN)
         .collect();
     let foreground = data.status.as_ref().and_then(|s| s.foreground.as_deref());
+    // The app in front: as the service names it, or holding the window
+    // without the service.
+    let in_use = |a: &crate::overview::App<'_>| {
+        Some(a.name) == foreground
+            || data
+                .foreground_pid
+                .is_some_and(|pid| a.instances.iter().any(|p| p.pid == pid))
+    };
     let mut close = None;
 
     let modal = egui::Modal::new(egui::Id::unique("cpu_alert")).show(ctx, |ui| {
@@ -154,7 +162,7 @@ pub fn dialog(
         if !apps.is_empty() {
             let background: Vec<&ProcessRef> = apps
                 .iter()
-                .filter(|a| Some(a.name) != foreground)
+                .filter(|a| !in_use(a))
                 .flat_map(|a| &a.instances)
                 .collect();
             if ui
@@ -182,7 +190,7 @@ pub fn dialog(
             .spacing([12.0, 6.0])
             .show(ui, |ui| {
                 for a in &apps {
-                    let using = Some(a.name) == foreground;
+                    let using = in_use(a);
                     ui.label(RichText::new(a.name).strong())
                         .on_hover_text(if using {
                             crate::i18n::tr("The app you are using")

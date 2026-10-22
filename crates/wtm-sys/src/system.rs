@@ -87,11 +87,15 @@ pub struct NetCounters {
     pub sent: u64,
 }
 
-pub fn net_counters() -> Result<NetCounters> {
+/// The counters of every physical adapter that is up, keyed by its LUID.
+/// Adapters come and go (Wi-Fi reconnecting, a cable plugged back in,
+/// resume from sleep) and keep their counts meanwhile, so traffic must be
+/// taken per adapter, never as the difference of two totals.
+pub fn net_adapters() -> Result<Vec<(u64, NetCounters)>> {
     let mut table: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
     // SAFETY: GetIfTable2 allocates the table; it is freed below.
     unsafe { GetIfTable2(&mut table).ok()? };
-    let mut total = NetCounters::default();
+    let mut adapters = Vec::new();
     // SAFETY: on success `table` points to NumEntries rows.
     unsafe {
         let rows =
@@ -100,12 +104,15 @@ pub fn net_counters() -> Result<NetCounters> {
         for row in rows.iter().filter(|r| {
             r.InterfaceAndOperStatusFlags._bitfield & 1 != 0 && r.OperStatus == IfOperStatusUp
         }) {
-            total.received += row.InOctets;
-            total.sent += row.OutOctets;
+            let counters = NetCounters {
+                received: row.InOctets,
+                sent: row.OutOctets,
+            };
+            adapters.push((row.InterfaceLuid.Value, counters));
         }
         FreeMibTable(table.cast());
     }
-    Ok(total)
+    Ok(adapters)
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -158,8 +165,12 @@ mod tests {
         let cores = per_cpu_times().unwrap();
         assert!(!cores.is_empty() && cores.len() as u32 <= logical_cpu_count());
         assert!(cores.iter().all(|c| c.kernel >= c.idle));
-        let a = net_counters().unwrap();
-        let b = net_counters().unwrap();
-        assert!(b.received >= a.received && b.sent >= a.sent);
+        let a = net_adapters().unwrap();
+        let b = net_adapters().unwrap();
+        for (luid, now) in &b {
+            if let Some((_, before)) = a.iter().find(|(l, _)| l == luid) {
+                assert!(now.received >= before.received && now.sent >= before.sent);
+            }
+        }
     }
 }

@@ -12,19 +12,6 @@ use crate::backend::Data;
 use crate::sort::{Sort, header, num, text};
 use crate::theme::{BAD, GOOD, WARN, right};
 
-/// A search field that Ctrl+F focuses.
-fn search_field(ui: &mut Ui, id: &str, text: &mut String, hint: &str, width: f32) {
-    let response = ui
-        .add(
-            egui::TextEdit::singleline(text)
-                .id(egui::Id::unique(("search", id)))
-                .hint_text(hint)
-                .desired_width(width),
-        )
-        .on_hover_text("Ctrl+F");
-    crate::theme::focus_on_ctrl_f(ui, &response);
-}
-
 /// Returns a session to disconnect or sign out once confirmed: (id, user, op).
 pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::SessionOp)> {
     use crate::backend::SessionOp;
@@ -178,6 +165,8 @@ pub(crate) fn closable(c: &wtm_core::Connection) -> Option<(SocketAddr, SocketAd
 pub enum NetworkAction {
     Close(SocketAddr, SocketAddr),
     Unblock(String),
+    /// Stop narrowing the list to the selected process.
+    ShowAll,
 }
 
 /// Programs cut off the network, each with a way back.
@@ -208,19 +197,27 @@ fn blocked_programs(ui: &mut Ui, data: &Data, action: &mut Option<NetworkAction>
     });
 }
 
-/// Returns what the user asked for, if anything.
+/// Returns what the user asked for, if anything. `only` narrows the list to
+/// one process while it still runs: its PID may have gone to another one.
 pub fn network(
     ui: &mut Ui,
     data: &Data,
     filter: &mut String,
-    only_pid: Option<u32>,
+    only: Option<&wtm_core::control::ProcessRef>,
 ) -> Option<NetworkAction> {
+    let only_pid = only
+        .filter(|r| {
+            data.snapshot
+                .iter()
+                .flat_map(|s| &s.processes)
+                .any(|p| p.pid == r.pid && p.create_time == r.create_time)
+        })
+        .map(|r| r.pid);
     let mut close = None;
-    ui.horizontal(|ui| {
-        ui.label(crate::i18n::tr("Search:"));
-        search_field(
+    ui.horizontal_wrapped(|ui| {
+        crate::theme::search_bar(
             ui,
-            "network",
+            egui::Id::unique(("search", "network")),
             filter,
             crate::i18n::tr("process, address or port"),
             240.0,
@@ -230,6 +227,9 @@ pub fn network(
                 "(selected process {0} only)",
                 &[format!("{}", pid)],
             ));
+            if ui.small_button(crate::i18n::tr("Show all")).clicked() {
+                close = Some(NetworkAction::ShowAll);
+            }
         }
     });
     top_talkers(ui, data);
@@ -283,6 +283,17 @@ pub fn network(
             3 => a.local.cmp(&b.local),
             _ => text(ar, br),
         });
+    }
+    if rows.is_empty() && !f.is_empty() {
+        crate::theme::empty_state(
+            ui,
+            crate::i18n::tr("No matching connections"),
+            crate::i18n::tr("Try another process name, address or port."),
+        );
+        if ui.button(crate::i18n::tr("Clear search")).clicked() {
+            filter.clear();
+        }
+        return close;
     }
 
     let row_height = ui.spacing().interact_size.y;
@@ -378,11 +389,10 @@ fn state_color(ui: &Ui, state: wtm_core::ServiceState) -> Color32 {
 
 /// Returns the service the user right-clicked or clicked, if any.
 pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_core::ServiceEntry> {
-    ui.horizontal(|ui| {
-        ui.label(crate::i18n::tr("Search:"));
-        search_field(
+    ui.horizontal_wrapped(|ui| {
+        crate::theme::search_bar(
             ui,
-            "services",
+            egui::Id::unique(("search", "services")),
             filter,
             crate::i18n::tr("name or description"),
             240.0,
@@ -551,7 +561,7 @@ fn duration_label(minutes: u32) -> String {
 /// Returns true when the window or selection changed and data must be reloaded.
 pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
     let mut changed = false;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(crate::i18n::tr("Window:"));
         for (label, hours) in [
             ("1 h", 1),

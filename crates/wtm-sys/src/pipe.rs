@@ -14,13 +14,28 @@ use windows::Win32::Security::{
 };
 use windows::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX};
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeClientProcessId, GetNamedPipeClientSessionId,
-    GetNamedPipeServerProcessId, ImpersonateNamedPipeClient, PIPE_READMODE_BYTE,
-    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId,
+    GetNamedPipeClientSessionId, GetNamedPipeServerProcessId, ImpersonateNamedPipeClient,
+    PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
+    PIPE_WAIT,
 };
 use windows::core::PCWSTR;
 
 use crate::Result;
+
+/// What a client needs on a pipe: read, and write data
+/// (`FILE_GENERIC_READ | FILE_WRITE_DATA`). Unlike `GENERIC_WRITE` it leaves
+/// out `FILE_CREATE_PIPE_INSTANCE` (the bit of `FILE_APPEND_DATA`), so a
+/// pipe's DACL can let clients in without letting them serve its name.
+pub const CLIENT_ACCESS: u32 = 0x0012_008B;
+
+/// Opens the client end of the pipe `name` with [`CLIENT_ACCESS`].
+pub fn open_client(name: &str) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .access_mode(CLIENT_ACCESS)
+        .open(name)
+}
 
 const BUFFER_SIZE: u32 = 64 * 1024;
 
@@ -101,7 +116,9 @@ impl PipeListener {
         Ok(unsafe { File::from_raw_handle(handle.0 as RawHandle) })
     }
 
-    /// Blocks until a client connects.
+    /// Blocks until a client connects. The pipe name never goes without an
+    /// instance of ours: otherwise any user could create the pipe meanwhile
+    /// and keep the service from serving it again.
     pub fn accept(&mut self) -> Result<PipeConnection> {
         let file = match self.pending.take() {
             Some(f) => f,
@@ -111,9 +128,18 @@ impl PipeListener {
         match unsafe { ConnectNamedPipe(raw(&file), None) } {
             Ok(()) => {}
             Err(e) if e.code() == ERROR_PIPE_CONNECTED.to_hresult() => {}
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                // A client that came and went: reset the instance for the
+                // next one instead of closing it.
+                // SAFETY: `file` owns a valid pipe handle.
+                let _ = unsafe { DisconnectNamedPipe(raw(&file)) };
+                self.pending = Some(file);
+                return Err(e.into());
+            }
         }
-        self.pending = Some(self.create_instance(false)?);
+        // The connected instance holds the name meanwhile; without a next
+        // one now, the next accept() tries again.
+        self.pending = self.create_instance(false).ok();
         Ok(PipeConnection { file })
     }
 }
@@ -202,7 +228,6 @@ impl Write for PipeConnection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::OpenOptions;
 
     #[test]
     fn round_trip_and_identity() {
@@ -218,11 +243,7 @@ mod tests {
 
         let client_name = name.clone();
         let client = std::thread::spawn(move || {
-            let mut c = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&client_name)
-                .unwrap();
+            let mut c = open_client(&client_name).unwrap();
             c.write_all(b"ping").unwrap();
             let mut buf = [0u8; 4];
             c.read_exact(&mut buf).unwrap();
@@ -252,8 +273,27 @@ mod tests {
 
     const SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)";
 
-    fn open_client(name: &str) -> std::io::Result<File> {
-        OpenOptions::new().read(true).write(true).open(name)
+    #[test]
+    fn clients_connect_and_the_owner_keeps_serving() {
+        // Without FILE_CREATE_PIPE_INSTANCE (0x4, as FILE_APPEND_DATA) a
+        // client cannot serve the name itself.
+        assert_eq!(CLIENT_ACCESS & 0x4, 0);
+        let name = format!(r"\\.\pipe\wtm-test-serve-{}", std::process::id());
+        // As the service's pipe: its owner may add instances, interactive
+        // users only connect.
+        let sddl = format!("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;{CLIENT_ACCESS:#x};;;IU)");
+        let mut listener = PipeListener::bind(&name, &sddl).unwrap();
+        for _ in 0..3 {
+            let client_name = name.clone();
+            let client = std::thread::spawn(move || {
+                let mut c = open_client(&client_name).unwrap();
+                c.write_all(b"hi").unwrap();
+            });
+            let mut conn = listener.accept().unwrap();
+            let mut buf = [0u8; 2];
+            conn.read_exact(&mut buf).unwrap();
+            client.join().unwrap();
+        }
     }
 
     #[test]
@@ -286,9 +326,12 @@ mod tests {
         // Connect and disconnect before accept(): ConnectNamedPipe fails.
         drop(open_client(&name).unwrap());
         assert!(listener.accept().is_err());
+        // The instance was reset, not closed: the name is still ours (busy
+        // until the next accept, not missing), so nobody else can take it.
+        let e = open_client(&name).unwrap_err();
+        assert_eq!(e.raw_os_error(), Some(231), "ERROR_PIPE_BUSY: {e}");
 
-        // No pending instance is left, so the next accept() creates one; the
-        // client retries until it exists.
+        // The next accept() serves it; the client retries until it listens.
         let client_name = name.clone();
         let client = std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);

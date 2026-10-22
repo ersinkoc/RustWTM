@@ -66,7 +66,7 @@ impl Blocker {
         let current = self.blocked();
         let mut report = SyncReport::default();
         for name in current.difference(&wanted) {
-            self.remove(name)?;
+            self.clear(name)?;
             report.removed.push(name.clone());
         }
         for name in wanted.difference(&current) {
@@ -105,27 +105,18 @@ impl Blocker {
         (removed, failed)
     }
 
+    /// Takes RustWTM's entry for `name` back out: its debugger only while it
+    /// is still RustWTM's (the one this blocker writes, or any RustWTM build
+    /// wrote), then the marker, then the key once it is empty.
     fn clear(&self, name: &str) -> io::Result<()> {
         let key = self.root.open_subkey_with_flags(name, KEY_ALL_ACCESS)?;
         let ours = key
             .get_value::<String, _>(DEBUGGER)
-            .is_ok_and(|d| d.trim_end().ends_with(BLOCKED_ARG));
+            .is_ok_and(|d| d == self.debugger || d.trim_end().ends_with(BLOCKED_ARG));
         if ours {
             key.delete_value(DEBUGGER)?;
         }
         key.delete_value(MARKER)?;
-        if key.enum_values().next().is_none() && key.enum_keys().next().is_none() {
-            drop(key);
-            self.root.delete_subkey(name)?;
-        }
-        Ok(())
-    }
-
-    fn remove(&self, name: &str) -> io::Result<()> {
-        let key = self.root.open_subkey_with_flags(name, KEY_ALL_ACCESS)?;
-        key.delete_value(DEBUGGER)?;
-        key.delete_value(MARKER)?;
-        // Drop the key itself only if nothing else lives in it.
         if key.enum_values().next().is_none() && key.enum_keys().next().is_none() {
             drop(key);
             self.root.delete_subkey(name)?;
@@ -220,6 +211,31 @@ mod tests {
     }
 
     #[test]
+    fn unblocking_keeps_a_debugger_another_program_put_there() {
+        let s = Scratch::new("sync-taken");
+        let b = &s.blocker;
+        b.sync(&names(&["a.exe", "b.exe"])).unwrap();
+        let (taken, _) = b.root.create_subkey("b.exe").unwrap();
+        taken.set_value(DEBUGGER, &"vsjitdebugger.exe").unwrap();
+        // Marked, but its debugger already vanished.
+        let (broken, _) = b.root.create_subkey("broken.exe").unwrap();
+        broken.set_value(MARKER, &1u32).unwrap();
+
+        let r = b.sync(&[]).unwrap();
+        assert_eq!(r.removed, ["a.exe", "b.exe", "broken.exe"]);
+        assert!(b.blocked().is_empty());
+        assert!(b.root.open_subkey("a.exe").is_err());
+        assert!(b.root.open_subkey("broken.exe").is_err());
+        let foreign: String = b
+            .root
+            .open_subkey("b.exe")
+            .unwrap()
+            .get_value(DEBUGGER)
+            .unwrap();
+        assert_eq!(foreign, "vsjitdebugger.exe");
+    }
+
+    #[test]
     fn remove_all_clears_only_marked_entries() {
         let s = Scratch::new("remove-all");
         let b = &s.blocker;
@@ -257,12 +273,28 @@ mod tests {
     }
 
     #[test]
+    fn unblocking_takes_back_the_debugger_this_blocker_wrote() {
+        let path = format!(r"Software\RustWTM-test-ifeo-own-{}", std::process::id());
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        // A debugger of another shape than RustWTM's `--blocked` one.
+        let b = Blocker::at(
+            RegKey::predef(HKEY_CURRENT_USER),
+            &path,
+            r"C:\Windows\System32\cmd.exe /c exit 7".into(),
+        )
+        .unwrap();
+        b.sync(&names(&["a.exe"])).unwrap();
+        assert_eq!(b.sync(&[]).unwrap().removed, ["a.exe"]);
+        assert!(b.root.open_subkey("a.exe").is_err(), "nothing left behind");
+        let _ = root.delete_subkey_all(&path);
+    }
+
+    #[test]
     fn errors_are_reported() {
         let s = Scratch::new("errors");
-        // An entry RustWTM marked but whose debugger vanished.
-        let (broken, _) = s.blocker.root.create_subkey("broken.exe").unwrap();
-        broken.set_value(MARKER, &1u32).unwrap();
-        assert!(s.blocker.sync(&[]).is_err());
+        // Registry key names are limited to 255 characters.
+        let too_long = format!("{}.exe", "x".repeat(300));
+        assert!(s.blocker.sync(&[too_long]).is_err());
     }
 
     /// Writes the real IFEO key, so it only runs where RUSTWTM_SCM_TESTS is

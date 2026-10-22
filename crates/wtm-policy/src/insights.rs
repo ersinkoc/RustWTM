@@ -431,7 +431,13 @@ impl InsightPolicy {
         }
         for p in procs {
             let key = (p.pid, p.create_time);
-            if self.applied.contains(&key) || protection_reason(p.pid, &p.name).is_some() {
+            // Services (session 0) share their names with every instance:
+            // an hour of 80 svchost.exe together is no one host's doing.
+            if self.applied.contains(&key)
+                || p.session_id == 0
+                || protection_reason(p.pid, &p.name).is_some()
+                || wtm_core::automatic_end_blocked(&p.name).is_some()
+            {
                 continue;
             }
             // Flagged apps are keyed lowercase.

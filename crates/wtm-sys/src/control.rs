@@ -226,18 +226,28 @@ impl ProcessHandle {
                 &mut len,
             );
         }
-        // u64 elements keep the UNICODE_STRING header aligned.
-        let mut buf = vec![0u64; (len as usize).div_ceil(8).max(2)];
-        let size = (buf.len() * 8) as u32;
-        // SAFETY: uf is writable for size bytes.
-        let status = unsafe {
-            NtQueryInformationProcess(
-                self.raw(),
-                PROCESS_COMMAND_LINE_INFORMATION,
-                buf.as_mut_ptr().cast(),
-                size,
-                &mut len,
-            )
+        // The process may rewrite its command line between the size query
+        // and the read: asked again, a few times, with the new size.
+        const TOO_SMALL: [u32; 3] = [0xC000_0004, 0xC000_0023, 0x8000_0005];
+        let mut attempts = 0;
+        let (buf, status) = loop {
+            // u64 elements keep the UNICODE_STRING header aligned.
+            let mut buf = vec![0u64; (len as usize).div_ceil(8).max(2)];
+            let size = (buf.len() * 8) as u32;
+            // SAFETY: buf is writable for size bytes.
+            let status = unsafe {
+                NtQueryInformationProcess(
+                    self.raw(),
+                    PROCESS_COMMAND_LINE_INFORMATION,
+                    buf.as_mut_ptr().cast(),
+                    size,
+                    &mut len,
+                )
+            };
+            attempts += 1;
+            if !TOO_SMALL.contains(&(status.0 as u32)) || attempts == 4 || len <= size {
+                break (buf, status);
+            }
         };
         nt_ok("NtQueryInformationProcess", status)?;
         // SAFETY: on success the buffer starts with a UNICODE_STRING whose

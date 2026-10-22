@@ -87,6 +87,7 @@ pub fn snapshot() -> Snapshot {
             proc(200, 4, "beta.exe", 0.5),
         ],
         net_traced: false,
+        taken_at_ms: 0,
     }
 }
 
@@ -543,8 +544,46 @@ fn processes_row_click_and_context_menu_produce_intents() {
 }
 
 #[test]
+fn the_network_list_narrows_to_a_selection_only_while_it_runs() {
+    let d = data();
+    let alpha = ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0));
+    let shown = |only: Option<ProcessRef>| {
+        let mut action = None;
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1200.0, 900.0])
+            .build_ui(|ui| {
+                if let Some(a) = views::network(ui, &d, &mut String::new(), only.as_ref()) {
+                    action = Some(a);
+                }
+            });
+        h.run_steps(2);
+        let other = h.query_by_label("[::1]:53").is_some();
+        let button = h.query_by_label("Show all").is_some();
+        if button {
+            h.get_by_label("Show all").click();
+            h.run_steps(2);
+        }
+        drop(h);
+        (other, button, action)
+    };
+    // The selected process runs: only its connections, and a way out.
+    let (other, button, action) = shown(Some(alpha.clone()));
+    assert!(!other && button);
+    assert!(matches!(action, Some(views::NetworkAction::ShowAll)));
+    // Its PID now belongs to a later process: everything is listed.
+    let stale = ProcessRef {
+        create_time: alpha.create_time + 1,
+        ..alpha
+    };
+    let (other, button, _) = shown(Some(stale));
+    assert!(other && !button);
+}
+
+#[test]
 fn read_only_views_render() {
     let mut d = data();
+    let alpha = ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0));
     let mut filter = String::new();
     let mut h = Harness::builder()
         .allow_missing_glyphs()
@@ -552,7 +591,7 @@ fn read_only_views_render() {
         .build_ui(|ui| {
             views::users(ui, &d);
             let _ = views::network(ui, &d, &mut filter, None);
-            let _ = views::network(ui, &d, &mut "8080".to_owned(), Some(100));
+            let _ = views::network(ui, &d, &mut "8080".to_owned(), Some(&alpha));
         });
     h.run();
     assert!(h.query_by_label(r"PC\alice").is_some());
@@ -1125,6 +1164,95 @@ fn ctrl_f_focuses_the_search_and_escape_clears_it() {
     h.key_press(eframe::egui::Key::Escape);
     h.run();
     assert!(h.state().view.search.is_empty());
+}
+
+#[test]
+fn table_searches_clear_and_explain_an_empty_result() {
+    #[derive(Default)]
+    struct Pages {
+        network: String,
+        services: String,
+        ports: crate::ports_tab::PortsView,
+    }
+    let d = data();
+    let no_match = "zzz-nothing-zzz".to_owned();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1600.0, 900.0])
+        .build_ui_state(
+            |ui, pages: &mut Pages| {
+                ui.columns(3, |cols| {
+                    let _ = views::network(&mut cols[0], &d, &mut pages.network, None);
+                    let _ = views::services(&mut cols[1], &d, &mut pages.services);
+                    crate::ports_tab::ports_tab(
+                        &mut cols[2],
+                        &d,
+                        &mut pages.ports,
+                        &mut Vec::new(),
+                    );
+                });
+            },
+            Pages {
+                network: no_match.clone(),
+                services: no_match.clone(),
+                ports: crate::ports_tab::PortsView {
+                    search: no_match.clone(),
+                    ..Default::default()
+                },
+            },
+        );
+    h.run_steps(2);
+    for title in [
+        "No matching connections",
+        "No matching services",
+        "No matching ports",
+    ] {
+        assert!(h.query_by_label(title).is_some(), "{title}");
+    }
+    // Each page offers its own way back, and the ✖ beside each field too.
+    assert_eq!(h.query_all_by_label("Clear search").count(), 3);
+    assert_eq!(h.query_all_by_label("✖").count(), 3);
+    h.query_all_by_label("Clear search").next().unwrap().click();
+    h.run_steps(2);
+    assert!(h.state().network.is_empty());
+    assert_eq!(h.state().services, no_match);
+
+    // Escape in a focused field clears it.
+    h.get_all_by_role(eframe::egui::accesskit::Role::TextInput)
+        .nth(1)
+        .unwrap()
+        .focus();
+    h.run();
+    h.key_press(eframe::egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().services.is_empty());
+    drop(h);
+
+    // A narrow window at 200 % scale wraps the toolbars, and a long name
+    // stays whole in its (clipped) cell.
+    let mut d = d;
+    let long = format!("Very long service display name {}", "x".repeat(120));
+    if let Some(Ok(services)) = &mut d.services {
+        services[0].display_name = long.clone();
+    }
+    let mut pages = Pages::default();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([360.0, 700.0])
+        .with_pixels_per_point(2.0)
+        .build_ui(|ui| {
+            let _ = views::network(
+                ui,
+                &d,
+                &mut pages.network,
+                Some(&ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0))),
+            );
+            let _ = views::services(ui, &d, &mut pages.services);
+            crate::ports_tab::ports_tab(ui, &d, &mut pages.ports, &mut Vec::new());
+        });
+    h.run_steps(2);
+    assert!(h.query_by_label("Include UDP").is_some());
+    assert!(h.query_by_label(&long).is_some());
 }
 
 #[test]

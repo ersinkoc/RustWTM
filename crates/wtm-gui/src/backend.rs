@@ -99,6 +99,11 @@ pub fn service_problem(error: Option<&str>) -> ServiceProblem {
 use wtm_ipc::{Client, Command, Event, EventLevel, Outcome, Request, Response, Status};
 
 const TICK: Duration = Duration::from_secs(1);
+/// The window's own disk trace stops when nothing read it for this long.
+const LOCAL_DISK_TRACE_IDLE: Duration = Duration::from_secs(30);
+/// How long closing the window waits for the worker to finish, so the trace
+/// sessions it runs are stopped rather than left to the next sweep.
+const WORKER_EXIT_WAIT: Duration = Duration::from_secs(3);
 const RECONNECT: Duration = Duration::from_secs(5);
 pub const HISTORY_LEN: usize = 300;
 /// Seconds of CPU and memory kept for every running process.
@@ -120,6 +125,9 @@ pub enum Mode {
 
 #[derive(Debug, Default)]
 pub struct History {
+    /// When each point was measured, in Unix milliseconds: one per entry of
+    /// every series below, and of the last entries of `cores`.
+    pub times: VecDeque<u64>,
     pub cpu: VecDeque<f32>,
     pub memory: VecDeque<f32>,
     pub gpu: VecDeque<f32>,
@@ -135,6 +143,8 @@ pub struct History {
 /// Recent samples of one process, oldest first.
 #[derive(Debug, Default)]
 pub struct ProcessHistory {
+    /// When each sample was measured, in Unix milliseconds.
+    pub times: VecDeque<u64>,
     pub cpu: VecDeque<f32>,
     /// Private working set, bytes.
     pub memory: VecDeque<f32>,
@@ -144,8 +154,14 @@ pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory
 
 #[derive(Debug, Default)]
 pub struct Data {
-    /// Receipt time in this GUI, not the service's measurement timestamp.
+    /// The process owning the foreground window, as last seen (also without
+    /// the service, whose status names its app).
+    pub foreground_pid: Option<u32>,
+    /// Receipt time in this GUI.
     pub sample_received_at: Option<Instant>,
+    /// When the shown sample was measured, on this GUI's clock. A sample
+    /// received again from the service's cache keeps its old time.
+    pub sample_measured_at: Option<Instant>,
     /// Latest sampling failure; cleared only by a successful snapshot.
     pub sample_error: Option<String>,
     pub frequency: Option<Result<wtm_core::power::FrequencyReport, String>>,
@@ -224,7 +240,8 @@ pub enum SampleFreshness {
 impl Data {
     pub fn sample_freshness(&self, now: Instant) -> SampleFreshness {
         let age = self
-            .sample_received_at
+            .sample_measured_at
+            .or(self.sample_received_at)
             .map(|at| now.saturating_duration_since(at));
         if self.sample_error.is_some() {
             return SampleFreshness::Stale(age);
@@ -341,9 +358,11 @@ pub enum UpdateState {
 #[derive(Clone, Copy)]
 pub struct Updater {
     pub latest: fn() -> Result<wtm_core::update::Release, String>,
-    pub download:
-        fn(&wtm_core::update::Release, &std::path::Path) -> Result<std::path::PathBuf, String>,
-    pub install: fn(&std::path::Path, &std::path::Path) -> Result<(), String>,
+    pub download: fn(
+        &wtm_core::update::Release,
+        &std::path::Path,
+    ) -> Result<wtm_core::update::Download, String>,
+    pub install: fn(&wtm_core::update::Download, &std::path::Path) -> Result<(), String>,
 }
 
 impl Default for Updater {
@@ -395,6 +414,25 @@ pub struct Backend {
     /// Native handle of the main window (0 until known), so it can be shown
     /// while the UI is hidden in the tray.
     pub window: Arc<AtomicIsize>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for Backend {
+    /// Hangs up on the worker and waits a little for it to end: its trace
+    /// sessions are kernel objects that would outlive the window.
+    fn drop(&mut self) {
+        let (hang_up, _) = mpsc::channel();
+        drop(std::mem::replace(&mut self.tx, hang_up));
+        if let Some(worker) = self.worker.take() {
+            let deadline = Instant::now() + WORKER_EXIT_WAIT;
+            while !worker.is_finished() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if worker.is_finished() {
+                let _ = worker.join();
+            }
+        }
+    }
 }
 
 impl Backend {
@@ -429,8 +467,10 @@ impl Backend {
             sampler: local_sampler(),
             disk_trace: None,
             limiter: Limiter::new(),
+            controls: None,
+            sampler_paused: false,
         };
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("backend".into())
             .spawn(move || worker.run(&rx))
             .expect("spawn backend thread");
@@ -439,6 +479,7 @@ impl Backend {
             tx,
             notifications,
             window,
+            worker: Some(worker),
         }
     }
 
@@ -460,6 +501,7 @@ impl Backend {
             tx,
             notifications: Arc::new(AtomicBool::new(true)),
             window: Arc::new(AtomicIsize::new(0)),
+            worker: None,
         };
         (backend, rx)
     }
@@ -498,6 +540,12 @@ struct Worker {
     disk_trace: Option<(wtm_core::DiskTracer, Instant)>,
     /// Job handles for limits applied in local mode.
     limiter: Limiter,
+    /// Control requests for the service, sent one after another over one
+    /// connection of their own (see [`Worker::control`]).
+    controls: Option<Sender<(ProcessRef, Command)>>,
+    /// The service measured since `sampler` last did: its next sample must
+    /// not average over that time.
+    sampler_paused: bool,
 }
 
 fn unexpected(r: Response) -> io::Error {
@@ -579,6 +627,7 @@ impl Worker {
                 Err(RecvTimeoutError::Disconnected) => return,
             }
             next_tick = Instant::now() + TICK;
+            self.stop_idle_disk_trace();
             self.tick();
             self.watch_cpu();
             self.check_exits();
@@ -608,12 +657,14 @@ impl Worker {
             }
         }
 
+        let foreground = (self.foreground)();
+        self.data().foreground_pid = foreground.map(|(pid, _)| pid);
         if let Some(client) = self.client.as_mut() {
             let admin = client.is_admin();
             let verified = client.is_verified();
             // Lets the governor spare the app the user is working in; a
             // refusal (e.g. an exited process) is harmless.
-            if let Some((pid, fullscreen)) = (self.foreground)() {
+            if let Some((pid, fullscreen)) = foreground {
                 let _ = client.call(&Request::Foreground { pid, fullscreen });
             }
             // Right after connecting: the service's last minutes, so the
@@ -658,6 +709,7 @@ impl Worker {
                     }
                     drop(data);
                     refresh_icons(&self.data);
+                    self.sampler_paused = true;
                     return;
                 }
                 Err(e) => {
@@ -668,6 +720,9 @@ impl Worker {
             }
         }
 
+        if std::mem::take(&mut self.sampler_paused) {
+            self.sampler.restart();
+        }
         let sample = self.sampler.sample();
         let lookups = sample
             .as_ref()
@@ -752,6 +807,60 @@ impl Worker {
 
     /// Runs `job` on its own thread with its own connection to the service,
     /// so a slow request does not hold up the samples of the main one.
+    /// Sends a control request to the service. Requests go one after another
+    /// over one connection: a burst (the panic button, ending a swarm)
+    /// never exceeds the service's client limit and loses requests. Those
+    /// that arrive together are reported together, failures first.
+    fn control(&mut self, target: ProcessRef, command: Command) {
+        let (pipe, data, ctx) = (self.pipe.clone(), self.data.clone(), self.ctx.clone());
+        let controls = self.controls.get_or_insert_with(|| {
+            let (tx, rx) = mpsc::channel::<(ProcessRef, Command)>();
+            std::thread::spawn(move || {
+                while let Ok(first) = rx.recv() {
+                    // One connection per batch, closed after it: no client
+                    // slot of the service is held while nothing is sent.
+                    let mut client: Option<Client> = None;
+                    // A batch lasts while requests keep coming in.
+                    let mut pending = std::collections::VecDeque::from([first]);
+                    let mut reports: Vec<(Command, Vec<Outcome>)> = Vec::new();
+                    while let Some((target, command)) = pending.pop_front() {
+                        // The service may wait up to seconds for the process.
+                        let outcomes = run_on_service(&mut client, &pipe, &target, command);
+                        let details = showing(
+                            &data.lock().unwrap_or_else(PoisonError::into_inner),
+                            &target,
+                        )
+                        .then(|| match client.as_mut() {
+                            Some(c) => inspect_with(c, &target),
+                            None => Err(crate::i18n::tr("The service is not reachable").into()),
+                        });
+                        if let Some(details) = details {
+                            let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+                            if showing(&data, &target) {
+                                data.details = Some((target, details));
+                            }
+                        }
+                        match reports.last_mut() {
+                            Some((c, all)) if *c == command => all.extend(outcomes),
+                            _ => reports.push((command, outcomes)),
+                        }
+                        pending.extend(rx.try_iter());
+                    }
+                    // The last report sets the message: a failing one goes last.
+                    reports.sort_by_key(|(_, o)| o.iter().any(|o| o.result.is_err()));
+                    let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+                    for (command, outcomes) in reports {
+                        report(&mut data, command, outcomes, false);
+                    }
+                    drop(data);
+                    ctx.request_repaint();
+                }
+            });
+            tx
+        });
+        let _ = controls.send((target, command));
+    }
+
     fn aside(&self, job: impl FnOnce(io::Result<Client>, &Mutex<Data>) + Send + 'static) {
         let (pipe, data, ctx) = (self.pipe.clone(), self.data.clone(), self.ctx.clone());
         std::thread::spawn(move || {
@@ -972,6 +1081,9 @@ impl Worker {
             UiCommand::CheckUpdate => {
                 let (data, ctx, latest) =
                     (self.data.clone(), self.ctx.clone(), self.updater.latest);
+                if updating(&data) {
+                    return;
+                }
                 set_update(&data, UpdateState::Checking);
                 std::thread::spawn(move || {
                     let state = match latest() {
@@ -981,12 +1093,18 @@ impl Worker {
                         Ok(_) => UpdateState::UpToDate,
                         Err(e) => UpdateState::Failed(e),
                     };
-                    set_update(&data, state);
+                    finish_check(&data, state);
                     ctx.request_repaint();
                 });
             }
             UiCommand::InstallUpdate(release) => {
                 let (data, ctx, updater) = (self.data.clone(), self.ctx.clone(), self.updater);
+                if matches!(
+                    data.lock().unwrap_or_else(PoisonError::into_inner).update,
+                    UpdateState::Installing(_)
+                ) {
+                    return;
+                }
                 set_update(&data, UpdateState::Installing(release.clone()));
                 std::thread::spawn(move || {
                     let dir = std::env::temp_dir().join("RustWTM-update");
@@ -1175,7 +1293,7 @@ impl Worker {
                 std::thread::spawn(move || {
                     // Off the critical path: reading files and catalogs.
                     let _ = wtm_core::control::enter_background_mode();
-                    let result = wtm_core::process_modules(target.pid)
+                    let result = wtm_core::process_modules(target.pid, target.create_time)
                         .map(|mods| {
                             mods.into_iter()
                                 .map(|m| {
@@ -1197,7 +1315,8 @@ impl Worker {
                 self.data().end_report = Some((target.clone(), None));
                 let (data, ctx) = (self.data.clone(), self.ctx.clone());
                 std::thread::spawn(move || {
-                    let report = wtm_core::why_alive(target.pid).map_err(|e| e.to_string());
+                    let report = wtm_core::why_alive(target.pid, target.create_time)
+                        .map_err(|e| e.to_string());
                     let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
                     if d.end_report.as_ref().is_some_and(|(t, _)| *t == target) {
                         d.end_report = Some((target, Some(report)));
@@ -1214,35 +1333,19 @@ impl Worker {
                 self.data().details = Some((target, result));
             }
             UiCommand::Control { target, command } => {
-                if self.client.as_ref().is_some_and(Client::is_admin) {
-                    // The service may wait up to seconds for the process.
-                    self.aside(move |client, data| {
-                        let (outcomes, details) = match client {
-                            Ok(mut c) => {
-                                let outcomes = match c.call(&Request::Control {
-                                    target: target.clone(),
-                                    command,
-                                }) {
-                                    Ok(Response::Control(o)) => o,
-                                    Ok(other) => {
-                                        vec![failed(&target, unexpected(other).to_string())]
-                                    }
-                                    Err(e) => vec![failed(&target, e.to_string())],
-                                };
-                                (outcomes, inspect_with(&mut c, &target))
-                            }
-                            Err(e) => (vec![failed(&target, e.to_string())], Err(e.to_string())),
-                        };
-                        let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
-                        report(&mut data, command, outcomes, false);
-                        // So the side panel reflects the change.
-                        data.details = Some((target, details));
-                    });
+                // A limit this window set while it ran without the service is
+                // held by its own job handle: only it can change or lift it.
+                let ours = matches!(command, Command::Limit(_) | Command::Unlimit)
+                    && self.limiter.is_limited(&target);
+                if !ours && self.client.as_ref().is_some_and(Client::is_admin) {
+                    self.control(target, command);
                 } else {
                     let outcomes = self.run_local(&target, command);
                     report(&mut self.data(), command, outcomes, true);
-                    // Refresh details so the side panel reflects the change.
-                    self.handle(UiCommand::Inspect(target));
+                    // The side panel, if it shows this process, reflects the change.
+                    if showing(&self.data(), &target) {
+                        self.handle(UiCommand::Inspect(target));
+                    }
                 }
             }
         }
@@ -1339,12 +1442,21 @@ impl Worker {
         }
     }
 
+    /// Stops the window's own disk trace when nothing reads it any more, or
+    /// once the service, which runs its own, answers instead.
+    fn stop_idle_disk_trace(&mut self) {
+        if self.disk_trace.as_ref().is_some_and(|(_, taken)| {
+            self.client.is_some() || taken.elapsed() >= LOCAL_DISK_TRACE_IDLE
+        }) {
+            self.disk_trace = None;
+        }
+    }
+
     /// Reads the window's own per-file disk trace, starting it if needed.
     fn local_disk_activity(&mut self) -> Result<(Vec<wtm_core::FileIo>, f64), String> {
         if self.disk_trace.is_none() {
-            const GUI_DISK_TRACE: &str = "RustWTM-GUI-Disk";
-            wtm_core::stop_trace_orphans(GUI_DISK_TRACE);
-            let name = format!("{GUI_DISK_TRACE}-{}", std::process::id());
+            wtm_core::stop_trace_orphans(wtm_core::GUI_DISK_TRACE);
+            let name = wtm_core::trace_session_name(wtm_core::GUI_DISK_TRACE);
             let tracer = wtm_core::DiskTracer::start(&name).map_err(|e| e.to_string())?;
             self.disk_trace = Some((tracer, Instant::now()));
         }
@@ -1511,6 +1623,42 @@ fn inspect_with(client: &mut Client, target: &ProcessRef) -> Result<ProcessDetai
     }
 }
 
+/// Whether the side panel shows `target` (its details are loaded or loading).
+fn showing(data: &Data, target: &ProcessRef) -> bool {
+    data.details.as_ref().is_some_and(|(r, _)| r == target)
+}
+
+/// One control request over `client`, connecting first (again, after a
+/// failure) when there is no connection.
+fn run_on_service(
+    client: &mut Option<Client>,
+    pipe: &str,
+    target: &ProcessRef,
+    command: Command,
+) -> Vec<Outcome> {
+    if client.is_none() {
+        match Client::connect_to(pipe) {
+            Ok(c) => *client = Some(c),
+            Err(e) => return vec![failed(target, e.to_string())],
+        }
+    }
+    let Some(c) = client.as_mut() else {
+        return Vec::new();
+    };
+    let request = Request::Control {
+        target: target.clone(),
+        command,
+    };
+    match c.call(&request) {
+        Ok(Response::Control(o)) => o,
+        Ok(other) => vec![failed(target, unexpected(other).to_string())],
+        Err(e) => {
+            *client = None;
+            vec![failed(target, e.to_string())]
+        }
+    }
+}
+
 fn failed(target: &ProcessRef, error: String) -> Outcome {
     Outcome {
         target: target.clone(),
@@ -1602,6 +1750,7 @@ fn publish_local(data: &mut Data, sample: wtm_core::Result<Snapshot>) {
 fn fill_history(h: &mut History, points: &[wtm_ipc::SystemPoint]) {
     let points = &points[points.len().saturating_sub(HISTORY_LEN)..];
     let series = |f: fn(&wtm_ipc::SystemPoint) -> f32| points.iter().map(f).collect();
+    h.times = points.iter().map(|p| p.at_ms).collect();
     h.cpu = series(|p| p.cpu);
     h.memory = series(|p| p.memory);
     h.gpu = series(|p| p.gpu);
@@ -1622,8 +1771,21 @@ fn fill_history(h: &mut History, points: &[wtm_ipc::SystemPoint]) {
 }
 
 fn publish(data: &mut Data, snapshot: Snapshot) {
-    data.sample_received_at = Some(Instant::now());
+    let (now, unix_now) = (Instant::now(), wtm_core::hardware::unix_ms());
+    // The service answers from its latest sample; asked again before it
+    // measures anew, it returns the same one, which adds nothing to graphs.
+    let new = snapshot.taken_at_ms == 0
+        || data
+            .snapshot
+            .as_ref()
+            .is_none_or(|s| s.taken_at_ms != snapshot.taken_at_ms);
+    data.sample_received_at = Some(now);
+    data.sample_measured_at = Some(measured_at(now, unix_now, snapshot.taken_at_ms));
     data.sample_error = None;
+    let at_ms = match snapshot.taken_at_ms {
+        0 => unix_now,
+        t => t,
+    };
     let s = &snapshot.system;
     let mem = if s.memory_total > 0 {
         s.memory_used() as f32 / s.memory_total as f32 * 100.0
@@ -1631,8 +1793,10 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
         0.0
     };
     // The very first local sample has no interval and reads 0% everywhere.
-    if snapshot.interval.is_some() {
+    if snapshot.interval.is_some() && new {
         let h = &mut data.history;
+        h.times.push_back(at_ms);
+        trim(&mut h.times, HISTORY_LEN);
         for (series, value) in [
             (&mut h.cpu, s.cpu_percent),
             (&mut h.memory, mem),
@@ -1650,7 +1814,7 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
             series.push_back(load);
             trim(series, CORE_HISTORY_LEN);
         }
-        update_process_history(&mut data.process_history, &snapshot.processes);
+        update_process_history(&mut data.process_history, &snapshot.processes, at_ms);
     }
     trim(&mut data.events, EVENTS_KEPT);
     update_command_lines(&mut data.command_lines, &snapshot.processes);
@@ -1658,8 +1822,34 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     data.snapshot = Some(Arc::new(snapshot));
 }
 
+/// `taken_at_ms` (Unix milliseconds) on the monotonic clock, given that it
+/// is `unix_now` at `now`; `now` when unknown or ahead of this clock.
+fn measured_at(now: Instant, unix_now: u64, taken_at_ms: u64) -> Instant {
+    if taken_at_ms == 0 {
+        return now;
+    }
+    now.checked_sub(Duration::from_millis(unix_now.saturating_sub(taken_at_ms)))
+        .unwrap_or(now)
+}
+
 fn set_update(data: &Mutex<Data>, state: UpdateState) {
     data.lock().unwrap_or_else(PoisonError::into_inner).update = state;
+}
+
+/// An update is being checked for or installed.
+fn updating(data: &Mutex<Data>) -> bool {
+    matches!(
+        data.lock().unwrap_or_else(PoisonError::into_inner).update,
+        UpdateState::Checking | UpdateState::Installing(_)
+    )
+}
+
+/// Shows the outcome of a check, unless an install began while it ran.
+fn finish_check(data: &Mutex<Data>, state: UpdateState) {
+    let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+    if data.update == UpdateState::Checking {
+        data.update = state;
+    }
 }
 
 /// Shows the window above everything and keeps RustWTM responsive while
@@ -1680,14 +1870,20 @@ fn calm_window(window: isize) {
 }
 
 /// Appends the latest sample of every process and forgets exited ones.
-fn update_process_history(histories: &mut ProcessHistories, procs: &[wtm_core::ProcessInfo]) {
+fn update_process_history(
+    histories: &mut ProcessHistories,
+    procs: &[wtm_core::ProcessInfo],
+    at_ms: u64,
+) {
     let live: std::collections::HashSet<(u32, i64)> =
         procs.iter().map(|p| (p.pid, p.create_time)).collect();
     histories.retain(|k, _| live.contains(k));
     for p in procs {
         let h = histories.entry((p.pid, p.create_time)).or_default();
+        h.times.push_back(at_ms);
         h.cpu.push_back(p.cpu_percent);
         h.memory.push_back(p.private_working_set as f32);
+        trim(&mut h.times, PROCESS_HISTORY_LEN);
         trim(&mut h.cpu, PROCESS_HISTORY_LEN);
         trim(&mut h.memory, PROCESS_HISTORY_LEN);
     }
@@ -1698,14 +1894,12 @@ fn update_process_history(histories: &mut ProcessHistories, procs: &[wtm_core::P
 fn local_sampler() -> Sampler {
     let mut sampler = Sampler::new();
     if wtm_core::launch::is_elevated() {
-        wtm_core::stop_trace_orphans(GUI_NET_TRACE);
-        let _ = sampler.enable_network_trace(&format!("{GUI_NET_TRACE}-{}", std::process::id()));
+        wtm_core::stop_trace_orphans(wtm_core::GUI_NET_TRACE);
+        let _ =
+            sampler.enable_network_trace(&wtm_core::trace_session_name(wtm_core::GUI_NET_TRACE));
     }
     sampler
 }
-
-/// Prefix of the window's own network trace session.
-const GUI_NET_TRACE: &str = "RustWTM-GUI-Network";
 
 /// Who signed a file, remembered per path: the same system DLLs appear in
 /// nearly every process.
@@ -1992,6 +2186,29 @@ mod tests {
         g
     }
 
+    #[test]
+    fn closing_the_window_ends_its_worker() {
+        let (tx, rx) = mpsc::channel::<UiCommand>();
+        let ended = Arc::new(AtomicBool::new(false));
+        let flag = ended.clone();
+        let worker = std::thread::spawn(move || {
+            // Like `Worker::run`: serve until the window hangs up.
+            while rx.recv().is_ok() {}
+            std::thread::sleep(Duration::from_millis(50));
+            flag.store(true, Ordering::SeqCst);
+        });
+        let backend = Backend {
+            data: Arc::new(Mutex::new(Data::default())),
+            tx,
+            notifications: Arc::new(AtomicBool::new(true)),
+            window: Arc::new(AtomicIsize::new(0)),
+            worker: Some(worker),
+        };
+        backend.send(UiCommand::RestoreFrequency);
+        drop(backend);
+        assert!(ended.load(Ordering::SeqCst), "the worker finished first");
+    }
+
     fn worker() -> Worker {
         Worker {
             local_hardware: None,
@@ -2020,6 +2237,8 @@ mod tests {
             sampler: Sampler::new(),
             disk_trace: None,
             limiter: Limiter::new(),
+            controls: None,
+            sampler_paused: false,
         }
     }
 
@@ -2040,20 +2259,67 @@ mod tests {
         let b = crate::ui_tests::proc(11, 0, "b.exe", 1.0);
         for i in 0..PROCESS_HISTORY_LEN + 5 {
             a.cpu_percent = i as f32;
-            update_process_history(&mut h, &[a.clone(), b.clone()]);
+            update_process_history(&mut h, &[a.clone(), b.clone()], i as u64 * 1000);
         }
         let ha = &h[&(10, a.create_time)];
         assert_eq!(ha.cpu.len(), PROCESS_HISTORY_LEN);
+        assert_eq!(ha.times.len(), PROCESS_HISTORY_LEN);
+        assert_eq!(
+            ha.times.back(),
+            Some(&((PROCESS_HISTORY_LEN + 4) as u64 * 1000))
+        );
         assert_eq!(ha.cpu.back(), Some(&((PROCESS_HISTORY_LEN + 4) as f32)));
         assert_eq!(ha.memory.len(), PROCESS_HISTORY_LEN);
         // b exits.
-        update_process_history(&mut h, &[a.clone()]);
+        update_process_history(&mut h, &[a.clone()], 0);
         assert_eq!(h.len(), 1);
+    }
+
+    #[test]
+    fn a_sample_received_again_adds_no_point_and_keeps_its_age() {
+        let mut d = Data::default();
+        let measured = wtm_core::hardware::unix_ms() - 30_000;
+        let sample = |taken_at_ms, cpu| Snapshot {
+            interval: Some(Duration::from_secs(2)),
+            taken_at_ms,
+            system: wtm_core::SystemStats {
+                cpu_percent: cpu,
+                ..Default::default()
+            },
+            ..crate::ui_tests::snapshot()
+        };
+        publish(&mut d, sample(measured, 10.0));
+        publish(&mut d, sample(measured, 10.0));
+        assert_eq!(d.history.cpu, [10.0]);
+        assert_eq!(d.history.times, [measured]);
+        // Received just now, measured half a minute ago: out of date.
+        let now = Instant::now();
+        assert!(d.sample_received_at.unwrap() <= now);
+        assert!(matches!(
+            d.sample_freshness(now),
+            SampleFreshness::Stale(Some(age)) if age >= Duration::from_secs(29)
+        ));
+
+        publish(&mut d, sample(measured + 2000, 20.0));
+        assert_eq!(d.history.cpu, [10.0, 20.0]);
+        assert_eq!(d.history.times, [measured, measured + 2000]);
+    }
+
+    #[test]
+    fn measurement_times_map_onto_the_monotonic_clock() {
+        let now = Instant::now();
+        assert_eq!(measured_at(now, 10_000, 0), now, "unknown");
+        assert_eq!(measured_at(now, 10_000, 12_000), now, "clock behind");
+        assert_eq!(
+            now.duration_since(measured_at(now, 10_000, 7_500)),
+            Duration::from_millis(2500)
+        );
     }
 
     #[test]
     fn history_is_filled_from_the_services_recent_points() {
         let point = |i: usize| wtm_ipc::SystemPoint {
+            at_ms: i as u64 * 2000,
             cpu: i as f32,
             memory: 1.0,
             gpu: 2.0,
@@ -2070,6 +2336,8 @@ mod tests {
         );
         assert_eq!(h.cpu.len(), HISTORY_LEN);
         assert_eq!(h.cpu.front(), Some(&10.0), "the oldest are dropped");
+        assert_eq!(h.times.len(), HISTORY_LEN);
+        assert_eq!(h.times.front(), Some(&20_000), "times match the points");
         assert_eq!((h.net_tx[0], h.io_write[0]), (4.0, 6.0));
         assert_eq!(h.cores.len(), 2);
         assert_eq!(h.cores[1].len(), CORE_HISTORY_LEN);
@@ -2094,6 +2362,7 @@ mod tests {
                 system: wtm_core::SystemStats::default(),
                 processes: procs,
                 net_traced: false,
+                taken_at_ms: 0,
             }))
         };
         w.data().snapshot = snapshot(vec![a.clone(), b.clone()]);
@@ -2180,6 +2449,24 @@ mod tests {
     }
 
     #[test]
+    fn a_check_never_disturbs_an_install_under_way() {
+        let mut w = worker();
+        w.updater.latest = || panic!("no check while installing");
+        w.updater.download = |_, _| panic!("no second install");
+        set_update(&w.data, UpdateState::Installing(release(99)));
+        w.handle(UiCommand::CheckUpdate);
+        w.handle(UiCommand::InstallUpdate(release(98)));
+        assert_eq!(w.data().update, UpdateState::Installing(release(99)));
+
+        // A check that was already running when the install began.
+        finish_check(&w.data, UpdateState::Available(release(99)));
+        assert_eq!(w.data().update, UpdateState::Installing(release(99)));
+        set_update(&w.data, UpdateState::Checking);
+        finish_check(&w.data, UpdateState::UpToDate);
+        assert_eq!(w.data().update, UpdateState::UpToDate);
+    }
+
+    #[test]
     fn checks_for_and_installs_updates_in_the_background() {
         let mut w = worker();
         w.updater.latest = || Ok(release(99));
@@ -2201,9 +2488,15 @@ mod tests {
         // Success hands over to the installer and exits.
         let ctx = egui::Context::default();
         w.ctx = ctx.clone();
-        w.updater.download = |_, dir| Ok(dir.join("a.msi"));
+        w.updater.download = |_, dir| {
+            Ok(wtm_core::update::Download {
+                path: dir.join("a.msi"),
+                sha256: [7; 32],
+            })
+        };
         w.updater.install = |msi, exe| {
-            assert!(msi.ends_with("RustWTM-update\\a.msi"));
+            assert!(msi.path.ends_with("RustWTM-update\\a.msi"));
+            assert_eq!(msi.sha256, [7; 32]);
             assert_eq!(exe, std::env::current_exe().unwrap());
             Ok(())
         };
@@ -2372,6 +2665,8 @@ mod tests {
         let child = spawn();
         w.tick();
         let t = target_of(&w, child.0.id());
+        // Shown in the side panel, so its details follow every command.
+        w.handle(UiCommand::Inspect(t.clone()));
         for command in [
             Command::Suspend,
             Command::Resume,
@@ -2469,12 +2764,6 @@ mod tests {
     }
 
     /// Connects to a server that hangs up right after the handshake.
-    /// Clients (rightly) refuse fake service pipes while the RustWTM service
-    /// is installed, so these tests only run without it.
-    fn service_installed() -> bool {
-        wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_some()
-    }
-
     fn hang_up_after_hello(pipe: &str, admin: bool) -> Client {
         let mut listener = wtm_sys::pipe::PipeListener::bind(pipe, wtm_ipc::PIPE_SDDL).unwrap();
         let server = std::thread::spawn(move || {
@@ -2539,6 +2828,7 @@ mod tests {
             Request::Recent => Response::Recent(
                 (0..400)
                     .map(|i| wtm_ipc::SystemPoint {
+                        at_ms: 1 + i * 1000,
                         cpu: i as f32 / 4.0,
                         memory: 50.0,
                         gpu: 1.0,
@@ -2567,10 +2857,106 @@ mod tests {
     }
 
     #[test]
-    fn service_mode_fetches_controls_and_falls_back_when_lost() {
-        if service_installed() {
-            return;
+    fn a_limit_set_without_the_service_is_lifted_here_once_it_runs() {
+        let child = spawn();
+        let mut w = worker();
+        w.tick();
+        let t = target_of(&w, child.0.id());
+        let limit = Limits {
+            cpu_percent: Some(50.0),
+            memory_bytes: Some(1 << 30),
+        };
+        w.handle(UiCommand::Control {
+            target: t.clone(),
+            command: Command::Limit(limit),
+        });
+        assert_eq!(message(&w).0, EventLevel::Info);
+        assert!(w.limiter.is_limited(&t));
+        // The service is now connected (any request would be refused).
+        w.client = Some(hang_up_after_hello(&test_pipe("limit-lift"), true));
+        w.handle(UiCommand::Control {
+            target: t.clone(),
+            command: Command::Unlimit,
+        });
+        assert_eq!(message(&w).0, EventLevel::Info, "lifted here, not sent");
+        assert!(!w.limiter.is_limited(&t));
+    }
+
+    #[test]
+    fn local_sampling_after_the_service_starts_afresh() {
+        let mut w = worker();
+        w.tick();
+        w.tick();
+        let interval = |w: &Worker| w.data().snapshot.as_ref().unwrap().interval;
+        assert!(interval(&w).is_some());
+        // The service measured for a while; then the connection was lost.
+        w.sampler_paused = true;
+        w.tick();
+        assert!(
+            interval(&w).is_none(),
+            "no rates averaged over the service's time"
+        );
+        w.tick();
+        assert!(interval(&w).is_some());
+    }
+
+    #[test]
+    fn a_burst_of_controls_goes_through_one_connection_and_reports_failures() {
+        let pipe = test_pipe("burst");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        // The main connection and the one for control requests: more would
+        // be refused by a real service once 16 are open.
+        let server = serve(&pipe, 2, move |request| match request {
+            Request::Hello { .. } => hello(),
+            Request::Control { target, .. } => {
+                log.lock().unwrap().push(target.pid);
+                let result = if target.pid == 13 {
+                    Err("access denied".into())
+                } else {
+                    Ok(())
+                };
+                Response::Control(vec![Outcome { target, result }])
+            }
+            Request::Inspect(_) => Response::Error("denied".into()),
+            other => panic!("{other:?}"),
+        });
+        let mut w = worker();
+        w.pipe = pipe.clone();
+        w.client = Some(Client::connect_to(&pipe).unwrap());
+        // Something else is selected: its panel is left alone.
+        let selected = ProcessRef {
+            pid: 999,
+            create_time: 1,
+            name: "selected.exe".into(),
+        };
+        w.data().details = Some((selected.clone(), Err("kept".into())));
+        for pid in 1..=40 {
+            w.handle(UiCommand::Control {
+                target: ProcessRef {
+                    pid,
+                    create_time: 1,
+                    name: format!("node{pid}.exe"),
+                },
+                command: Command::Kill,
+            });
         }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while seen.lock().unwrap().len() < 40 {
+            assert!(Instant::now() < deadline, "{:?}", seen.lock().unwrap());
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let (level, text) = background_message(&w);
+        assert_eq!(level, EventLevel::Warn, "the failure is not hidden: {text}");
+        assert!(text.contains("node13.exe"), "{text}");
+        assert_eq!(*seen.lock().unwrap(), (1..=40).collect::<Vec<_>>());
+        assert!(matches!(&w.data().details, Some((r, Err(e))) if *r == selected && e == "kept"));
+        drop(w);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn service_mode_fetches_controls_and_falls_back_when_lost() {
         let pipe = test_pipe("service");
         let snapshot = Sampler::new().sample().unwrap();
         // The main connection, then one each for Control and TestTelegram.
@@ -2606,6 +2992,8 @@ mod tests {
             create_time: 1,
             name: "x.exe".into(),
         };
+        // The side panel shows it.
+        w.data().details = Some((t.clone(), Err("loading".into())));
         w.handle(UiCommand::Control {
             target: t.clone(),
             command: Command::Suspend,
@@ -2665,9 +3053,6 @@ mod tests {
 
     #[test]
     fn connects_notifies_and_handles_odd_answers() {
-        if service_installed() {
-            return;
-        }
         let pipe = test_pipe("odd");
         let mut next_event = 0;
         let server = serve(&pipe, 3, move |request| match request {
@@ -2735,6 +3120,7 @@ mod tests {
         assert_eq!(NOTIFIED.load(Ordering::Relaxed), 1);
         assert_eq!(w.last_event, 2);
 
+        w.data().details = Some((x_exe(), Err("loading".into())));
         w.handle(UiCommand::Control {
             target: x_exe(),
             command: Command::Resume,
@@ -2768,9 +3154,6 @@ mod tests {
 
     #[test]
     fn requests_on_a_dead_connection_fail_cleanly() {
-        if service_installed() {
-            return;
-        }
         let mut w = worker();
         w.pipe = test_pipe("dead");
         w.client = Some(hang_up_after_hello(&w.pipe, true));
@@ -2780,6 +3163,7 @@ mod tests {
         assert_eq!(message(&w).0, EventLevel::Error);
         assert!(matches!(w.data().config, Some(Err(_))));
         // The connection for the request cannot be made either.
+        w.data().details = Some((x_exe(), Err("loading".into())));
         w.handle(UiCommand::Control {
             target: x_exe(),
             command: Command::Kill,
@@ -2917,9 +3301,6 @@ mod tests {
 
     #[test]
     fn slow_requests_do_not_hold_up_the_worker() {
-        if service_installed() {
-            return;
-        }
         let pipe = test_pipe("slow");
         let snapshot = Sampler::new().sample().unwrap();
         // The main connection answers at once; the Telegram test takes long.
@@ -2947,9 +3328,6 @@ mod tests {
 
     #[test]
     fn fetch_rejects_unexpected_answers() {
-        if service_installed() {
-            return;
-        }
         for stage in 0..3 {
             let pipe = test_pipe(&format!("fetch{stage}"));
             let server = serve(&pipe, 1, move |request| match (request, stage) {

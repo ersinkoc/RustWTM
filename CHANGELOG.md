@@ -6,6 +6,164 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-22
+
+### Changed
+
+- Stopping, restarting or disabling a service and blocking a program's
+  network access are asked first.
+- Snapshots and the service's recent points carry the time they were
+  measured (IPC protocol 15). The data age and the out-of-date warning use
+  it, so a snapshot received again from the service's cache ages instead of
+  reading as new; the age now reads *Data measured N s ago*.
+- Network, Services and Ports searches clear with Escape or a ✖ button as
+  the process search does; Network and Ports say when nothing matches and
+  offer to clear the search; table toolbars wrap in a narrow window.
+- Performance and process graphs place each point at its measurement time:
+  a slower `sample_interval_ms` or a delayed sample keeps its real place on
+  the time axis, and a snapshot received twice is drawn once.
+- The block list refuses programs whose blocking would break signing in,
+  elevation, services, consoles or installers (`consent.exe`,
+  `svchost.exe`, `msiexec.exe` and others). A rule's `cpu_cap_relative`
+  needs `when.cpu_above`, which is also the least it resolves against.
+- The MCP server offers `create_time` as text: JavaScript clients round it
+  as a JSON number, which a rounded value still matches.
+
+### Security
+
+- Policies acting on their own (kill list, rules, governor, game mode,
+  insights) never end or suspend `svchost.exe` or RustWTM's own programs;
+  the config refuses such kill-list entries and rules, and a `*` name with
+  kill or suspend. Insights no longer touch service processes (session 0).
+- MCP control tools require `create_time`, so a process that took the PID
+  since the listing is never changed; `wtm panic` and `recent_events` use
+  only the installed service's pipe, not one a program took while the
+  service is not running.
+- `wtm-service install` refuses a program folder that others than SYSTEM,
+  Administrators and TrustedInstaller can change, or a folder above it they
+  could rename or take: whoever can replace the program gets SYSTEM. Set
+  `RUSTWTM_ALLOW_ANY_INSTALL_DIR=1` on a development machine to install from
+  a build folder. No folder on the way may be a link.
+- `install.ps1` makes the install folder admin-only before copying, through
+  handles and without following links (`wtm-service prepare-install-dir`
+  sets aside what is not only administrators' and refuses a folder others
+  could move, or one reached through a link), refuses stray DLLs, checks
+  and copies the download from an admin-only folder, and `uninstall.ps1`
+  continues from a fresh admin-only folder instead of a fixed name in the
+  user's temp folder. Both delete folders without following links in them.
+- The updater checks the installer again after copying it to a folder only
+  administrators can reach, and installs that copy: the download in the
+  user's temp folder could be swapped after it was checked.
+- The hardware provider no longer unpacks native libraries to a temp folder
+  (as SYSTEM possibly `C:\Windows\Temp`, where .NET would reuse files planted
+  beforehand); they ship next to it.
+- Releases are built with read-only permissions, without a build cache and
+  with third-party actions pinned to a commit; only a separate job that runs
+  no project code may publish.
+- The service makes sure its data folder is its own before it reads it: a
+  folder (or anything in it) owned by someone else, writable by others, a
+  link or a file with a second name is set aside under an unguessable name
+  and created anew, without following any link. If that cannot be done the
+  service stops with a service-specific error instead of running on it.
+- Clients no longer trust the service pipe while the service is installed
+  but not running, and the service keeps its pipe name even when a client
+  vanishes before it is accepted.
+- Protection rules judge the image of the process actually opened, not the
+  name a request gives (also for refusing to dump `lsass.exe`).
+
+### Fixed
+
+- Limits a failed lift left on a process are lifted again on the next tick
+  and when the service stops, instead of staying for good.
+- An app limit whose launcher exited before its child was counted is lifted
+  rather than dropped with the child still capped.
+- Changing the governor, memory guard, insight or game mode settings lets go
+  at once of what they applied (as rules already did): a newly exempt app
+  is no longer kept throttled.
+- A failed history query keeps the insight findings instead of lifting and
+  re-announcing them all.
+- Setting the clock forward no longer makes every copy of a crowd old enough
+  to end.
+- *Why won't it end* and the module list check the process's start time and
+  hold it open while they look, so a PID taken by a later process is never
+  described as the one asked about.
+- Downloads and Telegram answers are limited in size and total time: a
+  server sending without end can no longer grow the service's memory or
+  hold it.
+- Reading a command line retries when the process changes it meanwhile;
+  restarting a service waits when its status cannot be read.
+- `wtm kill --tree` and `free-port --tree` no longer report failure for
+  children that ended with their parent, and `free-port` lists every
+  failure of a tree, not the first.
+- MCP: answers to the client and malformed messages are handled as JSON-RPC
+  requires (`-32600`, unknown tools `-32602`), and *why not responding*
+  says when its analysis is incomplete.
+- The Ports tab no longer ends a program missing from the process list (it
+  could have been a later program with the same PID); it says to try again.
+- Without the service, "Calm them all down" spares the app in front as it
+  does with the service.
+- The Network tab narrows to the selected process only while that process
+  runs (not a later one with its PID), and offers *Show all*.
+- The Apps view adds up the network rates of an app's processes.
+- The Disks tab checks a typed folder off the window's thread: a sleeping
+  network drive no longer freezes the window.
+- GPU engine load per type is its busiest engine, as in Task Manager: two
+  video engines at 60% each read 60%, not 100%; a process shows its busiest
+  engine instead of the sum of engines of one type.
+- Trace sessions no longer pile up (Windows allows 64): a window waits for
+  its worker to stop its sessions when it closes, its own disk trace stops
+  after 30 s unread or once the service answers, the service clears those
+  closed windows left every 10 minutes, and session names carry the owner's
+  start time so a reused PID no longer keeps an orphan alive.
+- A power plan game mode switched is put back after a crash too: it is
+  remembered on disk while replaced and restored at the next start or on
+  uninstall, instead of leaving the machine on High performance.
+- The service stopped accepting clients for good after 16 client threads
+  failed to start (for example during a memory shortage); a failed start now
+  gives its slot back.
+- A connection's announced frame length no longer reserves up to 32 MiB
+  before any of the body has arrived.
+- Unblocking a program deleted a `Debugger` value another program had put
+  in its place, and failed outright when RustWTM's own value was already
+  gone.
+- App history lost the earlier part of a minute written twice (the service
+  restarted within it, or the clock went back); the parts are now merged,
+  weighted by sample count.
+- An update check started while an update was installing replaced the
+  install's progress and offered the install again.
+- A priority or efficiency mode rolled back to the value from before an
+  unrelated earlier limit instead of the one in place when RustWTM took it.
+- *End process tree* on a PID reused by a newer process ended that
+  process's children.
+- A process whose exit code is 259 was reported as still running, and a
+  window title longer than 63 characters could match a different window.
+- Panic, *End all* and *Calm them all* lost requests past the service's 16
+  clients and showed only the last success; requests now go in order over
+  one connection and failures are reported.
+- Removing or editing a rule left what it applied in place; switching from
+  dry-run to enforcing never acted on processes already running.
+- A network adapter coming back up showed a burst of its whole traffic
+  since boot; a failed sensor provider was never started again; lifting a
+  CPU and memory limit stopped at the first failure and lost the job.
+- App history counted an app's CPU only over the samples it was seen in,
+  so a short-lived helper looked like a chronic hog; fully throttled
+  processes held the governor's slots.
+- Wait-chain requests behind a walk stuck in a frozen process each left a
+  thread blocked; process icons were cropped on scaled displays.
+- The first local sample after losing the service averaged over all the
+  time the service was used; limits set without the service could not be
+  lifted once it connected; acting on a process that is not shown replaced
+  the details of the one that is.
+- The kill list saved an edit over whichever entry had moved into its
+  place; kill and limit forms emptied before the save was confirmed;
+  Settings saved over changes made elsewhere meanwhile without a warning.
+- `wtm kill <name> --tree` failed on matches inside another match's tree;
+  `wtm free-port` could end a process that got a port owner's PID.
+- MCP server: a process started since the service's last snapshot was
+  reported as missing; a line that is not UTF-8 ended the server; batches
+  and non-object messages got no answer; `network_connections` with a
+  malformed `pid` listed every process's connections.
+
 ## [0.19.0] - 2026-10-21
 
 ### Added
@@ -649,7 +807,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/ersinkoc/RustWTM/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/ersinkoc/RustWTM/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/ersinkoc/RustWTM/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/ersinkoc/RustWTM/compare/v0.17.0...v0.18.0

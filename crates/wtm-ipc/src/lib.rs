@@ -7,7 +7,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
@@ -16,17 +16,21 @@ use serde::{Deserialize, Serialize};
 use wtm_core::Snapshot;
 use wtm_core::control::{EcoQos, Limits, PriorityClass, ProcessDetails, ProcessRef};
 use wtm_policy::{AppStats, Finding, MinuteRow, Source};
+use wtm_sys::services::Presence;
 
 pub const PIPE_NAME: &str = r"\\.\pipe\RustWTM";
 
 /// Name of the Windows service that owns [`PIPE_NAME`].
 pub const SERVICE_NAME: &str = "RustWTM";
 
-/// SYSTEM and Administrators: full; interactive users: read/write (requests
-/// are authorized individually by the server).
-pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
+/// SYSTEM, Administrators and the pipe's owner (the server's account, which
+/// creates its instances): full; interactive users: what a client needs
+/// (`wtm_sys::pipe::CLIENT_ACCESS`; requests are authorized individually by
+/// the server), and not the right to create instances of the pipe, so
+/// nobody else can serve its name alongside the service.
+pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x12008b;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 14;
+pub const PROTOCOL_VERSION: u32 = 15;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -160,6 +164,8 @@ pub enum Response {
 /// System-wide load at one sample, for history graphs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SystemPoint {
+    /// When it was measured, in milliseconds since the Unix epoch.
+    pub at_ms: u64,
     pub cpu: f32,
     /// Share of physical memory in use, 0..=100.
     pub memory: f32,
@@ -174,8 +180,10 @@ pub struct SystemPoint {
 }
 
 impl SystemPoint {
-    pub fn of(s: &wtm_core::SystemStats) -> Self {
+    pub fn of(snap: &Snapshot) -> Self {
+        let s = &snap.system;
         Self {
+            at_ms: snap.taken_at_ms,
             cpu: s.cpu_percent,
             memory: s.memory_used() as f32 * 100.0 / s.memory_total.max(1) as f32,
             gpu: s.gpu_percent,
@@ -304,9 +312,12 @@ pub fn read_frame_with<T: DeserializeOwned>(r: &mut impl Read, buf: &mut Vec<u8>
     if len > MAX_FRAME {
         return Err(invalid("frame too large"));
     }
+    // Grown as the body arrives: a header alone commits nothing.
     buf.clear();
-    buf.resize(len, 0);
-    r.read_exact(buf)?;
+    r.take(len as u64).read_to_end(buf)?;
+    if buf.len() < len {
+        return Err(io::ErrorKind::UnexpectedEof.into());
+    }
     postcard::from_bytes(buf).map_err(invalid)
 }
 
@@ -331,16 +342,23 @@ impl Client {
         Self::connect_to(PIPE_NAME)
     }
 
+    /// Connects to the pipe `name`. Only the service's own pipe is checked
+    /// against the service: other names are test and development servers.
     pub fn connect_to(name: &str) -> io::Result<Self> {
-        Self::connect_checked(name, wtm_sys::services::service_pid(SERVICE_NAME))
+        let service = if name == PIPE_NAME {
+            wtm_sys::services::presence(SERVICE_NAME)
+        } else {
+            Presence::Missing
+        };
+        Self::connect_checked(name, service)
     }
 
-    /// Connects to `name`, requiring its server to be process `service`
-    /// when the service is running.
-    fn connect_checked(name: &str, service: Option<u32>) -> io::Result<Self> {
+    /// Connects to `name`, requiring its server to be the service's process
+    /// while the service is installed.
+    fn connect_checked(name: &str, service: Presence) -> io::Result<Self> {
         let mut attempts = 0;
         let pipe = loop {
-            match OpenOptions::new().read(true).write(true).open(name) {
+            match wtm_sys::pipe::open_client(name) {
                 Ok(p) => break p,
                 Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) && attempts < 10 => {
                     attempts += 1;
@@ -391,17 +409,23 @@ impl Client {
     }
 }
 
-/// Makes sure we talk to the installed service (PID `service`) and not to a
-/// process that grabbed the pipe name. Without a running service (console
-/// mode during development) the server cannot be verified: `Ok(false)`.
-fn verify_server(pipe: &File, service: Option<u32>) -> io::Result<bool> {
+/// Makes sure we talk to the installed service and not to a process that
+/// grabbed the pipe name. An installed service that is not running cannot
+/// vouch for anyone, so its pipe is refused: any user could have taken the
+/// name meanwhile. Without the service installed (console mode during
+/// development) the server cannot be verified: `Ok(false)`.
+fn verify_server(pipe: &File, service: Presence) -> io::Result<bool> {
     match service {
-        Some(service) if wtm_sys::pipe::server_pid(pipe).ok() == Some(service) => Ok(true),
-        Some(_) => Err(io::Error::new(
+        Presence::Running(pid) if wtm_sys::pipe::server_pid(pipe).ok() == Some(pid) => Ok(true),
+        Presence::Running(_) => Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "the pipe is not served by the RustWTM service",
         )),
-        None => Ok(false),
+        Presence::NotRunning => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the RustWTM service is installed but not running",
+        )),
+        Presence::Missing => Ok(false),
     }
 }
 
@@ -524,6 +548,24 @@ mod tests {
     }
 
     #[test]
+    fn a_large_announced_body_takes_memory_only_as_it_arrives() {
+        /// A pipe-like reader: no size hint, a few bytes per read.
+        struct Trickle(Cursor<Vec<u8>>);
+        impl Read for Trickle {
+            fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                let n = buf.len().min(2);
+                self.0.read(&mut buf[..n])
+            }
+        }
+        let mut wire = (MAX_FRAME as u32).to_le_bytes().to_vec();
+        wire.extend([1, 2, 3]);
+        let mut buf = Vec::new();
+        let e = read_frame_with::<Request>(&mut Trickle(Cursor::new(wire)), &mut buf).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
+        assert!(buf.capacity() < 64 << 10, "{} bytes taken", buf.capacity());
+    }
+
+    #[test]
     fn rejects_truncated_and_garbled_frames() {
         // Length promises more bytes than follow.
         let mut buf = 8u32.to_le_bytes().to_vec();
@@ -553,11 +595,7 @@ mod tests {
     }
 
     fn listen(name: &str) -> PipeListener {
-        PipeListener::bind(
-            name,
-            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)(A;;GA;;;OW)",
-        )
-        .unwrap()
+        PipeListener::bind(name, PIPE_SDDL).unwrap()
     }
 
     /// Serves one client: answers the handshake with `hello`, then every
@@ -593,7 +631,8 @@ mod tests {
             }),
         );
         // Pretend the test process is the service: it serves the pipe.
-        let mut client = Client::connect_checked(&name, Some(std::process::id())).unwrap();
+        let mut client =
+            Client::connect_checked(&name, Presence::Running(std::process::id())).unwrap();
         assert!(client.is_admin());
         assert!(client.is_verified());
         let reply = client.call(&Request::Status).unwrap();
@@ -625,7 +664,7 @@ mod tests {
             },
             Response::Error(String::new()),
         );
-        let e = Client::connect_checked(&name, None).unwrap_err();
+        let e = Client::connect_checked(&name, Presence::Missing).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::InvalidData);
         assert!(e.to_string().contains("protocol"), "{e}");
 
@@ -635,7 +674,7 @@ mod tests {
             Response::Error("go away".into()),
             Response::Error(String::new()),
         );
-        let e = Client::connect_checked(&name, None).unwrap_err();
+        let e = Client::connect_checked(&name, Presence::Missing).unwrap_err();
         assert!(e.to_string().contains("unexpected handshake reply"), "{e}");
     }
 
@@ -650,29 +689,42 @@ mod tests {
         let name = pipe_name();
         // The only instance is taken by a client that is never accepted.
         let _listener = listen(&name);
-        let _holder = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&name)
-            .unwrap();
-        let e = Client::connect_checked(&name, None).unwrap_err();
+        let _holder = wtm_sys::pipe::open_client(&name).unwrap();
+        let e = Client::connect_checked(&name, Presence::Missing).unwrap_err();
         assert_eq!(e.raw_os_error(), Some(ERROR_PIPE_BUSY));
+    }
+
+    #[test]
+    fn the_pipe_grants_clients_exactly_what_they_open_with() {
+        let client = format!("(A;;{:#x};;;IU)", wtm_sys::pipe::CLIENT_ACCESS);
+        assert!(PIPE_SDDL.ends_with(&client));
+        // No other entry for anyone but SYSTEM, Administrators and the owner.
+        let entries: Vec<&str> = PIPE_SDDL["D:P".len()..].split_inclusive(')').collect();
+        assert_eq!(
+            entries,
+            [
+                "(A;;GA;;;SY)",
+                "(A;;GA;;;BA)",
+                "(A;;GA;;;OW)",
+                client.as_str()
+            ]
+        );
     }
 
     #[test]
     fn verifies_the_pipe_server() {
         let name = pipe_name();
         let _listener = listen(&name);
-        let pipe = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&name)
-            .unwrap();
+        let pipe = wtm_sys::pipe::open_client(&name).unwrap();
         // The test process itself serves the pipe.
-        assert!(verify_server(&pipe, Some(std::process::id())).unwrap());
-        let e = verify_server(&pipe, Some(std::process::id().wrapping_add(4))).unwrap_err();
+        let me = std::process::id();
+        assert!(verify_server(&pipe, Presence::Running(me)).unwrap());
+        let e = verify_server(&pipe, Presence::Running(me.wrapping_add(4))).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
-        assert!(!verify_server(&pipe, None).unwrap());
+        // An installed service that is stopped cannot vouch for anyone.
+        let e = verify_server(&pipe, Presence::NotRunning).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!verify_server(&pipe, Presence::Missing).unwrap());
     }
 
     #[test]
@@ -724,6 +776,7 @@ mod tests {
             },
             processes,
             net_traced: false,
+            taken_at_ms: 0,
         }
     }
 

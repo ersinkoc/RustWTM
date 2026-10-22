@@ -50,6 +50,11 @@ impl Server {
         {
             return Ok(snap);
         }
+        self.local_snapshot()
+    }
+
+    /// A snapshot taken here, never the service's.
+    fn local_snapshot(&mut self) -> Result<Snapshot, String> {
         if self.sampled.is_none_or(|at| at.elapsed() > FRESH) {
             self.sampler.sample().map_err(|e| e.to_string())?;
             std::thread::sleep(WINDOW);
@@ -61,16 +66,32 @@ impl Server {
 
     /// Answers one JSON-RPC message; `None` for notifications.
     pub fn handle(&mut self, message: &Value) -> Option<Value> {
+        if !message.is_object() {
+            return Some(error_reply(
+                -32600,
+                "invalid request: expected one JSON-RPC object (batches are not supported)",
+            ));
+        }
+        // A message without a method is a client's answer (or junk): never
+        // answered, as JSON-RPC requires.
+        let method = message.get("method")?;
         let id = message.get("id").cloned();
-        let method = message.get("method").and_then(Value::as_str).unwrap_or("");
         let params = message.get("params").cloned().unwrap_or(Value::Null);
         let id = id?;
-        let result = match method {
-            "initialize" => Ok(self.initialize(&params)),
-            "ping" => Ok(json!({})),
-            "tools/list" => Ok(json!({ "tools": self.tools() })),
-            "tools/call" => Ok(self.call(&params)),
-            _ => Err((-32601, format!("method not found: {method}"))),
+        let result = match method.as_str() {
+            _ if message.get("jsonrpc").and_then(Value::as_str) != Some("2.0") => Err((
+                -32600,
+                "invalid request: `jsonrpc` must be \"2.0\"".to_owned(),
+            )),
+            None => Err((
+                -32600,
+                "invalid request: `method` must be a string".to_owned(),
+            )),
+            Some("initialize") => Ok(self.initialize(&params)),
+            Some("ping") => Ok(json!({})),
+            Some("tools/list") => Ok(json!({ "tools": self.tools() })),
+            Some("tools/call") => self.call(&params),
+            Some(method) => Err((-32601, format!("method not found: {method}"))),
         };
         Some(match result {
             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
@@ -109,7 +130,7 @@ impl Server {
         let identity = |extra: Value| {
             let mut properties = json!({
                 "pid": { "type": "integer" },
-                "create_time": { "type": "integer", "description": "From list_processes; refuses a PID that now belongs to another process" },
+                "create_time": { "type": "string", "description": "The create_time from list_processes, as text (it is too large for a JSON number to keep exactly); refuses a PID that now belongs to another process" },
             });
             if let (Some(p), Some(e)) = (properties.as_object_mut(), extra.as_object()) {
                 p.extend(e.clone());
@@ -168,42 +189,44 @@ impl Server {
         ];
         if self.allow_control {
             tools.extend([
-                tool("end_process", "Ends a process (unsaved data in it is lost).", target(json!({}), &["pid"])),
-                tool("suspend_process", "Freezes every thread of a process.", target(json!({}), &["pid"])),
-                tool("resume_process", "Resumes a suspended process.", target(json!({}), &["pid"])),
+                tool("end_process", "Ends a process (unsaved data in it is lost).", target(json!({}), &["pid", "create_time"])),
+                tool("suspend_process", "Freezes every thread of a process.", target(json!({}), &["pid", "create_time"])),
+                tool("resume_process", "Resumes a suspended process.", target(json!({}), &["pid", "create_time"])),
                 tool("set_priority", "Changes a process's priority class.", target(
                     json!({ "priority": { "type": "string", "enum": ["idle", "below_normal", "normal", "above_normal", "high"] } }),
-                    &["pid", "priority"],
+                    &["pid", "create_time", "priority"],
                 )),
                 tool("efficiency_mode", "Turns efficiency mode (EcoQoS) on or off for a process.", target(
                     json!({ "on": { "type": "boolean" } }),
-                    &["pid", "on"],
+                    &["pid", "create_time", "on"],
                 )),
             ]);
         }
         tools
     }
 
-    fn call(&mut self, params: &Value) -> Value {
+    /// Runs a tool; an unknown one is a JSON-RPC error, as MCP has it.
+    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
         let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+        let known = CONTROL_TOOLS.contains(&name)
+            || self
+                .tools()
+                .iter()
+                .any(|t| t["name"].as_str() == Some(name));
+        if !known {
+            return Err((-32602, format!("unknown tool: {name}")));
+        }
         let args = params.get("arguments").cloned().unwrap_or(json!({}));
-        let control_tool = [
-            "end_process",
-            "suspend_process",
-            "resume_process",
-            "set_priority",
-            "efficiency_mode",
-        ]
-        .contains(&name);
+        let control_tool = CONTROL_TOOLS.contains(&name);
         let result = if control_tool && !self.allow_control {
             Err("control tools are off; start `wtm mcp --allow-control` to enable them".into())
         } else {
             self.run_tool(name, &args)
         };
-        match result {
+        Ok(match result {
             Ok(text) => json!({ "content": [{ "type": "text", "text": text }] }),
             Err(e) => json!({ "content": [{ "type": "text", "text": e }], "isError": true }),
-        }
+        })
     }
 
     fn target(&mut self, args: &Value) -> Result<ProcessRef, String> {
@@ -212,15 +235,36 @@ impl Server {
             .and_then(Value::as_u64)
             .and_then(|p| u32::try_from(p).ok())
             .ok_or("`pid` is required")?;
-        let snap = self.snapshot()?;
-        let target = snap
-            .processes
-            .iter()
-            .find(|p| p.pid == pid)
-            .map(ProcessRef::from)
-            .ok_or_else(|| format!("no process with PID {pid}"))?;
+        let find = |snap: Snapshot| {
+            snap.processes
+                .iter()
+                .find(|p| p.pid == pid)
+                .map(ProcessRef::from)
+        };
+        // The service publishes every few seconds; a process started since
+        // is only in a snapshot taken now.
+        let target = match find(self.snapshot()?) {
+            Some(t) => Some(t),
+            None if self.use_service => find(self.local_snapshot()?),
+            None => None,
+        }
+        .ok_or_else(|| format!("no process with PID {pid}"))?;
         check_identity(&target, args.get("create_time"))?;
         Ok(target)
+    }
+
+    /// [`Self::target`] for a tool that changes the process: its
+    /// `create_time` is required, so a process that took the PID since the
+    /// listing is never the one changed.
+    fn control_target(&mut self, args: &Value) -> Result<ProcessRef, String> {
+        if args.get("create_time").is_none_or(Value::is_null) {
+            return Err(
+                "`create_time` (from list_processes) is required, so that a process that took \
+                 the PID since is never changed"
+                    .into(),
+            );
+        }
+        self.target(args)
     }
 
     fn run_tool(&mut self, name: &str, args: &Value) -> Result<String, String> {
@@ -297,6 +341,13 @@ impl Server {
                     report.analyzed,
                     report.chains.len()
                 ));
+                if report.skipped > 0 {
+                    out.push_str(&format!(
+                        "Analysis incomplete: {} blocked threads were not examined (other \
+                         analyses are running, or it took too long); ask again shortly.\n",
+                        report.skipped
+                    ));
+                }
                 for c in report.chains.iter().take(10) {
                     let links: Vec<String> = c.links.iter().map(link_text).collect();
                     out.push_str(&links.join(" -> "));
@@ -306,11 +357,18 @@ impl Server {
             }
             "why_wont_it_end" => {
                 let t = self.target(args)?;
-                let r = wtm_core::why_alive(t.pid).map_err(|e| e.to_string())?;
+                let r = wtm_core::why_alive(t.pid, t.create_time).map_err(|e| e.to_string())?;
                 Ok(serde_json::to_string_pretty(&r).unwrap_or_default())
             }
             "network_connections" => {
-                let pid = args.get("pid").and_then(Value::as_u64);
+                let pid = match args.get("pid") {
+                    None | Some(Value::Null) => None,
+                    Some(pid) => Some(
+                        pid.as_u64()
+                            .and_then(|p| u32::try_from(p).ok())
+                            .ok_or("`pid` must be a process ID")?,
+                    ),
+                };
                 let snap = self.snapshot()?;
                 let names: std::collections::HashMap<u32, &str> = snap
                     .processes
@@ -320,7 +378,7 @@ impl Server {
                 let conns = wtm_core::connections().map_err(|e| e.to_string())?;
                 Ok(conns
                     .iter()
-                    .filter(|c| pid.is_none_or(|p| u64::from(c.pid) == p))
+                    .filter(|c| pid.is_none_or(|p| c.pid == p))
                     .take(300)
                     .map(|c| {
                         format!(
@@ -361,6 +419,10 @@ impl Server {
                     .clamp(1, 200);
                 let mut client = wtm_ipc::Client::connect()
                     .map_err(|e| format!("the RustWTM service is not reachable: {e}"))?;
+                // Their text reaches the assistant: only the real service's.
+                if !client.is_verified() {
+                    return Err("the RustWTM pipe is not served by the installed service".into());
+                }
                 match client.call(&wtm_ipc::Request::Events { after: 0 }) {
                     Ok(wtm_ipc::Response::Events(events)) => Ok(events
                         .iter()
@@ -374,22 +436,22 @@ impl Server {
                 }
             }
             "end_process" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 control::kill(&t).map_err(|e| e.to_string())?;
                 Ok(format!("{} (PID {}) ended", t.name, t.pid))
             }
             "suspend_process" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 control::suspend(&t).map_err(|e| e.to_string())?;
                 Ok(format!("{} (PID {}) suspended", t.name, t.pid))
             }
             "resume_process" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 control::resume(&t).map_err(|e| e.to_string())?;
                 Ok(format!("{} (PID {}) resumed", t.name, t.pid))
             }
             "set_priority" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 let priority =
                     match args.get("priority").and_then(Value::as_str) {
                         Some("idle") => PriorityClass::Idle,
@@ -409,7 +471,7 @@ impl Server {
                 ))
             }
             "efficiency_mode" => {
-                let t = self.target(args)?;
+                let t = self.control_target(args)?;
                 let on = args
                     .get("on")
                     .and_then(Value::as_bool)
@@ -479,6 +541,15 @@ impl Server {
     }
 }
 
+/// Tools that change a process; offered with `--allow-control` only.
+const CONTROL_TOOLS: [&str; 5] = [
+    "end_process",
+    "suspend_process",
+    "resume_process",
+    "set_priority",
+    "efficiency_mode",
+];
+
 fn tool(name: &str, description: &str, schema: Value) -> Value {
     json!({ "name": name, "description": description, "inputSchema": schema })
 }
@@ -523,17 +594,31 @@ fn process_line(p: &ProcessInfo, net: bool) -> String {
 
 /// Refuses `target` when the caller named a different instance of its PID
 /// (`create_time` from an earlier list_processes).
+///
+/// Creation times count 100 ns since 1601, past what a JSON number keeps
+/// exactly in JavaScript clients, which round them. Text compares exactly;
+/// a number matches at the precision it can have, a window of about 2 µs
+/// in which the same PID is not reused.
 fn check_identity(target: &ProcessRef, create_time: Option<&Value>) -> Result<(), String> {
-    match create_time {
-        None | Some(Value::Null) => Ok(()),
-        Some(v) => match v.as_i64() {
-            Some(t) if t == target.create_time => Ok(()),
-            Some(_) => Err(format!(
-                "PID {} now belongs to another process ({}); list the processes again",
-                target.pid, target.name
-            )),
-            None => Err("`create_time` must be an integer".into()),
+    let same = match create_time {
+        None | Some(Value::Null) => return Ok(()),
+        Some(Value::String(text)) => match text.trim().parse::<i64>() {
+            Ok(t) => t == target.create_time,
+            Err(_) => return Err("`create_time` must be the number from list_processes".into()),
         },
+        Some(v) => match (v.as_i64(), v.as_f64()) {
+            (Some(t), _) if t == target.create_time => true,
+            (_, Some(t)) => t == target.create_time as f64,
+            _ => return Err("`create_time` must be the number from list_processes".into()),
+        },
+    };
+    if same {
+        Ok(())
+    } else {
+        Err(format!(
+            "PID {} now belongs to another process ({}); list the processes again",
+            target.pid, target.name
+        ))
     }
 }
 
@@ -554,18 +639,15 @@ pub fn run(
     allow_control: bool,
 ) -> std::io::Result<()> {
     let mut server = Server::new(allow_control);
-    for line in input.lines() {
+    // Raw lines: one that is not UTF-8 is a parse error, not the end.
+    for line in input.split(b'\n') {
         let line = line?;
-        if line.trim().is_empty() {
+        if line.trim_ascii().is_empty() {
             continue;
         }
-        let reply = match serde_json::from_str::<Value>(&line) {
+        let reply = match serde_json::from_slice::<Value>(&line) {
             Ok(message) => server.handle(&message),
-            Err(e) => Some(json!({
-                "jsonrpc": "2.0",
-                "id": null,
-                "error": { "code": -32700, "message": format!("parse error: {e}") },
-            })),
+            Err(e) => Some(error_reply(-32700, &format!("parse error: {e}"))),
         };
         if let Some(reply) = reply {
             writeln!(output, "{reply}")?;
@@ -575,9 +657,49 @@ pub fn run(
     Ok(())
 }
 
+/// An error for a message whose id could not be read.
+fn error_reply(code: i32, message: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": { "code": code, "message": message },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bad_lines_and_non_objects_are_answered_and_the_server_goes_on() {
+        let ping = json!({"jsonrpc":"2.0","id":1,"method":"ping"});
+        let mut input = b"\xff\xfe not utf-8\n[1, 2]\n42\n".to_vec();
+        input.extend(format!("{ping}\r\n").into_bytes());
+        let mut out = Vec::new();
+        run(&input[..], &mut out, false).unwrap();
+        let replies: Vec<Value> = String::from_utf8(out)
+            .unwrap()
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        assert_eq!(replies.len(), 4, "{replies:#?}");
+        assert_eq!(replies[0]["error"]["code"], -32700);
+        assert_eq!(replies[1]["error"]["code"], -32600);
+        assert_eq!(replies[2]["error"]["code"], -32600);
+        assert_eq!(replies[3]["id"], 1, "still serving after bad input");
+        assert!(replies[3]["result"].is_object());
+    }
+
+    #[test]
+    fn connections_refuse_a_pid_that_is_not_one() {
+        for pid in [json!("4"), json!(-1), json!(1u64 << 33)] {
+            let call = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"network_connections","arguments":{"pid":pid}}});
+            let replies = talk(&[call], false);
+            assert_eq!(replies[0]["result"]["isError"], true, "{pid}");
+            let text = replies[0]["result"]["content"][0]["text"].as_str().unwrap();
+            assert!(text.contains("`pid` must be"), "{text}");
+        }
+    }
 
     fn talk(lines: &[Value], allow_control: bool) -> Vec<Value> {
         let input: String = lines.iter().map(|l| format!("{l}\n")).collect();
@@ -657,6 +779,34 @@ mod tests {
     }
 
     #[test]
+    fn only_requests_are_answered_and_malformed_ones_are_named() {
+        let replies = talk(
+            &[
+                // A client's answer, or a message without a method: silence.
+                json!({"jsonrpc":"2.0","id":1,"result":{}}),
+                json!({"jsonrpc":"1.0","id":2,"method":"ping"}),
+                json!({"jsonrpc":"2.0","id":3,"method":5}),
+                json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"no_such_tool"}}),
+                json!({"jsonrpc":"2.0","id":5,"method":"ping"}),
+            ],
+            false,
+        );
+        let codes: Vec<(i64, Value)> = replies
+            .iter()
+            .map(|r| (r["id"].as_i64().unwrap(), r["error"]["code"].clone()))
+            .collect();
+        assert_eq!(
+            codes,
+            [
+                (2, json!(-32600)),
+                (3, json!(-32600)),
+                (4, json!(-32602)),
+                (5, Value::Null)
+            ]
+        );
+    }
+
+    #[test]
     fn control_tools_check_the_process_identity() {
         let t = ProcessRef {
             pid: 7,
@@ -669,6 +819,21 @@ mod tests {
         let reused = check_identity(&t, Some(&json!(99))).unwrap_err();
         assert!(reused.contains("another process"), "{reused}");
         assert!(check_identity(&t, Some(&json!("x"))).is_err());
+        assert!(check_identity(&t, Some(&json!(true))).is_err());
+        assert!(check_identity(&t, Some(&json!("1234"))).is_ok());
+        assert!(check_identity(&t, Some(&json!("99"))).is_err());
+
+        // A real creation time, as a JavaScript client rounds it.
+        let real = ProcessRef {
+            create_time: 134_051_234_567_890_123,
+            ..t.clone()
+        };
+        let rounded: f64 = serde_json::from_str("134051234567890123").unwrap();
+        assert_ne!(rounded as i64, real.create_time, "the number was rounded");
+        assert!(check_identity(&real, Some(&json!(rounded))).is_ok());
+        assert!(check_identity(&real, Some(&json!("134051234567890123"))).is_ok());
+        assert!(check_identity(&real, Some(&json!("134051234567890124"))).is_err());
+        assert!(check_identity(&real, Some(&json!(rounded + 100_000.0))).is_err());
 
         // Through the server: a stale creation time is refused before acting.
         let me = std::process::id();
@@ -685,8 +850,14 @@ mod tests {
         let priority = tools.iter().find(|t| t["name"] == "set_priority").unwrap();
         assert_eq!(
             priority["inputSchema"]["required"],
-            json!(["pid", "priority"])
+            json!(["pid", "create_time", "priority"])
         );
+        // Without its start time a PID may name a later process: refused.
+        let call = json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"suspend_process","arguments":{"pid":me}}});
+        let replies = talk(&[call], true);
+        assert_eq!(replies[0]["result"]["isError"], true);
+        let text = replies[0]["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("`create_time`"), "{text}");
         assert!(priority["inputSchema"]["properties"]["priority"].is_object());
     }
 

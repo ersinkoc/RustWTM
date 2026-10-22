@@ -133,6 +133,32 @@ fn refuses_protected_and_stale_targets() {
         Err(ControlError::Protected { .. })
     ));
 
+    // The name a caller gives is only a claim: a process whose image has a
+    // protected name stays protected under another name, and without a
+    // creation time. A copy of cmd.exe stands in for the real thing.
+    let dir = std::env::temp_dir().join(format!("wtm-impostor-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let image = dir.join("fontdrvhost.exe");
+    std::fs::copy(r"C:\Windows\System32\cmd.exe", &image).unwrap();
+    let impostor = ChildGuard(
+        Command::new(&image)
+            .raw_arg("/d /c ping -n 60 127.0.0.1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let claimed = ProcessRef {
+        pid: impostor.0.id(),
+        create_time: 0,
+        name: "notepad.exe".into(),
+    };
+    let r = control::kill(&claimed);
+    assert!(matches!(r, Err(ControlError::Protected { .. })), "{r:?}");
+    drop(impostor);
+    let _ = std::fs::remove_dir_all(&dir);
+
     let child = spawn_cmd("ping -n 60 127.0.0.1");
     let mut stale = find(child.0.id());
     stale.create_time += 1;
@@ -171,6 +197,35 @@ fn kill_tree_kills_descendants() {
     sleep(Duration::from_millis(300));
     assert!(!is_running(ping.pid, ping.create_time));
     assert!(!is_running(root_ref.pid, root_ref.create_time));
+}
+
+#[test]
+fn kill_tree_spares_the_children_of_a_reused_pid() {
+    let root = spawn_cmd("ping -n 60 127.0.0.1");
+    let root_ref = find(root.0.id());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let ping = loop {
+        let procs = snapshot();
+        if let Some(p) = wtm_core::descendants(root_ref.pid, root_ref.create_time, &procs).first() {
+            break ProcessRef::from(*p);
+        }
+        assert!(Instant::now() < deadline, "ping child never appeared");
+        sleep(Duration::from_millis(50));
+    };
+
+    // The client still holds an earlier process that had this PID; the
+    // PID's current owner and its child are not that process's tree.
+    let earlier = ProcessRef {
+        create_time: root_ref.create_time - 1,
+        ..root_ref.clone()
+    };
+    let results = control::kill_tree(&earlier, &snapshot());
+    assert!(
+        matches!(results[..], [(_, Err(ControlError::Stale { .. }))]),
+        "{results:?}"
+    );
+    assert!(is_running(ping.pid, ping.create_time));
+    control::kill(&ping).unwrap();
 }
 
 fn measure_cpu(target: &ProcessRef, window: Duration) -> f32 {

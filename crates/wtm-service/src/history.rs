@@ -41,6 +41,8 @@ pub struct History {
     apps: HashMap<String, Acc>,
     /// Scratch for lower-casing names that are not ASCII lower case.
     lower: String,
+    /// Samples taken in the current minute, whichever apps they saw.
+    minute_samples: u32,
 }
 
 const SCHEMA: &str = "
@@ -56,6 +58,7 @@ const SCHEMA: &str = "
         gpu_avg REAL NOT NULL DEFAULT 0,
         handles_avg INTEGER NOT NULL DEFAULT 0,
         threads_avg INTEGER NOT NULL DEFAULT 0,
+        samples INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (app, minute)
     ) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS app_minute_time ON app_minute (minute);
@@ -69,11 +72,13 @@ impl History {
     pub(crate) fn with(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
         // Older databases lack the later columns: GPU (0.1.x), handles and
-        // threads (0.15).
+        // threads (0.15), samples (0.19). A row without a sample count
+        // weighs as one sample when a minute is merged.
         for (column, kind) in [
             ("gpu_avg", "REAL"),
             ("handles_avg", "INTEGER"),
             ("threads_avg", "INTEGER"),
+            ("samples", "INTEGER"),
         ] {
             let present: bool = conn.query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('app_minute') WHERE name = ?1",
@@ -91,6 +96,7 @@ impl History {
             minute: None,
             apps: HashMap::new(),
             lower: String::new(),
+            minute_samples: 0,
         })
     }
 
@@ -109,6 +115,7 @@ impl History {
             self.flush()?;
         }
         self.minute = Some(minute);
+        self.minute_samples += 1;
 
         for p in snap.processes.iter().filter(|p| p.pid != 0) {
             let app = lower_name(&p.name, &mut self.lower);
@@ -148,7 +155,9 @@ impl History {
         Ok(())
     }
 
-    /// Writes the current minute's aggregates.
+    /// Writes the current minute's aggregates. A minute already in the
+    /// database (the service restarted within it, or the clock went back)
+    /// is merged with them, weighted by sample count, not replaced.
     pub fn flush(&mut self) -> rusqlite::Result<()> {
         let Some(minute) = self.minute else {
             return Ok(());
@@ -156,27 +165,51 @@ impl History {
         let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO app_minute
+                "INSERT INTO app_minute
                  (app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
-                  handles_avg, threads_avg)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                  handles_avg, threads_avg, samples)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT (app, minute) DO UPDATE SET
+                  cpu_avg = (cpu_avg * MAX(samples, 1) + excluded.cpu_avg * excluded.samples)
+                            / (MAX(samples, 1) + excluded.samples),
+                  cpu_peak = MAX(cpu_peak, excluded.cpu_peak),
+                  mem_avg = CAST((mem_avg * MAX(samples, 1) + excluded.mem_avg * excluded.samples)
+                            / (MAX(samples, 1) + excluded.samples) AS INTEGER),
+                  mem_peak = MAX(mem_peak, excluded.mem_peak),
+                  processes = MAX(processes, excluded.processes),
+                  gpu_avg = (gpu_avg * MAX(samples, 1) + excluded.gpu_avg * excluded.samples)
+                            / (MAX(samples, 1) + excluded.samples),
+                  handles_avg = CAST((handles_avg * MAX(samples, 1)
+                                + excluded.handles_avg * excluded.samples)
+                            / (MAX(samples, 1) + excluded.samples) AS INTEGER),
+                  threads_avg = CAST((threads_avg * MAX(samples, 1)
+                                + excluded.threads_avg * excluded.samples)
+                            / (MAX(samples, 1) + excluded.samples) AS INTEGER),
+                  samples = MAX(samples, 1) + excluded.samples",
             )?;
+            // CPU and GPU are shares of the machine over the whole minute: an
+            // app seen in 2 samples of 60 used a 30th of what it used then.
+            // Memory, handles and threads describe the app while it ran.
+            let samples = self.minute_samples.max(1);
+            let minute_n = f64::from(samples);
             for (app, a) in self.apps.drain() {
                 let n = f64::from(a.samples.max(1));
                 stmt.execute(params![
                     app,
                     minute,
-                    a.cpu_sum / n,
+                    a.cpu_sum / minute_n,
                     f64::from(a.cpu_peak),
                     (a.mem_sum / n) as i64,
                     a.mem_peak as i64,
                     a.processes,
-                    a.gpu_sum / n,
+                    a.gpu_sum / minute_n,
                     (a.handles_sum / n) as i64,
                     (a.threads_sum / n) as i64,
+                    samples,
                 ])?;
             }
         }
+        self.minute_samples = 0;
         tx.commit()
     }
 
@@ -313,7 +346,62 @@ mod tests {
             system: SystemStats::default(),
             processes: procs,
             net_traced: false,
+            taken_at_ms: 0,
         }
+    }
+
+    #[test]
+    fn an_app_seen_briefly_uses_its_share_of_the_minute() {
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        let base = 3_000 * 60;
+        // 60 samples; the helper runs in 2 of them at 21 % of the machine.
+        for s in 0..60 {
+            let mut procs = vec![proc(1, "steady.exe", 3.0, 100)];
+            if s < 2 {
+                procs.push(proc(2, "helper.exe", 21.0, 50));
+            }
+            h.record(&snap(procs), base + s).unwrap();
+        }
+        h.flush().unwrap();
+        let row = |app: &str| -> (f64, f64, i64) {
+            h.connection()
+                .query_row(
+                    "SELECT cpu_avg, cpu_peak, mem_avg FROM app_minute WHERE app = ?1",
+                    [app],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap()
+        };
+        assert_eq!(row("helper.exe"), (0.7, 21.0, 50 << 20));
+        assert_eq!(row("steady.exe"), (3.0, 3.0, 100 << 20));
+    }
+
+    #[test]
+    fn a_minute_written_twice_is_merged_by_sample_count() {
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        let base = 2_000 * 60;
+        // One sample, flushed when the next minute starts.
+        h.record(&snap(vec![proc(1, "a.exe", 10.0, 100)]), base)
+            .unwrap();
+        h.record(&snap(vec![]), base + 60).unwrap();
+        // The clock goes back into the written minute: three more samples.
+        for s in 0..3 {
+            h.record(&snap(vec![proc(1, "a.exe", 2.0, 300)]), base + 10 + s)
+                .unwrap();
+        }
+        h.flush().unwrap();
+
+        let row: (f64, f64, i64, i64, i64) = h
+            .connection()
+            .query_row(
+                "SELECT cpu_avg, cpu_peak, mem_avg, mem_peak, samples FROM app_minute
+                 WHERE app = 'a.exe' AND minute = 2000",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        // (10 * 1 + 2 * 3) / 4 and (100 * 1 + 300 * 3) / 4 MiB.
+        assert_eq!(row, (4.0, 10.0, 250 << 20, 300 << 20, 4));
     }
 
     #[test]

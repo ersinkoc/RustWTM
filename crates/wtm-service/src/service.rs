@@ -19,6 +19,7 @@ use crate::blocker::Blocker;
 use crate::engine::{self, Paths};
 use crate::ipc_server::EngineMsg;
 use crate::logging;
+use wtm_sys::security::Secured;
 
 pub const SERVICE_NAME: &str = "RustWTM";
 const DISPLAY_NAME: &str = "RustWTM Governor";
@@ -34,23 +35,57 @@ pub fn dispatch() -> anyhow::Result<()> {
 }
 
 /// SYSTEM and Administrators: full control; Users: read. Keeps the config
-/// (which decides what gets throttled or killed) out of reach of standard users.
+/// (which decides what gets throttled or killed) and the Telegram settings
+/// out of reach of standard users.
 const DATA_DIR_SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)";
 
 fn service_main(_args: Vec<OsString>) {
     let data_dir = engine::default_data_dir();
-    let dacl = std::fs::create_dir_all(&data_dir)
+    // A folder a standard user made before installation (with a config or
+    // bot token of theirs in it, or a link elsewhere) is set aside first.
+    let secured = data_dir
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
         .map_err(|e| e.to_string())
         .and_then(|()| {
-            wtm_sys::security::set_dacl(&data_dir, DATA_DIR_SDDL).map_err(|e| e.to_string())
+            wtm_sys::security::secure_dir(&data_dir, DATA_DIR_SDDL).map_err(|e| e.to_string())
         });
+    let aside = match secured {
+        Ok(Secured::Created | Secured::Kept) => None,
+        Ok(Secured::Replaced(aside)) => Some(aside),
+        // Its config would decide, as SYSTEM, what is ended or blocked: the
+        // service does not run on a folder it could not make its own (and
+        // writes no log into it).
+        Ok(Secured::Contested) | Err(_) => {
+            refuse_to_start(DATA_DIR_NOT_SECURED);
+            return;
+        }
+    };
     let paths = Paths::under(&data_dir);
     let _guard = logging::init(&paths.logs, false);
-    if let Err(e) = dacl {
-        tracing::warn!(error = %e, "could not restrict data directory permissions");
+    if let Some(aside) = aside {
+        tracing::warn!(
+            moved_to = %aside.display(),
+            "the data directory was not RustWTM's alone and was set aside; a new one was made"
+        );
     }
     if let Err(e) = run_service(&paths) {
         error!(error = %e, "service failed");
+    }
+}
+
+/// Service-specific exit code: the data folder could not be made RustWTM's.
+const DATA_DIR_NOT_SECURED: u32 = 1;
+
+/// Reports to the SCM that the service stopped at once with `code`, which
+/// Windows records in the System event log (event 7024).
+fn refuse_to_start(code: u32) {
+    let handler = |_| ServiceControlHandlerResult::NoError;
+    if let Ok(handle) = service_control_handler::register(SERVICE_NAME, handler) {
+        let _ = handle.set_service_status(ServiceStatus {
+            exit_code: ServiceExitCode::ServiceSpecific(code),
+            ..status(ServiceState::Stopped)
+        });
     }
 }
 
@@ -95,7 +130,65 @@ fn run_service(paths: &Paths) -> anyhow::Result<()> {
     result
 }
 
+/// Set to `1` to install the service from a folder others may change, such
+/// as a build directory. For development and test machines only: the
+/// service runs as SYSTEM, so whoever can replace its program gets SYSTEM.
+pub const ALLOW_ANY_INSTALL_DIR: &str = "RUSTWTM_ALLOW_ANY_INSTALL_DIR";
+
+/// Refuses to install from where others than administrators can change the
+/// program, unless `allow_any`.
+fn check_location(exe: &std::path::Path, allow_any: bool) -> anyhow::Result<()> {
+    if !allow_any
+        && !wtm_sys::security::only_admins_control(exe)
+            .with_context(|| format!("checking who may change {}", exe.display()))?
+    {
+        anyhow::bail!(
+            "{} is in a folder that not only administrators can change; the service \
+             runs as SYSTEM, so install it from Program Files (scripts/install.ps1 or \
+             the MSI), or set {ALLOW_ANY_INSTALL_DIR}=1 on a development machine",
+            exe.display()
+        );
+    }
+    Ok(())
+}
+
+/// Who may change the install folder: SYSTEM and Administrators; users may
+/// run what is in it.
+pub const INSTALL_DIR_SDDL: &str = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)";
+
+/// Makes `dir` a folder only SYSTEM and Administrators can change, for
+/// `install.ps1` to copy the programs into: done through handles, never
+/// following a link, and anything in it that is not theirs is set aside.
+/// Refused when a folder above lets anyone else move it, which would let
+/// them put another folder in its place afterwards.
+pub fn prepare_install_dir(dir: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        wtm_sys::security::only_admins_move(dir)
+            .with_context(|| format!("checking the folders above {}", dir.display()))?,
+        "{} is not a plain absolute path, or a folder above it is a link or can be moved by \
+         others than administrators; install under Program Files",
+        dir.display()
+    );
+    match wtm_sys::security::secure_program_dir(dir, INSTALL_DIR_SDDL)
+        .with_context(|| format!("securing {}", dir.display()))?
+    {
+        Secured::Contested => {
+            anyhow::bail!("{} kept changing while it was secured", dir.display())
+        }
+        Secured::Replaced(aside) => println!(
+            "{} held what was not only administrators'; moved to {}",
+            dir.display(),
+            aside.display()
+        ),
+        Secured::Created | Secured::Kept => {}
+    }
+    Ok(())
+}
+
 pub fn install() -> anyhow::Result<()> {
+    let exe = std::env::current_exe()?;
+    let allow_any = std::env::var_os(ALLOW_ANY_INSTALL_DIR).is_some_and(|v| v == "1");
+    check_location(&exe, allow_any)?;
     let manager = ServiceManager::local_computer(
         None::<&str>,
         ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE,
@@ -107,7 +200,7 @@ pub fn install() -> anyhow::Result<()> {
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
-        executable_path: std::env::current_exe()?,
+        executable_path: exe,
         launch_arguments: vec!["service".into()],
         dependencies: vec![],
         account_name: None, // LocalSystem
@@ -190,8 +283,14 @@ pub fn uninstall() -> anyhow::Result<()> {
 /// entries (Image File Execution Options, which would otherwise keep
 /// pointing at a deleted rustwtm.exe) and its firewall rules. Run by the
 /// MSI on a full uninstall and by [`uninstall`]. Only entries RustWTM marked
-/// and rules in its own group are touched.
+/// and rules in its own group are touched. Also puts back a power plan game
+/// mode left switched.
 pub fn cleanup() -> anyhow::Result<()> {
+    // A power plan game mode replaced before a crash.
+    engine::restore_saved_plan(
+        &Paths::under(&engine::default_data_dir()).power_plan,
+        &mut |line| println!("{line}"),
+    );
     let failures = clean(
         Blocker::system(String::new()),
         wtm_sys::firewall::unblock_all,
@@ -334,6 +433,29 @@ mod tests {
         std::thread::spawn(move || done.send(run_service(&paths).is_err()));
         assert_eq!(result.recv_timeout(Duration::from_secs(30)), Ok(true));
         assert!(!dir.exists(), "the engine never started");
+    }
+
+    #[test]
+    fn an_install_folder_others_could_move_is_refused_untouched() {
+        let dir = std::env::temp_dir().join(format!("wtm-install-dir-{}", std::process::id()));
+        let e = prepare_install_dir(&dir).unwrap_err();
+        assert!(e.to_string().contains("Program Files"), "{e}");
+        assert!(!dir.exists());
+        assert!(prepare_install_dir(std::path::Path::new(r"RustWTM")).is_err());
+    }
+
+    #[test]
+    fn installs_only_from_where_administrators_alone_can_change_it() {
+        let built = std::env::current_exe().unwrap();
+        let e = check_location(&built, false).unwrap_err();
+        assert!(e.to_string().contains(ALLOW_ANY_INSTALL_DIR), "{e}");
+        check_location(&built, true).unwrap();
+        let windows = std::env::var("SystemRoot").unwrap();
+        check_location(
+            &std::path::Path::new(&windows).join(r"System32\svchost.exe"),
+            false,
+        )
+        .unwrap();
     }
 
     /// Installs and removes the real service. Needs elevation and changes

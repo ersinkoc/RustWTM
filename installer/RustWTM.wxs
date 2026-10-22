@@ -36,6 +36,8 @@
           <Component Id="HardwareProvider">
             <File Id="HardwareProviderExe" Source="$(BinDir)\hardware\wtm-hardware.exe" KeyPath="yes" />
             <File Id="HardwareProviderNotices" Source="$(BinDir)\hardware\PROVIDER-NOTICES.txt" />
+            <File Id="HardwareMonoPosixHelper" Source="$(BinDir)\hardware\MonoPosixHelper.dll" />
+            <File Id="HardwareLibMonoPosixHelper" Source="$(BinDir)\hardware\libMonoPosixHelper.dll" />
           </Component>
         </Directory>
 

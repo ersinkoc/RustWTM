@@ -534,7 +534,7 @@ fn tree_rows<'a>(
         .collect()
 }
 
-/// [`tree_rows`] as (index, depth) pairs.
+/// `tree_rows` (a test helper) as (index, depth) pairs.
 fn tree_order(
     procs: &[ProcessInfo],
     col: Col,
@@ -687,31 +687,13 @@ impl ProcessView {
         let logical_cpus = snap.system.logical_cpus.max(1);
 
         ui.horizontal_wrapped(|ui| {
-            ui.label(crate::i18n::tr("Search:"));
-            let search = ui.add(
-                egui::TextEdit::singleline(&mut self.search)
-                    .id(egui::Id::unique("process_search"))
-                    .hint_text(crate::i18n::tr("name, PID, path or command line"))
-                    .desired_width(240.0),
-            )
-            .on_hover_text("Ctrl+F");
-            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
-                search.request_focus();
-            }
-            // TextEdit gives up focus on Escape in the same frame.
-            if (search.has_focus() || search.lost_focus())
-                && ui.input(|i| i.key_pressed(egui::Key::Escape))
-            {
-                self.search.clear();
-            }
-            if !self.search.is_empty()
-                && ui
-                    .small_button("✖")
-                    .on_hover_text(crate::i18n::tr("Clear search"))
-                    .clicked()
-            {
-                self.search.clear();
-            }
+            crate::theme::search_bar(
+                ui,
+                egui::Id::unique("process_search"),
+                &mut self.search,
+                crate::i18n::tr("name, PID, path or command line"),
+                240.0,
+            );
             for (mode, label) in [
                 (ViewMode::List, crate::i18n::tr("List")),
                 (ViewMode::Tree, crate::i18n::tr("Tree")),
@@ -1223,6 +1205,8 @@ fn app_groups(procs: &[ProcessInfo], members: &[usize]) -> Vec<AppGroup> {
                 total.gpu_memory += p.gpu_memory;
                 total.io_read_rate += p.io_read_rate;
                 total.io_write_rate += p.io_write_rate;
+                total.net_rx_rate += p.net_rx_rate;
+                total.net_tx_rate += p.net_tx_rate;
             }
             AppGroup {
                 key,
@@ -1605,6 +1589,25 @@ mod tests {
             suspended: false,
             create_time,
         }
+    }
+
+    #[test]
+    fn an_app_sums_what_its_processes_use() {
+        let mut procs = vec![p(10, 4, 1.0, 10), p(11, 4, 2.0, 11), p(12, 4, 4.0, 12)];
+        for (i, q) in procs.iter_mut().enumerate() {
+            q.name = if i < 2 { "Chrome.exe" } else { "other.exe" }.into();
+            q.net_rx_rate = 100.0 * (i + 1) as f64;
+            q.net_tx_rate = 10.0 * (i + 1) as f64;
+            q.io_read_rate = 1.0;
+        }
+        let groups = app_groups(&procs, &[0, 1, 2]);
+        let chrome = groups.iter().find(|g| g.key == "chrome.exe").unwrap();
+        assert_eq!(chrome.members, [0, 1]);
+        assert_eq!(chrome.total.pid, 10, "the oldest member's");
+        assert_eq!(chrome.total.cpu_percent, 3.0);
+        assert_eq!(chrome.total.io_read_rate, 2.0);
+        assert_eq!(chrome.total.net_rx_rate, 300.0);
+        assert_eq!(chrome.total.net_tx_rate, 30.0);
     }
 
     fn no_extra() -> Extra<'static> {

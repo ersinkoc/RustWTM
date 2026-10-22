@@ -267,6 +267,8 @@ enum Pressed {
 struct Pending {
     chat: i64,
     targets: Vec<ProcessRef>,
+    /// Suspend the targets on confirmation instead of ending them.
+    suspend: bool,
     created: Instant,
 }
 
@@ -283,6 +285,14 @@ pub struct Bot<A, H> {
     muted_until: Option<Instant>,
     told: HashMap<i64, Instant>,
     waits: Vec<Wait>,
+    /// The bot's own @name, to ignore commands meant for other bots.
+    username: Option<String>,
+    /// Swarm names behind the buttons of /swarms: button data is limited
+    /// to 64 bytes, which a long image name would exceed.
+    swarm_names: HashMap<u64, (String, Instant)>,
+    /// Updates waiting from before this bot started were dropped: they
+    /// may be hours old or already handled, and are never acted on.
+    caught_up: bool,
 }
 
 /// `&`, `<` and `>` as HTML entities.
@@ -350,6 +360,29 @@ fn parse_command(text: &str) -> Option<(String, String)> {
     Some((cmd, arg.trim().to_owned()))
 }
 
+/// Why `p` must not be suspended (resuming is always safe). Suspending is
+/// held to what ending is: a frozen svchost takes the network, and with it
+/// the way to resume it from here.
+fn pause_blocked(p: &ProcessInfo, command: Command) -> Option<String> {
+    match command {
+        Command::Suspend => end_blocked(p.pid, &p.name),
+        _ => wtm_core::protection_reason(p.pid, &p.name).map(|r| format!("protected: {r}")),
+    }
+}
+
+/// Whether `text` is for this bot: not a command addressed to another one
+/// (`/kill@OtherBot`). Without its own name known, no addressed command is.
+fn addressed_to(text: &str, me: Option<&str>) -> bool {
+    let Some(rest) = text.trim().strip_prefix('/') else {
+        return true;
+    };
+    let cmd = rest.split(char::is_whitespace).next().unwrap_or(rest);
+    match cmd.split_once('@') {
+        None => true,
+        Some((_, to)) => me.is_some_and(|me| me.eq_ignore_ascii_case(to)),
+    }
+}
+
 /// A count from `arg`, `default` when empty, at most `max`.
 fn count(arg: &str, default: usize, max: usize) -> usize {
     arg.parse::<usize>().map_or(default, |n| n.clamp(1, max))
@@ -373,11 +406,53 @@ impl<A: Api, H: Host> Bot<A, H> {
             muted_until: None,
             told: HashMap::new(),
             waits: Vec::new(),
+            username: None,
+            swarm_names: HashMap::new(),
+            caught_up: false,
         }
     }
 
+    /// New settings; what removed chats asked for (exit notices, pending
+    /// confirmations) goes with them.
     pub fn set_config(&mut self, cfg: TelegramConfig) {
+        self.waits.retain(|w| cfg.chats.contains(&w.chat));
+        self.pending.retain(|_, p| cfg.chats.contains(&p.chat));
         self.cfg = cfg;
+    }
+
+    /// Learns the bot's name and drops the updates that were waiting when
+    /// it started; until both are done, no update is handled.
+    fn catch_up(&mut self) -> Result<(), ApiError> {
+        if self.username.is_none() {
+            let me = self.call("getMe", json!({}))?;
+            self.username = Some(me["username"].as_str().unwrap_or_default().to_owned());
+        }
+        if !self.caught_up {
+            // The latest update alone, which also confirms all before it.
+            let last = self.call("getUpdates", json!({ "offset": -1, "timeout": 0 }))?;
+            if let Some(id) = last
+                .as_array()
+                .and_then(|u| u.last())
+                .and_then(|u| u["update_id"].as_i64())
+            {
+                self.offset = id + 1;
+            }
+            self.caught_up = true;
+        }
+        Ok(())
+    }
+
+    /// Sends `reply` to every allowed chat. A chat that cannot be reached
+    /// (it blocked the bot, left a group, or is rate limited) does not keep
+    /// the others from getting it.
+    fn send_all(&mut self, reply: &Reply) -> Result<(), ApiError> {
+        for chat in self.cfg.chats.clone() {
+            match self.send(chat, reply) {
+                Err(ApiError::Other(e)) => debug!(chat, error = %e, "telegram send failed"),
+                other => other?,
+            }
+        }
+        Ok(())
     }
 
     pub fn token(&self) -> &str {
@@ -395,14 +470,12 @@ impl<A: Api, H: Host> Bot<A, H> {
             "✅ RustWTM is connected on <b>{}</b>. Send /help for what I can do.",
             esc(&self.computer)
         ));
-        for chat in self.cfg.chats.clone() {
-            self.send(chat, &hello)?;
-        }
-        Ok(())
+        self.send_all(&hello)
     }
 
     /// One round: forward new alerts, then wait briefly for messages.
     pub fn tick(&mut self) -> Result<(), ApiError> {
+        self.catch_up()?;
         self.forward_alerts()?;
         self.report_exits()?;
         let updates = self.api.call(
@@ -426,6 +499,10 @@ impl<A: Api, H: Host> Bot<A, H> {
         let now = Instant::now();
         self.pending
             .retain(|_, p| now.duration_since(p.created) < PENDING_TTL);
+        self.told
+            .retain(|_, t| now.duration_since(*t) < TELL_ID_EVERY);
+        self.swarm_names
+            .retain(|_, (_, t)| now.duration_since(*t) < PENDING_TTL);
         Ok(())
     }
 
@@ -473,6 +550,14 @@ impl<A: Api, H: Host> Bot<A, H> {
             return Ok(());
         };
         let text = msg["text"].as_str().unwrap_or_default();
+        if !addressed_to(text, self.username.as_deref()) {
+            return Ok(());
+        }
+        // In a group only commands are for the bot; other talk is not.
+        let private = msg["chat"]["type"].as_str().is_none_or(|t| t == "private");
+        if !private && parse_command(text).is_none() {
+            return Ok(());
+        }
         if !self.allowed(chat) {
             return self.tell_id(chat, &msg["from"]);
         }
@@ -541,10 +626,7 @@ impl<A: Api, H: Host> Bot<A, H> {
             text.push_str(&format!("…and {} more\n", alerts.len() - 10));
         }
         let reply = Reply::text(text.trim_end());
-        for chat in self.cfg.chats.clone() {
-            self.send(chat, &reply)?;
-        }
-        Ok(())
+        self.send_all(&reply)
     }
 
     /// The answer to a text message.
@@ -583,8 +665,8 @@ impl<A: Api, H: Host> Bot<A, H> {
             "info" => self.info(procs, &arg),
             "kill" | "end" => self.end_cmd(chat, procs, &arg, false),
             "tree" => self.end_cmd(chat, procs, &arg, true),
-            "suspend" => self.pause_cmd(procs, &arg, Command::Suspend),
-            "resume" => self.pause_cmd(procs, &arg, Command::Resume),
+            "suspend" => self.pause_cmd(chat, procs, &arg, Command::Suspend),
+            "resume" => self.pause_cmd(chat, procs, &arg, Command::Resume),
             "ports" => self.ports(procs),
             "free" => self.free(chat, procs, &arg),
             "services" => self.services(&arg),
@@ -926,7 +1008,12 @@ impl<A: Api, H: Host> Bot<A, H> {
                 esc(&self.computer),
                 wtm_core::format_duration(w.since.elapsed())
             );
-            self.send(w.chat, &Reply::text(text))?;
+            match self.send(w.chat, &Reply::text(text)) {
+                Err(ApiError::Other(e)) => {
+                    debug!(chat = w.chat, error = %e, "telegram send failed")
+                }
+                other => other?,
+            }
         }
         Ok(())
     }
@@ -947,7 +1034,15 @@ impl<A: Api, H: Host> Bot<A, H> {
                 None => targets.push(*p),
             }
         }
-        let notes_text: String = notes.iter().map(|n| format!("\n{}", esc(n))).collect();
+        // A reply past Telegram's 4096 characters would not be sent at all.
+        let mut notes_text: String = notes
+            .iter()
+            .take(10)
+            .map(|n| format!("\n{}", esc(n)))
+            .collect();
+        if notes.len() > 10 {
+            notes_text.push_str(&format!("\n…and {} more", notes.len() - 10));
+        }
         if targets.is_empty() {
             return Reply::text(format!("Nothing to end.{notes_text}"));
         }
@@ -990,6 +1085,7 @@ impl<A: Api, H: Host> Bot<A, H> {
             Pending {
                 chat,
                 targets: targets.iter().map(|p| ProcessRef::from(*p)).collect(),
+                suspend: false,
                 created: Instant::now(),
             },
         );
@@ -1064,20 +1160,80 @@ impl<A: Api, H: Host> Bot<A, H> {
         }
     }
 
-    fn pause_cmd(&mut self, procs: &[ProcessInfo], arg: &str, command: Command) -> Reply {
+    /// Suspends or resumes what `arg` names. Suspending several processes is
+    /// asked first, like ending them.
+    fn pause_cmd(
+        &mut self,
+        chat: i64,
+        procs: &[ProcessInfo],
+        arg: &str,
+        command: Command,
+    ) -> Reply {
         let list = match Self::resolve(procs, arg) {
             Ok(l) => l,
             Err(e) => return Reply::text(e),
         };
-        let mut lines = Vec::new();
-        for p in list.iter().take(50) {
-            if let Some(reason) = wtm_core::protection_reason(p.pid, &p.name) {
-                lines.push(format!("{}: protected: {reason}", who(&p.name, p.pid)));
-                continue;
+        let mut notes = Vec::new();
+        let mut targets = Vec::new();
+        for p in &list {
+            match pause_blocked(p, command) {
+                Some(reason) => notes.push(format!("{}: not done: {reason}", who(&p.name, p.pid))),
+                None => targets.push(*p),
             }
-            lines.push(self.pause(&ProcessRef::from(*p), command));
         }
-        Reply::text(esc(&lines.join("\n")))
+        let mut notes_text: String = notes
+            .iter()
+            .take(10)
+            .map(|n| format!("\n{}", esc(n)))
+            .collect();
+        if notes.len() > 10 {
+            notes_text.push_str(&format!("\n…and {} more", notes.len() - 10));
+        }
+        if command == Command::Suspend && targets.len() > 1 {
+            let id = self.next_pending;
+            self.next_pending += 1;
+            let names: Vec<String> = targets
+                .iter()
+                .take(8)
+                .map(|p| who(&p.name, p.pid))
+                .collect();
+            let more = if targets.len() > 8 {
+                format!(" and {} more", targets.len() - 8)
+            } else {
+                String::new()
+            };
+            let text = format!(
+                "Suspend these <b>{}</b> processes? {}{more}{notes_text}",
+                targets.len(),
+                esc(&names.join(", "))
+            );
+            self.pending.insert(
+                id,
+                Pending {
+                    chat,
+                    targets: targets.iter().map(|p| ProcessRef::from(*p)).collect(),
+                    suspend: true,
+                    created: Instant::now(),
+                },
+            );
+            return Reply {
+                text,
+                buttons: vec![vec![
+                    ("⏸ Suspend".to_owned(), format!("y:{id}:s")),
+                    ("Cancel".to_owned(), format!("n:{id}")),
+                ]],
+            };
+        }
+        let lines: Vec<String> = targets
+            .iter()
+            .take(50)
+            .map(|p| esc(&self.pause(&ProcessRef::from(*p), command)))
+            .collect();
+        Reply::text(
+            format!("{}{notes_text}", lines.join("\n"))
+                .trim()
+                .to_owned(),
+        )
     }
 
     fn ports(&self, procs: &[ProcessInfo]) -> Reply {
@@ -1222,14 +1378,18 @@ impl<A: Api, H: Host> Bot<A, H> {
                 esc(&s.parents_text())
             ));
             if self.cfg.control {
+                let id = self.next_pending;
+                self.next_pending += 1;
+                self.swarm_names
+                    .insert(id, (s.name.clone(), Instant::now()));
                 buttons.push(vec![(
                     format!("✖ End {} × {}", s.members.len(), clip(&s.name, 20)),
-                    format!("w:{}", s.name),
+                    format!("w:{id}"),
                 )]);
                 if s.orphans() > 0 && s.orphans() < s.members.len() {
                     buttons.push(vec![(
                         format!("✖ End the {} whose parent exited", s.orphans()),
-                        format!("o:{}", s.name),
+                        format!("o:{id}"),
                     )]);
                 }
             }
@@ -1318,7 +1478,9 @@ impl<A: Api, H: Host> Bot<A, H> {
     fn press(&mut self, chat: i64, data: &str) -> Pressed {
         let (kind, rest) = data.split_once(':').unwrap_or((data, ""));
         if kind == "n" {
-            if let Ok(id) = rest.parse::<u64>() {
+            if let Ok(id) = rest.parse::<u64>()
+                && self.pending.get(&id).is_some_and(|p| p.chat == chat)
+            {
                 self.pending.remove(&id);
             }
             return Pressed::Edit(Reply::text("Cancelled; nothing was ended."));
@@ -1349,6 +1511,14 @@ impl<A: Api, H: Host> Bot<A, H> {
                 .and_then(|id| self.pending.remove(&id))
                 .filter(|p| p.chat == chat);
             return match pending {
+                Some(p) if p.suspend => {
+                    let lines: Vec<String> = p
+                        .targets
+                        .iter()
+                        .map(|t| self.pause(t, Command::Suspend))
+                        .collect();
+                    Pressed::Edit(Reply::text(esc(&lines.join("\n"))))
+                }
                 Some(p) => Pressed::Edit(Reply::text(self.end(chat, &p.targets, tree == "1"))),
                 None => Pressed::Edit(Reply::text(
                     "This question expired; nothing was ended. Ask again.",
@@ -1364,7 +1534,12 @@ impl<A: Api, H: Host> Bot<A, H> {
             "w" | "o" => {
                 let cfg = self.host.config().swarm;
                 let swarms = wtm_policy::find_swarms(procs, &cfg);
-                let Some(s) = swarms.iter().find(|s| s.name == rest) else {
+                let name = rest
+                    .parse::<u64>()
+                    .ok()
+                    .and_then(|id| self.swarm_names.get(&id))
+                    .map(|(name, _)| name.clone());
+                let Some(s) = swarms.iter().find(|s| Some(&s.name) == name.as_ref()) else {
                     return Pressed::Toast("That swarm is gone.".into());
                 };
                 let by_pid: HashMap<u32, &ProcessInfo> = procs.iter().map(|p| (p.pid, p)).collect();
@@ -1395,8 +1570,8 @@ impl<A: Api, H: Host> Bot<A, H> {
                         } else {
                             Command::Resume
                         };
-                        if let Some(reason) = wtm_core::protection_reason(p.pid, &p.name) {
-                            return Pressed::Toast(format!("Protected: {reason}"));
+                        if let Some(reason) = pause_blocked(p, command) {
+                            return Pressed::Toast(format!("Not suspended: {reason}"));
                         }
                         Pressed::Toast(self.pause(&ProcessRef::from(p), command))
                     }
@@ -1574,15 +1749,34 @@ mod tests {
     struct FakeApi {
         calls: Calls,
         updates: VecDeque<Value>,
+        /// What waited before the bot started.
+        backlog: Vec<Value>,
+        /// Chats whose messages fail.
+        unreachable: Vec<i64>,
     }
 
     impl Api for FakeApi {
         fn call(&mut self, method: &str, body: Value, _: Duration) -> Result<Value, ApiError> {
-            self.calls.borrow_mut().push((method.to_owned(), body));
-            if method == "getUpdates" {
-                return Ok(Value::Array(self.updates.drain(..).collect()));
+            self.calls
+                .borrow_mut()
+                .push((method.to_owned(), body.clone()));
+            match method {
+                "getMe" => Ok(json!({"username": "RustWtmBot"})),
+                "getUpdates" if body["offset"] == -1 => Ok(Value::Array(
+                    self.backlog.last().cloned().into_iter().collect(),
+                )),
+                "getUpdates" => Ok(Value::Array(self.updates.drain(..).collect())),
+                "sendMessage"
+                    if self
+                        .unreachable
+                        .contains(&body["chat_id"].as_i64().unwrap()) =>
+                {
+                    Err(ApiError::Other(
+                        "Forbidden: bot was blocked by the user".into(),
+                    ))
+                }
+                _ => Ok(json!(true)),
             }
-            Ok(json!(true))
         }
     }
 
@@ -1601,6 +1795,7 @@ mod tests {
                 system: wtm_core::SystemStats::default(),
                 processes: self.procs.clone(),
                 net_traced: false,
+                taken_at_ms: 0,
             }))
         }
         fn status(&self) -> Status {
@@ -1764,6 +1959,127 @@ mod tests {
             .flat_map(|row| row.as_array().unwrap().iter())
             .map(|b| b["callback_data"].as_str().unwrap().to_owned())
             .collect()
+    }
+
+    #[test]
+    fn what_waited_before_the_start_is_never_run() {
+        let (mut b, calls) = bot(true);
+        b.api.backlog = vec![
+            message(7, ME, "/kill chrome"),
+            message(8, ME, "/suspend node"),
+        ];
+        b.tick().unwrap();
+        assert!(
+            texts(&calls)
+                .iter()
+                .all(|t| !t.contains("chrome") && !t.contains("node"))
+        );
+        // Polling goes on after the last waiting update.
+        let polls: Vec<Value> = calls
+            .borrow()
+            .iter()
+            .filter(|(m, b)| m == "getUpdates" && b["offset"] != -1)
+            .map(|(_, b)| b["offset"].clone())
+            .collect();
+        assert_eq!(polls, [json!(9)]);
+    }
+
+    #[test]
+    fn commands_for_other_bots_and_group_chatter_are_ignored() {
+        let (mut b, calls) = bot(true);
+        b.api
+            .updates
+            .push_back(message(1, ME, "/kill@OtherBot chrome"));
+        b.api.updates.push_back(json!({"update_id": 2, "message": {
+            "chat": {"id": ME, "type": "group"}, "from": {}, "text": "lunch?"}}));
+        b.tick().unwrap();
+        assert!(texts(&calls).is_empty(), "{:?}", texts(&calls));
+        b.api.updates.push_back(message(3, ME, "/top@rustwtmbot"));
+        b.tick().unwrap();
+        assert_eq!(texts(&calls).len(), 1, "its own name, any case");
+        assert!(addressed_to("/top", None) && !addressed_to("/top@x", None));
+    }
+
+    #[test]
+    fn an_unreachable_chat_does_not_silence_the_others() {
+        let (mut b, calls) = bot(true);
+        b.cfg.chats = vec![7, ME];
+        b.api.unreachable = vec![7];
+        b.host.events.borrow_mut().push(event(2, "disk full", true));
+        b.tick().unwrap();
+        let sent = calls.borrow();
+        assert!(
+            sent.iter()
+                .any(|(m, b)| m == "sendMessage" && b["chat_id"] == ME)
+        );
+        assert!(
+            sent.iter()
+                .any(|(m, b)| m == "getUpdates" && b["offset"] != -1),
+            "still polls"
+        );
+    }
+
+    #[test]
+    fn suspending_several_is_asked_first_and_svchost_never() {
+        let (mut b, calls) = bot(true);
+        b.host.procs.push(proc(500, "svchost.exe", 1.0));
+        b.api.updates.push_back(message(1, ME, "/suspend svchost"));
+        b.tick().unwrap();
+        assert!(b.host.controls.borrow().is_empty());
+        assert!(
+            texts(&calls).last().unwrap().contains("not done"),
+            "{:?}",
+            texts(&calls)
+        );
+
+        b.api.updates.push_back(message(2, ME, "/suspend chrome"));
+        b.tick().unwrap();
+        assert!(
+            b.host.controls.borrow().is_empty(),
+            "two copies: asked first"
+        );
+        let (id, _) = b
+            .pending
+            .iter()
+            .next()
+            .map(|(id, p)| (*id, p.suspend))
+            .unwrap();
+        b.api.updates.push_back(press(3, ME, &format!("y:{id}:s")));
+        b.tick().unwrap();
+        let done: Vec<(u32, Command)> = b.host.controls.borrow().clone();
+        assert_eq!(done, [(100, Command::Suspend), (101, Command::Suspend)]);
+    }
+
+    #[test]
+    fn swarm_buttons_fit_whatever_the_name() {
+        let (mut b, calls) = bot(true);
+        let long = format!("{}.exe", "x".repeat(80));
+        b.host.config.swarm.min_count = 10;
+        b.host
+            .procs
+            .extend((0..12).map(|i| proc(1000 + i, &long, 1.0)));
+        b.api.updates.push_back(message(1, ME, "/swarms"));
+        b.tick().unwrap();
+        let data = last_buttons(&calls);
+        assert!(!data.is_empty());
+        assert!(data.iter().all(|d| d.len() <= 64), "{data:?}");
+        // The button still finds the swarm.
+        b.api.updates.push_back(press(2, ME, &data[0]));
+        b.tick().unwrap();
+        let last = texts(&calls).last().unwrap().clone();
+        assert!(last.contains("End these"), "{last}");
+    }
+
+    #[test]
+    fn removed_chats_lose_their_waits_and_confirmations() {
+        let (mut b, _) = bot(true);
+        b.api.updates.push_back(message(1, ME, "/kill chrome"));
+        b.tick().unwrap();
+        assert!(!b.pending.is_empty());
+        let mut cfg = b.cfg.clone();
+        cfg.chats = vec![99];
+        b.set_config(cfg);
+        assert!(b.pending.is_empty());
     }
 
     #[test]

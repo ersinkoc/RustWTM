@@ -98,12 +98,27 @@ pub fn kill(specs: &[String], tree: bool) -> anyhow::Result<ExitCode> {
     }
     let procs = snapshot()?;
     let mut ok = true;
-    for root in resolve(specs, &procs)? {
+    for root in outermost(resolve(specs, &procs)?, &procs) {
         for (t, r) in control::kill_tree(&root, &procs) {
             ok &= report("kill-tree", &t, r);
         }
     }
     Ok(exit_code(ok))
+}
+
+/// The `roots` that are no descendant of another one: ending a tree ends
+/// the matches inside it, which would otherwise be ended (and reported as
+/// failing) a second time.
+fn outermost(roots: Vec<ProcessRef>, procs: &[ProcessInfo]) -> Vec<ProcessRef> {
+    let inside: std::collections::HashSet<(u32, i64)> = roots
+        .iter()
+        .flat_map(|r| wtm_core::descendants(r.pid, r.create_time, procs))
+        .map(|p| (p.pid, p.create_time))
+        .collect();
+    roots
+        .into_iter()
+        .filter(|r| !inside.contains(&(r.pid, r.create_time)))
+        .collect()
 }
 
 pub fn suspend(specs: &[String]) -> anyhow::Result<ExitCode> {
@@ -390,6 +405,20 @@ mod tests {
 
     fn specs(s: &[&str]) -> Vec<String> {
         s.iter().map(|&s| s.to_owned()).collect()
+    }
+
+    #[test]
+    fn a_tree_inside_another_match_is_ended_once() {
+        let mut list = procs(&[(10, "node.exe"), (11, "node.exe"), (12, "node.exe")]);
+        for p in &mut list {
+            p.create_time = i64::from(p.pid);
+        }
+        // 11 is 10's child; 12 stands alone.
+        list[1].parent_pid = 10;
+        list[2].parent_pid = 1;
+        let roots = resolve(&specs(&["node"]), &list).unwrap();
+        let pids: Vec<u32> = outermost(roots, &list).iter().map(|r| r.pid).collect();
+        assert_eq!(pids, [10, 12]);
     }
 
     #[test]

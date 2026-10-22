@@ -7,10 +7,14 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <Version>0.19.0</Version>
+    <Version>0.20.0</Version>
     <RuntimeFrameworkVersion>8.0.31</RuntimeFrameworkVersion>
     <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Native libraries stay next to the program, in the install folder only
+         administrators can change, instead of being unpacked to a temp folder
+         that, running as SYSTEM, may be C:\Windows\Temp: .NET reuses what it
+         finds there, so a file planted beforehand would run as SYSTEM. -->
+    <IncludeNativeLibrariesForSelfExtract>false</IncludeNativeLibrariesForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>

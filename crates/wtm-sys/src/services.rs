@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{
-    ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SERVICE_NOT_ACTIVE,
-    ERROR_SERVICE_REQUEST_TIMEOUT,
+    ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SERVICE_DOES_NOT_EXIST,
+    ERROR_SERVICE_NOT_ACTIVE, ERROR_SERVICE_REQUEST_TIMEOUT,
 };
 use windows::Win32::System::Services::{
     ChangeServiceConfigW, CloseServiceHandle, ControlService, ENUM_SERVICE_STATUS_PROCESSW,
@@ -251,11 +251,36 @@ fn query_status(svc: &ScHandle) -> Option<SERVICE_STATUS_PROCESS> {
     Some(status)
 }
 
+/// Whether a service is there to vouch for what it serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presence {
+    /// Not installed.
+    Missing,
+    /// Installed, but no process of its own runs (stopped, or its state
+    /// could not be read).
+    NotRunning,
+    Running(u32),
+}
+
+pub fn presence(name: &str) -> Presence {
+    match open(name, SERVICE_QUERY_STATUS) {
+        Err(crate::Error::Win32(e)) if e.code() == ERROR_SERVICE_DOES_NOT_EXIST.to_hresult() => {
+            Presence::Missing
+        }
+        Err(_) => Presence::NotRunning,
+        Ok(svc) => match query_status(&svc) {
+            Some(s) if s.dwProcessId != 0 => Presence::Running(s.dwProcessId),
+            _ => Presence::NotRunning,
+        },
+    }
+}
+
 /// PID of a running service, None if it is not installed or not running.
 pub fn service_pid(name: &str) -> Option<u32> {
-    let svc = open(name, SERVICE_QUERY_STATUS).ok()?;
-    let status = query_status(&svc)?;
-    (status.dwProcessId != 0).then_some(status.dwProcessId)
+    match presence(name) {
+        Presence::Running(pid) => Some(pid),
+        _ => None,
+    }
 }
 
 /// Stops `name` (if it runs), waits up to `timeout` for it to stop, and
@@ -270,8 +295,9 @@ pub fn restart_service(name: &str, timeout: Duration) -> Result<()> {
         return Err(e.into());
     }
     let deadline = Instant::now() + timeout;
+    // A status that cannot be read is not "stopped": it is waited out too.
     while query_status(&svc)
-        .is_some_and(|s| ServiceState::from_raw(s.dwCurrentState.0) != ServiceState::Stopped)
+        .is_none_or(|s| ServiceState::from_raw(s.dwCurrentState.0) != ServiceState::Stopped)
     {
         if Instant::now() >= deadline {
             return Err(
@@ -353,6 +379,7 @@ mod error_tests {
         assert!(restart_service(MISSING, Duration::from_secs(1)).is_err());
         assert!(set_start_type(MISSING, StartType::Manual).is_err());
         assert!(service_pid(MISSING).is_none());
+        assert_eq!(presence(MISSING), Presence::Missing);
         assert!(query_config(MISSING).is_err());
     }
 

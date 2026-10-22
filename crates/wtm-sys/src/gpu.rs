@@ -145,11 +145,21 @@ impl Totals {
     }
 }
 
+/// One engine of one GPU: the adapter's LUID, its physical index and the
+/// engine's index, as named in a counter instance.
+type EngineId = (u32, u32, u32, u32);
+
 /// Builds a sample from the engine utilization instances, fed one at a
 /// time. Instances whose names carry no PID are skipped.
+///
+/// As in Task Manager, a process shows its busiest engine and an engine
+/// type its busiest engine: two video engines at 60% each are a type at
+/// 60%, not 100%. An engine's load is what all processes put on it.
 struct Aggregate<'a> {
-    /// Summed per (pid, engine type slot).
-    by_engine: FastMap<(u32, usize), f64>,
+    /// Busiest engine per process.
+    by_process: FastMap<u32, f64>,
+    /// Summed over processes per engine, with its type's slot.
+    by_engine: FastMap<EngineId, (usize, f64)>,
     totals: &'a mut Totals,
     /// Slots some instance reported this time.
     seen: Vec<bool>,
@@ -161,6 +171,7 @@ impl<'a> Aggregate<'a> {
             t.1 = 0.0;
         }
         Self {
+            by_process: FastMap::default(),
             by_engine: FastMap::default(),
             seen: vec![false; totals.0.len()],
             totals,
@@ -168,7 +179,7 @@ impl<'a> Aggregate<'a> {
     }
 
     fn engine(&mut self, name: &str, v: f64) {
-        let Some((pid, engtype)) = parse_engine_instance(name) else {
+        let Some((pid, engine, engtype)) = parse_engine_instance(name) else {
             return;
         };
         let slot = self.totals.slot(engtype);
@@ -176,18 +187,21 @@ impl<'a> Aggregate<'a> {
             self.seen.resize(slot + 1, false);
         }
         self.seen[slot] = true;
-        *self.by_engine.entry((pid, slot)).or_default() += v;
-        self.totals.0[slot].1 += v;
+        let busiest = self.by_process.entry(pid).or_default();
+        *busiest = busiest.max(v);
+        self.by_engine.entry(engine).or_insert((slot, 0.0)).1 += v;
     }
 
-    /// Takes the busiest type per process; types nothing reported this
-    /// time are left out.
+    /// Types nothing reported this time are left out.
     fn finish(self) -> GpuSample {
+        for (slot, v) in self.by_engine.into_values() {
+            let total = &mut self.totals.0[slot].1;
+            *total = total.max(v);
+        }
         let mut out = GpuSample::default();
-        out.per_process.reserve(self.by_engine.len());
-        for ((pid, _), v) in self.by_engine {
-            let e = out.per_process.entry(pid).or_default();
-            e.percent = e.percent.max(v.min(100.0) as f32);
+        out.per_process.reserve(self.by_process.len());
+        for (pid, v) in self.by_process {
+            out.per_process.entry(pid).or_default().percent = v.clamp(0.0, 100.0) as f32;
         }
         let live = || {
             self.totals
@@ -314,10 +328,21 @@ impl ArrayReader {
 }
 
 /// `pid_1234_luid_0x0_0xC9D3_phys_0_eng_0_engtype_3D` -> (1234, "3D")
-fn parse_engine_instance(name: &str) -> Option<(u32, &str)> {
+/// `pid_1234_luid_0x00000000_0x0000C9D3_phys_0_eng_0_engtype_3D`: the PID,
+/// the engine and its type.
+fn parse_engine_instance(name: &str) -> Option<(u32, EngineId, &str)> {
     let pid = parse_pid(name)?;
-    let engtype = name.split_once("_engtype_")?.1;
-    Some((pid, engtype))
+    let (head, engtype) = name.split_once("_engtype_")?;
+    let mut parts = head.split_once("_luid_")?.1.split('_');
+    let hex = |p: Option<&str>| u32::from_str_radix(p?.strip_prefix("0x")?, 16).ok();
+    let (high, low) = (hex(parts.next())?, hex(parts.next())?);
+    let mut after = |label: &str| match parts.next() {
+        Some(l) if l == label => parts.next()?.parse::<u32>().ok(),
+        _ => None,
+    };
+    let phys = after("phys")?;
+    let eng = after("eng")?;
+    Some((pid, (high, low, phys, eng), engtype))
 }
 
 fn parse_pid(name: &str) -> Option<u32> {
@@ -332,12 +357,20 @@ mod tests {
     fn parses_instance_names() {
         assert_eq!(
             parse_engine_instance("pid_1234_luid_0x00000000_0x0000C9D3_phys_0_eng_0_engtype_3D"),
-            Some((1234, "3D"))
+            Some((1234, (0, 0xC9D3, 0, 0), "3D"))
         );
         assert_eq!(
-            parse_engine_instance("pid_7_luid_0x0_0x1_phys_0_eng_5_engtype_VideoDecode"),
-            Some((7, "VideoDecode"))
+            parse_engine_instance("pid_7_luid_0x0_0x1_phys_1_eng_5_engtype_VideoDecode"),
+            Some((7, (0, 1, 1, 5), "VideoDecode"))
         );
+        for odd in [
+            "pid_7_luid_0x0_phys_0_eng_5_engtype_3D",
+            "pid_7_luid_0x0_0x1_eng_0_phys_5_engtype_3D",
+            "pid_7_luid_zz_0x1_phys_0_eng_5_engtype_3D",
+            "pid_7_luid_0x0_0x1_phys_0_eng_5",
+        ] {
+            assert_eq!(parse_engine_instance(odd), None, "{odd}");
+        }
         assert_eq!(parse_pid("pid_42_luid_0x0_0x1_phys_0"), Some(42));
         assert_eq!(parse_pid("_Total"), None);
     }
@@ -348,12 +381,16 @@ mod tests {
             format!("pid_{pid}_luid_0x0_0x1_phys_0_eng_{eng}_engtype_{ty}")
         };
         let engine = [
-            // Two 3D engines of one process add up.
+            // A process shows its busiest engine.
             (inst(1, 0, "3D"), 30.0),
             (inst(1, 1, "3D"), 20.0),
             (inst(1, 2, "Copy"), 10.0),
+            // Engine 0 carries 30 + 70: the 3D type is at 100.
             (inst(2, 0, "3D"), 70.0),
-            (inst(3, 0, "VideoDecode"), 150.0),
+            (inst(3, 3, "VideoDecode"), 150.0),
+            // Two video encoders at 60% each: the type is at 60%, not 120%.
+            (inst(5, 4, "VideoEncode"), 60.0),
+            (inst(5, 5, "VideoEncode"), 60.0),
             ("_Total".to_owned(), 99.0),
         ];
         let memory = [
@@ -366,7 +403,7 @@ mod tests {
         assert_eq!(
             get(1),
             Some(GpuUsage {
-                percent: 50.0,
+                percent: 30.0,
                 dedicated_bytes: 1024
             })
         );
@@ -376,13 +413,15 @@ mod tests {
         assert_eq!(s.total_percent, 100.0);
         // Negative counter values clamp to zero.
         assert_eq!(get(4), Some(GpuUsage::default()));
-        assert_eq!(s.per_process.len(), 4);
+        assert_eq!(get(5).map(|u| u.percent), Some(60.0));
+        assert_eq!(s.per_process.len(), 5);
         assert_eq!(
             s.engines,
             [
                 ("3D".to_owned(), 100.0),
                 ("Copy".to_owned(), 10.0),
-                ("VideoDecode".to_owned(), 100.0)
+                ("VideoDecode".to_owned(), 100.0),
+                ("VideoEncode".to_owned(), 60.0)
             ]
         );
     }

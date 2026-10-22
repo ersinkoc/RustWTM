@@ -80,7 +80,7 @@ Used by `ladder`, rules and insights.
 | `{ priority = "idle" \| "below_normal" \| "normal" \| "above_normal" }` | Priority class. |
 | `"eco_qos"` | Efficiency mode (power throttling). |
 | `{ cpu_cap = 10 }` | Hard cap at 10% of the machine (job object). |
-| `{ cpu_cap_relative = 0.5 }` | Cap at half of the usage observed when first acted on (governor and rules only). |
+| `{ cpu_cap_relative = 0.5 }` | Cap at half of the usage observed when first acted on (governor and rules only; a rule needs `when.cpu_above`, which is also the least it is resolved against). |
 | `{ memory_cap_mb = 4096 }` | Committed memory limit per process. |
 | `"suspend"` | Freeze all threads. |
 | `"kill"` | Terminate. |

@@ -279,6 +279,13 @@ impl From<EcoArg> for EcoQos {
 fn run_panic(yes: bool) -> anyhow::Result<ExitCode> {
     let mut client = wtm_ipc::Client::connect()
         .map_err(|e| anyhow::anyhow!("RustWTM service not reachable ({e})"))?;
+    // The kill list decides what is ended, perhaps with our administrator
+    // rights: only the real service may hand it over, not a program that
+    // took the pipe's name while the service is not running.
+    anyhow::ensure!(
+        client.is_verified(),
+        "the RustWTM pipe is not served by the installed service; its kill list is not used"
+    );
     let text = kill::fetch(&mut client)?;
     let entries = wtm_policy::Config::from_toml(&text)?.kill;
     let mut sampler = Sampler::new();
@@ -318,11 +325,23 @@ fn parse_port(s: &str) -> Result<u16, String> {
 
 /// The ports in use and the processes, for the names behind them.
 fn port_uses() -> anyhow::Result<(Vec<wtm_core::ports::PortUse>, Vec<wtm_core::ProcessInfo>)> {
+    let read_at = std::time::SystemTime::now();
     let uses = wtm_core::ports::port_uses(&wtm_core::connections()?);
     let mut sampler = Sampler::new();
     sampler.sample()?;
     std::thread::sleep(Duration::from_millis(200));
-    Ok((uses, sampler.sample()?.processes))
+    Ok((uses, owners_then(sampler.sample()?.processes, read_at)))
+}
+
+/// `procs` without those started after `read_at`, when the ports were read:
+/// such a process got the PID of an owner that has exited since, and must
+/// neither be named for the port nor ended for it.
+fn owners_then(
+    mut procs: Vec<wtm_core::ProcessInfo>,
+    read_at: std::time::SystemTime,
+) -> Vec<wtm_core::ProcessInfo> {
+    procs.retain(|p| p.start_time().is_none_or(|t| t <= read_at));
+    procs
 }
 
 fn main() -> anyhow::Result<ExitCode> {
@@ -440,10 +459,15 @@ fn main() -> anyhow::Result<ExitCode> {
             let (uses, procs) = port_uses()?;
             let mut end = |t: &control::ProcessRef| {
                 if tree {
-                    control::kill_tree(t, &procs)
+                    let failed: Vec<String> = control::kill_tree(t, &procs)
                         .into_iter()
-                        .try_for_each(|(_, r)| r)
-                        .map_err(|e| e.to_string())
+                        .filter_map(|(_, r)| r.err().map(|e| e.to_string()))
+                        .collect();
+                    if failed.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(failed.join("; "))
+                    }
                 } else {
                     control::kill(t).map_err(|e| e.to_string())
                 }
@@ -627,6 +651,28 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use wtm_ipc::{Client, PROTOCOL_VERSION, Request, Response, read_frame, write_frame};
     use wtm_policy::{AppStats, Finding, FindingKind};
+
+    #[test]
+    fn a_process_started_after_the_port_lookup_is_no_owner() {
+        let procs = Sampler::new().sample().unwrap().processes;
+        let me = procs
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .unwrap()
+            .clone();
+        let started = me.start_time().unwrap();
+        let before = owners_then(procs.clone(), started - Duration::from_secs(1));
+        assert!(
+            before.iter().all(|p| p.pid != me.pid),
+            "started later: left out"
+        );
+        assert!(
+            before.iter().any(|p| p.pid == 4),
+            "System, started at boot, stays"
+        );
+        let after = owners_then(procs, started + Duration::from_secs(1));
+        assert!(after.iter().any(|p| p.pid == me.pid));
+    }
 
     #[test]
     fn value_enums_map_to_core_types() {

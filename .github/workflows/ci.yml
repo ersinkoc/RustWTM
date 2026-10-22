@@ -34,12 +34,18 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Docs
+        run: cargo doc --workspace --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
+
       - name: Test
         run: cargo test --workspace
         env:
           # The runner is an elevated, disposable VM: also exercise service
-          # install / uninstall.
+          # install / uninstall, from the build folder.
           RUSTWTM_SCM_TESTS: '1'
+          RUSTWTM_ALLOW_ANY_INSTALL_DIR: '1'
 
       - name: Hardware provider and watchdog checks
         shell: pwsh
@@ -73,6 +79,7 @@ jobs:
       - name: Coverage
         env:
           RUSTWTM_SCM_TESTS: '1'
+          RUSTWTM_ALLOW_ANY_INSTALL_DIR: '1'
         shell: pwsh
         run: |
           cargo llvm-cov --workspace --lcov --output-path lcov.info

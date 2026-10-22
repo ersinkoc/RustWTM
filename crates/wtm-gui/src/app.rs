@@ -193,7 +193,12 @@ struct UiState {
     confirm_session: Option<(u32, String, crate::backend::SessionOp)>,
     /// A destructive command for every process of an app.
     confirm_many: Option<(Vec<ProcessRef>, Command)>,
+    /// A service or firewall change that is easy to make by mistake.
+    confirm_change: Option<Change>,
     network_filter: String,
+    /// The selected process the Network tab was asked to show everything
+    /// for; a new selection narrows it again.
+    network_all_for: Option<ProcessRef>,
     services_filter: String,
     /// The Events tab shows only this level; `None` shows all.
     event_level: Option<EventLevel>,
@@ -367,7 +372,9 @@ impl Default for UiState {
             confirm: None,
             confirm_session: None,
             confirm_many: None,
+            confirm_change: None,
             network_filter: String::new(),
+            network_all_for: None,
             services_filter: String::new(),
             event_level: None,
             selected_startup: None,
@@ -704,21 +711,38 @@ impl eframe::App for App {
                     }
                 },
                 Tab::Services => {
-                    if let Some(op) = service_bar(ui, &data, state.selected_service.as_deref()) {
-                        service_cmds.push(op);
+                    match service_bar(ui, &data, state.selected_service.as_deref()) {
+                        Some(UiCommand::Service { name, op }) if Change::needs_confirming(op) => {
+                            let display = data
+                                .services
+                                .as_ref()
+                                .and_then(|r| r.as_ref().ok())
+                                .and_then(|list| list.iter().find(|s| s.name == name))
+                                .map_or_else(|| name.clone(), |s| s.display_name.clone());
+                            state.confirm_change = Some(Change::Service { name, display, op });
+                        }
+                        Some(cmd) => service_cmds.push(cmd),
+                        None => {}
                     }
                     if let Some(s) = views::services(ui, &data, &mut state.services_filter) {
                         state.selected_service = Some(s.name);
                     }
                 }
                 Tab::Network => {
-                    let only = state.processes.selected.as_ref().map(|r| r.pid);
-                    match views::network(ui, &data, &mut state.network_filter, only) {
+                    let only = state
+                        .processes
+                        .selected
+                        .clone()
+                        .filter(|r| state.network_all_for.as_ref() != Some(r));
+                    match views::network(ui, &data, &mut state.network_filter, only.as_ref()) {
                         Some(views::NetworkAction::Close(local, remote)) => {
                             service_cmds.push(UiCommand::CloseConnection { local, remote });
                         }
                         Some(views::NetworkAction::Unblock(path)) => {
                             service_cmds.push(UiCommand::Firewall { path, block: false });
+                        }
+                        Some(views::NetworkAction::ShowAll) => {
+                            state.network_all_for = state.processes.selected.clone();
                         }
                         None => {}
                     }
@@ -885,6 +909,30 @@ impl eframe::App for App {
             }
         }
 
+        if let Some(change) = state.confirm_change.clone() {
+            let (title, question) = change.describe();
+            let modal = egui::Modal::new(egui::Id::unique("confirm_change")).show(&ctx, |ui| {
+                ui.heading(&title);
+                ui.label(question);
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(RichText::new(&title).color(crate::theme::text_color(ui, BAD)))
+                        .clicked()
+                    {
+                        service_cmds.push(change.command());
+                        state.confirm_change = None;
+                    }
+                    if ui.button(crate::i18n::tr("Cancel")).clicked() {
+                        state.confirm_change = None;
+                    }
+                });
+            });
+            if modal.should_close() {
+                state.confirm_change = None;
+            }
+        }
+
         if let Some((targets, command)) = state.confirm_many.clone() {
             let name = targets.first().map_or("", |t| t.name.as_str()).to_owned();
             // One app's instances, or different programs (e.g. on one port).
@@ -1020,6 +1068,11 @@ impl eframe::App for App {
                                 std::slice::from_ref(&target.name),
                             ),
                         ));
+                    } else if block {
+                        state.confirm_change = Some(Change::Block {
+                            path,
+                            name: target.name,
+                        });
                     } else {
                         backend.send(UiCommand::Firewall { path, block });
                     }
@@ -1260,7 +1313,7 @@ fn data_age(ui: &mut Ui, data: &Data, now: Instant) {
         SampleFreshness::Stale(Some(age)) => (age, true),
         SampleFreshness::Stale(None) => return,
     };
-    let text = crate::i18n::format("Last data received {0}s ago", &[age.as_secs().to_string()]);
+    let text = crate::i18n::format("Data measured {0}s ago", &[age.as_secs().to_string()]);
     if stale {
         crate::theme::colored(ui, WARN, text);
     } else {
@@ -1910,8 +1963,15 @@ fn details_panel(
     {
         ui.add_space(8.0);
         ui.label(RichText::new(crate::i18n::tr("Last two minutes")).strong());
-        process_plot(ui, "proc_cpu", "CPU", &h.cpu, false);
-        process_plot(ui, "proc_mem", crate::i18n::tr("Memory"), &h.memory, true);
+        process_plot(ui, "proc_cpu", "CPU", &h.times, &h.cpu, false);
+        process_plot(
+            ui,
+            "proc_mem",
+            crate::i18n::tr("Memory"),
+            &h.times,
+            &h.memory,
+            true,
+        );
     }
 
     ui.add_space(8.0);
@@ -1947,15 +2007,11 @@ fn process_plot(
     ui: &mut Ui,
     id: &str,
     label: &str,
+    times: &std::collections::VecDeque<u64>,
     values: &std::collections::VecDeque<f32>,
     bytes: bool,
 ) {
-    let len = values.len() as f64;
-    let points: PlotPoints = values
-        .iter()
-        .enumerate()
-        .map(|(i, v)| [i as f64 - len, f64::from(*v)])
-        .collect();
+    let points = series_points(times, values);
     let unit = move |v: f64| {
         if bytes {
             format_bytes(v.max(0.0))
@@ -1985,12 +2041,23 @@ fn process_plot(
 /// Height of the large graphs on the Performance tab.
 const PLOT_HEIGHT: f32 = 120.0;
 
-fn series_points(values: &std::collections::VecDeque<f32>) -> PlotPoints<'static> {
-    let len = values.len() as f64;
-    values
+/// `values` at the times they were measured (Unix milliseconds), in seconds
+/// before the newest, so a slower sampling interval or a delayed sample
+/// keeps its real place on the time axis. The newest entries of both pair up.
+fn series_points(
+    times: &std::collections::VecDeque<u64>,
+    values: &std::collections::VecDeque<f32>,
+) -> PlotPoints<'static> {
+    let n = times.len().min(values.len());
+    let newest = times.back().copied().unwrap_or_default();
+    times
         .iter()
-        .enumerate()
-        .map(|(i, v)| [i as f64 - len, f64::from(*v)])
+        .skip(times.len() - n)
+        .zip(values.iter().skip(values.len() - n))
+        .map(|(t, v)| {
+            let before = newest.saturating_sub(*t) as f64 / 1000.0;
+            [-before, f64::from(*v)]
+        })
         .collect()
 }
 
@@ -2017,6 +2084,7 @@ fn history_plot(
     ui: &mut Ui,
     id: &str,
     label: &str,
+    times: &std::collections::VecDeque<u64>,
     values: &std::collections::VecDeque<f32>,
     color: Color32,
 ) {
@@ -2033,7 +2101,7 @@ fn history_plot(
         })
         .show(ui, |plot| {
             plot.line(
-                Line::new(label.to_owned(), series_points(values))
+                Line::new(label.to_owned(), series_points(times, values))
                     .color(color)
                     .width(2.0)
                     .fill(0.0)
@@ -2043,10 +2111,11 @@ fn history_plot(
 }
 
 /// Two byte rates (for example download and upload) on an auto-scaled axis.
-/// The card title carries the legend (see [`rate_title`]).
+/// The card title carries the legend (see [`rate_legend`]).
 fn rate_plot(
     ui: &mut Ui,
     id: &str,
+    times: &std::collections::VecDeque<u64>,
     series: [(&str, &std::collections::VecDeque<f32>, Color32); 2],
 ) {
     perf_plot(id)
@@ -2056,7 +2125,7 @@ fn rate_plot(
         .show(ui, |plot| {
             for (label, values, color) in series {
                 plot.line(
-                    Line::new(label.to_owned(), series_points(values))
+                    Line::new(label.to_owned(), series_points(times, values))
                         .color(color)
                         .width(2.0)
                         .fill(0.0)
@@ -2256,7 +2325,14 @@ fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             crate::theme::load_color(s.cpu_percent),
         )],
         |ui| {
-            history_plot(ui, "cpu_plot", "CPU", &data.history.cpu, crate::theme::CPU);
+            history_plot(
+                ui,
+                "cpu_plot",
+                "CPU",
+                &data.history.times,
+                &data.history.cpu,
+                crate::theme::CPU,
+            );
             if !s.core_percent.is_empty() {
                 ui.add_space(6.0);
                 ui.weak({
@@ -2325,6 +2401,7 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                 ui,
                 "mem_plot",
                 crate::i18n::tr("Memory"),
+                &data.history.times,
                 &data.history.memory,
                 crate::theme::MEMORY,
             );
@@ -2363,7 +2440,14 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             crate::theme::GPU,
         )],
         |ui| {
-            history_plot(ui, "gpu_plot", "GPU", &data.history.gpu, crate::theme::GPU);
+            history_plot(
+                ui,
+                "gpu_plot",
+                "GPU",
+                &data.history.times,
+                &data.history.gpu,
+                crate::theme::GPU,
+            );
             if !s.gpu_engines.is_empty() {
                 // The busiest engines; most of the others idle at 0%.
                 let mut engines: Vec<&(String, f32)> = s.gpu_engines.iter().collect();
@@ -2410,6 +2494,7 @@ fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             rate_plot(
                 ui,
                 "net_plot",
+                &data.history.times,
                 [
                     (
                         crate::i18n::tr("Receive"),
@@ -2448,6 +2533,7 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
             rate_plot(
                 ui,
                 "io_plot",
+                &data.history.times,
                 [
                     (
                         crate::i18n::tr("Read"),
@@ -2788,6 +2874,72 @@ fn events(ui: &mut Ui, data: &Data, level: &mut Option<EventLevel>) {
     sort.store(ui, "events");
 }
 
+/// A change asked about before it is made: stopping or disabling a service
+/// can break what depends on it, and a blocked program stays offline.
+#[derive(Debug, Clone, PartialEq)]
+enum Change {
+    Service {
+        name: String,
+        display: String,
+        op: ServiceOp,
+    },
+    Block {
+        path: String,
+        name: String,
+    },
+}
+
+impl Change {
+    fn needs_confirming(op: ServiceOp) -> bool {
+        matches!(
+            op,
+            ServiceOp::Stop
+                | ServiceOp::Restart
+                | ServiceOp::StartType(wtm_core::StartType::Disabled)
+        )
+    }
+
+    /// The confirming button's label and the question.
+    fn describe(&self) -> (String, String) {
+        match self {
+            Change::Service { display, op, .. } => {
+                let (title, question) = match op {
+                    ServiceOp::Restart => (
+                        "Restart",
+                        "Restart the service \"{0}\"? It stops for a moment; programs that rely on it may lose their connection to it.",
+                    ),
+                    ServiceOp::StartType(_) => (
+                        "Disable",
+                        "Disable the service \"{0}\"? It will no longer start, not even when Windows or a program needs it.",
+                    ),
+                    _ => (
+                        "Stop",
+                        "Stop the service \"{0}\"? Programs that rely on it may stop working until it runs again.",
+                    ),
+                };
+                (
+                    crate::i18n::tr(title).to_owned(),
+                    crate::i18n::format(question, std::slice::from_ref(display)),
+                )
+            }
+            Change::Block { name, .. } => (
+                crate::i18n::tr("Block network access").to_owned(),
+                crate::i18n::format(
+                    "Block network access for {0}? It cannot connect until you unblock it in the Network tab.",
+                    std::slice::from_ref(name),
+                ),
+            ),
+        }
+    }
+
+    fn command(&self) -> UiCommand {
+        match self.clone() {
+            Change::Service { name, op, .. } => UiCommand::Service { name, op },
+            Change::Block { path, .. } => UiCommand::Firewall { path, block: true },
+        }
+    }
+}
+
 /// Actions for the selected service; requires elevation to take effect.
 fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCommand> {
     let service = selected.and_then(|name| {
@@ -2858,6 +3010,22 @@ mod tests {
 
     use crate::backend::Backend;
     use crate::ui_tests::data;
+
+    #[test]
+    fn graphs_place_points_at_their_measurement_time() {
+        use std::collections::VecDeque;
+        // Every 2 s, then a sample that arrived 5 s late.
+        let times = VecDeque::from([10_000, 12_000, 14_000, 21_000]);
+        let values = VecDeque::from([9.0, 1.0, 2.0, 3.0, 4.0]);
+        let xy: Vec<[f64; 2]> = series_points(&times, &values)
+            .points()
+            .iter()
+            .map(|p| [p.x, p.y])
+            .collect();
+        // The extra oldest value has no time and is left out.
+        assert_eq!(xy, [[-11.0, 1.0], [-9.0, 2.0], [-7.0, 3.0], [0.0, 4.0]]);
+        assert!(series_points(&VecDeque::new(), &values).points().is_empty());
+    }
 
     #[test]
     fn full_app_navigates_every_tab() {
@@ -3390,6 +3558,44 @@ mod tests {
     }
 
     #[test]
+    fn without_the_service_calming_spares_the_window_in_front() {
+        let mut d = data();
+        d.mode = Mode::Local;
+        // No service status to name the app in front; the window's PID does.
+        d.status = None;
+        d.foreground_pid = Some(100);
+        d.alert_watch.active = Some(crate::alert::Alert {
+            cpu: 97.0,
+            started: Instant::now(),
+        });
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Processes,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        rx.try_iter().for_each(drop);
+        h.get_by_label("⚡ Calm them all down").click();
+        h.run_steps(2);
+        let sent: Vec<_> = rx.try_iter().map(describe_command).collect();
+        assert_eq!(
+            sent,
+            [
+                "control 101 EcoQos(On)",
+                "control 101 Priority(BelowNormal)"
+            ]
+        );
+    }
+
+    #[test]
     fn cpu_alert_offers_quick_fixes_and_closes() {
         let mut d = data();
         d.mode = Mode::Service {
@@ -3840,6 +4046,17 @@ mod tests {
         h.get_by_label("alpha.exe").click_secondary();
         h.run_steps(2);
         h.get_by_label("Block network access").click();
+        h.run_steps(3);
+        // Asked first: the program stays offline until unblocked.
+        assert!(rx.try_iter().next().is_none());
+        assert!(
+            h.query_by_label_contains("Block network access for alpha.exe?")
+                .is_some()
+        );
+        h.get_all_by_label("Block network access")
+            .last()
+            .unwrap()
+            .click();
         h.run_steps(2);
         let sent: Vec<String> = rx.try_iter().map(describe_command).collect();
         assert!(
@@ -4155,9 +4372,22 @@ mod tests {
         step(&mut h, &mut sent);
         h.get_by_label("Stop").click();
         step(&mut h, &mut sent);
+        // Stopping, restarting and disabling are asked first.
+        assert!(
+            h.query_by_label_contains("Stop the service \"Print Spooler\"?")
+                .is_some()
+        );
+        h.get_all_by_label("Stop").last().unwrap().click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Restart").click();
+        step(&mut h, &mut sent);
+        h.get_by_label("Cancel").click();
+        step(&mut h, &mut sent);
         h.get_by_label("Startup type").click();
         step(&mut h, &mut sent);
         h.get_by_label("Disabled").click();
+        step(&mut h, &mut sent);
+        h.get_all_by_label("Disable").last().unwrap().click();
         step(&mut h, &mut sent);
         h.get_all_by_label("Fax").next().unwrap().click();
         step(&mut h, &mut sent);
@@ -4339,11 +4569,15 @@ mod tests {
         assert!(h.query_by_label_contains("0.28 cores (14%)").is_some());
         assert!(h.query_by_label_contains("1.0 GiB (12%)").is_some());
         assert!(h.query_by_label_contains("Dry-run mode").is_some());
-        let saved = |rx: &std::sync::mpsc::Receiver<UiCommand>| {
-            rx.try_iter().find_map(|c| match c {
-                UiCommand::SaveConfig(t) => Some(wtm_policy::Config::from_toml(&t).unwrap()),
+        // What was saved, loaded back as the service does after saving.
+        let saved = |h: &mut Harness<'_, App>, rx: &std::sync::mpsc::Receiver<UiCommand>| {
+            let text = rx.try_iter().find_map(|c| match c {
+                UiCommand::SaveConfig(t) => Some(t),
                 _ => None,
-            })
+            })?;
+            h.state().backend.data().config = Some(Ok(("config.toml".into(), text.clone())));
+            h.run_steps(2);
+            Some(wtm_policy::Config::from_toml(&text).unwrap())
         };
 
         h.get_by_label("Edit").click();
@@ -4353,13 +4587,15 @@ mod tests {
         h.run_steps(1);
         h.get_by_label("Save limit").click();
         h.run_steps(2);
-        let c = saved(&rx).expect("saved");
+        let c = saved(&mut h, &rx).expect("saved");
         assert_eq!(c.limits.len(), 1);
         assert_eq!(c.limits[0].scope, wtm_policy::LimitScope::Each);
+        // Loaded with the change: the form is done.
+        assert!(h.query_by_label("Change limit").is_none());
 
         h.get_by_label("Remove").click();
         h.run_steps(2);
-        assert!(saved(&rx).expect("saved").limits.is_empty());
+        assert!(saved(&mut h, &rx).expect("saved").limits.is_empty());
 
         // A new limit from the form.
         h.get_all_by_role(egui::accesskit::Role::TextInput)
@@ -4374,9 +4610,13 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("Save limit").click();
         h.run_steps(2);
-        let c = saved(&rx).expect("saved");
-        assert_eq!(c.limits.len(), 2);
-        assert_eq!(c.limits[1].name, "node.exe");
+        let c = saved(&mut h, &rx).expect("saved");
+        assert_eq!(c.limits.len(), 1);
+        assert_eq!(c.limits[0].name, "node.exe");
+
+        // Back to the first configuration.
+        h.state().backend.data().config = Some(Ok(("config.toml".into(), text.into())));
+        h.run_steps(2);
 
         // Picking a running app fills in its name; the existing entry is replaced.
         h.get_by_role_and_label(egui::accesskit::Role::ComboBox, "or a running app")
@@ -4386,7 +4626,7 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("Save limit").click();
         h.run_steps(2);
-        let c = saved(&rx).expect("saved");
+        let c = saved(&mut h, &rx).expect("saved");
         assert_eq!(c.limits.len(), 1);
         assert_eq!(c.limits[0].name, "beta.exe");
         assert_eq!(c.limits[0].memory_gb, None);
@@ -4831,7 +5071,7 @@ mod tests {
                     h.query_by_label(tab.subtitle()).is_some(),
                     "{language:?} {tab:?}"
                 );
-                let received = crate::i18n::tr("Last data received {0}s ago");
+                let received = crate::i18n::tr("Data measured {0}s ago");
                 assert!(
                     h.query_by_label_contains(received.split("{0}").next().unwrap())
                         .is_some()
@@ -5047,7 +5287,7 @@ mod tests {
             h.run();
             assert!(
                 h.query_by_label(&crate::i18n::format(
-                    "Last data received {0}s ago",
+                    "Data measured {0}s ago",
                     &["2".into()]
                 ))
                 .is_some()
@@ -5117,13 +5357,14 @@ mod bench {
     use crate::ui_tests::{data, proc};
     use std::sync::Arc;
 
-    const PROCESSES: u32 = 2000;
+    /// The fixed process-list sizes measured (see docs/0.13.0-review.md).
+    const SIZES: [u32; 2] = [1_000, 10_000];
     const FRAMES: u32 = 100;
 
-    fn busy_data() -> Data {
+    fn busy_data(processes: u32) -> Data {
         let mut d = data();
         let mut snap = d.snapshot.as_deref().unwrap().clone();
-        snap.processes = (0..PROCESSES)
+        snap.processes = (0..processes)
             .map(|i| {
                 let pid = 1000 + i * 4;
                 let parent = if i < 50 { 4 } else { 1000 + (i % 50) * 4 };
@@ -5178,8 +5419,16 @@ mod bench {
         d
     }
 
-    fn per_frame(language: crate::i18n::Language, setup: impl FnOnce(&mut UiState)) -> Duration {
-        let (backend, _rx) = Backend::offline(busy_data());
+    /// Median frame time, which other load on the machine skews less than
+    /// the mean. With `fresh`, every frame sees a new data revision,
+    /// as when a sample arrives: nothing cached from the previous frame holds.
+    fn per_frame(
+        processes: u32,
+        fresh: bool,
+        language: crate::i18n::Language,
+        setup: impl FnOnce(&mut UiState),
+    ) -> Duration {
+        let (backend, _rx) = Backend::offline(busy_data(processes));
         let mut state = UiState {
             language,
             ..Default::default()
@@ -5197,11 +5446,19 @@ mod bench {
         for _ in 0..10 {
             h.step();
         }
-        let start = Instant::now();
-        for _ in 0..FRAMES {
-            h.step();
-        }
-        start.elapsed() / FRAMES
+        let mut frames: Vec<Duration> = (0..FRAMES)
+            .map(|_| {
+                if fresh {
+                    let mut data = h.state_mut().backend.data();
+                    data.revision = data.revision.wrapping_add(1);
+                }
+                let start = Instant::now();
+                h.step();
+                start.elapsed()
+            })
+            .collect();
+        frames.sort_unstable();
+        frames[frames.len() / 2]
     }
 
     #[test]
@@ -5234,9 +5491,17 @@ mod bench {
             ("Disks", English, |s| s.tab = Tab::Disks),
             ("Events (Turkish)", Turkish, |s| s.tab = Tab::Events),
         ];
-        for (name, language, setup) in cases {
-            let t = per_frame(language, setup);
-            println!("{name:<28} {:>8.1} us/frame", t.as_secs_f64() * 1e6);
+        for processes in SIZES {
+            println!("{processes} processes:");
+            for (name, language, setup) in cases {
+                let still = per_frame(processes, false, language, setup);
+                let fresh = per_frame(processes, true, language, setup);
+                println!(
+                    "  {name:<28} {:>9.1} us/frame, {:>9.1} with new data",
+                    still.as_secs_f64() * 1e6,
+                    fresh.as_secs_f64() * 1e6
+                );
+            }
         }
     }
 }

@@ -224,7 +224,7 @@ fn verdict(data: &Data) -> Option<(Color32, String)> {
     verdict_of(data, &app_totals(data), &swarms)
 }
 
-/// [`verdict`] from the apps and swarms the page already found.
+/// `verdict` (a test helper) from the apps and swarms the page already found.
 fn verdict_of(
     data: &Data,
     apps: &[App<'_, &ProcessInfo>],

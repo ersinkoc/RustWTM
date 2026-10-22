@@ -107,6 +107,12 @@ impl KillEntry {
         if self.name.trim().is_empty() {
             return Err("name must not be empty".into());
         }
+        if self.name.trim() == "*" {
+            return Err("name must not be `*`: that would end every program".into());
+        }
+        if let Some(why) = wtm_core::automatic_end_blocked(self.name.trim()) {
+            return Err(format!("{} cannot be on the kill list: {why}", self.name));
+        }
         if self.cmdline.as_deref().is_some_and(|c| c.trim().is_empty()) {
             return Err("cmdline must not be empty (leave it out to match any)".into());
         }
@@ -505,6 +511,14 @@ mod tests {
             KillEntry {
                 system_cpu_above: Some(-1.0),
                 ..vitest(None)
+            },
+            KillEntry {
+                name: "SvcHost.exe".into(),
+                ..vitest(Some(20.0))
+            },
+            KillEntry {
+                name: "*".into(),
+                ..vitest(Some(20.0))
             },
         ] {
             assert!(bad.validate().is_err(), "{bad:?}");

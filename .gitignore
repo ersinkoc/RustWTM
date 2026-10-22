@@ -8,5 +8,7 @@
 
 
 .temp_files/
-.claude/
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
 .dfmt/

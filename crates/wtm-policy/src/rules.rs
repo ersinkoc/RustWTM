@@ -60,6 +60,23 @@ impl Rule {
         if self.actions.is_empty() {
             return Err("actions must not be empty".into());
         }
+        if self
+            .actions
+            .iter()
+            .any(|a| matches!(a, Action::Kill | Action::Suspend))
+            && let Some(name) = self.matcher.name.as_deref().map(str::trim)
+        {
+            if name == "*" {
+                return Err(
+                    "kill or suspend with `match.name = \"*\"` would hit every program".into(),
+                );
+            }
+            if let Some(why) = wtm_core::automatic_end_blocked(name) {
+                return Err(format!(
+                    "{name} cannot be ended or suspended by a rule: {why}"
+                ));
+            }
+        }
         if let Some(c) = &self.when
             && c.cpu_above.is_none()
             && c.memory_above_mb.is_none()
@@ -67,7 +84,23 @@ impl Rule {
         {
             return Err("when needs `cpu_above`, `memory_above_mb` and/or `gpu_above`".into());
         }
+        // A share of the CPU the process used when the rule fired: without a
+        // CPU threshold that can be nothing (a process just started, or idle
+        // for a moment), and the cap would all but freeze it.
+        if self.cpu_baseline().is_none()
+            && self
+                .actions
+                .iter()
+                .any(|a| matches!(a, Action::CpuCapRelative(_)))
+        {
+            return Err("cpu_cap_relative needs `when.cpu_above` in a rule".into());
+        }
         self.actions.iter().try_for_each(Action::validate)
+    }
+
+    /// The least CPU a process has when this rule fires on it.
+    fn cpu_baseline(&self) -> Option<f32> {
+        self.when.as_ref().and_then(|c| c.cpu_above)
     }
 }
 
@@ -246,7 +279,7 @@ impl RuleEngine {
                 out.extend(rule.actions.iter().map(|a| Decision::Apply {
                     source: Source::Rule,
                     target: target.clone(),
-                    action: a.resolve(p.cpu_percent),
+                    action: a.resolve(p.cpu_percent.max(rule.cpu_baseline().unwrap_or(0.0))),
                     reason: format!("rule '{}'", rule.name),
                 }));
             }
@@ -293,7 +326,7 @@ mod tests {
                 cmdline: None,
             },
             when,
-            actions: vec![Action::EcoQos, Action::CpuCapRelative(0.5)],
+            actions: vec![Action::EcoQos, Action::CpuCap(50.0)],
         }
     }
 
@@ -331,7 +364,10 @@ mod tests {
             for_secs: 5,
             ..Default::default()
         };
-        let mut e = RuleEngine::new(vec![rule(Some("hog*"), None, Some(cond))]);
+        let mut r = rule(Some("hog*"), None, Some(cond));
+        r.actions[1] = Action::CpuCapRelative(0.5);
+        assert!(r.validate().is_ok());
+        let mut e = RuleEngine::new(vec![r]);
         let t0 = Instant::now();
         let at = |s| t0 + Duration::from_secs(s);
         let procs = |cpu| vec![proc(10, "hog.exe", cpu, 0), proc(11, "other.exe", 90.0, 0)];
@@ -426,6 +462,44 @@ mod tests {
         let others = [proc(10, "a.exe", 5.0, 0), proc(11, "b.exe", 0.0, 0)];
         assert_eq!(e.tick(now, &others, &mut no_path).len(), 2);
         assert!(e.tick(now, &others, &mut no_path).is_empty());
+    }
+
+    #[test]
+    fn relative_caps_need_a_cpu_threshold_and_never_fall_below_it() {
+        let mut r = rule(Some("a.exe"), None, None);
+        r.actions = vec![Action::CpuCapRelative(0.5)];
+        assert_eq!(
+            r.validate().unwrap_err(),
+            "cpu_cap_relative needs `when.cpu_above` in a rule"
+        );
+        r.when = Some(Condition {
+            memory_above_mb: Some(1),
+            ..Default::default()
+        });
+        assert!(r.validate().is_err(), "memory alone is no CPU baseline");
+        r.when = Some(Condition {
+            cpu_above: Some(40.0),
+            ..Default::default()
+        });
+        assert!(r.validate().is_ok());
+        assert_eq!(r.cpu_baseline(), Some(40.0));
+    }
+
+    #[test]
+    fn rules_never_end_everything_or_service_hosts() {
+        for (name, action) in [
+            ("*", Action::Kill),
+            ("svchost.exe", Action::Suspend),
+            ("wtm-service.exe", Action::Kill),
+        ] {
+            let r = Rule {
+                actions: vec![action],
+                ..rule(Some(name), None, None)
+            };
+            assert!(r.validate().is_err(), "{name}");
+        }
+        // Throttling them stays possible.
+        assert!(rule(Some("*"), None, None).validate().is_ok());
     }
 
     #[test]

@@ -242,7 +242,29 @@ fn validate_block(name: &str) -> Result<(), String> {
     if !name.to_ascii_lowercase().ends_with(".exe") || name.len() <= 4 {
         return Err("must end with .exe".into());
     }
-    const NEVER: [&str; 4] = ["explorer.exe", "rustwtm.exe", "wtm.exe", "wtm-service.exe"];
+    if name.len() > 255 {
+        return Err("must be at most 255 characters".into());
+    }
+    // Blocking these breaks signing in, elevation (and with it the way back:
+    // an elevated RustWTM or editor), services, consoles or installers,
+    // RustWTM's own updates included.
+    const NEVER: [&str; 15] = [
+        "explorer.exe",
+        "rustwtm.exe",
+        "wtm.exe",
+        "wtm-service.exe",
+        "consent.exe",
+        "userinit.exe",
+        "logonui.exe",
+        "svchost.exe",
+        "sihost.exe",
+        "conhost.exe",
+        "taskhostw.exe",
+        "ctfmon.exe",
+        "dllhost.exe",
+        "rundll32.exe",
+        "msiexec.exe",
+    ];
     if NEVER.iter().any(|n| n.eq_ignore_ascii_case(name))
         || wtm_core::protection_reason(u32::MAX, name).is_some()
     {
@@ -290,10 +312,15 @@ mod tests {
             "csrss.exe",
             "explorer.exe",
             "WTM.exe",
+            "Consent.exe",
+            "svchost.exe",
+            "msiexec.exe",
         ] {
             let e = config(bad).validate().unwrap_err();
             assert!(e.starts_with(&format!("block '{bad}'")), "{e}");
         }
+        let long = format!("{}.exe", "x".repeat(300));
+        assert!(config(&long).validate().unwrap_err().contains("255"));
     }
 
     #[test]

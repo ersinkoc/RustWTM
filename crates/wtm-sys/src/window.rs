@@ -142,7 +142,9 @@ unsafe extern "system" fn collect_titled(hwnd: HWND, lparam: LPARAM) -> BOOL {
     // outlives the enumeration; the window handle is valid for query here.
     unsafe {
         let search = &mut *(lparam.0 as *mut Search);
-        let mut text = [0u16; 64];
+        // Room for one unit more than the title (plus the NUL), so a longer
+        // title comes back longer instead of cut to a matching prefix.
+        let mut text = vec![0u16; search.title.len() + 2];
         let len = GetWindowTextW(hwnd, &mut text).max(0) as usize;
         if text[..len] == search.title[..] {
             let mut pid = 0u32;

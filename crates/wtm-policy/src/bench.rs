@@ -226,6 +226,7 @@ fn per_tick_costs() {
         },
         processes: procs.clone(),
         net_traced: false,
+        taken_at_ms: 0,
     };
     let mut governor = Governor::new(GovernorConfig {
         sustain_secs: 0,

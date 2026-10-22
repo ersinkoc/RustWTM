@@ -36,6 +36,8 @@ struct Scan {
     path: PathBuf,
     progress: Arc<Progress>,
     result: Arc<Mutex<Option<ScanResult>>>,
+    /// Set by the scan when `path` is not a folder it can read.
+    unreadable: Arc<AtomicBool>,
     started: Instant,
 }
 
@@ -101,13 +103,16 @@ impl DisksView {
             path: result.root_path.clone(),
             progress: Arc::default(),
             result: Arc::new(Mutex::new(Some(result))),
+            unreadable: Arc::default(),
             started: Instant::now(),
         });
         self
     }
 
     pub fn scanning(&self) -> bool {
-        self.scan.as_ref().is_some_and(|s| s.result().is_none())
+        self.scan
+            .as_ref()
+            .is_some_and(|s| s.result().is_none() && !s.unreadable.load(Ordering::Relaxed))
     }
 
     /// Reads the drive list off the UI thread: a sleeping network drive can
@@ -131,14 +136,9 @@ impl DisksView {
     }
 
     /// Starts analyzing `path` in the background, replacing any earlier scan.
+    /// Even whether it is a folder is asked there: a sleeping network drive
+    /// can take seconds to answer.
     pub fn start(&mut self, ctx: &egui::Context, path: &Path) {
-        if !path.is_dir() {
-            self.error = Some(crate::i18n::format(
-                "{0} is not a folder that can be read",
-                &[path.display().to_string()],
-            ));
-            return;
-        }
         if let Some(old) = self.scan.take() {
             old.progress.cancel();
         }
@@ -146,9 +146,11 @@ impl DisksView {
         self.expanded.clear();
         let progress = Arc::new(Progress::default());
         let result = Arc::new(Mutex::new(None));
-        let (p, r, root, ctx) = (
+        let unreadable = Arc::new(AtomicBool::new(false));
+        let (p, r, bad, root, ctx) = (
             progress.clone(),
             result.clone(),
+            unreadable.clone(),
             path.to_owned(),
             ctx.clone(),
         );
@@ -158,6 +160,11 @@ impl DisksView {
             .name("disk-scan".into())
             .stack_size(64 << 20)
             .spawn(move || {
+                if !root.is_dir() {
+                    bad.store(true, Ordering::Relaxed);
+                    ctx.request_repaint();
+                    return;
+                }
                 let _ = wtm_core::control::enter_background_mode();
                 let scanned = diskscan::scan(&root, &p, diskscan::LARGEST_KEPT);
                 *r.lock().unwrap_or_else(PoisonError::into_inner) = Some(scanned);
@@ -171,6 +178,7 @@ impl DisksView {
             path: path.to_owned(),
             progress,
             result,
+            unreadable,
             started: Instant::now(),
         });
     }
@@ -478,6 +486,12 @@ fn analysis(ui: &mut Ui, view: &mut DisksView) {
             view.start(ui.ctx(), &path);
         }
     });
+    if let Some(scan) = view.scan.take_if(|s| s.unreadable.load(Ordering::Relaxed)) {
+        view.error = Some(crate::i18n::format(
+            "{0} is not a folder that can be read",
+            &[scan.path.display().to_string()],
+        ));
+    }
     if let Some(e) = &view.error {
         crate::theme::colored(ui, BAD, e);
     }
@@ -1120,11 +1134,17 @@ mod tests {
         h.state_mut().view.path = r"Z:\no\such\folder".into();
         // The drive card has its own Analyze button; the folder row's is last.
         h.get_all_by_label("Analyze").last().unwrap().click();
-        h.run();
-        assert!(
-            h.query_by_label_contains("is not a folder that can be read")
-                .is_some()
-        );
+        // Found out off the UI thread.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while h
+            .query_by_label_contains("is not a folder that can be read")
+            .is_none()
+        {
+            assert!(Instant::now() < deadline, "never said");
+            std::thread::sleep(Duration::from_millis(10));
+            h.run_steps(1);
+        }
+        assert!(h.query_by_label("Stop").is_none(), "not scanning");
     }
 
     #[test]

@@ -154,6 +154,24 @@ impl Executor {
             }
             alive
         });
+        // Limits a failed lift left on a job: lifted again while the process
+        // runs, or nothing would ever take them off.
+        let leftover: Vec<ProcessRef> = limiter
+            .limited()
+            .filter(|r| {
+                touched
+                    .get(&key(r))
+                    .is_none_or(|t| t.applied.limits() == Limits::default())
+            })
+            .cloned()
+            .collect();
+        for r in leftover {
+            if live.contains(&key(&r)) {
+                let _ = limiter.lift(&r);
+            } else {
+                limiter.forget(&r);
+            }
+        }
     }
 
     pub fn execute(&mut self, decision: &Decision) -> Result<(), String> {
@@ -195,6 +213,14 @@ impl Executor {
         action: Action,
         reason: &str,
     ) -> Result<(), String> {
+        if source != Source::Manual
+            && matches!(action, Action::Kill | Action::Suspend)
+            && let Some(why) = wtm_core::automatic_end_blocked(&t.name)
+        {
+            let e = format!("{source:?}: {action} refused: {why} ({reason})");
+            self.events.warn(Some(t), e.clone());
+            return Err(e);
+        }
         // Notify on terminations, memory relief, and when the governor first
         // steps in on a process.
         let mut notable = matches!(action, Action::Kill | Action::TrimMemory);
@@ -208,15 +234,13 @@ impl Executor {
             }
             r
         } else {
-            let entry = self.touched.entry(key(t)).or_insert_with(|| {
-                let details = control::inspect(t).ok();
-                Touched {
-                    target: t.clone(),
-                    original_priority: details.as_ref().and_then(|d| d.priority),
-                    original_eco: details.as_ref().and_then(|d| d.eco_qos),
-                    actions: HashMap::new(),
-                    applied: Effective::default(),
-                }
+            // The originals are read when a setting is first taken (in `reconcile`).
+            let entry = self.touched.entry(key(t)).or_insert_with(|| Touched {
+                target: t.clone(),
+                original_priority: None,
+                original_eco: None,
+                actions: HashMap::new(),
+                applied: Effective::default(),
             });
             notable |= source == Source::Governor && !entry.actions.contains_key(&source);
             // A newer action of the same kind from the same source replaces the old one.
@@ -265,7 +289,7 @@ impl Executor {
         result
     }
 
-    fn restore_sources(&mut self, sources: &[Source], reason: &str) {
+    pub fn restore_sources(&mut self, sources: &[Source], reason: &str) {
         let pending: Vec<(Source, ProcessRef)> = self
             .touched
             .values()
@@ -320,6 +344,18 @@ impl Executor {
             ],
             reason,
         );
+        // Whatever an earlier lift could not take off.
+        for (t, r) in self.limiter.lift_all() {
+            match r {
+                Ok(()) => self
+                    .events
+                    .info(Some(&t), format!("limits lifted ({reason})")),
+                Err(e) => self.events.warn(
+                    Some(&t),
+                    format!("limits could not be lifted: {e} ({reason})"),
+                ),
+            }
+        }
     }
 }
 
@@ -330,6 +366,21 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
     let target = &t.target;
     let mut errors = Vec::new();
 
+    // What the process has when RustWTM takes a setting over is what a
+    // rollback returns to; an earlier touch for another reason (a cap) may
+    // predate a change made outside RustWTM.
+    let takes_priority = new.priority.is_some() && old.priority.is_none();
+    let takes_eco = new.eco_qos && !old.eco_qos;
+    if (takes_priority || takes_eco)
+        && let Ok(d) = control::inspect(target)
+    {
+        if takes_priority {
+            t.original_priority = d.priority.or(t.original_priority);
+        }
+        if takes_eco {
+            t.original_eco = d.eco_qos.or(t.original_eco);
+        }
+    }
     if new.priority != old.priority {
         let priority = new
             .priority
@@ -452,6 +503,43 @@ mod process_tests {
             snap.processes.iter().find(|p| p.pid == pid).map(Into::into)
         });
         (child, t)
+    }
+
+    #[test]
+    fn limits_left_by_a_failed_lift_are_lifted_on_the_next_tick() {
+        let (_child, t) = spawn();
+        let mut e = Executor::new(false, EventLog::default());
+        // As a lift that failed leaves it: the job still limits the process,
+        // and nothing the executor tracks wants that any more.
+        e.limiter
+            .apply(
+                &t,
+                Limits {
+                    cpu_percent: Some(50.0),
+                    memory_bytes: None,
+                },
+            )
+            .unwrap();
+        e.forget_exited(&HashSet::from([key(&t)]));
+        assert!(!e.limiter.is_limited(&t));
+    }
+
+    #[test]
+    fn policies_never_end_or_suspend_service_hosts() {
+        let mut e = Executor::new(false, EventLog::default());
+        // A made-up PID: nothing may even be attempted.
+        let t = ProcessRef {
+            pid: 0xffff_fff1,
+            create_time: 1,
+            name: "svchost.exe".into(),
+        };
+        for action in [Action::Kill, Action::Suspend] {
+            let err = apply(&mut e, Source::Rule, &t, action).unwrap_err();
+            assert!(err.contains("hosts Windows services"), "{err}");
+        }
+        // Throttling it is still allowed (and fails here only on the PID).
+        let err = apply(&mut e, Source::Rule, &t, Action::EcoQos).unwrap_err();
+        assert!(!err.contains("hosts Windows services"), "{err}");
     }
 
     fn apply(

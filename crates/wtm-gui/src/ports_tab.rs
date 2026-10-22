@@ -46,20 +46,15 @@ struct PortRow<'a> {
 }
 
 impl PortRow<'_> {
+    /// The programs holding the port. Only those in the process list: a
+    /// target without its start time would be ended even if its PID went to
+    /// another program meanwhile ([`blocked`] says so instead).
     fn targets(&self) -> Vec<ProcessRef> {
         let mut out: Vec<ProcessRef> = Vec::new();
-        for (u, p) in &self.uses {
-            if out.iter().any(|t| t.pid == u.pid) {
-                continue;
+        for p in self.uses.iter().filter_map(|(_, p)| *p) {
+            if !out.iter().any(|t| t.pid == p.pid) {
+                out.push(ProcessRef::from(p));
             }
-            out.push(p.map_or_else(
-                || ProcessRef {
-                    pid: u.pid,
-                    create_time: 0,
-                    name: format!("PID {}", u.pid),
-                },
-                ProcessRef::from,
-            ));
         }
         out
     }
@@ -92,6 +87,12 @@ impl PortRow<'_> {
 
 /// Why the programs holding a port cannot be ended from here, if so.
 fn blocked(row: &PortRow<'_>) -> Option<String> {
+    if let Some((u, _)) = row.uses.iter().find(|(_, p)| p.is_none()) {
+        return Some(crate::i18n::format(
+            "PID {0} is not in the process list yet; try again in a moment",
+            &[u.pid.to_string()],
+        ));
+    }
     row.uses.iter().find_map(|(u, p)| {
         let name = p.map_or("", |p| p.name.as_str());
         ports::end_blocked(u.pid, name).map(|r| format!("{name} ({}): {r}", u.pid))
@@ -470,19 +471,16 @@ fn listening_table(
     view: &mut PortsView,
     intents: &mut Vec<Intent>,
 ) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.strong(crate::i18n::tr("All listening ports"));
         ui.separator();
-        ui.label(crate::i18n::tr("Search:"));
-        let search = ui
-            .add(
-                egui::TextEdit::singleline(&mut view.search)
-                    .id(egui::Id::unique("ports_search"))
-                    .hint_text(crate::i18n::tr("port, program or tool"))
-                    .desired_width(200.0),
-            )
-            .on_hover_text("Ctrl+F");
-        crate::theme::focus_on_ctrl_f(ui, &search);
+        crate::theme::search_bar(
+            ui,
+            egui::Id::unique("ports_search"),
+            &mut view.search,
+            crate::i18n::tr("port, program or tool"),
+            200.0,
+        );
         ui.checkbox(&mut view.show_udp, crate::i18n::tr("Include UDP"));
     });
     let f = view.search.trim().to_lowercase();
@@ -523,6 +521,17 @@ fn listening_table(
                 .map_or(0, |p| p.private_working_set)
                 .cmp(&bp.map_or(0, |p| p.private_working_set)),
         });
+    }
+    if rows.is_empty() && !f.is_empty() {
+        crate::theme::empty_state(
+            ui,
+            crate::i18n::tr("No matching ports"),
+            crate::i18n::tr("Try another port, program or tool name."),
+        );
+        if ui.button(crate::i18n::tr("Clear search")).clicked() {
+            view.search.clear();
+        }
+        return;
     }
 
     let row_height = ui.spacing().interact_size.y;
@@ -778,6 +787,26 @@ mod tests {
         h.state_mut().view.show_catalog = true;
         h.run();
         assert!(h.query_by_label("Ollama").is_some());
+    }
+
+    #[test]
+    fn a_port_of_a_program_not_listed_yet_is_not_ended() {
+        let mut h = harness(PortsView {
+            free_input: "41999".into(),
+            ..PortsView::default()
+        });
+        // PID 999 holds the port but is not in the process list.
+        if let Some(Ok(connections)) = h.state_mut().data.connections.as_mut() {
+            connections.push(listen("127.0.0.1:41999", 999));
+        }
+        h.run();
+        h.get_by_label("End what uses port 41999").click();
+        h.run();
+        assert!(h.state().intents.is_empty());
+        assert!(
+            h.query_by_label_contains("PID 999 is not in the process list yet")
+                .is_some()
+        );
     }
 
     #[test]

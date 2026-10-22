@@ -17,11 +17,17 @@
     "fr": "Les valeurs affichées proviennent du dernier échantillon reçu. Elles ne représentent pas l’activité actuelle.",
     "es": "Los valores mostrados corresponden a la última muestra recibida. No indican la actividad actual."
   },
-  "Last data received {0}s ago": {
-    "tr": "Son veri {0} sn önce alındı",
-    "de": "Letzte Daten vor {0} s empfangen",
-    "fr": "Dernières données reçues il y a {0} s",
-    "es": "Últimos datos recibidos hace {0} s"
+  "Data measured {0}s ago": {
+    "tr": "Veri {0} sn önce ölçüldü",
+    "de": "Daten vor {0} s gemessen",
+    "fr": "Données mesurées il y a {0} s",
+    "es": "Datos medidos hace {0} s"
+  },
+  "The service is not reachable": {
+    "tr": "Servise ulaşılamıyor",
+    "de": "Der Dienst ist nicht erreichbar",
+    "fr": "Le service est injoignable",
+    "es": "No se puede contactar con el servicio"
   },
   "The service has not supplied a sample.": {
     "tr": "Servis henüz bir ölçüm sağlamadı.",
@@ -5728,7 +5734,7 @@
     "de": "Welche Dateien gelesen und geschrieben werden, erfordert den RustWTM-Dienst oder Administratorrechte.",
     "fr": "Voir quels fichiers sont lus et écrits nécessite le service RustWTM ou des droits administrateur.",
     "es": "Ver qué archivos se leen y escriben requiere el servicio RustWTM o derechos de administrador."
-    },
+  },
   "More below": {
     "tr": "Aşağıda devamı var",
     "de": "Weiter unten mehr",
@@ -5890,6 +5896,48 @@
     "de": "Name, PID, Pfad oder Befehlszeile",
     "fr": "nom, PID, chemin ou ligne de commande",
     "es": "nombre, PID, ruta o línea de comandos"
+  },
+  "No matching connections": {
+    "tr": "Eşleşen bağlantı yok",
+    "de": "Keine passenden Verbindungen",
+    "fr": "Aucune connexion correspondante",
+    "es": "Ninguna conexión coincide"
+  },
+  "Try another process name, address or port.": {
+    "tr": "Başka bir işlem adı, adres veya bağlantı noktası deneyin.",
+    "de": "Versuchen Sie einen anderen Prozessnamen, eine andere Adresse oder einen anderen Port.",
+    "fr": "Essayez un autre nom de processus, une autre adresse ou un autre port.",
+    "es": "Pruebe otro nombre de proceso, dirección o puerto."
+  },
+  "No matching ports": {
+    "tr": "Eşleşen bağlantı noktası yok",
+    "de": "Keine passenden Ports",
+    "fr": "Aucun port correspondant",
+    "es": "Ningún puerto coincide"
+  },
+  "Try another port, program or tool name.": {
+    "tr": "Başka bir bağlantı noktası, program veya araç adı deneyin.",
+    "de": "Versuchen Sie einen anderen Port, ein anderes Programm oder einen anderen Werkzeugnamen.",
+    "fr": "Essayez un autre port, programme ou nom d’outil.",
+    "es": "Pruebe otro puerto, programa o nombre de herramienta."
+  },
+  "This entry was changed or removed meanwhile; open it again to change it.": {
+    "tr": "Bu girdi bu arada değiştirildi ya da kaldırıldı; değiştirmek için yeniden açın.",
+    "de": "Dieser Eintrag wurde inzwischen geändert oder entfernt; öffnen Sie ihn erneut, um ihn zu ändern.",
+    "fr": "Cette entrée a été modifiée ou supprimée entre-temps ; rouvrez-la pour la modifier.",
+    "es": "Esta entrada se modificó o eliminó mientras tanto; ábrala de nuevo para cambiarla."
+  },
+  "The configuration was changed elsewhere (another page, or the file itself) while you were editing. Saving replaces those changes; discard your edits to see them.": {
+    "tr": "Siz düzenlerken yapılandırma başka bir yerde (başka bir sayfada ya da dosyanın kendisinde) değiştirildi. Kaydetmek bu değişikliklerin yerine geçer; onları görmek için düzenlemelerinizi atın.",
+    "de": "Die Konfiguration wurde während Ihrer Bearbeitung an anderer Stelle (auf einer anderen Seite oder in der Datei selbst) geändert. Speichern ersetzt diese Änderungen; verwerfen Sie Ihre Bearbeitung, um sie zu sehen.",
+    "fr": "La configuration a été modifiée ailleurs (sur une autre page ou dans le fichier lui-même) pendant votre modification. Enregistrer remplace ces changements ; abandonnez vos modifications pour les voir.",
+    "es": "La configuración se cambió en otro lugar (otra página o el propio archivo) mientras la editaba. Guardar reemplaza esos cambios; descarte sus cambios para verlos."
+  },
+  "Save and replace the other changes": {
+    "tr": "Kaydet ve diğer değişikliklerin yerine geç",
+    "de": "Speichern und die anderen Änderungen ersetzen",
+    "fr": "Enregistrer et remplacer les autres changements",
+    "es": "Guardar y reemplazar los otros cambios"
   },
   "Clear search": {
     "tr": "Aramayı temizle",
@@ -6058,7 +6106,7 @@
     "de": "Alle Netzwerke",
     "fr": "Tous les réseaux",
     "es": "Todas las redes"
-    },
+  },
   "Suspended": {
     "tr": "Askıya alındı",
     "de": "Angehalten",
@@ -6082,5 +6130,41 @@
     "de": "Der Dienst konnte config.toml nicht laden und behält seine vorherigen oder Standardeinstellungen; siehe Einstellungen.",
     "fr": "Le service n'a pas pu charger config.toml et garde ses paramètres précédents ou par défaut ; voir Paramètres.",
     "es": "El servicio no pudo cargar config.toml y mantiene su configuración anterior o predeterminada; consulte Ajustes."
+  },
+  "PID {0} is not in the process list yet; try again in a moment": {
+    "tr": "PID {0} henüz işlem listesinde değil; birazdan yeniden deneyin",
+    "de": "PID {0} ist noch nicht in der Prozessliste; versuchen Sie es gleich noch einmal",
+    "fr": "Le PID {0} n'est pas encore dans la liste des processus ; réessayez dans un instant",
+    "es": "El PID {0} aún no está en la lista de procesos; inténtelo de nuevo en un momento"
+  },
+  "Stop the service \"{0}\"? Programs that rely on it may stop working until it runs again.": {
+    "tr": "\"{0}\" hizmeti durdurulsun mu? Ona bağlı programlar, hizmet yeniden çalışana kadar düzgün çalışmayabilir.",
+    "de": "Dienst \"{0}\" beenden? Programme, die ihn brauchen, funktionieren womöglich nicht, bis er wieder läuft.",
+    "fr": "Arrêter le service « {0} » ? Les programmes qui en dépendent peuvent cesser de fonctionner jusqu'à ce qu'il redémarre.",
+    "es": "¿Detener el servicio \"{0}\"? Los programas que dependen de él pueden dejar de funcionar hasta que vuelva a ejecutarse."
+  },
+  "Restart the service \"{0}\"? It stops for a moment; programs that rely on it may lose their connection to it.": {
+    "tr": "\"{0}\" hizmeti yeniden başlatılsın mı? Bir an için durur; ona bağlı programlar bağlantılarını kaybedebilir.",
+    "de": "Dienst \"{0}\" neu starten? Er hält kurz an; Programme, die ihn brauchen, können die Verbindung zu ihm verlieren.",
+    "fr": "Redémarrer le service « {0} » ? Il s'arrête un instant ; les programmes qui en dépendent peuvent perdre leur connexion.",
+    "es": "¿Reiniciar el servicio \"{0}\"? Se detiene un momento; los programas que dependen de él pueden perder la conexión."
+  },
+  "Disable the service \"{0}\"? It will no longer start, not even when Windows or a program needs it.": {
+    "tr": "\"{0}\" hizmeti devre dışı bırakılsın mı? Windows veya bir program ihtiyaç duysa bile artık başlamayacak.",
+    "de": "Dienst \"{0}\" deaktivieren? Er startet nicht mehr, auch nicht, wenn Windows oder ein Programm ihn braucht.",
+    "fr": "Désactiver le service « {0} » ? Il ne démarrera plus, même quand Windows ou un programme en a besoin.",
+    "es": "¿Deshabilitar el servicio \"{0}\"? Ya no se iniciará, ni siquiera cuando Windows o un programa lo necesite."
+  },
+  "Block network access for {0}? It cannot connect until you unblock it in the Network tab.": {
+    "tr": "{0} için ağ erişimi engellensin mi? Ağ sekmesinden engeli kaldırana kadar bağlanamaz.",
+    "de": "Netzwerkzugriff für {0} sperren? Es kann sich nicht verbinden, bis Sie es auf der Registerkarte Netzwerk freigeben.",
+    "fr": "Bloquer l'accès réseau de {0} ? Il ne pourra plus se connecter tant que vous ne le débloquez pas dans l'onglet Réseau.",
+    "es": "¿Bloquear el acceso a la red de {0}? No podrá conectarse hasta que lo desbloquee en la pestaña Red."
+  },
+  "Show all": {
+    "tr": "Tümünü göster",
+    "de": "Alle anzeigen",
+    "fr": "Tout afficher",
+    "es": "Mostrar todo"
   }
 }

@@ -33,6 +33,8 @@ pub struct Paths {
     pub history: PathBuf,
     /// Telegram bot settings (holds the bot token).
     pub telegram: PathBuf,
+    /// The power plan game mode replaced, while it is replaced.
+    pub power_plan: PathBuf,
     /// Named pipe served for clients (overridden in tests).
     pub pipe: String,
     /// Where blocked programs are registered.
@@ -57,6 +59,7 @@ impl Paths {
             logs: data_dir.join("logs"),
             history: data_dir.join("history.sqlite"),
             telegram: data_dir.join("telegram.toml"),
+            power_plan: data_dir.join("power-plan.txt"),
             pipe: wtm_ipc::PIPE_NAME.to_owned(),
             block_root: BlockRoot::System,
             block_debugger: block_debugger(),
@@ -212,6 +215,22 @@ const HARDWARE_IDLE: Duration = Duration::from_secs(30);
 
 /// Prefix of the ETW session that counts network bytes per process.
 const NET_TRACE: &str = "RustWTM-Network";
+/// How often trace sessions left by ended processes are cleared: Windows
+/// allows 64 in all.
+const TRACE_SWEEP_EVERY: Duration = Duration::from_secs(600);
+
+/// Stops the trace sessions of RustWTM processes that are gone: earlier
+/// service runs and windows closed without stopping theirs.
+fn stop_trace_orphans() {
+    for prefix in [
+        NET_TRACE,
+        crate::ipc_server::DISK_TRACE,
+        wtm_core::GUI_DISK_TRACE,
+        wtm_core::GUI_NET_TRACE,
+    ] {
+        wtm_sys::etw::stop_orphans(prefix);
+    }
+}
 
 /// Runs until [`EngineMsg::Stop`] arrives (or all senders are dropped), then
 /// rolls back every applied limit. `tx` is handed to the IPC server.
@@ -264,9 +283,9 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     let mut sampler = Sampler::new();
     // Network bytes per process (ETW). The session name carries our PID so a
     // test run never stops the installed service's session.
-    wtm_sys::etw::stop_orphans(NET_TRACE);
-    wtm_sys::etw::stop_orphans(crate::ipc_server::DISK_TRACE);
-    if let Err(e) = sampler.enable_network_trace(&format!("{NET_TRACE}-{}", std::process::id())) {
+    stop_trace_orphans();
+    let mut next_sweep = Instant::now() + TRACE_SWEEP_EVERY;
+    if let Err(e) = sampler.enable_network_trace(&wtm_sys::etw::owned_name(NET_TRACE)) {
         warn!(error = %e, "per-process network traffic unavailable");
     }
     let mut governor = Governor::new(config.governor.clone());
@@ -319,8 +338,15 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     // The foreground window covers its monitor.
     let mut fullscreen = false;
     let mut game_mode = GameMode::new(config.game_mode.clone());
-    // The plan active before game mode switched it.
-    let mut saved_plan: Option<String> = None;
+    // The plan active before game mode switched it; one left by a crash is
+    // put back first.
+    restore_saved_plan(&paths.power_plan, &mut |line| {
+        shared.events.info(None, line)
+    });
+    let mut saved_plan = SavedPlan {
+        plan: None,
+        file: Some(paths.power_plan.clone()),
+    };
     let mut last_snapshot: Option<Arc<Snapshot>> = None;
 
     shared.events.info(
@@ -335,6 +361,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     );
 
     let mut next_tick = Instant::now();
+    let started = (SystemTime::now(), Instant::now());
     'run: loop {
         // Serve control requests until the next sampling tick is due.
         loop {
@@ -386,12 +413,55 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             config_mtime = mtime;
             match Config::load(&paths.config) {
                 Ok(new) => {
+                    // What a removed or edited rule applied is taken back;
+                    // the rules as they are now fire again.
+                    if new.rules != config.rules {
+                        executor.restore_sources(&[Source::Rule], "rules changed");
+                    }
+                    // Likewise for the other policies: a process now exempt,
+                    // or an action taken off a list, is let go at once, not
+                    // whenever the policy happens to let go; they start
+                    // over with the new settings.
+                    if new.governor != config.governor {
+                        executor.restore_sources(&[Source::Governor], "governor settings changed");
+                        governor = Governor::new(new.governor.clone());
+                    }
+                    if new.memory_guard != config.memory_guard {
+                        executor.restore_sources(
+                            &[Source::MemoryGuard],
+                            "memory guard settings changed",
+                        );
+                        memory_guard = wtm_policy::MemoryGuard::new(new.memory_guard.clone());
+                    }
+                    if new.insights != config.insights {
+                        executor.restore_sources(&[Source::Insight], "insight settings changed");
+                        insights = InsightPolicy::new();
+                        next_insights = Instant::now();
+                    }
+                    if new.game_mode != config.game_mode {
+                        executor.restore_sources(&[Source::GameMode], "game mode settings changed");
+                        game_mode = GameMode::new(new.game_mode.clone());
+                    }
                     governor.set_config(new.governor.clone());
                     memory_guard.set_config(new.memory_guard.clone());
                     rules.set_rules(new.rules.clone());
                     kill_watch.set_entries(new.kill.clone());
                     app_limiter.configure(new.limits.clone(), new.dry_run);
                     executor.set_dry_run(new.dry_run);
+                    if new.dry_run != config.dry_run {
+                        // The policies took their dry-run previews (or the
+                        // actions now rolled back) as done; they start over,
+                        // so enforcing acts on what is already running.
+                        governor = Governor::new(new.governor.clone());
+                        memory_guard = wtm_policy::MemoryGuard::new(new.memory_guard.clone());
+                        rules = RuleEngine::new(new.rules.clone());
+                        kill_watch = wtm_policy::KillWatch::new(new.kill.clone());
+                        insights = InsightPolicy::new();
+                        game_mode = GameMode::new(new.game_mode.clone());
+                        if new.dry_run {
+                            restore_plan(&mut saved_plan, &shared.events);
+                        }
+                    }
                     rescue.configure(new.reserve.clone(), new.dry_run);
                     game_mode.set_config(new.game_mode.clone());
                     watch_starts.store(watches_starts(&new), Ordering::Relaxed);
@@ -438,12 +508,16 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 .recent
                 .write()
                 .unwrap_or_else(PoisonError::into_inner);
-            recent.push_back(wtm_ipc::SystemPoint::of(&snap.system));
+            recent.push_back(wtm_ipc::SystemPoint::of(&snap));
             while recent.len() > RECENT_LEN {
                 recent.pop_front();
             }
         }
         app_usage = app_limiter.tick(&snap.processes, snap.system.logical_cpus);
+        if Instant::now() >= next_sweep {
+            next_sweep = Instant::now() + TRACE_SWEEP_EVERY;
+            stop_trace_orphans();
+        }
         if let Some(h) = history.as_mut() {
             let unix = unix_now();
             if let Err(e) = h.record(&snap, unix) {
@@ -528,7 +602,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 &snap.processes,
                 &shared,
                 &mut swarm_previewed,
-                SystemTime::now(),
+                steady_now(started),
             );
         }
 
@@ -584,17 +658,27 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     Ok(())
 }
 
+/// The power plan game mode replaced. Kept on disk too while it is
+/// replaced, so that it is put back after a crash ([`restore_saved_plan`]
+/// at the next start, or on uninstall) and the machine is not left on High
+/// performance.
+#[derive(Default)]
+struct SavedPlan {
+    plan: Option<String>,
+    file: Option<PathBuf>,
+}
+
 /// Switches the power plan for a game that starts, and back when it ends.
 fn game_changed(
     change: &GameChange,
     config: &Config,
-    saved_plan: &mut Option<String>,
+    saved_plan: &mut SavedPlan,
     events: &EventLog,
 ) {
     match change {
         GameChange::Started(name) => {
             events.info(None, format!("game mode: {name} is in front"));
-            if !config.game_mode.power_plan || saved_plan.is_some() {
+            if !config.game_mode.power_plan || saved_plan.plan.is_some() {
                 return;
             }
             if config.dry_run {
@@ -604,10 +688,23 @@ fn game_changed(
             let Ok(current) = wtm_sys::power::active_scheme() else {
                 return;
             };
+            let current = current.trim_matches(['{', '}']).to_owned();
+            // Written first: a crash right after switching still finds it.
+            if let Some(file) = &saved_plan.file
+                && let Err(e) = std::fs::write(file, &current)
+            {
+                events.warn(
+                    None,
+                    format!(
+                        "game mode: power plan unchanged: cannot remember the current one: {e}"
+                    ),
+                );
+                return;
+            }
             match wtm_sys::power::set_active_scheme(wtm_sys::power::HIGH_PERFORMANCE) {
                 Ok(()) => {
                     events.info(None, "game mode: High performance power plan");
-                    *saved_plan = Some(current.trim_matches(['{', '}']).to_owned());
+                    saved_plan.plan = Some(current);
                 }
                 Err(e) => events.warn(None, format!("game mode: power plan unchanged: {e}")),
             }
@@ -619,20 +716,73 @@ fn game_changed(
     }
 }
 
-fn restore_plan(saved_plan: &mut Option<String>, events: &EventLog) {
-    if let Some(plan) = saved_plan.take()
-        && let Err(e) = wtm_sys::power::set_active_scheme(&plan)
-    {
-        events.warn(
+fn restore_plan(saved_plan: &mut SavedPlan, events: &EventLog) {
+    let Some(plan) = saved_plan.plan.take() else {
+        return;
+    };
+    match wtm_sys::power::set_active_scheme(&plan) {
+        // Left on disk otherwise, to be tried again at the next start.
+        Ok(()) => {
+            if let Some(file) = &saved_plan.file {
+                let _ = std::fs::remove_file(file);
+            }
+        }
+        Err(e) => events.warn(
             None,
             format!("could not restore the power plan {plan}: {e}"),
-        );
+        ),
+    }
+}
+
+/// Puts back the power plan game mode replaced before the service stopped
+/// without restoring it (a crash), as remembered in `file`; reports to
+/// `say`. Run at start and on uninstall.
+pub fn restore_saved_plan(file: &Path, say: &mut dyn FnMut(String)) {
+    let plan = match std::fs::read_to_string(file) {
+        Ok(text) => text.trim().to_owned(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => return say(format!("could not read the saved power plan: {e}")),
+    };
+    let well_formed = plan.len() == 36
+        && plan.char_indices().all(|(i, c)| {
+            if [8, 13, 18, 23].contains(&i) {
+                c == '-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        });
+    let result = if well_formed {
+        wtm_sys::power::set_active_scheme(&plan).map_err(|e| e.to_string())
+    } else {
+        Err("not a power plan".to_owned())
+    };
+    match result {
+        Ok(()) => {
+            say(format!(
+                "restored the power plan {plan} game mode had replaced"
+            ));
+            let _ = std::fs::remove_file(file);
+        }
+        Err(e) if well_formed => say(format!("could not restore the power plan {plan}: {e}")),
+        Err(e) => {
+            say(format!("ignored the saved power plan: {e}"));
+            let _ = std::fs::remove_file(file);
+        }
     }
 }
 
 /// Copies of a swarm ended per sampling tick, so a huge one cannot stall
 /// the engine; the rest follow on the next ticks.
 const SWARM_END_PER_TICK: usize = 100;
+
+/// The wall-clock time to judge process ages by, from `started` (the wall
+/// clock and the monotonic one at the engine's start): never later than the
+/// monotonic clock allows, so setting the clock forward cannot make every
+/// copy of a crowd look old enough to end. A clock set back only makes
+/// processes look younger.
+fn steady_now(started: (SystemTime, Instant)) -> SystemTime {
+    SystemTime::now().min(started.0 + started.1.elapsed())
+}
 
 /// Ends swarm copies that ran longer than `end_after_mins`, with what they
 /// started (their console hosts); in dry run only reports them.
@@ -916,9 +1066,11 @@ fn evaluate_insights(
         let since = unix.div_euclid(60) - i64::from(config.insights.window_hours) * 60;
         match history::stats(history.connection(), since, snap.system.logical_cpus) {
             Ok(stats) => analyze(&stats, &config.insights),
+            // Not "nothing found": that would lift every insight action, to
+            // apply and announce them again once the history answers.
             Err(e) => {
-                warn!(error = %e, "history query failed");
-                Vec::new()
+                warn!(error = %e, "history query failed; findings kept");
+                return;
             }
         }
     } else {
@@ -971,12 +1123,6 @@ mod tests {
         )
     }
 
-    /// Clients (rightly) refuse unverified engines while the RustWTM service
-    /// is installed, so end-to-end engine tests only run without it.
-    fn service_installed() -> bool {
-        wtm_sys::services::service_pid(wtm_ipc::SERVICE_NAME).is_some()
-    }
-
     fn connect(pipe: &str) -> Client {
         wait_for(pipe, || Client::connect_to(pipe).ok())
     }
@@ -993,10 +1139,79 @@ mod tests {
     }
 
     #[test]
+    fn rules_act_once_enforcing_and_are_taken_back_when_removed() {
+        let dir = std::env::temp_dir().join(format!("wtm-engine-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let idler = dir.join("wtm-engine-idler.exe");
+        std::fs::copy(r"C:\Windows\System32\cmd.exe", &idler).unwrap();
+        let paths = Paths {
+            pipe: format!(r"\\.\pipe\wtm-engine-reload-{}", std::process::id()),
+            ..Paths::under(&dir)
+        };
+        let config = |dry_run: bool, rule: bool| {
+            let mut text = format!(
+                "dry_run = {dry_run}\nsample_interval_ms = 200\n\
+                 [governor]\nenabled = false\n[game_mode]\nenabled = false\n"
+            );
+            if rule {
+                text += "[[rule]]\nname = \"idle it\"\nmatch = { name = \"wtm-engine-idler.exe\" }\n\
+                         actions = [{ priority = \"idle\" }]\n";
+            }
+            text
+        };
+        std::fs::write(&paths.config, config(true, true)).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let stop = tx.clone();
+        let engine_paths = paths.clone();
+        let engine = std::thread::spawn(move || run(&engine_paths, tx, &rx));
+        let mut client = connect(&paths.pipe);
+
+        let child = spawn(&idler);
+        let pid = child.0.id();
+        let target = wait_for("idler sampled", || {
+            snapshot(&mut client)?
+                .processes
+                .iter()
+                .find(|p| p.pid == pid)
+                .map(ProcessRef::from)
+        });
+        let priority = || wtm_core::control::inspect(&target).unwrap().priority;
+        wait_for("dry-run preview", || {
+            events(&mut client)
+                .iter()
+                .any(|e| e.message.contains("would") && e.pid == Some(pid))
+                .then_some(())
+        });
+        assert_eq!(
+            priority(),
+            Some(PriorityClass::Normal),
+            "dry run changes nothing"
+        );
+
+        // Enforcing acts on the process already running.
+        std::thread::sleep(Duration::from_millis(1100)); // distinct mtime
+        std::fs::write(&paths.config, config(false, true)).unwrap();
+        wait_for("idle once enforcing", || {
+            (priority() == Some(PriorityClass::Idle)).then_some(())
+        });
+
+        // Removing the rule takes back what it did.
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&paths.config, config(false, false)).unwrap();
+        wait_for("normal once the rule is gone", || {
+            (priority() == Some(PriorityClass::Normal)).then_some(())
+        });
+
+        drop(client);
+        stop.send(EngineMsg::Stop).unwrap();
+        engine.join().unwrap().unwrap();
+        drop(child);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn engine_serves_clients_enforces_rules_and_reloads_config() {
-        if service_installed() {
-            return;
-        }
         let dir = std::env::temp_dir().join(format!("wtm-engine-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1254,10 +1469,15 @@ mod tests {
             "cannot block b.exe: another program set its debugger"
         );
 
-        // A marked entry without a debugger cannot be removed cleanly.
+        // A marked entry whose debugger vanished is still taken out.
         let (broken, _) = hkcu.create_subkey(format!(r"{key}\c.exe")).unwrap();
         broken.set_value("RustWTMBlock", &1u32).unwrap();
         sync_blocks(Some(&b), &Config::default(), &events);
+        assert_eq!(messages().last().unwrap(), "no longer blocked: c.exe");
+
+        // Registry key names are limited to 255 characters.
+        config.block = vec![format!("{}.exe", "x".repeat(300))];
+        sync_blocks(Some(&b), &config, &events);
         assert!(
             messages()
                 .last()
@@ -1344,9 +1564,6 @@ mod tests {
 
     #[test]
     fn engine_resolves_rule_paths_and_raises_history_insights() {
-        if service_installed() {
-            return;
-        }
         let dir = temp_dir("engine-insights");
         let victim = dir.join("wtm-engine-path-victim.exe");
         std::fs::copy(r"C:\Windows\System32\cmd.exe", &victim).unwrap();
@@ -1422,9 +1639,54 @@ mod unit_tests {
     use super::*;
 
     #[test]
+    fn process_ages_ignore_the_clock_set_forward() {
+        let now = SystemTime::now();
+        // Started an hour of wall clock ago, but only a second has passed.
+        let started = (
+            now - Duration::from_secs(3600),
+            Instant::now() - Duration::from_secs(1),
+        );
+        let steady = steady_now(started);
+        assert!(steady < now - Duration::from_secs(3000), "{steady:?}");
+        // Without a jump the wall clock is used.
+        let fair = (
+            now - Duration::from_secs(5),
+            Instant::now() - Duration::from_secs(5),
+        );
+        let d = SystemTime::now()
+            .duration_since(steady_now(fair))
+            .unwrap_or_default();
+        assert!(d < Duration::from_secs(1), "{d:?}");
+    }
+
+    #[test]
+    fn a_power_plan_left_by_a_crash_is_put_back_once() {
+        let dir = std::env::temp_dir().join(format!("wtm-plan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("power-plan.txt");
+        let mut said = Vec::new();
+        restore_saved_plan(&file, &mut |l| said.push(l));
+        assert!(said.is_empty(), "nothing saved, nothing done");
+
+        // Setting the plan already active changes nothing on the machine.
+        let current = wtm_sys::power::active_scheme().unwrap();
+        std::fs::write(&file, current.trim_matches(['{', '}'])).unwrap();
+        restore_saved_plan(&file, &mut |l| said.push(l));
+        assert!(said[0].starts_with("restored"), "{said:?}");
+        assert!(!file.exists());
+
+        std::fs::write(&file, "../../not-a-plan").unwrap();
+        restore_saved_plan(&file, &mut |l| said.push(l));
+        assert!(said[1].starts_with("ignored"), "{said:?}");
+        assert!(!file.exists());
+        assert_eq!(wtm_sys::power::active_scheme().unwrap(), current);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn game_mode_leaves_the_power_plan_alone_in_dry_run_or_when_off() {
         let events = EventLog::default();
-        let mut saved = None;
+        let mut saved = SavedPlan::default();
         let mut config = Config {
             dry_run: true,
             ..Config::default()
@@ -1436,7 +1698,7 @@ mod unit_tests {
             &mut saved,
             &events,
         );
-        assert!(saved.is_none());
+        assert!(saved.plan.is_none());
         config.game_mode.power_plan = false;
         config.dry_run = false;
         game_changed(
@@ -1445,7 +1707,7 @@ mod unit_tests {
             &mut saved,
             &events,
         );
-        assert!(saved.is_none());
+        assert!(saved.plan.is_none());
         game_changed(
             &GameChange::Ended("game.exe".into()),
             &config,
@@ -1697,6 +1959,7 @@ mod unit_tests {
             },
             processes: Vec::new(),
             net_traced: false,
+            taken_at_ms: 0,
         };
         let shared = Shared::default();
         let mut insights = InsightPolicy::new();
@@ -1783,6 +2046,7 @@ mod unit_tests {
             system: Default::default(),
             processes: Vec::new(),
             net_traced: false,
+            taken_at_ms: 0,
         };
         let shared = Shared::default();
         let mut executor = Executor::new(true, shared.events.clone());

@@ -10,6 +10,9 @@ pub enum Error {
 
     #[error(transparent)]
     Win32(#[from] windows::core::Error),
+
+    #[error("process {pid} exited and its PID now belongs to another process")]
+    Reused { pid: u32 },
 }
 
 impl Error {
@@ -17,6 +20,7 @@ impl Error {
         match self {
             Error::Nt { status, .. } => *status == STATUS_ACCESS_DENIED.0 as u32,
             Error::Win32(e) => e.code() == E_ACCESSDENIED,
+            Error::Reused { .. } => false,
         }
     }
 
@@ -30,6 +34,7 @@ impl Error {
         match self {
             Error::Nt { status, .. } => *status == STATUS_INVALID_PARAMETER.0 as u32,
             Error::Win32(e) => e.code() == ERROR_INVALID_PARAMETER.to_hresult(),
+            Error::Reused { .. } => false,
         }
     }
 }

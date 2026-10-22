@@ -1,7 +1,6 @@
 //! Named-pipe server: answers read-only requests from shared state and
 //! forwards control requests (admin only) to the engine thread.
 
-use std::fs::OpenOptions;
 use std::io::{self, Write};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -83,7 +82,7 @@ fn disk_activity(shared: &Shared, admin: bool, client_session: wtm_sys::Result<u
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if trace.is_none() {
-        let name = format!("{DISK_TRACE}-{}", std::process::id());
+        let name = wtm_sys::etw::owned_name(DISK_TRACE);
         match wtm_core::DiskTracer::start(&name) {
             Ok(tracer) => {
                 *trace = Some(DiskTrace {
@@ -150,23 +149,22 @@ pub fn start(shared: Arc<Shared>, engine: Sender<EngineMsg>, pipe: &str) -> anyh
                         continue;
                     }
                 };
-                if clients.fetch_add(1, Ordering::SeqCst) >= MAX_CLIENTS {
-                    clients.fetch_sub(1, Ordering::SeqCst);
-                    warn!("too many IPC clients; connection dropped");
-                    continue;
-                }
-                let (shared, engine, clients) = (shared.clone(), engine.clone(), clients.clone());
-                let spawned =
+                let (shared, engine) = (shared.clone(), engine.clone());
+                let work = move || {
+                    if let Err(e) = serve(conn, &shared, &engine) {
+                        debug!(error = %e, "IPC client disconnected");
+                    }
+                };
+                let spawn = |f: Box<dyn FnOnce() + Send>| {
                     std::thread::Builder::new()
                         .name("ipc-client".into())
-                        .spawn(move || {
-                            if let Err(e) = serve(conn, &shared, &engine) {
-                                debug!(error = %e, "IPC client disconnected");
-                            }
-                            clients.fetch_sub(1, Ordering::SeqCst);
-                        });
-                if spawned.is_err() {
-                    warn!("could not spawn IPC client thread");
+                        .spawn(f)
+                        .map(drop)
+                };
+                match run_client(&clients, work, spawn) {
+                    Ok(()) => {}
+                    Err(Refused::Full) => warn!("too many IPC clients; connection dropped"),
+                    Err(Refused::NoThread) => warn!("could not spawn IPC client thread"),
                 }
             }
         })?;
@@ -178,11 +176,43 @@ pub fn start(shared: Arc<Shared>, engine: Sender<EngineMsg>, pipe: &str) -> anyh
     })
 }
 
+/// Why a connection was dropped instead of served.
+#[derive(Debug, PartialEq)]
+enum Refused {
+    /// Every client slot is taken.
+    Full,
+    /// No thread could be started for it.
+    NoThread,
+}
+
+/// Takes a client slot and runs `work` on a thread started by `spawn`. The
+/// slot is given back when `work` ends or when the thread cannot start, so
+/// a passing resource shortage never shrinks the number of clients served.
+fn run_client(
+    clients: &Arc<AtomicUsize>,
+    work: impl FnOnce() + Send + 'static,
+    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> io::Result<()>,
+) -> Result<(), Refused> {
+    if clients.fetch_add(1, Ordering::SeqCst) >= MAX_CLIENTS {
+        clients.fetch_sub(1, Ordering::SeqCst);
+        return Err(Refused::Full);
+    }
+    let slot = clients.clone();
+    let spawned = spawn(Box::new(move || {
+        work();
+        slot.fetch_sub(1, Ordering::SeqCst);
+    }));
+    spawned.map_err(|_| {
+        clients.fetch_sub(1, Ordering::SeqCst);
+        Refused::NoThread
+    })
+}
+
 impl Server {
     pub fn shutdown(mut self) {
         self.stop.store(true, Ordering::SeqCst);
         // Wake the accept loop with a throwaway connection.
-        let _ = OpenOptions::new().read(true).write(true).open(&self.pipe);
+        let _ = wtm_sys::pipe::open_client(&self.pipe);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
@@ -529,11 +559,10 @@ fn set_telegram(shared: &Shared, cfg: &wtm_policy::TelegramConfig) -> Response {
         return Response::Error("configuration is not available yet".into());
     };
     let tmp = path.with_extension("toml.new");
-    let written = std::fs::write(&tmp, cfg.to_toml())
-        .and_then(|()| {
-            wtm_sys::security::set_dacl(&tmp, wtm_policy::TELEGRAM_SDDL)
-                .map_err(|e| io::Error::other(e.to_string()))
-        })
+    // Private from its creation: the token is never readable by others.
+    let written = wtm_sys::security::create_private(&tmp, wtm_policy::TELEGRAM_SDDL)
+        .map_err(|e| io::Error::other(e.to_string()))
+        .and_then(|mut f| f.write_all(cfg.to_toml().as_bytes()))
         .and_then(|()| std::fs::rename(&tmp, &path));
     match written {
         Ok(()) => {
@@ -589,9 +618,7 @@ mod tests {
     /// A raw client: the tests speak the protocol by hand.
     fn open(pipe: &str) -> File {
         // Busy while the server creates the next instance.
-        wait_for(pipe, || {
-            OpenOptions::new().read(true).write(true).open(pipe).ok()
-        })
+        wait_for(pipe, || wtm_sys::pipe::open_client(pipe).ok())
     }
 
     fn call(f: &mut File, request: &Request) -> io::Result<Response> {
@@ -740,6 +767,33 @@ mod tests {
         };
         wait_for("a free slot", || call(&mut open(&pipe), &hello).ok());
         server.shutdown();
+    }
+
+    #[test]
+    fn a_client_thread_that_cannot_start_gives_its_slot_back() {
+        let clients = Arc::new(AtomicUsize::new(0));
+        let no_thread = |_: Box<dyn FnOnce() + Send>| Err(io::Error::other("no thread"));
+        for _ in 0..MAX_CLIENTS + 2 {
+            assert_eq!(
+                run_client(&clients, || {}, no_thread),
+                Err(Refused::NoThread)
+            );
+        }
+        assert_eq!(clients.load(Ordering::SeqCst), 0, "no slot leaked");
+
+        // Served clients hold their slot until their work ends.
+        let inline = |f: Box<dyn FnOnce() + Send>| {
+            f();
+            Ok(())
+        };
+        assert_eq!(run_client(&clients, || {}, inline), Ok(()));
+        assert_eq!(clients.load(Ordering::SeqCst), 0);
+        let parked = |_: Box<dyn FnOnce() + Send>| Ok(());
+        for _ in 0..MAX_CLIENTS {
+            assert_eq!(run_client(&clients, || {}, parked), Ok(()));
+        }
+        assert_eq!(run_client(&clients, || {}, inline), Err(Refused::Full));
+        assert_eq!(clients.load(Ordering::SeqCst), MAX_CLIENTS);
     }
 
     #[test]
@@ -908,7 +962,7 @@ mod tests {
         let mut sent = Vec::new();
         send_locked(&mut sent, &lock, STATUS).unwrap();
         assert_eq!(sent, frame(&Response::Status(status)));
-        let point = wtm_ipc::SystemPoint::of(&snap.system);
+        let point = wtm_ipc::SystemPoint::of(&snap);
         let recent = RwLock::new(std::collections::VecDeque::from([point.clone(), point]));
         let mut sent = Vec::new();
         send_locked(&mut sent, &recent, RECENT).unwrap();

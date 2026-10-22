@@ -58,10 +58,23 @@ pub enum Signature {
 /// changing underneath it (`ERROR_BAD_LENGTH`).
 const SNAPSHOT_ATTEMPTS: usize = 8;
 
-/// Modules mapped into `pid`, the executable first. Reads the process's
-/// loader data, so only on request.
-pub fn process_modules(pid: u32) -> crate::Result<Vec<Module>> {
+/// Modules mapped into `pid`, started at `create_time` (0: not checked),
+/// the executable first. Reads the process's loader data, so only on
+/// request. A handle held meanwhile keeps the PID from going to another
+/// process; one that started at another time is refused.
+pub fn process_modules(pid: u32, create_time: i64) -> crate::Result<Vec<Module>> {
+    use crate::control::{Access, ProcessHandle};
+    let held = if create_time == 0 {
+        None
+    } else {
+        let handle = ProcessHandle::open(pid, Access::QUERY)?;
+        if handle.create_time()? != create_time {
+            return Err(crate::Error::Reused { pid });
+        }
+        Some(handle)
+    };
     let snapshot = module_snapshot(pid)?;
+    drop(held);
     let mut entry = MODULEENTRY32W {
         dwSize: size_of::<MODULEENTRY32W>() as u32,
         ..Default::default()
@@ -409,7 +422,16 @@ mod tests {
 
     #[test]
     fn own_process_lists_its_executable_first() {
-        let modules = process_modules(std::process::id()).unwrap();
+        let me = std::process::id();
+        let started = crate::control::ProcessHandle::open(me, crate::control::Access::QUERY)
+            .unwrap()
+            .create_time()
+            .unwrap();
+        assert!(matches!(
+            process_modules(me, started + 1),
+            Err(crate::Error::Reused { .. })
+        ));
+        let modules = process_modules(me, started).unwrap();
         assert!(modules.len() > 1);
         let exe = std::env::current_exe().unwrap();
         assert!(modules[0].path.eq_ignore_ascii_case(&exe.to_string_lossy()));

@@ -200,8 +200,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.19.0-x64.msi            # interactive
-msiexec /i RustWTM-0.19.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.20.0-x64.msi            # interactive
+msiexec /i RustWTM-0.20.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
@@ -274,8 +274,9 @@ or with Claude Code: `claude mcp add rustwtm -- "C:\Program Files\RustWTM\wtm.ex
 Tools: `system_overview`, `list_processes`, `process_details`,
 `why_not_responding`, `why_wont_it_end`, `network_connections`, `drives`,
 `recent_events`; with `--allow-control` also `end_process`, `suspend_process`,
-`resume_process`, `set_priority` and `efficiency_mode`, which take the
-`create_time` that `list_processes` reports to refuse a PID reused meanwhile.
+`resume_process`, `set_priority` and `efficiency_mode`, which require the
+`create_time` that `list_processes` reports, so a PID reused meanwhile is
+refused.
 
 Targets are PIDs or image names (`.exe` optional, case-insensitive).
 
@@ -286,6 +287,12 @@ wtm-service install | uninstall | start | stop
 wtm-service cleanup                remove RustWTM's program blocks and firewall rules
 wtm-service console --data-dir .\data    run the engine in the foreground
 ```
+
+The service runs as SYSTEM, so `install` refuses a folder that others than
+administrators can change (or that a folder above lets them move): install
+from Program Files with `install.ps1` or the MSI. To install a development
+build from its build folder, set `RUSTWTM_ALLOW_ANY_INSTALL_DIR=1` first, on
+a development machine only.
 
 ## Configuration
 

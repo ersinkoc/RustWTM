@@ -30,7 +30,7 @@ struct Previous {
     at: Instant,
     cpu: CpuTimes,
     cores: Vec<CpuTimes>,
-    net: Option<NetCounters>,
+    net: Option<Vec<(u64, NetCounters)>>,
     // Keyed by (pid, create_time) so a reused PID does not inherit stale counters.
     procs: HashMap<(u32, i64), Counters>,
 }
@@ -136,6 +136,16 @@ impl Sampler {
         }
     }
 
+    /// Forgets the previous sample, as after a pause in which something else
+    /// measured: the next sample starts afresh (no interval, zero rates)
+    /// instead of averaging CPU, disk, GPU and network over the whole pause.
+    /// A network trace keeps running.
+    pub fn restart(&mut self) {
+        self.prev = None;
+        self.gpu = GpuSampler::new().ok();
+        self.disks = DiskSampler::new().ok();
+    }
+
     /// Starts counting network bytes per process (an ETW session called
     /// `session`). Needs administrator rights; without them the rates stay 0.
     pub fn enable_network_trace(&mut self, session: &str) -> crate::Result<()> {
@@ -155,7 +165,7 @@ impl Sampler {
         let cpu = system::cpu_times()?;
         let mem = system::memory_status()?;
         let cores = system::per_cpu_times().unwrap_or_default();
-        let net = system::net_counters().ok();
+        let net = system::net_adapters().ok();
         let mut gpu = self
             .gpu
             .as_mut()
@@ -196,11 +206,12 @@ impl Sampler {
                     .map(|(&a, &b)| system_cpu_percent(a, b))
                     .collect();
             }
-            if let (Some(a), Some(b)) = (prev.net, net)
+            if let (Some(a), Some(b)) = (&prev.net, &net)
                 && elapsed_secs > 0.0
             {
-                system.net_rx_rate = b.received.saturating_sub(a.received) as f64 / elapsed_secs;
-                system.net_tx_rate = b.sent.saturating_sub(a.sent) as f64 / elapsed_secs;
+                let moved = net_delta(a, b);
+                system.net_rx_rate = moved.received as f64 / elapsed_secs;
+                system.net_tx_rate = moved.sent as f64 / elapsed_secs;
             }
         }
 
@@ -268,8 +279,24 @@ impl Sampler {
             system,
             processes,
             net_traced: self.network_traced(),
+            taken_at_ms: crate::hardware::unix_ms(),
         })
     }
+}
+
+/// Traffic between two readings of the adapters, over the adapters present
+/// in both: one that has just come up would bring its whole count since
+/// boot, and one that went away would take its count out of the total. A
+/// counter that went down was reset and counts as no traffic.
+fn net_delta(prev: &[(u64, NetCounters)], now: &[(u64, NetCounters)]) -> NetCounters {
+    let mut moved = NetCounters::default();
+    for (luid, b) in now {
+        if let Some((_, a)) = prev.iter().find(|(l, _)| l == luid) {
+            moved.received += b.received.saturating_sub(a.received);
+            moved.sent += b.sent.saturating_sub(a.sent);
+        }
+    }
+    moved
 }
 
 fn system_cpu_percent(prev: CpuTimes, now: CpuTimes) -> f32 {
@@ -285,6 +312,32 @@ fn system_cpu_percent(prev: CpuTimes, now: CpuTimes) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn network_traffic_is_taken_per_adapter() {
+        let c = |received, sent| NetCounters { received, sent };
+        let before = [(1, c(1_000, 500)), (2, c(9_000_000_000, 7_000_000_000))];
+        // Adapter 2 went away, adapter 3 (up again with its old count) came
+        // back, and adapter 1 moved 300 B in and 50 B out.
+        let after = [(3, c(5_000_000_000, 4_000_000_000)), (1, c(1_300, 550))];
+        assert_eq!(net_delta(&before, &after), c(300, 50));
+        // A counter that went down was reset: no traffic, not a wrap.
+        assert_eq!(net_delta(&[(1, c(800, 80))], &[(1, c(100, 10))]), c(0, 0));
+        assert_eq!(net_delta(&[], &after), c(0, 0));
+    }
+
+    #[test]
+    fn a_restarted_sampler_measures_afresh() {
+        let mut s = Sampler::new();
+        assert!(s.sample().unwrap().interval.is_none());
+        assert!(s.sample().unwrap().interval.is_some());
+        s.restart();
+        assert!(
+            s.sample().unwrap().interval.is_none(),
+            "no average over the pause"
+        );
+        assert!(s.sample().unwrap().interval.is_some());
+    }
 
     #[test]
     fn system_cpu_percent_math() {

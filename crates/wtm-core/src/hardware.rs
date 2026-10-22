@@ -241,8 +241,13 @@ fn helper_path() -> Option<PathBuf> {
 pub struct HardwareReader {
     bridge: Option<Bridge>,
     writable: bool,
-    attempted: bool,
+    /// When to start the provider next: at once at first, `PROVIDER_RETRY`
+    /// after it failed to start or to answer, never when none is installed.
+    next_start: Option<Instant>,
 }
+
+/// How long a provider that failed rests before it is started again.
+const PROVIDER_RETRY: Duration = Duration::from_secs(30);
 
 /// Read-only GUI fallback, independent of the regular process-sampling worker.
 pub struct LocalHardware {
@@ -294,15 +299,33 @@ impl HardwareReader {
         Self {
             bridge: None,
             writable,
-            attempted: false,
+            next_start: Some(Instant::now()),
         }
     }
 
     pub fn sample(&mut self) -> Result<HardwareReport, String> {
-        if !self.attempted {
-            self.attempted = true;
-            if let Some(path) = helper_path() {
-                self.bridge = Some(Bridge::start(path, self.writable)?);
+        self.sample_with(helper_path, Instant::now())
+    }
+
+    /// [`Self::sample`] with the provider found by `helper`, at `now`. A
+    /// provider that timed out or crashed (heavy load, resume from sleep, a
+    /// hung sensor driver) is started again later, so sensors and fan
+    /// control come back without restarting the service.
+    fn sample_with(
+        &mut self,
+        helper: impl FnOnce() -> Option<PathBuf>,
+        now: Instant,
+    ) -> Result<HardwareReport, String> {
+        if self.bridge.is_none() && self.next_start.is_some_and(|at| now >= at) {
+            match helper() {
+                None => self.next_start = None,
+                Some(path) => match Bridge::start(path, self.writable) {
+                    Ok(bridge) => self.bridge = Some(bridge),
+                    Err(e) => {
+                        self.next_start = Some(now + PROVIDER_RETRY);
+                        return Err(e);
+                    }
+                },
             }
         }
         if let Some(bridge) = &mut self.bridge {
@@ -315,6 +338,7 @@ impl HardwareReader {
                 }
                 Err(e) => {
                     self.bridge = None;
+                    self.next_start = Some(now + PROVIDER_RETRY);
                     return Err(e);
                 }
             }
@@ -415,6 +439,36 @@ fn parse_nvidia(text: &str, sampled_at_ms: u64) -> Result<HardwareReport, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_provider_is_started_again_later() {
+        // Not a program: starting it fails at once.
+        let broken = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let mut reader = HardwareReader::new(false);
+        let t0 = Instant::now();
+        let mut starts = 0;
+        let mut sample = |reader: &mut HardwareReader, at| {
+            reader.sample_with(
+                || {
+                    starts += 1;
+                    Some(broken.clone())
+                },
+                at,
+            )
+        };
+        assert!(sample(&mut reader, t0).is_err());
+        let _ = sample(&mut reader, t0 + Duration::from_secs(1));
+        assert_eq!(reader.next_start, Some(t0 + PROVIDER_RETRY), "resting");
+        assert!(sample(&mut reader, t0 + PROVIDER_RETRY).is_err());
+        drop(sample);
+        assert_eq!(starts, 2, "tried again after the rest");
+
+        // No provider installed: never looked for again.
+        let mut reader = HardwareReader::new(false);
+        let _ = reader.sample_with(|| None, Instant::now());
+        assert_eq!(reader.next_start, None);
+    }
+
     #[test]
     fn provider_replies_are_correlated_and_timeouts_cannot_acknowledge_rollback() {
         let (tx, rx) = mpsc::channel();

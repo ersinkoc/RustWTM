@@ -37,13 +37,30 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 # directory can be deleted.
 $self = $MyInvocation.MyCommand.Path
 if ($self -and $self.StartsWith($InstallDir, [StringComparison]::OrdinalIgnoreCase) -and -not $env:RUSTWTM_UNINSTALL_COPY) {
-    $copy = Join-Path ([IO.Path]::GetTempPath()) 'rustwtm-uninstall.ps1'
+    # A fresh folder under the system's temp folder, which only SYSTEM and
+    # administrators can reach: a fixed name in the user's temp folder could
+    # be replaced by anything running as the user, then run elevated.
+    $copyDir = Join-Path $env:SystemRoot ('Temp\rustwtm-uninstall-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $copyDir | Out-Null
+    $acl = New-Object Security.AccessControl.DirectorySecurity
+    $acl.SetSecurityDescriptorSddlForm('O:BAD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+    Set-Acl -LiteralPath $copyDir -AclObject $acl
+    $copy = Join-Path $copyDir 'uninstall.ps1'
     Copy-Item $self $copy -Force
     $env:RUSTWTM_UNINSTALL_COPY = '1'
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $copy, '-InstallDir', $InstallDir)
     if ($RemoveData) { $arguments += '-RemoveData' }
     & powershell.exe @arguments
-    exit $LASTEXITCODE
+    $code = $LASTEXITCODE
+    cmd.exe /c rd /s /q "$copyDir"
+    exit $code
+}
+
+# rd never follows a link inside the folder; Remove-Item in Windows
+# PowerShell may, deleting what it points to.
+function Remove-Tree([string]$Path) {
+    cmd.exe /c rd /s /q "$Path"
+    if (Test-Path -LiteralPath $Path) { throw "Could not remove $Path." }
 }
 
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
@@ -72,13 +89,13 @@ $parts = $path -split ';' | Where-Object { $_ -and ($_.TrimEnd('\') -ne $Install
 [Environment]::SetEnvironmentVariable('Path', ($parts -join ';'), 'Machine')
 
 if (Test-Path $InstallDir) {
-    Remove-Item -Recurse -Force $InstallDir
+    Remove-Tree $InstallDir
     Write-Step "Removed $InstallDir"
 }
 
 $data = Join-Path $env:ProgramData 'RustWTM'
 if ($RemoveData -and (Test-Path $data)) {
-    Remove-Item -Recurse -Force $data
+    Remove-Tree $data
     Write-Step "Removed $data"
 } elseif (Test-Path $data) {
     Write-Host "Kept configuration and history in $data (use -RemoveData to delete)."

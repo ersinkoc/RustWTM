@@ -35,8 +35,18 @@ impl Default for TelegramConfig {
 }
 
 impl TelegramConfig {
+    /// The settings in `text`. A parse error names its line and nothing of
+    /// its content: the line, or a value quoted in the message (a token in
+    /// the wrong field), may be the bot token, and errors reach the event
+    /// log, which every user can read.
     pub fn from_toml(text: &str) -> Result<Self, String> {
-        let config: Self = toml::from_str(text).map_err(|e| e.to_string())?;
+        let config: Self = toml::from_str(text).map_err(|e: toml::de::Error| match e.span() {
+            Some(span) => {
+                let line = text[..span.start.min(text.len())].lines().count().max(1);
+                format!("line {line} is not valid (check its quotes and the kind of value)")
+            }
+            None => "the settings are not valid TOML".to_owned(),
+        })?;
         config.validate()?;
         Ok(config)
     }
@@ -97,6 +107,23 @@ mod tests {
     use super::*;
 
     const TOKEN: &str = "123456789:AAFh3kq_Zx-9yLmnopQRstuVWxyz012345";
+
+    #[test]
+    fn a_parse_error_never_quotes_the_token() {
+        // The token without its quotes: not TOML.
+        let text = format!("enabled = true\ntoken = {TOKEN}\n");
+        let e = TelegramConfig::from_toml(&text).unwrap_err();
+        assert!(!e.contains("AAFh3kq"), "{e}");
+        assert!(e.starts_with("line 2 "), "{e}");
+        // The token in a field of another kind: serde would quote it.
+        let text = format!(
+            "enabled = true
+chats = [\"{TOKEN}\"]
+"
+        );
+        let e = TelegramConfig::from_toml(&text).unwrap_err();
+        assert!(!e.contains("AAFh3kq"), "{e}");
+    }
 
     #[test]
     fn round_trips_and_defaults_to_disabled() {

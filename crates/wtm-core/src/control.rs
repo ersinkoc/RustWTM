@@ -4,8 +4,8 @@
 //! still matches (guarding against PID reuse) and refuses protected or
 //! critical processes.
 
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -156,13 +156,28 @@ fn open_verified(target: &ProcessRef, access: Access) -> ControlResult<ProcessHa
     Ok(handle)
 }
 
-/// Opens a process for a mutating action, enforcing the protection rules.
+/// The file name of the image `h` runs. A `ProcessRef`'s name is only what
+/// the caller claims; protection rules judge the process actually opened.
+fn image_name(h: &ProcessHandle) -> Option<String> {
+    let path = h.image_path().ok()?;
+    Some(file_name(&path).to_owned())
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+
+/// Opens a process for a mutating action, enforcing the protection rules
+/// on both the name given and the image actually opened.
 fn open_controlled(target: &ProcessRef, access: Access) -> ControlResult<ProcessHandle> {
     let pid = target.pid;
     if let Some(reason) = protection_reason(pid, &target.name) {
         return Err(ControlError::Protected { pid, reason });
     }
     let handle = open_verified(target, access)?;
+    if let Some(reason) = image_name(&handle).and_then(|name| protection_reason(pid, &name)) {
+        return Err(ControlError::Protected { pid, reason });
+    }
     if handle.is_critical().unwrap_or(true) {
         return Err(ControlError::Protected {
             pid,
@@ -190,16 +205,33 @@ pub fn trim_memory(target: &ProcessRef) -> ControlResult<()> {
 
 /// Kills `root` first (so it cannot respawn children), then its descendants.
 pub fn kill_tree(root: &ProcessRef, procs: &[ProcessInfo]) -> Vec<(ProcessRef, ControlResult<()>)> {
+    // When the PID now belongs to a newer process, that process's subtree is
+    // not the root's, although it is younger than the root: leave it alone.
+    let foreign: HashSet<(u32, i64)> = procs
+        .iter()
+        .find(|p| root.create_time != 0 && p.pid == root.pid && p.create_time > root.create_time)
+        .map(|owner| descendants(owner.pid, owner.create_time, procs))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| (p.pid, p.create_time))
+        .collect();
     let mut targets = vec![root.clone()];
     targets.extend(
         descendants(root.pid, root.create_time, procs)
             .into_iter()
+            .filter(|p| !foreign.contains(&(p.pid, p.create_time)))
             .map(ProcessRef::from),
     );
     targets
         .into_iter()
-        .map(|t| {
-            let r = kill(&t);
+        .enumerate()
+        .map(|(i, t)| {
+            let r = match kill(&t) {
+                // Gone already, as children often go with their parent
+                // (a job that kills on close): what was wanted.
+                Err(ControlError::NotFound { .. } | ControlError::Stale { .. }) if i > 0 => Ok(()),
+                r => r,
+            };
             (t, r)
         })
         .collect()
@@ -305,25 +337,33 @@ pub fn create_dump(
     target: &ProcessRef,
     dir: &std::path::Path,
 ) -> ControlResult<std::path::PathBuf> {
-    // Their memory holds the sign-in secrets of this PC; dumping them is what
-    // credential theft does, and antivirus software rightly stops it.
-    if ["lsass.exe", "lsaiso.exe"]
-        .iter()
-        .any(|n| n.eq_ignore_ascii_case(&target.name))
-    {
-        return Err(ControlError::Protected {
-            pid: target.pid,
-            reason: "holds this PC's sign-in secrets",
-        });
+    let secrets = ControlError::Protected {
+        pid: target.pid,
+        reason: "holds this PC's sign-in secrets",
+    };
+    if holds_secrets(&target.name) {
+        return Err(secrets);
     }
     let h = open_verified(target, Access::DUMP_CLONE)
         .or_else(|_| open_verified(target, Access::DUMP))?;
+    // The name given is only a claim; the image opened decides.
+    if image_name(&h).is_some_and(|name| holds_secrets(&name)) {
+        return Err(secrets);
+    }
     let path = dump_path(dir, &target.name);
     sys(target.pid, h.write_dump(&path))?;
     Ok(path)
 }
 
 /// Full image path only; cheaper than [`inspect`].
+/// Their memory holds the sign-in secrets of this PC; dumping them is what
+/// credential theft does, and antivirus software rightly stops it.
+fn holds_secrets(name: &str) -> bool {
+    ["lsass.exe", "lsaiso.exe"]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(name))
+}
+
 pub fn image_path(target: &ProcessRef) -> ControlResult<String> {
     let h = open_verified(target, Access::QUERY)?;
     sys(target.pid, h.image_path())
@@ -408,17 +448,34 @@ impl Limiter {
     /// Lifts the limits [`apply`](Self::apply) set. A process this limiter
     /// never limited is an error: its job (if any) is not ours to change,
     /// and reporting success would leave the user believing it is free.
+    ///
+    /// Both limits are lifted even when the first fails; whatever could not
+    /// be lifted stays recorded with its job, so it can be lifted later.
     pub fn lift(&mut self, target: &ProcessRef) -> ControlResult<()> {
-        let Some((_, job, current)) = self.jobs.remove(&(target.pid, target.create_time)) else {
+        let key = (target.pid, target.create_time);
+        let Some((who, job, mut current)) = self.jobs.remove(&key) else {
             return Err(ControlError::NotLimited { pid: target.pid });
         };
+        let mut failed = None;
         if current.cpu_percent.is_some() {
-            sys(target.pid, job.set_cpu_cap(None))?;
+            match job.set_cpu_cap(None) {
+                Ok(()) => current.cpu_percent = None,
+                Err(e) => failed = Some(e),
+            }
         }
         if current.memory_bytes.is_some() {
-            sys(target.pid, job.set_process_memory_limit(None))?;
+            match job.set_process_memory_limit(None) {
+                Ok(()) => current.memory_bytes = None,
+                Err(e) => failed = failed.or(Some(e)),
+            }
         }
-        Ok(())
+        match failed {
+            None => Ok(()),
+            Some(e) => {
+                self.jobs.insert(key, (who, job, current));
+                Err(ControlError::from_sys(target.pid, e))
+            }
+        }
     }
 
     /// Drops the job handle without lifting limits (e.g. the process exited).
@@ -441,6 +498,38 @@ impl Limiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tree_whose_children_went_with_it_is_not_a_failure() {
+        // PIDs are multiples of 4: odd ones never exist.
+        let template = crate::Sampler::new().sample().unwrap().processes[0].clone();
+        let fake = |pid, parent_pid, create_time| ProcessInfo {
+            pid,
+            parent_pid,
+            create_time,
+            name: format!("gone-{pid}.exe"),
+            ..template.clone()
+        };
+        let procs = [fake(0xffff_fff1, 4, 10), fake(0xffff_fff3, 0xffff_fff1, 20)];
+        let root = ProcessRef::from(&procs[0]);
+        let results = kill_tree(&root, &procs);
+        assert_eq!(results.len(), 2);
+        // The root itself still reports that it was not there to end.
+        assert!(matches!(results[0].1, Err(ControlError::NotFound { .. })));
+        assert!(results[1].1.is_ok(), "{:?}", results[1].1);
+    }
+
+    #[test]
+    fn secrets_and_image_names_are_judged_by_file_name() {
+        assert_eq!(file_name(r"C:\Windows\System32\lsass.exe"), "lsass.exe");
+        assert_eq!(file_name("lsass.exe"), "lsass.exe");
+        assert_eq!(
+            file_name(r"\Device\HarddiskVolume3/x/LsaIso.exe"),
+            "LsaIso.exe"
+        );
+        assert!(holds_secrets("LSASS.EXE") && holds_secrets("lsaiso.exe"));
+        assert!(!holds_secrets("notepad.exe") && !holds_secrets("lsass.exe.bak"));
+    }
 
     const STATUS_ACCESS_DENIED: u32 = 0xC000_0022;
     const STATUS_INVALID_PARAMETER: u32 = 0xC000_000D;
@@ -472,6 +561,35 @@ mod tests {
             ControlError::AccessDenied { pid: 7 }.to_string(),
             "access denied to process 7 (try an elevated prompt)"
         );
+    }
+
+    #[test]
+    fn a_failed_lift_still_lifts_the_rest_and_keeps_the_job() {
+        let t = ProcessRef {
+            pid: u32::MAX - 3,
+            create_time: 1,
+            name: "gone.exe".into(),
+        };
+        let job = Job::create().unwrap();
+        job.set_process_memory_limit(Some(1 << 30)).unwrap();
+        // Recorded with a CPU cap the job never had: Windows refuses to lift
+        // it, which stands in for any failure on the first limit.
+        let limits = Limits {
+            cpu_percent: Some(50.0),
+            memory_bytes: Some(1 << 30),
+        };
+        let mut limiter = Limiter::new();
+        limiter
+            .jobs
+            .insert((t.pid, t.create_time), (t.clone(), job, limits));
+        assert!(limiter.lift(&t).is_err());
+        let (_, _, left) = &limiter.jobs[&(t.pid, t.create_time)];
+        assert_eq!(
+            left.memory_bytes, None,
+            "the memory limit was lifted anyway"
+        );
+        assert_eq!(left.cpu_percent, Some(50.0), "kept, to be lifted later");
+        assert!(limiter.is_limited(&t));
     }
 
     #[test]
