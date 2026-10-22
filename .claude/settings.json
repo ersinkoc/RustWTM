@@ -15,6 +15,17 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|mcp__dfmt__dfmt_write|mcp__dfmt__dfmt_edit|mcp__dfmt__dfmt_exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -I \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_exhaustion.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking for resource-exhaustion code..."
+          }
+        ]
+      },
+      {
         "hooks": [
           {
             "command": "dfmt hook claude-code pretooluse",
@@ -30,7 +41,7 @@
       {
         "hooks": [
           {
-            "command": "if [ -f .dfmt/last-recall.md ]; then echo '--- Previous session summary ---' \u0026\u0026 cat .dfmt/last-recall.md \u0026\u0026 echo '--- End of previous session ---'; fi",
+            "command": "if [ -f .dfmt/last-recall.md ]; then echo '--- Previous session summary ---' && cat .dfmt/last-recall.md && echo '--- End of previous session ---'; fi",
             "statusMessage": "Loading previous session summary...",
             "timeout": 10,
             "type": "command"
