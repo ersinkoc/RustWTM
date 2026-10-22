@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `wtm` commands and Telegram's /kill, /info, /suspend and /wait match
+  process names case-insensitively beyond ASCII (`çizim` is `Çizim.exe`), as
+  /find already did.
+- `wtm app-limit set` and `remove` find an app's limit whatever the case of
+  its name; a limit set under another case used to be added a second time,
+  and its budget ignored.
+
 ## [0.20.1] - 2026-10-22
 
 ### Fixed

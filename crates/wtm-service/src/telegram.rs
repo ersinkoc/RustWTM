@@ -873,10 +873,15 @@ impl<A: Api, H: Host> Bot<A, H> {
                 .map(|p| vec![p])
                 .ok_or_else(|| format!("No process has PID {pid}."));
         }
-        let with_exe = format!("{arg}.exe");
+        // Case-insensitive beyond ASCII too, as /find is: `çizim` is Çizim.exe.
+        let lower = arg.to_lowercase();
+        let with_exe = format!("{lower}.exe");
         let list: Vec<&ProcessInfo> = procs
             .iter()
-            .filter(|p| p.name.eq_ignore_ascii_case(arg) || p.name.eq_ignore_ascii_case(&with_exe))
+            .filter(|p| {
+                let name = p.name.to_lowercase();
+                name == lower || name == with_exe
+            })
             .collect();
         if list.is_empty() {
             Err(format!(

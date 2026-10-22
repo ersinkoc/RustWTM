@@ -35,11 +35,14 @@ fn matching<'a>(
         let matches: Vec<&ProcessInfo> = match spec.parse::<u32>() {
             Ok(pid) => procs.iter().filter(|p| p.pid == pid).collect(),
             Err(_) => {
+                // Case-insensitive beyond ASCII too: `çizim` is Çizim.exe.
+                let spec = spec.to_lowercase();
                 let with_exe = format!("{spec}.exe");
                 procs
                     .iter()
                     .filter(|p| {
-                        p.name.eq_ignore_ascii_case(spec) || p.name.eq_ignore_ascii_case(&with_exe)
+                        let name = p.name.to_lowercase();
+                        name == spec || name == with_exe
                     })
                     .collect()
             }
@@ -438,6 +441,9 @@ mod tests {
         };
         assert_eq!(pids(&["foo"]), [10, 12]);
         assert_eq!(pids(&["BAR.EXE", "11", "baz"]), [11, 13]);
+        // Case-insensitive beyond ASCII too.
+        let tr = self::procs(&[(20, "Çizim.exe")]);
+        assert_eq!(resolve(&specs(&["çizim"]), &tr).unwrap()[0].pid, 20);
         assert_eq!(pids(&["12", "foo"]), [12, 10]);
         let e = resolve(&specs(&["99"]), &procs).unwrap_err();
         assert_eq!(e.to_string(), "no process matches '99'");

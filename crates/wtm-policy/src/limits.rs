@@ -290,10 +290,12 @@ pub fn set_app_limit(text: &str, limit: &AppLimit) -> Result<String, String> {
         .or_insert_with(|| toml_edit::Item::ArrayOfTables(Default::default()))
         .as_array_of_tables_mut()
         .ok_or("`limit` must be an array of tables ([[limit]])")?;
+    // The same app however it is cased, as the planner matches it.
+    let lower = limit.name.to_lowercase();
     let same = |t: &toml_edit::Table| {
         let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let s = t.get("scope").and_then(|v| v.as_str()).unwrap_or("group");
-        name.eq_ignore_ascii_case(&limit.name) && s == scope
+        eq_lowercase(name, &lower) && s == scope
     };
     let found = limits.iter().position(same);
     match found {
@@ -310,6 +312,7 @@ pub fn remove_app_limit(text: &str, name: &str, scope: LimitScope) -> Result<Str
         LimitScope::Group => "group",
         LimitScope::Each => "each",
     };
+    let lower = name.to_lowercase();
     if let Some(limits) = doc
         .get_mut("limit")
         .and_then(|i| i.as_array_of_tables_mut())
@@ -317,7 +320,7 @@ pub fn remove_app_limit(text: &str, name: &str, scope: LimitScope) -> Result<Str
         limits.retain(|t| {
             let n = t.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let s = t.get("scope").and_then(|v| v.as_str()).unwrap_or("group");
-            !(n.eq_ignore_ascii_case(name) && s == scope)
+            !(eq_lowercase(n, &lower) && s == scope)
         });
         if limits.is_empty() {
             doc.remove("limit");
@@ -560,5 +563,21 @@ mod tests {
         let upper = limit("ÇIZIM.EXE", LimitScope::Group);
         assert!(planner.set_limits(vec![upper.clone()]).is_empty());
         assert_eq!(planner.limit_of(&plan[0].0), Some(&upper));
+        // Edited or removed under another case: the same entry.
+        let text = "[[limit]]
+name = \"Çizim.exe\"
+cpu_cores = 4.0
+";
+        let mut lower = limit("çizim.exe", LimitScope::Group);
+        lower.cpu_cores = Some(1.0);
+        let set = crate::Config::from_toml(&set_app_limit(text, &lower).unwrap()).unwrap();
+        assert_eq!(set.limits, [lower]);
+        let removed = remove_app_limit(text, "çizim.exe", LimitScope::Group).unwrap();
+        assert!(
+            crate::Config::from_toml(&removed)
+                .unwrap()
+                .limits
+                .is_empty()
+        );
     }
 }
