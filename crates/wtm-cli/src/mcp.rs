@@ -120,7 +120,7 @@ impl Server {
         let identity = |extra: Value| {
             let mut properties = json!({
                 "pid": { "type": "integer" },
-                "create_time": { "type": "integer", "description": "From list_processes; refuses a PID that now belongs to another process" },
+                "create_time": { "type": "string", "description": "The create_time from list_processes, as text (it is too large for a JSON number to keep exactly); refuses a PID that now belongs to another process" },
             });
             if let (Some(p), Some(e)) = (properties.as_object_mut(), extra.as_object()) {
                 p.extend(e.clone());
@@ -548,17 +548,31 @@ fn process_line(p: &ProcessInfo, net: bool) -> String {
 
 /// Refuses `target` when the caller named a different instance of its PID
 /// (`create_time` from an earlier list_processes).
+///
+/// Creation times count 100 ns since 1601, past what a JSON number keeps
+/// exactly in JavaScript clients, which round them. Text compares exactly;
+/// a number matches at the precision it can have, a window of about 2 µs
+/// in which the same PID is not reused.
 fn check_identity(target: &ProcessRef, create_time: Option<&Value>) -> Result<(), String> {
-    match create_time {
-        None | Some(Value::Null) => Ok(()),
-        Some(v) => match v.as_i64() {
-            Some(t) if t == target.create_time => Ok(()),
-            Some(_) => Err(format!(
-                "PID {} now belongs to another process ({}); list the processes again",
-                target.pid, target.name
-            )),
-            None => Err("`create_time` must be an integer".into()),
+    let same = match create_time {
+        None | Some(Value::Null) => return Ok(()),
+        Some(Value::String(text)) => match text.trim().parse::<i64>() {
+            Ok(t) => t == target.create_time,
+            Err(_) => return Err("`create_time` must be the number from list_processes".into()),
         },
+        Some(v) => match (v.as_i64(), v.as_f64()) {
+            (Some(t), _) if t == target.create_time => true,
+            (_, Some(t)) => t == target.create_time as f64,
+            _ => return Err("`create_time` must be the number from list_processes".into()),
+        },
+    };
+    if same {
+        Ok(())
+    } else {
+        Err(format!(
+            "PID {} now belongs to another process ({}); list the processes again",
+            target.pid, target.name
+        ))
     }
 }
 
@@ -731,6 +745,21 @@ mod tests {
         let reused = check_identity(&t, Some(&json!(99))).unwrap_err();
         assert!(reused.contains("another process"), "{reused}");
         assert!(check_identity(&t, Some(&json!("x"))).is_err());
+        assert!(check_identity(&t, Some(&json!(true))).is_err());
+        assert!(check_identity(&t, Some(&json!("1234"))).is_ok());
+        assert!(check_identity(&t, Some(&json!("99"))).is_err());
+
+        // A real creation time, as a JavaScript client rounds it.
+        let real = ProcessRef {
+            create_time: 134_051_234_567_890_123,
+            ..t.clone()
+        };
+        let rounded: f64 = serde_json::from_str("134051234567890123").unwrap();
+        assert_ne!(rounded as i64, real.create_time, "the number was rounded");
+        assert!(check_identity(&real, Some(&json!(rounded))).is_ok());
+        assert!(check_identity(&real, Some(&json!("134051234567890123"))).is_ok());
+        assert!(check_identity(&real, Some(&json!("134051234567890124"))).is_err());
+        assert!(check_identity(&real, Some(&json!(rounded + 100_000.0))).is_err());
 
         // Through the server: a stale creation time is refused before acting.
         let me = std::process::id();
