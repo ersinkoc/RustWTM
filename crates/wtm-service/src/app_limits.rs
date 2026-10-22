@@ -191,7 +191,20 @@ impl AppLimiter {
                 .count();
         }
         let live: HashSet<&GroupId> = usage.iter().map(|u| &u.group).collect();
-        self.budgets.retain(|g, _| live.contains(g));
+        // Lifted, not just dropped: a process the group started may still
+        // run in its job (children join it) without counting as a member,
+        // and closing the handle would leave it capped for good.
+        let gone: Vec<GroupId> = self
+            .budgets
+            .keys()
+            .filter(|g| !live.contains(g))
+            .cloned()
+            .collect();
+        for group in gone {
+            if let Some(budget) = self.budgets.remove(&group) {
+                self.lift(&group, budget, "none of its processes is left");
+            }
+        }
         self.memory_full.retain(|g| live.contains(g));
         for u in &usage {
             self.check_memory(u);
@@ -378,6 +391,46 @@ mod tests {
 
     fn messages(events: &EventLog) -> Vec<String> {
         events.after(0).into_iter().map(|e| e.message).collect()
+    }
+
+    #[test]
+    fn a_budget_whose_launcher_left_is_lifted_not_dropped() {
+        let dir = std::env::temp_dir().join(format!("wtm-applaunch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = format!("wtm-launcher-{}.exe", std::process::id());
+        let app = spawn_app(&dir, &name);
+        let procs = sample_with(&[app.0.id()]);
+        let events = EventLog::default();
+        let mut limiter =
+            AppLimiter::new(vec![limit(&name, LimitScope::Group)], false, events.clone());
+        // The launcher is sampled before it starts its child...
+        let launcher: Vec<ProcessInfo> = procs
+            .iter()
+            .filter(|p| p.parent_pid != app.0.id())
+            .cloned()
+            .collect();
+        limiter.tick(&launcher, 8);
+        assert_eq!(limiter.budgets.len(), 1);
+
+        // ...and has exited by the next sample: the child (in its job, as
+        // children are) was never counted, so the group looks empty.
+        let without: Vec<ProcessInfo> = procs
+            .iter()
+            .filter(|p| p.pid != app.0.id())
+            .cloned()
+            .collect();
+        limiter.tick(&without, 8);
+        assert!(limiter.budgets.is_empty());
+        assert!(limiter.unlifted.is_empty());
+        assert!(
+            messages(&events)
+                .iter()
+                .any(|m| m.contains("none of its processes is left")),
+            "{:?}",
+            messages(&events)
+        );
+        drop(app);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

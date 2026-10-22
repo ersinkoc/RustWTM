@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- Policies acting on their own (kill list, rules, governor, game mode,
+  insights) never end or suspend `svchost.exe` or RustWTM's own programs;
+  the config refuses such kill-list entries and rules, and a `*` name with
+  kill or suspend. Insights no longer touch service processes (session 0).
 - MCP control tools require `create_time`, so a process that took the PID
   since the listing is never changed; `wtm panic` and `recent_events` use
   only the installed service's pipe, not one a program took while the
@@ -67,6 +71,17 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Limits a failed lift left on a process are lifted again on the next tick
+  and when the service stops, instead of staying for good.
+- An app limit whose launcher exited before its child was counted is lifted
+  rather than dropped with the child still capped.
+- Changing the governor, memory guard, insight or game mode settings lets go
+  at once of what they applied (as rules already did): a newly exempt app
+  is no longer kept throttled.
+- A failed history query keeps the insight findings instead of lifting and
+  re-announcing them all.
+- Setting the clock forward no longer makes every copy of a crowd old enough
+  to end.
 - *Why won't it end* and the module list check the process's start time and
   hold it open while they look, so a PID taken by a later process is never
   described as the one asked about.

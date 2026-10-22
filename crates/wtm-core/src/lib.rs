@@ -19,7 +19,7 @@ pub mod update;
 pub use model::{
     ProcessInfo, Snapshot, SortKey, SystemStats, format_bytes, format_duration, sort_processes,
 };
-pub use protection::protection_reason;
+pub use protection::{automatic_end_blocked, protection_reason};
 pub use sampler::{Sampler, StartWatcher};
 pub use tree::descendants;
 pub use wtm_sys::disk::DiskUsage;

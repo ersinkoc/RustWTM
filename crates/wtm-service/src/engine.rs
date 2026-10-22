@@ -361,6 +361,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
     );
 
     let mut next_tick = Instant::now();
+    let started = (SystemTime::now(), Instant::now());
     'run: loop {
         // Serve control requests until the next sampling tick is due.
         loop {
@@ -416,6 +417,30 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                     // the rules as they are now fire again.
                     if new.rules != config.rules {
                         executor.restore_sources(&[Source::Rule], "rules changed");
+                    }
+                    // Likewise for the other policies: a process now exempt,
+                    // or an action taken off a list, is let go at once, not
+                    // whenever the policy happens to let go; they start
+                    // over with the new settings.
+                    if new.governor != config.governor {
+                        executor.restore_sources(&[Source::Governor], "governor settings changed");
+                        governor = Governor::new(new.governor.clone());
+                    }
+                    if new.memory_guard != config.memory_guard {
+                        executor.restore_sources(
+                            &[Source::MemoryGuard],
+                            "memory guard settings changed",
+                        );
+                        memory_guard = wtm_policy::MemoryGuard::new(new.memory_guard.clone());
+                    }
+                    if new.insights != config.insights {
+                        executor.restore_sources(&[Source::Insight], "insight settings changed");
+                        insights = InsightPolicy::new();
+                        next_insights = Instant::now();
+                    }
+                    if new.game_mode != config.game_mode {
+                        executor.restore_sources(&[Source::GameMode], "game mode settings changed");
+                        game_mode = GameMode::new(new.game_mode.clone());
                     }
                     governor.set_config(new.governor.clone());
                     memory_guard.set_config(new.memory_guard.clone());
@@ -577,7 +602,7 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
                 &snap.processes,
                 &shared,
                 &mut swarm_previewed,
-                SystemTime::now(),
+                steady_now(started),
             );
         }
 
@@ -749,6 +774,15 @@ pub fn restore_saved_plan(file: &Path, say: &mut dyn FnMut(String)) {
 /// Copies of a swarm ended per sampling tick, so a huge one cannot stall
 /// the engine; the rest follow on the next ticks.
 const SWARM_END_PER_TICK: usize = 100;
+
+/// The wall-clock time to judge process ages by, from `started` (the wall
+/// clock and the monotonic one at the engine's start): never later than the
+/// monotonic clock allows, so setting the clock forward cannot make every
+/// copy of a crowd look old enough to end. A clock set back only makes
+/// processes look younger.
+fn steady_now(started: (SystemTime, Instant)) -> SystemTime {
+    SystemTime::now().min(started.0 + started.1.elapsed())
+}
 
 /// Ends swarm copies that ran longer than `end_after_mins`, with what they
 /// started (their console hosts); in dry run only reports them.
@@ -1032,9 +1066,11 @@ fn evaluate_insights(
         let since = unix.div_euclid(60) - i64::from(config.insights.window_hours) * 60;
         match history::stats(history.connection(), since, snap.system.logical_cpus) {
             Ok(stats) => analyze(&stats, &config.insights),
+            // Not "nothing found": that would lift every insight action, to
+            // apply and announce them again once the history answers.
             Err(e) => {
-                warn!(error = %e, "history query failed");
-                Vec::new()
+                warn!(error = %e, "history query failed; findings kept");
+                return;
             }
         }
     } else {
@@ -1601,6 +1637,27 @@ mod tests {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+
+    #[test]
+    fn process_ages_ignore_the_clock_set_forward() {
+        let now = SystemTime::now();
+        // Started an hour of wall clock ago, but only a second has passed.
+        let started = (
+            now - Duration::from_secs(3600),
+            Instant::now() - Duration::from_secs(1),
+        );
+        let steady = steady_now(started);
+        assert!(steady < now - Duration::from_secs(3000), "{steady:?}");
+        // Without a jump the wall clock is used.
+        let fair = (
+            now - Duration::from_secs(5),
+            Instant::now() - Duration::from_secs(5),
+        );
+        let d = SystemTime::now()
+            .duration_since(steady_now(fair))
+            .unwrap_or_default();
+        assert!(d < Duration::from_secs(1), "{d:?}");
+    }
 
     #[test]
     fn a_power_plan_left_by_a_crash_is_put_back_once() {

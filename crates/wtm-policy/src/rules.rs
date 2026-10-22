@@ -60,6 +60,23 @@ impl Rule {
         if self.actions.is_empty() {
             return Err("actions must not be empty".into());
         }
+        if self
+            .actions
+            .iter()
+            .any(|a| matches!(a, Action::Kill | Action::Suspend))
+            && let Some(name) = self.matcher.name.as_deref().map(str::trim)
+        {
+            if name == "*" {
+                return Err(
+                    "kill or suspend with `match.name = \"*\"` would hit every program".into(),
+                );
+            }
+            if let Some(why) = wtm_core::automatic_end_blocked(name) {
+                return Err(format!(
+                    "{name} cannot be ended or suspended by a rule: {why}"
+                ));
+            }
+        }
         if let Some(c) = &self.when
             && c.cpu_above.is_none()
             && c.memory_above_mb.is_none()
@@ -466,6 +483,23 @@ mod tests {
         });
         assert!(r.validate().is_ok());
         assert_eq!(r.cpu_baseline(), Some(40.0));
+    }
+
+    #[test]
+    fn rules_never_end_everything_or_service_hosts() {
+        for (name, action) in [
+            ("*", Action::Kill),
+            ("svchost.exe", Action::Suspend),
+            ("wtm-service.exe", Action::Kill),
+        ] {
+            let r = Rule {
+                actions: vec![action],
+                ..rule(Some(name), None, None)
+            };
+            assert!(r.validate().is_err(), "{name}");
+        }
+        // Throttling them stays possible.
+        assert!(rule(Some("*"), None, None).validate().is_ok());
     }
 
     #[test]
