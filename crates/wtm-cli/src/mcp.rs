@@ -357,7 +357,7 @@ impl Server {
             }
             "why_wont_it_end" => {
                 let t = self.target(args)?;
-                let r = wtm_core::why_alive(t.pid).map_err(|e| e.to_string())?;
+                let r = wtm_core::why_alive(t.pid, t.create_time).map_err(|e| e.to_string())?;
                 Ok(serde_json::to_string_pretty(&r).unwrap_or_default())
             }
             "network_connections" => {

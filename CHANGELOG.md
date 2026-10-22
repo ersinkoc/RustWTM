@@ -67,6 +67,14 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- *Why won't it end* and the module list check the process's start time and
+  hold it open while they look, so a PID taken by a later process is never
+  described as the one asked about.
+- Downloads and Telegram answers are limited in size and total time: a
+  server sending without end can no longer grow the service's memory or
+  hold it.
+- Reading a command line retries when the process changes it meanwhile;
+  restarting a service waits when its status cannot be read.
 - `wtm kill --tree` and `free-port --tree` no longer report failure for
   children that ended with their parent, and `free-port` lists every
   failure of a tree, not the first.

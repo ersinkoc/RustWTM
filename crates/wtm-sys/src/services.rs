@@ -295,8 +295,9 @@ pub fn restart_service(name: &str, timeout: Duration) -> Result<()> {
         return Err(e.into());
     }
     let deadline = Instant::now() + timeout;
+    // A status that cannot be read is not "stopped": it is waited out too.
     while query_status(&svc)
-        .is_some_and(|s| ServiceState::from_raw(s.dwCurrentState.0) != ServiceState::Stopped)
+        .is_none_or(|s| ServiceState::from_raw(s.dwCurrentState.0) != ServiceState::Stopped)
     {
         if Instant::now() >= deadline {
             return Err(

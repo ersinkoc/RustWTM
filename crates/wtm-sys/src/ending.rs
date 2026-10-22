@@ -167,11 +167,23 @@ pub fn protection_label(protection: u8) -> String {
     }
 }
 
-/// Everything that explains why `pid` is still there. Opens it twice (a
-/// limited query, and once with the right to end it, which is only checked,
-/// never used) and reads the system handle table. An exit status of 259
-/// costs a third open, to wait on it without blocking.
-pub fn why_alive(pid: u32) -> crate::Result<EndReport> {
+/// Everything that explains why `pid`, started at `create_time` (0: not
+/// checked), is still there. Opens it twice (a limited query, and once with
+/// the right to end it, which is only checked, never used) and reads the
+/// system handle table. An exit status of 259 costs a third open, to wait
+/// on it without blocking.
+///
+/// The query handle is opened first and held throughout: while it is open
+/// the PID cannot go to another process, so every later look by PID sees
+/// the one checked. A process that started at another time is refused.
+pub fn why_alive(pid: u32, create_time: i64) -> crate::Result<EndReport> {
+    let query = ProcessHandle::open(pid, Access::QUERY);
+    if let Ok(handle) = &query
+        && create_time != 0
+        && handle.create_time().is_ok_and(|t| t != create_time)
+    {
+        return Err(crate::Error::Reused { pid });
+    }
     let mut report = EndReport {
         deleting: false,
         exited: false,
@@ -192,7 +204,6 @@ pub fn why_alive(pid: u32) -> crate::Result<EndReport> {
         .map(|t| t.len() as u32)
         .unwrap_or(0);
 
-    let query = ProcessHandle::open(pid, Access::QUERY);
     if let Ok(handle) = &query {
         if let Ok(basic) = extended_basic(handle) {
             report.deleting = basic.flags & FLAG_IS_DELETING != 0;
@@ -535,7 +546,7 @@ mod tests {
     #[test]
     fn a_healthy_child_can_be_ended_and_is_not_guarded() {
         let child = spawn_ping();
-        let report = why_alive(child.0.id()).unwrap();
+        let report = why_alive(child.0.id(), 0).unwrap();
         assert!(!report.deleting);
         assert!(!report.exited);
         assert!(report.threads >= 1);
@@ -546,7 +557,12 @@ mod tests {
 
     #[test]
     fn our_own_process_is_explained_without_error() {
-        let report = why_alive(std::process::id()).unwrap();
+        let me = std::process::id();
+        let started = ProcessHandle::open(me, Access::QUERY)
+            .unwrap()
+            .create_time()
+            .unwrap();
+        let report = why_alive(me, started).unwrap();
         assert_eq!(report.can_end, Some(true));
         assert!(report.open_error.is_none());
         assert!(report.threads >= 1);
@@ -555,8 +571,22 @@ mod tests {
     }
 
     #[test]
+    fn a_pid_that_went_to_a_later_process_is_refused() {
+        let me = std::process::id();
+        let started = ProcessHandle::open(me, Access::QUERY)
+            .unwrap()
+            .create_time()
+            .unwrap();
+        let e = why_alive(me, started - 1).unwrap_err();
+        assert!(
+            matches!(e, crate::Error::Reused { pid } if pid == me),
+            "{e}"
+        );
+    }
+
+    #[test]
     fn a_vanished_pid_reports_no_threads() {
-        let report = why_alive(0xffff_fffe).unwrap();
+        let report = why_alive(0xffff_fffe, 0).unwrap();
         assert_eq!(report.threads, 0);
         assert!(report.holders.is_empty());
         // It could not be opened at all.

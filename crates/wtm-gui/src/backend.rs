@@ -1293,7 +1293,7 @@ impl Worker {
                 std::thread::spawn(move || {
                     // Off the critical path: reading files and catalogs.
                     let _ = wtm_core::control::enter_background_mode();
-                    let result = wtm_core::process_modules(target.pid)
+                    let result = wtm_core::process_modules(target.pid, target.create_time)
                         .map(|mods| {
                             mods.into_iter()
                                 .map(|m| {
@@ -1315,7 +1315,8 @@ impl Worker {
                 self.data().end_report = Some((target.clone(), None));
                 let (data, ctx) = (self.data.clone(), self.ctx.clone());
                 std::thread::spawn(move || {
-                    let report = wtm_core::why_alive(target.pid).map_err(|e| e.to_string());
+                    let report = wtm_core::why_alive(target.pid, target.create_time)
+                        .map_err(|e| e.to_string());
                     let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
                     if d.end_report.as_ref().is_some_and(|(t, _)| *t == target) {
                         d.end_report = Some((target, Some(report)));

@@ -44,9 +44,23 @@ fn wide_z(units: &[u16]) -> Vec<u16> {
     units.iter().copied().chain([0]).collect()
 }
 
-/// Downloads `url`; returns the HTTP status and the body.
+/// What one answer may take, in bytes and in all: each receive has its own
+/// timeout, so a server trickling bytes (or sending without end) would
+/// otherwise hold the caller, the service among them, forever.
+#[derive(Debug, Clone, Copy)]
+struct Limit {
+    bytes: usize,
+    time: std::time::Duration,
+}
+
+/// Downloads `url` (an installer, at most 512 MiB in 15 minutes); returns
+/// the HTTP status and the body.
 pub fn get(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
-    request("GET", url, None, user_agent, 30_000)
+    let limit = Limit {
+        bytes: 512 << 20,
+        time: std::time::Duration::from_secs(15 * 60),
+    };
+    request("GET", url, None, user_agent, 30_000, limit)
 }
 
 /// Sends `body` (of `content_type`) to `url`, waiting up to `timeout_ms`
@@ -58,12 +72,18 @@ pub fn post(
     user_agent: &str,
     timeout_ms: i32,
 ) -> Result<(u16, Vec<u8>)> {
+    // An API answer: a few MiB at most, within the wait plus a minute.
+    let limit = Limit {
+        bytes: 8 << 20,
+        time: std::time::Duration::from_millis(timeout_ms.max(0) as u64 + 60_000),
+    };
     request(
         "POST",
         url,
         Some((content_type, body)),
         user_agent,
         timeout_ms,
+        limit,
     )
 }
 
@@ -73,7 +93,9 @@ fn request(
     body: Option<(&str, &[u8])>,
     user_agent: &str,
     timeout_ms: i32,
+    limit: Limit,
 ) -> Result<(u16, Vec<u8>)> {
+    let deadline = std::time::Instant::now() + limit.time;
     let url_w: Vec<u16> = url.encode_utf16().collect();
     // Null pointers with non-zero lengths: WinHTTP points into `url_w`.
     let mut parts = URL_COMPONENTS {
@@ -171,7 +193,21 @@ fn request(
             if read == 0 {
                 break;
             }
+            if body.len() + read as usize > limit.bytes {
+                return Err(windows::core::Error::new(
+                    windows::Win32::Foundation::ERROR_FILE_TOO_LARGE.to_hresult(),
+                    format!("the answer is larger than {} bytes", limit.bytes),
+                )
+                .into());
+            }
             body.extend_from_slice(&buf[..read as usize]);
+            if std::time::Instant::now() >= deadline {
+                return Err(windows::core::Error::new(
+                    windows::Win32::Foundation::ERROR_TIMEOUT.to_hresult(),
+                    format!("the answer took longer than {} s", limit.time.as_secs()),
+                )
+                .into());
+            }
         }
         Ok((status as u16, body))
     }
@@ -229,6 +265,59 @@ mod tests {
             requests
         });
         (port, t)
+    }
+
+    #[test]
+    fn an_answer_too_large_or_too_slow_is_cut_off() {
+        let big: &'static str = Box::leak(
+            format!(
+                "HTTP/1.1 200 OK
+Content-Length: 4096
+Connection: close
+
+{}",
+                "x".repeat(4096)
+            )
+            .into_boxed_str(),
+        );
+        let (port, server) = serve(vec![big]);
+        let limit = Limit {
+            bytes: 1024,
+            time: std::time::Duration::from_secs(60),
+        };
+        let url = format!("http://127.0.0.1:{port}/");
+        let e = request("GET", &url, None, "wtm-test", 30_000, limit).unwrap_err();
+        assert!(e.to_string().contains("larger than 1024 bytes"), "{e}");
+        server.join().unwrap();
+
+        // A byte at a time: every receive is quick, the whole is not.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let trickle = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf);
+            let _ = s.write_all(
+                b"HTTP/1.1 200 OK
+Content-Length: 100
+
+",
+            );
+            for _ in 0..100 {
+                if s.write_all(b"x").is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        });
+        let limit = Limit {
+            bytes: 1 << 20,
+            time: std::time::Duration::from_millis(300),
+        };
+        let url = format!("http://127.0.0.1:{port}/");
+        let e = request("GET", &url, None, "wtm-test", 30_000, limit).unwrap_err();
+        assert!(e.to_string().contains("took longer"), "{e}");
+        trickle.join().unwrap();
     }
 
     #[test]
