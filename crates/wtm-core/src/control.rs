@@ -442,17 +442,34 @@ impl Limiter {
     /// Lifts the limits [`apply`](Self::apply) set. A process this limiter
     /// never limited is an error: its job (if any) is not ours to change,
     /// and reporting success would leave the user believing it is free.
+    ///
+    /// Both limits are lifted even when the first fails; whatever could not
+    /// be lifted stays recorded with its job, so it can be lifted later.
     pub fn lift(&mut self, target: &ProcessRef) -> ControlResult<()> {
-        let Some((_, job, current)) = self.jobs.remove(&(target.pid, target.create_time)) else {
+        let key = (target.pid, target.create_time);
+        let Some((who, job, mut current)) = self.jobs.remove(&key) else {
             return Err(ControlError::NotLimited { pid: target.pid });
         };
+        let mut failed = None;
         if current.cpu_percent.is_some() {
-            sys(target.pid, job.set_cpu_cap(None))?;
+            match job.set_cpu_cap(None) {
+                Ok(()) => current.cpu_percent = None,
+                Err(e) => failed = Some(e),
+            }
         }
         if current.memory_bytes.is_some() {
-            sys(target.pid, job.set_process_memory_limit(None))?;
+            match job.set_process_memory_limit(None) {
+                Ok(()) => current.memory_bytes = None,
+                Err(e) => failed = failed.or(Some(e)),
+            }
         }
-        Ok(())
+        match failed {
+            None => Ok(()),
+            Some(e) => {
+                self.jobs.insert(key, (who, job, current));
+                Err(ControlError::from_sys(target.pid, e))
+            }
+        }
     }
 
     /// Drops the job handle without lifting limits (e.g. the process exited).
@@ -518,6 +535,35 @@ mod tests {
             ControlError::AccessDenied { pid: 7 }.to_string(),
             "access denied to process 7 (try an elevated prompt)"
         );
+    }
+
+    #[test]
+    fn a_failed_lift_still_lifts_the_rest_and_keeps_the_job() {
+        let t = ProcessRef {
+            pid: u32::MAX - 3,
+            create_time: 1,
+            name: "gone.exe".into(),
+        };
+        let job = Job::create().unwrap();
+        job.set_process_memory_limit(Some(1 << 30)).unwrap();
+        // Recorded with a CPU cap the job never had: Windows refuses to lift
+        // it, which stands in for any failure on the first limit.
+        let limits = Limits {
+            cpu_percent: Some(50.0),
+            memory_bytes: Some(1 << 30),
+        };
+        let mut limiter = Limiter::new();
+        limiter
+            .jobs
+            .insert((t.pid, t.create_time), (t.clone(), job, limits));
+        assert!(limiter.lift(&t).is_err());
+        let (_, _, left) = &limiter.jobs[&(t.pid, t.create_time)];
+        assert_eq!(
+            left.memory_bytes, None,
+            "the memory limit was lifted anyway"
+        );
+        assert_eq!(left.cpu_percent, Some(50.0), "kept, to be lifted later");
+        assert!(limiter.is_limited(&t));
     }
 
     #[test]

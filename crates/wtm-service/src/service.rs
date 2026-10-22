@@ -50,22 +50,42 @@ fn service_main(_args: Vec<OsString>) {
         .and_then(|()| {
             wtm_sys::security::secure_dir(&data_dir, DATA_DIR_SDDL).map_err(|e| e.to_string())
         });
-    if matches!(secured, Ok(Secured::Contested)) {
-        // Nothing in it can be trusted, and no log can be written there.
-        return;
-    }
+    let aside = match secured {
+        Ok(Secured::Created | Secured::Kept) => None,
+        Ok(Secured::Replaced(aside)) => Some(aside),
+        // Its config would decide, as SYSTEM, what is ended or blocked: the
+        // service does not run on a folder it could not make its own (and
+        // writes no log into it).
+        Ok(Secured::Contested) | Err(_) => {
+            refuse_to_start(DATA_DIR_NOT_SECURED);
+            return;
+        }
+    };
     let paths = Paths::under(&data_dir);
     let _guard = logging::init(&paths.logs, false);
-    match secured {
-        Err(e) => tracing::warn!(error = %e, "could not restrict data directory permissions"),
-        Ok(Secured::Replaced(aside)) => tracing::warn!(
+    if let Some(aside) = aside {
+        tracing::warn!(
             moved_to = %aside.display(),
-            "the data directory belonged to someone else and was set aside"
-        ),
-        Ok(_) => {}
+            "the data directory was not RustWTM's alone and was set aside; a new one was made"
+        );
     }
     if let Err(e) = run_service(&paths) {
         error!(error = %e, "service failed");
+    }
+}
+
+/// Service-specific exit code: the data folder could not be made RustWTM's.
+const DATA_DIR_NOT_SECURED: u32 = 1;
+
+/// Reports to the SCM that the service stopped at once with `code`, which
+/// Windows records in the System event log (event 7024).
+fn refuse_to_start(code: u32) {
+    let handler = |_| ServiceControlHandlerResult::NoError;
+    if let Ok(handle) = service_control_handler::register(SERVICE_NAME, handler) {
+        let _ = handle.set_service_status(ServiceStatus {
+            exit_code: ServiceExitCode::ServiceSpecific(code),
+            ..status(ServiceState::Stopped)
+        });
     }
 }
 

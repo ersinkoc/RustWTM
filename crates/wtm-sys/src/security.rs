@@ -10,15 +10,18 @@ use windows::Win32::Security::Authorization::{
     SE_FILE_OBJECT, SetNamedSecurityInfoW, SetSecurityInfo,
 };
 use windows::Win32::Security::{
-    ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, IsWellKnownSid,
-    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-    SECURITY_ATTRIBUTES, WinBuiltinAdministratorsSid, WinLocalSystemSid,
+    ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, AclSizeInformation,
+    DACL_SECURITY_INFORMATION, GetAce, GetAclInformation, GetSecurityDescriptorDacl,
+    IsWellKnownSid, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+    PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, WinBuiltinAdministratorsSid,
+    WinCreatorOwnerRightsSid, WinCreatorOwnerSid, WinLocalSystemSid,
 };
 use windows::Win32::Storage::FileSystem::{
-    BY_HANDLE_FILE_INFORMATION, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_DIRECTORY,
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-    FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
-    MOVE_FILE_FLAGS, MoveFileExW, OPEN_EXISTING, READ_CONTROL, WRITE_DAC,
+    BY_HANDLE_FILE_INFORMATION, CreateDirectoryW, CreateFileW, FILE_ACCESS_RIGHTS,
+    FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    GetFileInformationByHandle, MOVE_FILE_FLAGS, MoveFileExW, OPEN_EXISTING, READ_CONTROL,
+    WRITE_DAC,
 };
 use windows::core::{BOOL, PCWSTR};
 
@@ -62,12 +65,13 @@ pub enum Secured {
 }
 
 /// Makes `path` a directory with the DACL in `sddl` that nobody but SYSTEM
-/// and Administrators controls. One owned by anyone else, which a standard
-/// user could have created before installation with files and permissions
-/// of their own, or a junction or other link to somewhere else, is moved
-/// aside (the link itself, never its target) and a new one created. Only
-/// the directory is changed, through a handle, so no link inside or at the
-/// path is ever followed.
+/// and Administrators controls. It is kept only when it and everything in
+/// it (looked at without following any link) belong to them, are no links
+/// or extra hard links, and let nobody else write. Anything else, such as
+/// a folder a standard user created before installation with files and
+/// permissions of their own, or a junction to somewhere else, is moved
+/// aside whole (a link itself, never its target) and a new one created.
+/// Only the directory's own DACL is changed, through its handle.
 pub fn secure_dir(path: &Path, sddl: &str) -> Result<Secured> {
     secure_dir_with(path, sddl, trusted_owner)
 }
@@ -78,7 +82,7 @@ fn secure_dir_with(path: &Path, sddl: &str, trusted: impl Fn(PSID) -> bool) -> R
     let wide: Vec<u16> = path.as_os_str().encode_wide_nul();
     let mut moved = None;
     for _ in 0..3 {
-        match open_dir(&wide) {
+        match open(&wide, READ_CONTROL | WRITE_DAC) {
             Err(e) if is_missing(&e) => {
                 let attributes = SECURITY_ATTRIBUTES {
                     nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
@@ -94,7 +98,10 @@ fn secure_dir_with(path: &Path, sddl: &str, trusted: impl Fn(PSID) -> bool) -> R
                     Err(e) => return Err(e.into()),
                 }
             }
-            Ok(dir) if ours(&dir, &trusted)? => {
+            Ok(dir)
+                if trustworthy(&dir, &trusted)? == Some(true)
+                    && tree_is_ours(path, &trusted, 0)? =>
+            {
                 // SAFETY: `dir` is open with WRITE_DAC; the DACL points into `sd`.
                 unsafe {
                     SetSecurityInfo(
@@ -120,13 +127,13 @@ fn secure_dir_with(path: &Path, sddl: &str, trusted: impl Fn(PSID) -> bool) -> R
     Ok(Secured::Contested)
 }
 
-/// Opens `path` itself, a link included, to read and set its security.
-fn open_dir(path: &[u16]) -> Result<OwnedHandle> {
+/// Opens `path` itself, a link included (never its target).
+fn open(path: &[u16], access: FILE_ACCESS_RIGHTS) -> Result<OwnedHandle> {
     // SAFETY: `path` is NUL-terminated; the handle is owned below.
     let handle = unsafe {
         CreateFileW(
             PCWSTR(path.as_ptr()),
-            (READ_CONTROL | WRITE_DAC).0,
+            access.0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             None,
             OPEN_EXISTING,
@@ -137,36 +144,135 @@ fn open_dir(path: &[u16]) -> Result<OwnedHandle> {
     Ok(OwnedHandle::new(handle))
 }
 
-/// A real directory (no link) whose owner `trusted` accepts.
-fn ours(dir: &OwnedHandle, trusted: &impl Fn(PSID) -> bool) -> Result<bool> {
+/// What is open at `handle`, when it may be trusted: no link, owned by an
+/// owner `trusted` accepts, writable by nobody else, and (a file) without a
+/// second name elsewhere. `Some(true)` for a directory, `Some(false)` for a
+/// file, `None` when it may not be trusted.
+fn trustworthy(handle: &OwnedHandle, trusted: &impl Fn(PSID) -> bool) -> Result<Option<bool>> {
     let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    // SAFETY: `dir` is a valid handle; `info` is writable.
-    unsafe { GetFileInformationByHandle(dir.raw(), &mut info)? };
+    // SAFETY: `handle` is valid; `info` is writable.
+    unsafe { GetFileInformationByHandle(handle.raw(), &mut info)? };
+    let dir = info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0 != 0;
     if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
-        || info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0 == 0
+        || (!dir && info.nNumberOfLinks > 1)
     {
-        return Ok(false);
+        return Ok(None);
     }
     let mut owner = PSID::default();
+    let mut dacl: *mut ACL = std::ptr::null_mut();
     let mut sd = PSECURITY_DESCRIPTOR::default();
-    // SAFETY: `dir` is open with READ_CONTROL; `owner` points into `sd`,
-    // which is freed below after its last use.
+    // SAFETY: `handle` is open with READ_CONTROL; `owner` and `dacl` point
+    // into `sd`, which is freed below after their last use.
     unsafe {
         GetSecurityInfo(
-            dir.raw(),
+            handle.raw(),
             SE_FILE_OBJECT,
-            OWNER_SECURITY_INFORMATION,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
             Some(&mut owner),
             None,
-            None,
+            Some(&mut dacl),
             None,
             Some(&mut sd),
         )
         .ok()?;
-        let trusted = trusted(owner);
+        let ok = trusted(owner) && only_trusted_write(dacl, trusted);
         LocalFree(Some(HLOCAL(sd.0)));
-        Ok(trusted)
+        Ok(ok.then_some(dir))
     }
+}
+
+/// Rights that change an object or what is in it.
+const WRITE_RIGHTS: u32 = 0x0002 // FILE_WRITE_DATA, FILE_ADD_FILE
+    | 0x0004 // FILE_APPEND_DATA, FILE_ADD_SUBDIRECTORY
+    | 0x0010 // FILE_WRITE_EA
+    | 0x0040 // FILE_DELETE_CHILD
+    | 0x0100 // FILE_WRITE_ATTRIBUTES
+    | 0x0001_0000 // DELETE
+    | 0x0004_0000 // WRITE_DAC
+    | 0x0008_0000 // WRITE_OWNER
+    | 0x1000_0000 // GENERIC_ALL
+    | 0x4000_0000; // GENERIC_WRITE
+
+/// Whether only trusted principals (and the owner, through CREATOR OWNER or
+/// OWNER RIGHTS) are allowed to write, inherited-only entries included. A
+/// missing DACL lets everyone do anything; unusual kinds of allow entries
+/// count as untrusted.
+///
+/// # Safety
+/// `dacl` must be null or point to a valid ACL.
+unsafe fn only_trusted_write(dacl: *const ACL, trusted: &impl Fn(PSID) -> bool) -> bool {
+    const ACCESS_ALLOWED: u8 = 0;
+    const DENIED: [u8; 4] = [1, 6, 10, 12];
+    if dacl.is_null() {
+        return false;
+    }
+    let mut size = ACL_SIZE_INFORMATION::default();
+    // SAFETY: `dacl` is valid; `size` is writable and its size is passed.
+    let read = unsafe {
+        GetAclInformation(
+            dacl,
+            (&raw mut size).cast(),
+            size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    };
+    if read.is_err() {
+        return false;
+    }
+    (0..size.AceCount).all(|i| {
+        let mut ace = std::ptr::null_mut();
+        // SAFETY: `i` is below the ACL's entry count; every entry starts
+        // with an ACE_HEADER, and an allow entry is an ACCESS_ALLOWED_ACE
+        // whose SID starts at `SidStart`.
+        unsafe {
+            if GetAce(dacl, i, &mut ace).is_err() {
+                return false;
+            }
+            let header = &*(ace as *const ACE_HEADER);
+            if DENIED.contains(&header.AceType) {
+                return true;
+            }
+            if header.AceType != ACCESS_ALLOWED {
+                return false;
+            }
+            let allowed = ace as *const ACCESS_ALLOWED_ACE;
+            if (*allowed).Mask & WRITE_RIGHTS == 0 {
+                return true;
+            }
+            let sid = PSID((&raw const (*allowed).SidStart).cast_mut().cast());
+            trusted(sid)
+                || IsWellKnownSid(sid, WinCreatorOwnerSid).as_bool()
+                || IsWellKnownSid(sid, WinCreatorOwnerRightsSid).as_bool()
+        }
+    })
+}
+
+/// Whether everything below `dir` may be trusted (see [`trustworthy`]).
+/// Only directories already found trustworthy are entered, and nobody else
+/// can change what is in them meanwhile.
+fn tree_is_ours(dir: &Path, trusted: &impl Fn(PSID) -> bool, depth: u32) -> Result<bool> {
+    if depth > 16 {
+        return Ok(false);
+    }
+    for entry in std::fs::read_dir(dir).map_err(io_error)? {
+        let path = entry.map_err(io_error)?.path();
+        let handle = match open(&path.as_os_str().encode_wide_nul(), READ_CONTROL) {
+            Ok(h) => h,
+            Err(e) if e.is_access_denied() => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        match trustworthy(&handle, trusted)? {
+            None => return Ok(false),
+            Some(true) if !tree_is_ours(&path, trusted, depth + 1)? => return Ok(false),
+            Some(_) => {}
+        }
+    }
+    Ok(true)
+}
+
+fn io_error(e: std::io::Error) -> crate::Error {
+    let code = e.raw_os_error().unwrap_or(0) as u32;
+    windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(code)).into()
 }
 
 fn trusted_owner(owner: PSID) -> bool {
@@ -177,14 +283,19 @@ fn trusted_owner(owner: PSID) -> bool {
     }
 }
 
-/// Renames `path` to an unused `<path>.untrusted-<n>` next to it.
+/// Renames `path` to `<path>.untrusted-<random>` next to it: a name nobody
+/// can guess, and so prepare a link at, in advance.
 fn move_aside(path: &Path, wide: &[u16]) -> Result<PathBuf> {
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
+    use std::hash::{BuildHasher, Hasher};
+    let mut random = std::collections::hash_map::RandomState::new().build_hasher();
+    random.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos(),
+    );
     let mut name = path.as_os_str().to_owned();
-    name.push(format!(".untrusted-{stamp}"));
+    name.push(format!(".untrusted-{:016x}", random.finish()));
     let aside = PathBuf::from(name);
     let to: Vec<u16> = aside.as_os_str().encode_wide_nul();
     // SAFETY: both paths are NUL-terminated.
@@ -273,7 +384,7 @@ mod tests {
     /// Whether the DACL of `path` (not followed if a link) is protected.
     fn protected(path: &Path) -> bool {
         use windows::Win32::Security::{GetSecurityDescriptorControl, SE_DACL_PROTECTED};
-        let dir = open_dir(&path.as_os_str().encode_wide_nul()).unwrap();
+        let dir = open(&path.as_os_str().encode_wide_nul(), READ_CONTROL).unwrap();
         let mut sd = PSECURITY_DESCRIPTOR::default();
         // SAFETY: `dir` is open with READ_CONTROL; `sd` is freed below.
         unsafe {
@@ -351,6 +462,73 @@ mod tests {
         assert!(!dir.join("config.toml").exists(), "a fresh directory");
         assert!(protected(&dir));
         std::fs::remove_dir_all(&parent).unwrap();
+    }
+
+    /// Trusts every owner and writer but Everyone, as the service trusts
+    /// SYSTEM and Administrators only.
+    fn all_but_everyone(sid: PSID) -> bool {
+        use windows::Win32::Security::WinWorldSid;
+        // SAFETY: `sid` points to a valid SID.
+        !unsafe { IsWellKnownSid(sid, WinWorldSid) }.as_bool()
+    }
+
+    #[test]
+    fn anything_inside_that_is_not_ours_sets_the_whole_directory_aside() {
+        let parent = scratch("inside");
+        let target = parent.join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        type Plant = fn(&Path, &Path);
+        let plants: [(&str, Plant); 3] = [
+            ("writable by everyone", |dir, _| {
+                let f = dir.join("logs").join("config.toml");
+                std::fs::write(&f, b"x").unwrap();
+                set_dacl(&f, "D:P(A;;FA;;;OW)(A;;FA;;;WD)").unwrap();
+            }),
+            ("a junction", |dir, target| {
+                let made = std::process::Command::new("cmd.exe")
+                    .args(["/d", "/c", "mklink", "/J"])
+                    .arg(dir.join("logs").join("link"))
+                    .arg(target)
+                    .output()
+                    .unwrap();
+                assert!(made.status.success(), "{made:?}");
+            }),
+            ("a second name for a file", |dir, target| {
+                let f = target.join("hosts-copy");
+                std::fs::write(&f, b"x").unwrap();
+                std::fs::hard_link(&f, dir.join("telegram.toml")).unwrap();
+            }),
+        ];
+        for (what, plant) in plants {
+            let dir = parent.join("data");
+            std::fs::create_dir_all(dir.join("logs")).unwrap();
+            std::fs::write(dir.join("logs").join("today.log"), b"x").unwrap();
+            // Clean, it is kept.
+            let kept = secure_dir_with(&dir, SDDL, all_but_everyone).unwrap();
+            assert_eq!(kept, Secured::Kept, "{what}");
+            plant(&dir, &target);
+            let r = secure_dir_with(&dir, SDDL, all_but_everyone).unwrap();
+            let Secured::Replaced(aside) = r else {
+                panic!("{what}: {r:?}")
+            };
+            assert!(!dir.join("logs").exists(), "{what}: a fresh directory");
+            assert!(!protected(&target), "{what}: never followed");
+            std::fs::remove_dir_all(&aside).unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+        std::fs::remove_dir_all(&parent).unwrap();
+    }
+
+    #[test]
+    fn a_directory_others_may_write_is_not_kept() {
+        let dir = scratch("writable");
+        set_dacl(&dir, "D:P(A;OICI;FA;;;OW)(A;OICI;FA;;;SY)(A;OICI;FW;;;WD)").unwrap();
+        let r = secure_dir_with(&dir, SDDL, all_but_everyone).unwrap();
+        let Secured::Replaced(aside) = r else {
+            panic!("{r:?}")
+        };
+        std::fs::remove_dir_all(&aside).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

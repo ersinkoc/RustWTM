@@ -20,17 +20,24 @@ struct Budget {
 }
 
 impl Budget {
+    /// Sets both budgets, the second even when the first fails; each is
+    /// recorded only once set. Returns the first failure.
     fn apply(&mut self, cpu: Option<f32>, memory: Option<u64>) -> wtm_sys::Result<()> {
+        let mut result = Ok(());
         // Windows rejects lifting a cap that was never set.
         if cpu != self.cpu && (cpu.is_some() || self.cpu.is_some()) {
-            self.job.set_cpu_cap(cpu)?;
-            self.cpu = cpu;
+            match self.job.set_cpu_cap(cpu) {
+                Ok(()) => self.cpu = cpu,
+                Err(e) => result = Err(e),
+            }
         }
         if memory != self.memory && (memory.is_some() || self.memory.is_some()) {
-            self.job.set_job_memory_limit(memory)?;
-            self.memory = memory;
+            match self.job.set_job_memory_limit(memory) {
+                Ok(()) => self.memory = memory,
+                Err(e) => result = result.and(Err(e)),
+            }
         }
-        Ok(())
+        result
     }
 }
 
@@ -62,6 +69,9 @@ pub struct AppLimiter {
     reported_outside: HashSet<String>,
     /// Budgets that were reported as (nearly) out of memory.
     memory_full: HashSet<GroupId>,
+    /// Budgets that could not be lifted yet: their jobs are kept, so the
+    /// limits can still be taken off, and tried again every tick.
+    unlifted: Vec<(GroupId, Budget)>,
     events: EventLog,
 }
 
@@ -75,6 +85,7 @@ impl AppLimiter {
             outside: HashSet::new(),
             reported_outside: HashSet::new(),
             memory_full: HashSet::new(),
+            unlifted: Vec::new(),
             events,
         }
     }
@@ -98,6 +109,15 @@ impl AppLimiter {
     /// Assigns new processes and keeps budgets in line with the limits.
     /// Returns the usage of every budget.
     pub fn tick(&mut self, procs: &[ProcessInfo], logical_cpus: u32) -> Vec<GroupUsage> {
+        let events = &self.events;
+        self.unlifted
+            .retain_mut(|(group, budget)| match budget.apply(None, None) {
+                Ok(()) => {
+                    events.info(None, format!("lifted the {} limit", group.app));
+                    false
+                }
+                Err(_) => true,
+            });
         if self.dry_run {
             return self.preview(procs);
         }
@@ -238,14 +258,21 @@ impl AppLimiter {
         usage
     }
 
-    fn lift(&self, group: &GroupId, mut budget: Budget, why: &str) {
+    fn lift(&mut self, group: &GroupId, mut budget: Budget, why: &str) {
         match budget.apply(None, None) {
             Ok(()) => self
                 .events
                 .info(None, format!("lifted the {} limit ({why})", group.app)),
-            Err(e) => self
-                .events
-                .warn(None, format!("cannot lift the {} limit: {e}", group.app)),
+            Err(e) => {
+                self.events.warn(
+                    None,
+                    format!(
+                        "cannot lift the {} limit yet ({e}); trying again",
+                        group.app
+                    ),
+                );
+                self.unlifted.push((group.clone(), budget));
+            }
         }
     }
 
