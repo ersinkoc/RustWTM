@@ -71,7 +71,7 @@ fn per_tick_calls() {
     measure("cpu_times", 2000, || system::cpu_times().unwrap());
     measure("per_cpu_times", 2000, || system::per_cpu_times().unwrap());
     measure("memory_status", 2000, || system::memory_status().unwrap());
-    measure("net_counters", 200, || system::net_counters().unwrap());
+    measure("net_adapters", 200, || system::net_adapters().unwrap());
     measure("connections", 100, || net::connections().unwrap());
     if let Ok(mut gpu) = GpuSampler::new() {
         measure("gpu sample", 100, || gpu.sample().unwrap());

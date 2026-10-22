@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use wtm_core::Snapshot;
 use wtm_core::control::{EcoQos, Limits, PriorityClass, ProcessDetails, ProcessRef};
 use wtm_policy::{AppStats, Finding, MinuteRow, Source};
+use wtm_sys::services::Presence;
 
 pub const PIPE_NAME: &str = r"\\.\pipe\RustWTM";
 
@@ -338,13 +339,20 @@ impl Client {
         Self::connect_to(PIPE_NAME)
     }
 
+    /// Connects to the pipe `name`. Only the service's own pipe is checked
+    /// against the service: other names are test and development servers.
     pub fn connect_to(name: &str) -> io::Result<Self> {
-        Self::connect_checked(name, wtm_sys::services::service_pid(SERVICE_NAME))
+        let service = if name == PIPE_NAME {
+            wtm_sys::services::presence(SERVICE_NAME)
+        } else {
+            Presence::Missing
+        };
+        Self::connect_checked(name, service)
     }
 
-    /// Connects to `name`, requiring its server to be process `service`
-    /// when the service is running.
-    fn connect_checked(name: &str, service: Option<u32>) -> io::Result<Self> {
+    /// Connects to `name`, requiring its server to be the service's process
+    /// while the service is installed.
+    fn connect_checked(name: &str, service: Presence) -> io::Result<Self> {
         let mut attempts = 0;
         let pipe = loop {
             match OpenOptions::new().read(true).write(true).open(name) {
@@ -398,17 +406,23 @@ impl Client {
     }
 }
 
-/// Makes sure we talk to the installed service (PID `service`) and not to a
-/// process that grabbed the pipe name. Without a running service (console
-/// mode during development) the server cannot be verified: `Ok(false)`.
-fn verify_server(pipe: &File, service: Option<u32>) -> io::Result<bool> {
+/// Makes sure we talk to the installed service and not to a process that
+/// grabbed the pipe name. An installed service that is not running cannot
+/// vouch for anyone, so its pipe is refused: any user could have taken the
+/// name meanwhile. Without the service installed (console mode during
+/// development) the server cannot be verified: `Ok(false)`.
+fn verify_server(pipe: &File, service: Presence) -> io::Result<bool> {
     match service {
-        Some(service) if wtm_sys::pipe::server_pid(pipe).ok() == Some(service) => Ok(true),
-        Some(_) => Err(io::Error::new(
+        Presence::Running(pid) if wtm_sys::pipe::server_pid(pipe).ok() == Some(pid) => Ok(true),
+        Presence::Running(_) => Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "the pipe is not served by the RustWTM service",
         )),
-        None => Ok(false),
+        Presence::NotRunning => Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the RustWTM service is installed but not running",
+        )),
+        Presence::Missing => Ok(false),
     }
 }
 
@@ -618,7 +632,8 @@ mod tests {
             }),
         );
         // Pretend the test process is the service: it serves the pipe.
-        let mut client = Client::connect_checked(&name, Some(std::process::id())).unwrap();
+        let mut client =
+            Client::connect_checked(&name, Presence::Running(std::process::id())).unwrap();
         assert!(client.is_admin());
         assert!(client.is_verified());
         let reply = client.call(&Request::Status).unwrap();
@@ -650,7 +665,7 @@ mod tests {
             },
             Response::Error(String::new()),
         );
-        let e = Client::connect_checked(&name, None).unwrap_err();
+        let e = Client::connect_checked(&name, Presence::Missing).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::InvalidData);
         assert!(e.to_string().contains("protocol"), "{e}");
 
@@ -660,7 +675,7 @@ mod tests {
             Response::Error("go away".into()),
             Response::Error(String::new()),
         );
-        let e = Client::connect_checked(&name, None).unwrap_err();
+        let e = Client::connect_checked(&name, Presence::Missing).unwrap_err();
         assert!(e.to_string().contains("unexpected handshake reply"), "{e}");
     }
 
@@ -680,7 +695,7 @@ mod tests {
             .write(true)
             .open(&name)
             .unwrap();
-        let e = Client::connect_checked(&name, None).unwrap_err();
+        let e = Client::connect_checked(&name, Presence::Missing).unwrap_err();
         assert_eq!(e.raw_os_error(), Some(ERROR_PIPE_BUSY));
     }
 
@@ -694,10 +709,14 @@ mod tests {
             .open(&name)
             .unwrap();
         // The test process itself serves the pipe.
-        assert!(verify_server(&pipe, Some(std::process::id())).unwrap());
-        let e = verify_server(&pipe, Some(std::process::id().wrapping_add(4))).unwrap_err();
+        let me = std::process::id();
+        assert!(verify_server(&pipe, Presence::Running(me)).unwrap());
+        let e = verify_server(&pipe, Presence::Running(me.wrapping_add(4))).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
-        assert!(!verify_server(&pipe, None).unwrap());
+        // An installed service that is stopped cannot vouch for anyone.
+        let e = verify_server(&pipe, Presence::NotRunning).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        assert!(!verify_server(&pipe, Presence::Missing).unwrap());
     }
 
     #[test]
