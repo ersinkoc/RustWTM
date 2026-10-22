@@ -133,6 +133,32 @@ fn refuses_protected_and_stale_targets() {
         Err(ControlError::Protected { .. })
     ));
 
+    // The name a caller gives is only a claim: a process whose image has a
+    // protected name stays protected under another name, and without a
+    // creation time. A copy of cmd.exe stands in for the real thing.
+    let dir = std::env::temp_dir().join(format!("wtm-impostor-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let image = dir.join("fontdrvhost.exe");
+    std::fs::copy(r"C:\Windows\System32\cmd.exe", &image).unwrap();
+    let impostor = ChildGuard(
+        Command::new(&image)
+            .raw_arg("/d /c ping -n 60 127.0.0.1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let claimed = ProcessRef {
+        pid: impostor.0.id(),
+        create_time: 0,
+        name: "notepad.exe".into(),
+    };
+    let r = control::kill(&claimed);
+    assert!(matches!(r, Err(ControlError::Protected { .. })), "{r:?}");
+    drop(impostor);
+    let _ = std::fs::remove_dir_all(&dir);
+
     let child = spawn_cmd("ping -n 60 127.0.0.1");
     let mut stale = find(child.0.id());
     stale.create_time += 1;

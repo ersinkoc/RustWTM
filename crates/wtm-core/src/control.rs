@@ -156,13 +156,28 @@ fn open_verified(target: &ProcessRef, access: Access) -> ControlResult<ProcessHa
     Ok(handle)
 }
 
-/// Opens a process for a mutating action, enforcing the protection rules.
+/// The file name of the image `h` runs. A `ProcessRef`'s name is only what
+/// the caller claims; protection rules judge the process actually opened.
+fn image_name(h: &ProcessHandle) -> Option<String> {
+    let path = h.image_path().ok()?;
+    Some(file_name(&path).to_owned())
+}
+
+fn file_name(path: &str) -> &str {
+    path.rsplit(['\\', '/']).next().unwrap_or(path)
+}
+
+/// Opens a process for a mutating action, enforcing the protection rules
+/// on both the name given and the image actually opened.
 fn open_controlled(target: &ProcessRef, access: Access) -> ControlResult<ProcessHandle> {
     let pid = target.pid;
     if let Some(reason) = protection_reason(pid, &target.name) {
         return Err(ControlError::Protected { pid, reason });
     }
     let handle = open_verified(target, access)?;
+    if let Some(reason) = image_name(&handle).and_then(|name| protection_reason(pid, &name)) {
+        return Err(ControlError::Protected { pid, reason });
+    }
     if handle.is_critical().unwrap_or(true) {
         return Err(ControlError::Protected {
             pid,
@@ -316,25 +331,33 @@ pub fn create_dump(
     target: &ProcessRef,
     dir: &std::path::Path,
 ) -> ControlResult<std::path::PathBuf> {
-    // Their memory holds the sign-in secrets of this PC; dumping them is what
-    // credential theft does, and antivirus software rightly stops it.
-    if ["lsass.exe", "lsaiso.exe"]
-        .iter()
-        .any(|n| n.eq_ignore_ascii_case(&target.name))
-    {
-        return Err(ControlError::Protected {
-            pid: target.pid,
-            reason: "holds this PC's sign-in secrets",
-        });
+    let secrets = ControlError::Protected {
+        pid: target.pid,
+        reason: "holds this PC's sign-in secrets",
+    };
+    if holds_secrets(&target.name) {
+        return Err(secrets);
     }
     let h = open_verified(target, Access::DUMP_CLONE)
         .or_else(|_| open_verified(target, Access::DUMP))?;
+    // The name given is only a claim; the image opened decides.
+    if image_name(&h).is_some_and(|name| holds_secrets(&name)) {
+        return Err(secrets);
+    }
     let path = dump_path(dir, &target.name);
     sys(target.pid, h.write_dump(&path))?;
     Ok(path)
 }
 
 /// Full image path only; cheaper than [`inspect`].
+/// Their memory holds the sign-in secrets of this PC; dumping them is what
+/// credential theft does, and antivirus software rightly stops it.
+fn holds_secrets(name: &str) -> bool {
+    ["lsass.exe", "lsaiso.exe"]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(name))
+}
+
 pub fn image_path(target: &ProcessRef) -> ControlResult<String> {
     let h = open_verified(target, Access::QUERY)?;
     sys(target.pid, h.image_path())
@@ -452,6 +475,18 @@ impl Limiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secrets_and_image_names_are_judged_by_file_name() {
+        assert_eq!(file_name(r"C:\Windows\System32\lsass.exe"), "lsass.exe");
+        assert_eq!(file_name("lsass.exe"), "lsass.exe");
+        assert_eq!(
+            file_name(r"\Device\HarddiskVolume3/x/LsaIso.exe"),
+            "LsaIso.exe"
+        );
+        assert!(holds_secrets("LSASS.EXE") && holds_secrets("lsaiso.exe"));
+        assert!(!holds_secrets("notepad.exe") && !holds_secrets("lsass.exe.bak"));
+    }
 
     const STATUS_ACCESS_DENIED: u32 = 0xC000_0022;
     const STATUS_INVALID_PARAMETER: u32 = 0xC000_000D;
