@@ -120,6 +120,13 @@ impl Governor {
             .filter(|p| {
                 !(self.cfg.protect_foreground && self.foreground.contains(&(p.pid, p.create_time)))
             })
+            // A process at the end of the ladder can take no further step:
+            // it must not keep one of the slots from the next consumer.
+            .filter(|p| {
+                self.throttled
+                    .get(&(p.pid, p.create_time))
+                    .is_none_or(|t| t.next_step < self.cfg.ladder.len())
+            })
             .collect();
         offenders.sort_by(|a, b| b.cpu_percent.total_cmp(&a.cpu_percent));
         offenders.truncate(self.cfg.max_offenders);
@@ -276,16 +283,42 @@ mod tests {
             [(10, Action::CpuCap(20.0)), (11, Action::CpuCap(10.0))]
         );
 
-        // Ladder exhausted: nothing more.
-        assert!(g.tick(at(7), &snap(95.0, busy())).is_empty());
-        assert_eq!(g.throttled_count(), 2);
+        // Their ladder is exhausted: the slots pass to the next consumer.
+        let d = g.tick(at(7), &snap(95.0, busy()));
+        assert_eq!(applied(&d), [(12, below)]);
+        assert_eq!(g.throttled_count(), 3);
 
         // Recovery must persist for recover_secs, then everything is restored.
         assert!(g.tick(at(8), &snap(50.0, busy())).is_empty());
         let d = g.tick(at(13), &snap(50.0, busy()));
-        assert_eq!(d.len(), 2);
+        assert_eq!(d.len(), 3);
         assert!(applied(&d).is_empty(), "recovery only restores");
         assert_eq!(g.throttled_count(), 0);
+    }
+
+    #[test]
+    fn fully_throttled_processes_leave_their_slot_to_the_next() {
+        // One slot, one step: a hog taken all the way must not shield the
+        // next consumer for the rest of the overload.
+        let mut g = Governor::new(GovernorConfig {
+            max_offenders: 1,
+            ladder: vec![Action::Priority(PriorityLevel::BelowNormal)],
+            ..cfg()
+        });
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let busy = || vec![proc(10, "hog.exe", 40.0), proc(11, "next.exe", 20.0)];
+        assert!(g.tick(at(0), &snap(95.0, busy())).is_empty());
+        let first = g.tick(at(3), &snap(95.0, busy()));
+        assert_eq!(
+            applied(&first),
+            [(10, Action::Priority(PriorityLevel::BelowNormal))]
+        );
+        let second = g.tick(at(6), &snap(95.0, busy()));
+        assert_eq!(
+            applied(&second),
+            [(11, Action::Priority(PriorityLevel::BelowNormal))]
+        );
     }
 
     #[test]

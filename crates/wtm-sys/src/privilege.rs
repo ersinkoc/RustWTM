@@ -4,7 +4,6 @@ use windows::Win32::Security::{
     SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-use windows::core::PCWSTR;
 
 use crate::Result;
 use crate::handle::OwnedHandle;
@@ -14,12 +13,6 @@ use crate::handle::OwnedHandle;
 /// Returns `Ok(false)` when the token does not hold the privilege
 /// (i.e. the process is not elevated).
 pub fn enable_debug_privilege() -> Result<bool> {
-    enable(SE_DEBUG_NAME)
-}
-
-/// Enables the privilege `name` (an `SE_*_NAME`) for the current process.
-/// Returns `Ok(false)` when the token does not hold it.
-pub fn enable(name: PCWSTR) -> Result<bool> {
     let mut token = HANDLE::default();
     // SAFETY: GetCurrentProcess returns a pseudo-handle; `token` is writable.
     unsafe {
@@ -32,8 +25,8 @@ pub fn enable(name: PCWSTR) -> Result<bool> {
     let token = OwnedHandle::new(token);
 
     let mut luid = LUID::default();
-    // SAFETY: `name` is a NUL-terminated wide string; `luid` is writable.
-    unsafe { LookupPrivilegeValueW(None, name, &mut luid)? };
+    // SAFETY: SE_DEBUG_NAME is a static wide string; `luid` is writable.
+    unsafe { LookupPrivilegeValueW(None, SE_DEBUG_NAME, &mut luid)? };
 
     let privileges = TOKEN_PRIVILEGES {
         PrivilegeCount: 1,

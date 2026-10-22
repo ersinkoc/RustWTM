@@ -41,6 +41,8 @@ pub struct History {
     apps: HashMap<String, Acc>,
     /// Scratch for lower-casing names that are not ASCII lower case.
     lower: String,
+    /// Samples taken in the current minute, whichever apps they saw.
+    minute_samples: u32,
 }
 
 const SCHEMA: &str = "
@@ -94,6 +96,7 @@ impl History {
             minute: None,
             apps: HashMap::new(),
             lower: String::new(),
+            minute_samples: 0,
         })
     }
 
@@ -112,6 +115,7 @@ impl History {
             self.flush()?;
         }
         self.minute = Some(minute);
+        self.minute_samples += 1;
 
         for p in snap.processes.iter().filter(|p| p.pid != 0) {
             let app = lower_name(&p.name, &mut self.lower);
@@ -183,24 +187,29 @@ impl History {
                             / (MAX(samples, 1) + excluded.samples) AS INTEGER),
                   samples = MAX(samples, 1) + excluded.samples",
             )?;
+            // CPU and GPU are shares of the machine over the whole minute: an
+            // app seen in 2 samples of 60 used a 30th of what it used then.
+            // Memory, handles and threads describe the app while it ran.
+            let samples = self.minute_samples.max(1);
+            let minute_n = f64::from(samples);
             for (app, a) in self.apps.drain() {
                 let n = f64::from(a.samples.max(1));
-                let samples = a.samples.max(1);
                 stmt.execute(params![
                     app,
                     minute,
-                    a.cpu_sum / n,
+                    a.cpu_sum / minute_n,
                     f64::from(a.cpu_peak),
                     (a.mem_sum / n) as i64,
                     a.mem_peak as i64,
                     a.processes,
-                    a.gpu_sum / n,
+                    a.gpu_sum / minute_n,
                     (a.handles_sum / n) as i64,
                     (a.threads_sum / n) as i64,
                     samples,
                 ])?;
             }
         }
+        self.minute_samples = 0;
         tx.commit()
     }
 
@@ -339,6 +348,32 @@ mod tests {
             net_traced: false,
             taken_at_ms: 0,
         }
+    }
+
+    #[test]
+    fn an_app_seen_briefly_uses_its_share_of_the_minute() {
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        let base = 3_000 * 60;
+        // 60 samples; the helper runs in 2 of them at 21 % of the machine.
+        for s in 0..60 {
+            let mut procs = vec![proc(1, "steady.exe", 3.0, 100)];
+            if s < 2 {
+                procs.push(proc(2, "helper.exe", 21.0, 50));
+            }
+            h.record(&snap(procs), base + s).unwrap();
+        }
+        h.flush().unwrap();
+        let row = |app: &str| -> (f64, f64, i64) {
+            h.connection()
+                .query_row(
+                    "SELECT cpu_avg, cpu_peak, mem_avg FROM app_minute WHERE app = ?1",
+                    [app],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+                .unwrap()
+        };
+        assert_eq!(row("helper.exe"), (0.7, 21.0, 50 << 20));
+        assert_eq!(row("steady.exe"), (3.0, 3.0, 100 << 20));
     }
 
     #[test]
