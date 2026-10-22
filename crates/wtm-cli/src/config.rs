@@ -101,9 +101,7 @@ pub fn app_limit(
                 )?;
             }
             for l in &config.limits {
-                let groups = usage.iter().filter(|u| {
-                    u.group.app.eq_ignore_ascii_case(&l.name) && u.group.scope == l.scope
-                });
+                let groups = usage.iter().filter(|u| u.group.is_for(l));
                 let (procs, cpu, mem) = groups.fold((0, 0.0, 0u64), |(n, c, m), g| {
                     (n + g.processes, c + g.cpu_percent, m + g.memory_bytes)
                 });

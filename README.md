@@ -200,8 +200,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.20.0-x64.msi            # interactive
-msiexec /i RustWTM-0.20.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.20.1-x64.msi            # interactive
+msiexec /i RustWTM-0.20.1-x64.msi /qn        # silent
 ```
 
 ### Uninstall

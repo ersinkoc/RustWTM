@@ -239,9 +239,19 @@ fn elevated_install(msi: &Download) -> String {
     )
 }
 
-/// `text` as a single-quoted PowerShell string.
+/// `text` as a single-quoted PowerShell string. PowerShell ends one at any
+/// of ' ‘ ’ ‚ ‛ (as in C:\Users\O’Brien), so each is doubled.
 fn ps_quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "''"))
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('\'');
+    for c in text.chars() {
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+        out.push(c);
+    }
+    out.push('\'');
+    out
 }
 
 /// A script for `powershell -EncodedCommand`: base64 of its UTF-16LE.
@@ -548,5 +558,15 @@ mod tests {
         ));
         // A test binary is never the installed one.
         assert!(!installed_by_msi(&std::env::current_exe().unwrap()));
+    }
+
+    #[test]
+    fn every_kind_of_single_quote_is_doubled() {
+        assert_eq!(ps_quote("O'Brien"), "'O''Brien'");
+        assert_eq!(
+            ps_quote("C:\\Users\\O\u{2019}Brien \u{2018}\u{201A}\u{201B}"),
+            "'C:\\Users\\O\u{2019}\u{2019}Brien \u{2018}\u{2018}\u{201A}\u{201A}\u{201B}\u{201B}'"
+        );
+        assert_eq!(ps_quote("\u{201C}x\u{201D}"), "'\u{201C}x\u{201D}'");
     }
 }

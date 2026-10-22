@@ -197,10 +197,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         .limits
         .iter()
         .map(|l| {
-            let groups: Vec<_> = usage
-                .iter()
-                .filter(|u| u.group.app.eq_ignore_ascii_case(&l.name) && u.group.scope == l.scope)
-                .collect();
+            let groups: Vec<_> = usage.iter().filter(|u| u.group.is_for(l)).collect();
             Row {
                 limit: l,
                 instances: groups.len(),

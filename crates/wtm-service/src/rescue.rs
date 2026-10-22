@@ -59,6 +59,18 @@ impl Rescue {
         }
         self.dry_run = dry_run;
         self.policy.set_config(cfg);
+        // Programs the new settings leave alone (newly exempt) get every
+        // core back now, not when the load recovers.
+        if let Some(split) = &self.split {
+            let cfg = self.policy.config();
+            self.confined.retain(|_, t| {
+                let keep = cfg.confines(t.pid, &t.name);
+                if !keep {
+                    let _ = control::release_cpu_sets(t, &split.others);
+                }
+                keep
+            });
+        }
     }
 
     /// What clients show while the rescue core is engaged.
@@ -247,5 +259,53 @@ mod tests {
             ..one
         };
         assert_eq!(cpu_names(&two), "CPUs 14, 15");
+    }
+
+    #[test]
+    fn a_program_exempted_while_engaged_gets_every_core_back_at_once() {
+        let mut child = std::process::Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let ping = crate::test_util::wait_for("ping sampled", || {
+            wtm_core::Sampler::new()
+                .sample()
+                .unwrap()
+                .processes
+                .into_iter()
+                .find(|p| p.pid == pid)
+        });
+        let cfg = |exempt: &[&str]| ReserveConfig {
+            sustain_secs: 0,
+            release_secs: 0,
+            exempt: exempt.iter().map(|s| (*s).to_owned()).collect(),
+            ..ReserveConfig::default()
+        };
+        let mut r = Rescue::new(cfg(&[]), false, EventLog::default());
+        if r.split.is_some() {
+            let sets = || {
+                wtm_sys::control::ProcessHandle::open(pid, wtm_sys::control::Access::QUERY)
+                    .unwrap()
+                    .default_cpu_sets()
+                    .unwrap()
+                    .len()
+            };
+            let t = Instant::now();
+            tick(&mut r, t, &snapshot(99.0, vec![ping.clone()]));
+            assert!(sets() > 0);
+            r.configure(cfg(&["PING.EXE"]), false);
+            assert_eq!(sets(), 0);
+            tick(
+                &mut r,
+                t + Duration::from_secs(1),
+                &snapshot(99.0, vec![ping]),
+            );
+            assert_eq!(sets(), 0);
+            assert_eq!(r.summary().unwrap().moved, 0);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
