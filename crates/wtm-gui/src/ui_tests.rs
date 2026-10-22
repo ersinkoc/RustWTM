@@ -1129,6 +1129,90 @@ fn ctrl_f_focuses_the_search_and_escape_clears_it() {
 }
 
 #[test]
+fn table_searches_clear_and_explain_an_empty_result() {
+    #[derive(Default)]
+    struct Pages {
+        network: String,
+        services: String,
+        ports: crate::ports_tab::PortsView,
+    }
+    let d = data();
+    let no_match = "zzz-nothing-zzz".to_owned();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1600.0, 900.0])
+        .build_ui_state(
+            |ui, pages: &mut Pages| {
+                ui.columns(3, |cols| {
+                    let _ = views::network(&mut cols[0], &d, &mut pages.network, None);
+                    let _ = views::services(&mut cols[1], &d, &mut pages.services);
+                    crate::ports_tab::ports_tab(
+                        &mut cols[2],
+                        &d,
+                        &mut pages.ports,
+                        &mut Vec::new(),
+                    );
+                });
+            },
+            Pages {
+                network: no_match.clone(),
+                services: no_match.clone(),
+                ports: crate::ports_tab::PortsView {
+                    search: no_match.clone(),
+                    ..Default::default()
+                },
+            },
+        );
+    h.run_steps(2);
+    for title in [
+        "No matching connections",
+        "No matching services",
+        "No matching ports",
+    ] {
+        assert!(h.query_by_label(title).is_some(), "{title}");
+    }
+    // Each page offers its own way back, and the ✖ beside each field too.
+    assert_eq!(h.query_all_by_label("Clear search").count(), 3);
+    assert_eq!(h.query_all_by_label("✖").count(), 3);
+    h.query_all_by_label("Clear search").next().unwrap().click();
+    h.run_steps(2);
+    assert!(h.state().network.is_empty());
+    assert_eq!(h.state().services, no_match);
+
+    // Escape in a focused field clears it.
+    h.get_all_by_role(eframe::egui::accesskit::Role::TextInput)
+        .nth(1)
+        .unwrap()
+        .focus();
+    h.run();
+    h.key_press(eframe::egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().services.is_empty());
+    drop(h);
+
+    // A narrow window at 200 % scale wraps the toolbars, and a long name
+    // stays whole in its (clipped) cell.
+    let mut d = d;
+    let long = format!("Very long service display name {}", "x".repeat(120));
+    if let Some(Ok(services)) = &mut d.services {
+        services[0].display_name = long.clone();
+    }
+    let mut pages = Pages::default();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([360.0, 700.0])
+        .with_pixels_per_point(2.0)
+        .build_ui(|ui| {
+            let _ = views::network(ui, &d, &mut pages.network, Some(100));
+            let _ = views::services(ui, &d, &mut pages.services);
+            crate::ports_tab::ports_tab(ui, &d, &mut pages.ports, &mut Vec::new());
+        });
+    h.run_steps(2);
+    assert!(h.query_by_label("Include UDP").is_some());
+    assert!(h.query_by_label(&long).is_some());
+}
+
+#[test]
 fn paused_process_list_keeps_its_snapshot_and_resumes_live_data() {
     let mut h = process_harness();
     h.run();

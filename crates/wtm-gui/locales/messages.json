@@ -5891,6 +5891,30 @@
     "fr": "nom, PID, chemin ou ligne de commande",
     "es": "nombre, PID, ruta o línea de comandos"
   },
+  "No matching connections": {
+    "tr": "Eşleşen bağlantı yok",
+    "de": "Keine passenden Verbindungen",
+    "fr": "Aucune connexion correspondante",
+    "es": "Ninguna conexión coincide"
+  },
+  "Try another process name, address or port.": {
+    "tr": "Başka bir işlem adı, adres veya bağlantı noktası deneyin.",
+    "de": "Versuchen Sie einen anderen Prozessnamen, eine andere Adresse oder einen anderen Port.",
+    "fr": "Essayez un autre nom de processus, une autre adresse ou un autre port.",
+    "es": "Pruebe otro nombre de proceso, dirección o puerto."
+  },
+  "No matching ports": {
+    "tr": "Eşleşen bağlantı noktası yok",
+    "de": "Keine passenden Ports",
+    "fr": "Aucun port correspondant",
+    "es": "Ningún puerto coincide"
+  },
+  "Try another port, program or tool name.": {
+    "tr": "Başka bir bağlantı noktası, program veya araç adı deneyin.",
+    "de": "Versuchen Sie einen anderen Port, ein anderes Programm oder einen anderen Werkzeugnamen.",
+    "fr": "Essayez un autre port, programme ou nom d’outil.",
+    "es": "Pruebe otro puerto, programa o nombre de herramienta."
+  },
   "Clear search": {
     "tr": "Aramayı temizle",
     "de": "Suche leeren",

@@ -12,6 +12,9 @@ All notable changes to this project are documented here. The format follows
   measured (IPC protocol 15). The data age and the out-of-date warning use
   it, so a snapshot received again from the service's cache ages instead of
   reading as new; the age now reads *Data measured N s ago*.
+- Network, Services and Ports searches clear with Escape or a ✖ button as
+  the process search does; Network and Ports say when nothing matches and
+  offer to clear the search; table toolbars wrap in a narrow window.
 - Performance and process graphs place each point at its measurement time:
   a slower `sample_interval_ms` or a delayed sample keeps its real place on
   the time axis, and a snapshot received twice is drawn once.

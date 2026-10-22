@@ -687,31 +687,13 @@ impl ProcessView {
         let logical_cpus = snap.system.logical_cpus.max(1);
 
         ui.horizontal_wrapped(|ui| {
-            ui.label(crate::i18n::tr("Search:"));
-            let search = ui.add(
-                egui::TextEdit::singleline(&mut self.search)
-                    .id(egui::Id::unique("process_search"))
-                    .hint_text(crate::i18n::tr("name, PID, path or command line"))
-                    .desired_width(240.0),
-            )
-            .on_hover_text("Ctrl+F");
-            if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::F)) {
-                search.request_focus();
-            }
-            // TextEdit gives up focus on Escape in the same frame.
-            if (search.has_focus() || search.lost_focus())
-                && ui.input(|i| i.key_pressed(egui::Key::Escape))
-            {
-                self.search.clear();
-            }
-            if !self.search.is_empty()
-                && ui
-                    .small_button("✖")
-                    .on_hover_text(crate::i18n::tr("Clear search"))
-                    .clicked()
-            {
-                self.search.clear();
-            }
+            crate::theme::search_bar(
+                ui,
+                egui::Id::unique("process_search"),
+                &mut self.search,
+                crate::i18n::tr("name, PID, path or command line"),
+                240.0,
+            );
             for (mode, label) in [
                 (ViewMode::List, crate::i18n::tr("List")),
                 (ViewMode::Tree, crate::i18n::tr("Tree")),

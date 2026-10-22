@@ -470,19 +470,16 @@ fn listening_table(
     view: &mut PortsView,
     intents: &mut Vec<Intent>,
 ) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.strong(crate::i18n::tr("All listening ports"));
         ui.separator();
-        ui.label(crate::i18n::tr("Search:"));
-        let search = ui
-            .add(
-                egui::TextEdit::singleline(&mut view.search)
-                    .id(egui::Id::unique("ports_search"))
-                    .hint_text(crate::i18n::tr("port, program or tool"))
-                    .desired_width(200.0),
-            )
-            .on_hover_text("Ctrl+F");
-        crate::theme::focus_on_ctrl_f(ui, &search);
+        crate::theme::search_bar(
+            ui,
+            egui::Id::unique("ports_search"),
+            &mut view.search,
+            crate::i18n::tr("port, program or tool"),
+            200.0,
+        );
         ui.checkbox(&mut view.show_udp, crate::i18n::tr("Include UDP"));
     });
     let f = view.search.trim().to_lowercase();
@@ -523,6 +520,17 @@ fn listening_table(
                 .map_or(0, |p| p.private_working_set)
                 .cmp(&bp.map_or(0, |p| p.private_working_set)),
         });
+    }
+    if rows.is_empty() && !f.is_empty() {
+        crate::theme::empty_state(
+            ui,
+            crate::i18n::tr("No matching ports"),
+            crate::i18n::tr("Try another port, program or tool name."),
+        );
+        if ui.button(crate::i18n::tr("Clear search")).clicked() {
+            view.search.clear();
+        }
+        return;
     }
 
     let row_height = ui.spacing().interact_size.y;

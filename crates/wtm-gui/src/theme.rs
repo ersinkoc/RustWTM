@@ -283,6 +283,34 @@ pub fn focus_on_ctrl_f(ui: &Ui, field: &egui::Response) {
     }
 }
 
+/// The search of a table toolbar: a label and a field that Ctrl+F focuses
+/// and Escape or the ✖ button clears. Placed inline, so it wraps with the
+/// rest of a `horizontal_wrapped` toolbar in a narrow window.
+pub fn search_bar(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, width: f32) {
+    ui.label(crate::i18n::tr("Search:"));
+    let field = ui
+        .add(
+            egui::TextEdit::singleline(text)
+                .id(id)
+                .hint_text(hint)
+                .desired_width(width),
+        )
+        .on_hover_text("Ctrl+F");
+    focus_on_ctrl_f(ui, &field);
+    // TextEdit gives up focus on Escape in the same frame.
+    if (field.has_focus() || field.lost_focus()) && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        text.clear();
+    }
+    if !text.is_empty()
+        && ui
+            .small_button("✖")
+            .on_hover_text(crate::i18n::tr("Clear search"))
+            .clicked()
+    {
+        text.clear();
+    }
+}
+
 /// Ends the last cell of a striped grid at the right edge, so its stripes
 /// span the whole card.
 pub fn fill_row(ui: &mut Ui) {
