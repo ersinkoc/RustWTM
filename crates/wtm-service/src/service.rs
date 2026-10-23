@@ -470,7 +470,13 @@ mod tests {
             assert!(wtm_sys::services::service_pid(SERVICE_NAME).is_none());
             stop().unwrap(); // already stopped: no-op
             uninstall().unwrap();
-            assert!(open(ServiceAccess::QUERY_STATUS).is_err());
+            // The service goes once every handle to it is closed; another
+            // program on the machine may still hold one for a moment.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while open(ServiceAccess::QUERY_STATUS).is_ok() {
+                assert!(Instant::now() < deadline, "the service stays installed");
+                std::thread::sleep(Duration::from_millis(200));
+            }
             assert!(stop().is_err() && start().is_err() && uninstall().is_err());
         }
     }

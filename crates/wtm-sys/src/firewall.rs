@@ -245,12 +245,19 @@ mod tests {
         let _ = blocked();
     }
 
+    /// The tests that change RustWTM's rule group take turns: one removing
+    /// the whole group would take the other's rules from under it.
+    static GROUP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn block_round_trip_when_elevated() {
         if !crate::shell::is_elevated().unwrap_or(false) {
             eprintln!("skipped: needs administrator rights");
             return;
         }
+        let _turn = GROUP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let path = format!(r"C:\RustWTM-test-{}\does-not-exist.exe", std::process::id());
         block(&path).unwrap();
         block(&path).unwrap(); // idempotent
@@ -267,6 +274,9 @@ mod tests {
         if std::env::var_os("RUSTWTM_SCM_TESTS").is_none() {
             return;
         }
+        let _turn = GROUP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let path = format!(r"C:\RustWTM-test-{}\all.exe", std::process::id());
         block(&path).unwrap();
         assert!(unblock_all().unwrap() >= 2, "in and out");
