@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-10-23
+
 ### Fixed
 
 - `wtm` commands and Telegram's /kill, /info, /suspend and /wait match
@@ -851,7 +853,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.20.1...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.20.2...HEAD
+[0.20.2]: https://github.com/ersinkoc/RustWTM/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/ersinkoc/RustWTM/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/ersinkoc/RustWTM/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/ersinkoc/RustWTM/compare/v0.18.1...v0.19.0
