@@ -149,16 +149,22 @@ pub fn set_preset(text: &str, preset: Preset) -> Result<String, String> {
     let table = doc
         .entry("governor")
         .or_insert_with(toml_edit::table)
-        .as_table_mut()
+        .as_table_like_mut()
         .ok_or("`governor` must be a table")?;
-    table["enabled"] = toml_edit::value(g.enabled);
+    table.insert("enabled", toml_edit::value(g.enabled));
     if preset != Preset::Off {
-        table["high_cpu_percent"] = toml_edit::value(f64::from(g.high_cpu_percent));
-        table["sustain_secs"] = toml_edit::value(g.sustain_secs as i64);
-        table["recover_cpu_percent"] = toml_edit::value(f64::from(g.recover_cpu_percent));
-        table["max_offenders"] = toml_edit::value(g.max_offenders as i64);
+        table.insert(
+            "high_cpu_percent",
+            toml_edit::value(f64::from(g.high_cpu_percent)),
+        );
+        table.insert("sustain_secs", toml_edit::value(g.sustain_secs as i64));
+        table.insert(
+            "recover_cpu_percent",
+            toml_edit::value(f64::from(g.recover_cpu_percent)),
+        );
+        table.insert("max_offenders", toml_edit::value(g.max_offenders as i64));
         let ladder: toml_edit::Array = g.ladder.iter().map(ladder_item).collect();
-        table["ladder"] = toml_edit::value(ladder);
+        table.insert("ladder", toml_edit::value(ladder));
     }
     Ok(doc.to_string())
 }
@@ -200,6 +206,10 @@ mod tests {
         let c =
             Config::from_toml(&set_preset("dry_run = true\n", Preset::Gentle).unwrap()).unwrap();
         assert_eq!(c.governor.max_offenders, 2);
+        // Nor does one with inline governor settings.
+        let inline = set_preset("governor = { enabled = true }\n", Preset::Strict).unwrap();
+        let c = Config::from_toml(&inline).unwrap();
+        assert_eq!(Preset::of(&c.governor), Some(Preset::Strict));
     }
 
     #[test]

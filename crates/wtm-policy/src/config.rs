@@ -221,7 +221,7 @@ pub fn set_config_value(
         let t = doc
             .entry(table)
             .or_insert_with(toml_edit::table)
-            .as_table_mut()
+            .as_table_like_mut()
             .ok_or_else(|| format!("`{table}` must be a table"))?;
         match t.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
             Some(v) => {
@@ -229,7 +229,9 @@ pub fn set_config_value(
                 *v = item.into_value().map_err(|_| "not a value")?;
                 *v.decor_mut() = decor;
             }
-            None => t[key] = item,
+            None => {
+                t.insert(key, item);
+            }
         }
     }
     Ok(doc.to_string())
@@ -290,6 +292,12 @@ mod tests {
         assert_eq!(
             (c.dry_run, c.governor.high_cpu_percent, c.swarm.min_count),
             (false, 85.5, 200)
+        );
+        // Inline tables are tables too.
+        let t = set_config_value("governor = {}\n", "governor", "high_cpu_percent", 80.0).unwrap();
+        assert_eq!(
+            Config::from_toml(&t).unwrap().governor.high_cpu_percent,
+            80.0
         );
         assert!(set_config_value("governor = 1", "governor", "x", 1i64).is_err());
         assert!(set_config_value("not toml [", "", "x", 1i64).is_err());
