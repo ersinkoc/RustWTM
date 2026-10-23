@@ -40,14 +40,16 @@ pub fn foreground_pid() -> Option<u32> {
 }
 
 /// The foreground process and whether its window covers its whole monitor
-/// (a game, a full-screen video or presentation). The desktop and the
-/// taskbar never count as full screen.
+/// (a game, a full-screen video or presentation). The desktop, the taskbar
+/// and maximized windows with a title bar never count as full screen.
 pub fn foreground_fullscreen() -> Option<(u32, bool)> {
     use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Gdi::{
         GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetWindowRect};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_STYLE, GetClassNameW, GetWindowLongPtrW, GetWindowRect, IsZoomed, WS_CAPTION,
+    };
     // SAFETY: no arguments; returns a null HWND when there is no window.
     let hwnd = unsafe { GetForegroundWindow() };
     if hwnd.is_invalid() {
@@ -88,7 +90,26 @@ pub fn foreground_fullscreen() -> Option<(u32, bool)> {
     if !unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
         return Some((pid, false));
     }
-    Some((pid, covers(rect, info.rcMonitor)))
+    // SAFETY: a valid window handle; both calls only read its state.
+    let maximized_with_caption = unsafe {
+        IsZoomed(hwnd).as_bool()
+            && GetWindowLongPtrW(hwnd, GWL_STYLE) as u32 & WS_CAPTION.0 == WS_CAPTION.0
+    };
+    Some((
+        pid,
+        full_screen(rect, info.rcMonitor, maximized_with_caption),
+    ))
+}
+
+/// A window is full screen when it covers its monitor and is not an ordinary
+/// maximized window: one with a title bar covers a monitor without a taskbar
+/// (or with one that hides itself) too.
+fn full_screen(
+    window: windows::Win32::Foundation::RECT,
+    monitor: windows::Win32::Foundation::RECT,
+    maximized_with_caption: bool,
+) -> bool {
+    !maximized_with_caption && covers(window, monitor)
 }
 
 /// A window covers its monitor when it reaches every edge.
@@ -431,6 +452,16 @@ mod tests {
             !covers(maximized, monitor),
             "a maximized window leaves the taskbar"
         );
+        // Without a taskbar it covers the monitor like exclusive full screen;
+        // its title bar tells it apart.
+        let overshoot = RECT {
+            left: -8,
+            top: -8,
+            right: 1928,
+            bottom: 1088,
+        };
+        assert!(full_screen(overshoot, monitor, false));
+        assert!(!full_screen(overshoot, monitor, true));
         let _ = foreground_fullscreen();
     }
 

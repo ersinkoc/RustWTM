@@ -14,6 +14,13 @@ All notable changes to this project are documented here. The format follows
 - `wtm app-limit set` and `remove` find an app's limit whatever the case of
   its name; a limit set under another case used to be added a second time,
   and its budget ignored.
+- Settings and the Overview's protection levels change a configuration that
+  writes its tables inline (`governor = { enabled = true }`) or with dotted
+  keys; before, the change was refused, and a level button did nothing.
+- Game mode no longer starts for an ordinary maximized window (a browser, an
+  editor) on a monitor without a visible taskbar: with the taskbar hidden
+  automatically, or on a second monitor, such a window covered the whole
+  monitor and counted as full screen.
 
 ## [0.20.1] - 2026-10-22
 
