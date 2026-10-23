@@ -20,7 +20,7 @@ jobs:
   check:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Installs the toolchain pinned in rust-toolchain.toml.
       - name: Toolchain
@@ -63,7 +63,7 @@ jobs:
   coverage:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Toolchain
         run: |
@@ -89,7 +89,7 @@ jobs:
           $summary | Out-File $env:GITHUB_STEP_SUMMARY -Append
           '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: lcov
           path: lcov.info
@@ -98,7 +98,7 @@ jobs:
   msi:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Toolchain
         run: rustup show
@@ -121,7 +121,7 @@ jobs:
         shell: pwsh
         run: scripts/ci/verify-install.ps1 -Mode msi -Msi dist/RustWTM-test.msi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: msi-logs
@@ -132,7 +132,7 @@ jobs:
   install-script:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Toolchain
         run: rustup show
