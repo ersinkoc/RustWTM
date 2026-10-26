@@ -44,9 +44,21 @@ CI runs the same checks.
 
 ## Releasing
 
-1. Update the version in the root `Cargo.toml` and move the **Unreleased**
-   changelog entries under the new version.
-2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
-3. The release workflow builds the binaries, packages
-   `rustwtm-x86_64-pc-windows-msvc.zip` with a `.sha256` file and publishes
-   a GitHub release.
+1. Update the root `Cargo.toml`, the hardware provider's project version,
+   `Cargo.lock` workspace entries and the README's MSI examples. Move the
+   **Unreleased** changelog entries under a dated version heading.
+2. Run `scripts/ci/verify-release.ps1 -Tag v0.21.0`, substituting the intended
+   tag. It refuses a tag that disagrees with the workspace, hardware provider
+   or release notes.
+3. Run the format, Clippy, documentation, workspace test and release build
+   checks. Push the release commit and wait for CI, including the disposable-VM
+   installer and service checks, before tagging that commit.
+4. Tag and push: `git tag v0.21.0` and `git push origin v0.21.0`.
+5. Wait for the release workflow. It gates publication on release identity,
+   format, Clippy, documentation, tests and locked builds, then publishes the
+   portable ZIP and MSI with their `.sha256` files. Download the published
+   files, verify both digests and smoke-test the extracted CLI and service
+   versions before calling the release verified.
+
+Machine-changing installer tests belong on disposable VMs. Never enable them
+on the developer's machine as part of a routine local release check.

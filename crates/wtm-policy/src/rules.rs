@@ -83,7 +83,7 @@ impl Rule {
             .actions
             .iter()
             .any(|a| matches!(a, Action::Kill | Action::Suspend))
-            && self.matcher.cmdline.is_none()
+            && crate::kill::unrestricted_cmdline(self.matcher.cmdline.as_deref())
             && self
                 .matcher
                 .name
@@ -637,5 +637,34 @@ mod tests {
             assert!(rule(m).is_ok(), "{m}");
         }
         assert!(kill("name = \"*.exe\"\ncmdline = \"vitest\"").is_ok());
+    }
+
+    #[test]
+    fn match_all_command_lines_do_not_bypass_end_guards() {
+        for action in ["kill", "suspend"] {
+            for cmdline in ["", "*", "**", "***"] {
+                let config = format!(
+                    "[[rule]]\nname = \"r\"\nmatch = {{ name = \"*.exe\", cmdline = \"{cmdline}\" }}\nactions = [\"{action}\"]\n"
+                );
+                let control = config.replace("*.exe", "miner.exe");
+                assert!(crate::Config::from_toml(&control).is_ok());
+                assert!(
+                    crate::Config::from_toml(&config).is_err(),
+                    "EXPECTED: match-all {action} refused; ACTUAL: accepted {cmdline:?}"
+                );
+            }
+        }
+        for cmdline in ["*", "**", "***"] {
+            let config = format!("[[kill]]\nname = \"*.exe\"\ncmdline = \"{cmdline}\"\n");
+            assert!(crate::Config::from_toml(&config.replace("*.exe", "miner.exe")).is_ok());
+            assert!(
+                crate::Config::from_toml(&config).is_err(),
+                "EXPECTED: match-all kill entry refused; ACTUAL: accepted {cmdline:?}"
+            );
+        }
+        for cmdline in ["vitest", "*vitest*", "node *"] {
+            let config = format!("[[kill]]\nname = \"*.exe\"\ncmdline = \"{cmdline}\"\n");
+            assert!(crate::Config::from_toml(&config).is_ok());
+        }
     }
 }

@@ -66,6 +66,11 @@ pub fn text_matches(pattern: &str, text: &str) -> bool {
     }
 }
 
+/// An absent, empty or stars-only filter does not narrow a process match.
+pub(crate) fn unrestricted_cmdline(pattern: Option<&str>) -> bool {
+    pattern.is_none_or(|p| p.chars().all(|c| c == '*'))
+}
+
 impl KillEntry {
     /// `command_line` is only called when the name matches and the entry
     /// looks at the command line, so callers can resolve it lazily.
@@ -111,7 +116,7 @@ impl KillEntry {
             return Err("name must not be `*`: that would end every program".into());
         }
         // `*.exe` or `**` too, unless a command line picks some out.
-        if self.cmdline.is_none()
+        if unrestricted_cmdline(self.cmdline.as_deref())
             && crate::rules::matches_every_program(&self.name, &crate::rules::PROBE_NAMES)
         {
             return Err(format!(

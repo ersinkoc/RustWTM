@@ -26,14 +26,29 @@ jobs:
           persist-credentials: false
 
       # No build cache: a release is built from scratch.
+      - name: Release identity
+        shell: pwsh
+        run: scripts/ci/verify-release.ps1 -Tag $env:TAG
+
       - name: Toolchain
         run: rustup show
 
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Docs
+        run: cargo doc --locked --workspace --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
+
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
       - name: Build
-        run: cargo build --release --workspace
+        run: cargo build --locked --release --workspace
 
       - name: Hardware provider
         shell: pwsh

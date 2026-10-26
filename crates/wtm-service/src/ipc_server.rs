@@ -185,6 +185,15 @@ enum Refused {
     NoThread,
 }
 
+/// Owns one client slot, including while unwinding or failing to spawn.
+struct ClientSlot(Arc<AtomicUsize>);
+
+impl Drop for ClientSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Takes a client slot and runs `work` on a thread started by `spawn`. The
 /// slot is given back when `work` ends or when the thread cannot start, so
 /// a passing resource shortage never shrinks the number of clients served.
@@ -197,15 +206,12 @@ fn run_client(
         clients.fetch_sub(1, Ordering::SeqCst);
         return Err(Refused::Full);
     }
-    let slot = clients.clone();
+    let slot = ClientSlot(clients.clone());
     let spawned = spawn(Box::new(move || {
+        let _slot = slot;
         work();
-        slot.fetch_sub(1, Ordering::SeqCst);
     }));
-    spawned.map_err(|_| {
-        clients.fetch_sub(1, Ordering::SeqCst);
-        Refused::NoThread
-    })
+    spawned.map_err(|_| Refused::NoThread)
 }
 
 impl Server {
@@ -788,12 +794,56 @@ mod tests {
         };
         assert_eq!(run_client(&clients, || {}, inline), Ok(()));
         assert_eq!(clients.load(Ordering::SeqCst), 0);
-        let parked = |_: Box<dyn FnOnce() + Send>| Ok(());
+        let mut parked = Vec::new();
         for _ in 0..MAX_CLIENTS {
-            assert_eq!(run_client(&clients, || {}, parked), Ok(()));
+            assert_eq!(
+                run_client(
+                    &clients,
+                    || {},
+                    |f| {
+                        parked.push(f);
+                        Ok(())
+                    }
+                ),
+                Ok(())
+            );
         }
         assert_eq!(run_client(&clients, || {}, inline), Err(Refused::Full));
         assert_eq!(clients.load(Ordering::SeqCst), MAX_CLIENTS);
+        drop(parked);
+        assert_eq!(clients.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_panicking_client_gives_its_slot_back() {
+        let clients = Arc::new(AtomicUsize::new(0));
+        let (entered, running) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let mut thread = None;
+        assert_eq!(
+            run_client(
+                &clients,
+                move || {
+                    entered.send(()).unwrap();
+                    released.recv_timeout(Duration::from_secs(5)).unwrap();
+                    panic!("injected client failure");
+                },
+                |f| {
+                    thread = Some(std::thread::spawn(f));
+                    Ok(())
+                },
+            ),
+            Ok(())
+        );
+        running.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(clients.load(Ordering::SeqCst), 1);
+        release.send(()).unwrap();
+        assert!(thread.unwrap().join().is_err());
+        assert_eq!(
+            clients.load(Ordering::SeqCst),
+            0,
+            "panic leaked a client slot"
+        );
     }
 
     #[test]

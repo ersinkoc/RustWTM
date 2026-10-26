@@ -43,12 +43,12 @@ fn wildcard<T: Copy + PartialEq>(
     let mut star: Option<(usize, usize)> = None;
 
     while ti < t.len() {
-        if pi < p.len() && (p[pi] == one || eq(p[pi], t[ti])) {
-            pi += 1;
-            ti += 1;
-        } else if pi < p.len() && p[pi] == any {
+        if pi < p.len() && p[pi] == any {
             star = Some((pi, ti));
             pi += 1;
+        } else if pi < p.len() && (p[pi] == one || eq(p[pi], t[ti])) {
+            pi += 1;
+            ti += 1;
         } else if let Some((sp, st)) = star {
             pi = sp + 1;
             ti = st + 1;
@@ -75,6 +75,21 @@ mod tests {
         assert!(!glob_match("a?c", "ac"));
         assert!(!glob_match("*.exe", "a.dll"));
         assert!(!glob_match("chrome.exe", "chrome.exe.bak"));
+    }
+
+    #[test]
+    fn star_in_the_input_does_not_consume_the_patterns_wildcard() {
+        for (pattern, text) in [
+            ("*vitest*", "node vitest"),
+            ("*vitest*", "* node vitest"),
+            ("*?", "*"),
+            ("*a", "**ba"),
+            ("*çay*", "* ÇAY"),
+            ("node *vitest*", "node * test vitest"),
+        ] {
+            assert!(glob_match(pattern, text), "{pattern:?} vs {text:?}");
+        }
+        assert!(!glob_match("*vitest*", "* node test"));
     }
 
     /// The matcher before the ASCII fast path: lowercase both, then compare.

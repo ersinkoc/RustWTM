@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-26
+
+### Fixed
+
+- Match-all kill and suspend rules cannot bypass the safety check by adding
+  an empty or stars-only command-line filter. Broad kill-list entries also
+  require a command-line filter that actually narrows the selected programs.
+- Wildcard patterns keep matching when a command line contains a literal `*`.
+  Rules and kill-list filters previously missed matching commands after
+  treating that character as the pattern's star instead of its input.
+- An IPC client that panics returns its connection slot, so failed clients
+  cannot permanently reduce the service's available connection quota.
+- The GUI navigation test waits for its own process in a service snapshot,
+  rather than treating a cached snapshot from before test startup as ready.
+
+### Changed
+
+- Release builds verify that the tag, Rust workspace, hardware provider and
+  dated release notes agree before building. Format, Clippy and documentation
+  checks now gate publication alongside tests, using the committed Cargo lockfile.
+
 ## [0.20.2] - 2026-10-23
 
 ### Fixed

@@ -3037,11 +3037,19 @@ mod tests {
                 app.state.language = crate::i18n::Language::English;
                 app
             });
+        let me = std::process::id();
         let sampled = (0..100).any(|_| {
             std::thread::sleep(Duration::from_millis(50));
-            h.state().backend.data().snapshot.is_some()
+            // An installed service can first return a cached sample from
+            // before this test started. Wait for the process we will select.
+            h.state()
+                .backend
+                .data()
+                .snapshot
+                .as_ref()
+                .is_some_and(|s| s.processes.iter().any(|p| p.pid == me))
         });
-        assert!(sampled, "no snapshot from backend");
+        assert!(sampled, "no snapshot containing this test process");
         h.step();
 
         for tab in [
@@ -3063,7 +3071,6 @@ mod tests {
         }
 
         // Select our own process, open its details, ask to end it and cancel.
-        let me = std::process::id();
         h.state_mut().state.processes.search = me.to_string();
         h.run_steps(2);
         let name = std::env::current_exe()
