@@ -1,4 +1,10 @@
 {
+  "View resource details": {
+    "tr": "Kaynak ayrıntılarını görüntüle",
+    "de": "Ressourcendetails anzeigen",
+    "fr": "Afficher les détails de la ressource",
+    "es": "Ver detalles del recurso"
+  },
   "Waiting for monitoring data…": {
     "tr": "İzleme verileri bekleniyor…",
     "de": "Warte auf Überwachungsdaten…",

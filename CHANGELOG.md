@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-29
+
+### Improved
+
+- The Users table scrolls both ways, keeping long account names and larger
+  session lists usable in compact windows.
+- Overview resource cards open their matching performance graphs with one
+  click or keyboard activation. Cards expose their current values to screen
+  readers and show a visible focus outline.
+- The status toolbar wraps to fit small windows. Operation messages have a
+  separate, truncated row with the full text available on hover, keeping
+  task-launch and administrator actions visible even after long errors.
+
+### Fixed
+
+- Keyboard navigation and selections opened from other pages reveal the
+  selected process in long lists without overriding later manual scrolling.
+- The first new service notification is delivered even when the initial
+  event backlog is empty. History is fetched once per connection, and
+  reconnecting still keeps old notifications silent.
+- Old or failed monitoring samples no longer trigger CPU overload popups.
+  Repeated cached readings do not count as sustained load, and a monitoring
+  gap starts a new observation window.
+- Turning the CPU governor off and back on resets its overload and recovery
+  timers, so time spent disabled cannot trigger immediate throttling.
+
 ## [0.21.0] - 2026-10-26
 
 ### Fixed

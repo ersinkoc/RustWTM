@@ -54,6 +54,11 @@ pub struct AlertWatch {
 }
 
 impl AlertWatch {
+    /// Missing or stale monitoring breaks a continuous overload observation.
+    pub fn interrupt(&mut self) {
+        self.above_since = None;
+    }
+
     /// Feeds one CPU sample; `true` when an alert has just been raised.
     pub fn update(&mut self, now: Instant, cpu: f32) -> bool {
         if let Some(a) = &mut self.active {
@@ -66,7 +71,8 @@ impl AlertWatch {
         }
         let since = *self.above_since.get_or_insert(now);
         if self.quiet_until.is_some_and(|q| now < q)
-            || now - since < Duration::from_secs(u64::from(self.settings.seconds))
+            || now.saturating_duration_since(since)
+                < Duration::from_secs(u64::from(self.settings.seconds))
         {
             return false;
         }

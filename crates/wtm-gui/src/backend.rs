@@ -459,6 +459,7 @@ impl Backend {
             pipe: wtm_ipc::PIPE_NAME.to_owned(),
             next_connect: Instant::now(),
             last_event: 0,
+            backlog_pending: true,
             notify,
             open: open_location,
             launch: wtm_core::launch::run,
@@ -523,6 +524,8 @@ struct Worker {
     pipe: String,
     next_connect: Instant,
     last_event: u64,
+    /// The first successful fetch after connecting, even if it has no events.
+    backlog_pending: bool,
     /// Shows a desktop notification for an event.
     notify: fn(&Event),
     /// Shows a file in Explorer.
@@ -641,6 +644,7 @@ impl Worker {
                 Ok(c) => {
                     self.client = Some(c);
                     self.last_event = 0;
+                    self.backlog_pending = true;
                     let mut data = self.data();
                     data.service_error = None;
                     // Back again: "reconnecting…" no longer applies.
@@ -669,7 +673,7 @@ impl Worker {
             }
             // Right after connecting: the service's last minutes, so the
             // graphs start full, and its event backlog.
-            let fresh = self.last_event == 0;
+            let fresh = self.backlog_pending;
             let backfill = fresh
                 .then(|| match client.call(&Request::Recent) {
                     Ok(Response::Recent(points)) => Some(points),
@@ -678,6 +682,7 @@ impl Worker {
                 .flatten();
             match fetch(client, self.last_event) {
                 Ok((snapshot, status, events)) => {
+                    self.backlog_pending = false;
                     // Skip the backlog fetched right after connecting.
                     if !fresh && self.notifications.load(Ordering::Relaxed) {
                         events.iter().filter(|e| e.notify).for_each(self.notify);
@@ -778,14 +783,30 @@ impl Worker {
 
     /// Raises the CPU alert when the load stays too high.
     fn watch_cpu(&mut self) {
+        self.watch_cpu_at(Instant::now());
+    }
+
+    fn watch_cpu_at(&mut self, now: Instant) {
         let fired = {
             let mut data = self.data();
+            if !matches!(data.sample_freshness(now), SampleFreshness::Current(_)) {
+                data.alert_watch.interrupt();
+                return;
+            }
+            // Re-reading a service cache is not another CPU measurement.
+            let measured = data
+                .sample_measured_at
+                .or(data.sample_received_at)
+                .unwrap_or(now);
             match data.snapshot.as_ref() {
                 Some(s) if s.interval.is_some() => {
                     let cpu = s.system.cpu_percent;
-                    data.alert_watch.update(Instant::now(), cpu)
+                    data.alert_watch.update(measured, cpu)
                 }
-                _ => false,
+                _ => {
+                    data.alert_watch.interrupt();
+                    false
+                }
             }
         };
         if fired {
@@ -2228,6 +2249,7 @@ mod tests {
             // Never try the real service pipe from tests.
             next_connect: Instant::now() + Duration::from_secs(3600),
             last_event: 0,
+            backlog_pending: true,
             // Not called while `notifications` is off.
             notify,
             open: |_| Ok(()),
@@ -2386,6 +2408,73 @@ mod tests {
     }
 
     #[test]
+    fn repeated_cpu_samples_and_monitoring_gaps_do_not_sustain_an_alert() {
+        let mut w = worker();
+        let t = Instant::now();
+        let mut snap = crate::ui_tests::snapshot();
+        snap.system.cpu_percent = 99.0;
+        {
+            let mut d = w.data();
+            d.snapshot = Some(Arc::new(snap));
+            d.alert_watch.settings.seconds = 2;
+            d.sample_measured_at = Some(t);
+        }
+        w.watch_cpu_at(t);
+        // Mapping a service timestamp onto our clock can move slightly back
+        // after a wall-clock correction; it must not panic or add duration.
+        w.data().sample_measured_at = Some(t - Duration::from_secs(1));
+        w.watch_cpu_at(t + Duration::from_secs(1));
+        w.data().sample_measured_at = Some(t);
+        w.watch_cpu_at(t + Duration::from_secs(3));
+        assert!(
+            w.data().alert_watch.active.is_none(),
+            "cached sample does not sustain overload"
+        );
+        w.data().sample_error = Some("injected sampling failure".into());
+        w.watch_cpu_at(t + Duration::from_secs(4));
+        {
+            let mut d = w.data();
+            d.sample_error = None;
+            d.sample_measured_at = Some(t + Duration::from_secs(5));
+        }
+        w.watch_cpu_at(t + Duration::from_secs(5));
+        assert!(
+            w.data().alert_watch.active.is_none(),
+            "recovery starts a new observation"
+        );
+        w.data().sample_measured_at = Some(t + Duration::from_secs(7));
+        w.watch_cpu_at(t + Duration::from_secs(7));
+        assert!(
+            w.data().alert_watch.active.is_some(),
+            "control: new sustained samples raise alert"
+        );
+    }
+
+    #[test]
+    fn stale_cpu_samples_do_not_raise_an_overload_alert() {
+        let mut w = worker();
+        let now = Instant::now();
+        let mut snap = crate::ui_tests::snapshot();
+        snap.system.cpu_percent = 99.0;
+        {
+            let mut d = w.data();
+            d.snapshot = Some(Arc::new(snap));
+            d.sample_measured_at = Some(now - Duration::from_secs(60));
+            d.sample_received_at = Some(now);
+            d.alert_watch.settings.seconds = 0;
+        }
+        w.watch_cpu();
+        assert!(
+            w.data().alert_watch.active.is_none(),
+            "stale CPU is not current overload"
+        );
+        // Control: the same load from a current measurement does raise it.
+        w.data().sample_measured_at = Some(Instant::now());
+        w.watch_cpu();
+        assert!(w.data().alert_watch.active.is_some());
+    }
+
+    #[test]
     fn an_overload_raises_the_window_and_closing_calms_it() {
         static RAISED: AtomicIsize = AtomicIsize::new(0);
         static CALMED: AtomicIsize = AtomicIsize::new(0);
@@ -2406,6 +2495,7 @@ mod tests {
 
         snap.interval = Some(Duration::from_secs(1));
         w.data().snapshot = Some(Arc::new(snap));
+        w.data().sample_received_at = Some(Instant::now());
         w.watch_cpu();
         assert_eq!(RAISED.load(Ordering::Relaxed), 42);
         assert_eq!(w.data().alert_watch.active.map(|a| a.cpu), Some(99.0));
@@ -3049,6 +3139,88 @@ mod tests {
             create_time: 1,
             name: "x.exe".into(),
         }
+    }
+
+    #[test]
+    fn an_empty_initial_backlog_does_not_silence_the_first_new_event() {
+        static NOTICES: AtomicIsize = AtomicIsize::new(0);
+        NOTICES.store(0, Ordering::Relaxed);
+        let recent_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls = recent_calls.clone();
+        let pipe = test_pipe("empty-backlog");
+        let mut fetched = 0;
+        let server = serve(&pipe, 2, move |request| match request {
+            Request::Hello { .. } => hello(),
+            Request::Snapshot => Response::Error("no sample yet".into()),
+            Request::Status => Response::Status(Status::default()),
+            Request::Recent => {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Response::Recent(Vec::new())
+            }
+            Request::Events { .. } => {
+                fetched += 1;
+                Response::Events(match fetched {
+                    1 | 3 => Vec::new(),
+                    n => {
+                        let mut e = event(n - 1, n);
+                        e.notify = n == 2 || n >= 5;
+                        vec![e]
+                    }
+                })
+            }
+            _ => Response::Done,
+        });
+        let mut w = worker();
+        w.pipe = pipe;
+        w.next_connect = Instant::now();
+        w.notifications.store(true, Ordering::Relaxed);
+        w.notify = |_| {
+            NOTICES.fetch_add(1, Ordering::Relaxed);
+        };
+        w.tick();
+        assert_eq!(
+            NOTICES.load(Ordering::Relaxed),
+            0,
+            "control: empty backlog is silent"
+        );
+        w.tick();
+        println!(
+            "EXPECTED: 1 notification for first new event; ACTUAL: {}",
+            NOTICES.load(Ordering::Relaxed)
+        );
+        assert_eq!(NOTICES.load(Ordering::Relaxed), 1);
+        w.tick();
+        w.tick();
+        assert_eq!(
+            NOTICES.load(Ordering::Relaxed),
+            1,
+            "empty polls and non-notifying events stay silent"
+        );
+        assert_eq!(
+            recent_calls.load(Ordering::Relaxed),
+            1,
+            "history backfill happens once per connection"
+        );
+        assert_eq!(ids(&w.data().events), [1, 3]);
+        // Reconnecting starts a new backlog, without replaying its notices.
+        w.client = None;
+        w.next_connect = Instant::now();
+        w.tick();
+        assert_eq!(
+            NOTICES.load(Ordering::Relaxed),
+            1,
+            "reconnected backlog stays silent"
+        );
+        w.tick();
+        assert_eq!(
+            NOTICES.load(Ordering::Relaxed),
+            2,
+            "new events after reconnect are announced"
+        );
+        assert_eq!(recent_calls.load(Ordering::Relaxed), 2);
+        assert_eq!(ids(&w.data().events), [4, 5]);
+        drop(w);
+        server.join().unwrap();
     }
 
     #[test]

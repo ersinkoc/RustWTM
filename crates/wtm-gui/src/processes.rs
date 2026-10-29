@@ -175,6 +175,8 @@ impl Extra<'_> {
 
 /// What the user asked for this frame; handled by the app.
 pub enum Intent {
+    /// Open the live graph for an overview resource card.
+    ShowResource(crate::overview::Resource),
     Select(ProcessRef),
     Command(ProcessRef, Command),
     /// Destructive: ask before sending.
@@ -296,6 +298,9 @@ pub struct ProcessView {
     pub recent_minutes: u32,
     /// Only the process table is frozen. Sampling, protection and alerts continue.
     pub paused: Option<std::sync::Arc<Snapshot>>,
+    /// Last selection revealed automatically. Sampling must not keep pulling
+    /// the table back after the user scrolls away to inspect another row.
+    revealed: Option<(u32, i64)>,
     /// The filtered and sorted rows of an earlier frame. Every frame draws
     /// the table, but the rows only change with the data or the settings.
     cache: Option<RowCache>,
@@ -350,12 +355,27 @@ impl Default for ProcessView {
             more: MoreFilters::default(),
             recent_minutes: 5,
             paused: None,
+            revealed: None,
             cache: None,
         }
     }
 }
 
 impl ProcessView {
+    /// A request from another page must show the target, even if the last
+    /// process search or a frozen snapshot would otherwise hide it.
+    pub fn reveal(&mut self, target: ProcessRef) {
+        self.search.clear();
+        self.filter = QuickFilter::All;
+        self.more = MoreFilters::default();
+        self.paused = None;
+        if self.mode == ViewMode::Apps {
+            self.expanded.insert(target.name.to_lowercase());
+        }
+        self.selected = Some(target);
+        self.revealed = None;
+    }
+
     /// Turns the "started in the last" filter on or off; on also shows how
     /// long each process has been running.
     fn set_recent(&mut self, on: bool) {
@@ -818,6 +838,12 @@ impl ProcessView {
         let memory_total = snap.system.memory_total.max(1) as f64;
         self.keyboard(ui, rows, &snap.processes, &mut intents);
         let selected = self.selected.as_ref().map(|r| (r.pid, r.create_time));
+        let reveal_row = (self.revealed != selected)
+            .then(|| selected.and_then(|key| rows.iter().position(|row| {
+                matches!(row, Row::Process(i, _) if (snap.processes[*i].pid, snap.processes[*i].create_time) == key)
+            })))
+            .flatten();
+        self.revealed = selected;
 
         let columns: Vec<_> = COLUMNS
             .iter()
@@ -857,6 +883,9 @@ impl ProcessView {
                     .resizable(true)
                     .sense(Sense::click())
                     .cell_layout(Layout::left_to_right(Align::Center));
+                if let Some(row) = reveal_row {
+                    table = table.scroll_to_row(row, None);
+                }
                 for (i, ((col, ..), width)) in columns.iter().zip(&widths).enumerate() {
                     table = table.column(match col {
                         Col::Name => Column::initial(*width).at_least(140.0).clip(true),

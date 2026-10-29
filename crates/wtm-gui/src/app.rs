@@ -186,6 +186,7 @@ struct UiState {
     language: crate::i18n::Language,
     language_error: Option<String>,
     tab: Tab,
+    performance_focus: Option<crate::overview::Resource>,
     processes: ProcessView,
     sensors: crate::sensors::SensorsView,
     confirm: Option<(ProcessRef, Command)>,
@@ -367,6 +368,7 @@ impl Default for UiState {
             language: crate::i18n::Language::System,
             language_error: None,
             tab: Tab::Overview,
+            performance_focus: None,
             processes: ProcessView::default(),
             sensors: crate::sensors::SensorsView::default(),
             confirm: None,
@@ -502,68 +504,91 @@ impl eframe::App for App {
                     .show(ui, |ui| nav(ui, state, collapsed));
             });
         egui::Panel::bottom("status").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                match &data.message {
-                    Some((level, text)) => {
-                        ui.label(RichText::new(crate::i18n::message(text).as_ref()).color(level_color(ui, *level)));
-                    }
-                    None => {
-                        ui.weak(crate::i18n::tr("Right-click a process for actions."));
-                    }
+            // Actions keep their space even when an operation reports a long
+            // error. Wrap the toolbar, then truncate the separate message row.
+            ui.horizontal_wrapped(|ui| {
+                mode_badge(
+                    ui,
+                    data.mode,
+                    crate::backend::service_problem(data.service_error.as_deref()),
+                    stale_age(&data, Instant::now()),
+                );
+                if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
+                    ui.label(
+                        RichText::new(crate::i18n::tr("▶ Game mode"))
+                            .color(crate::theme::text_color(ui, crate::theme::GPU))
+                            .strong(),
+                    )
+                    .on_hover_text(crate::overview::game_text(game));
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    mode_badge(
-                        ui,
-                        data.mode,
-                        crate::backend::service_problem(data.service_error.as_deref()),
-                        stale_age(&data, Instant::now()),
-                    );
-                    if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
-                        ui.label(
-                            RichText::new(crate::i18n::tr("▶ Game mode"))
-                                .color(crate::theme::text_color(ui, crate::theme::GPU))
-                                .strong(),
+                if let Some(rescue) = data.status.as_ref().and_then(|s| s.rescue_core.as_ref()) {
+                    ui.label(
+                        RichText::new(crate::i18n::tr("⛨ Rescue core"))
+                            .color(crate::theme::text_color(ui, crate::theme::CPU))
+                            .strong(),
+                    )
+                    .on_hover_text(crate::overview::rescue_text(rescue));
+                }
+                if !data.kill_list.is_empty()
+                    && ui
+                        .small_button(
+                            RichText::new(crate::i18n::tr("🚨 Panic"))
+                                .strong()
+                                .color(crate::theme::text_color(ui, BAD)),
                         )
-                        .on_hover_text(crate::overview::game_text(game));
-                    }
-                    if let Some(rescue) = data.status.as_ref().and_then(|s| s.rescue_core.as_ref()) {
-                        ui.label(
-                            RichText::new(crate::i18n::tr("⛨ Rescue core"))
-                                .color(crate::theme::text_color(ui, crate::theme::CPU))
-                                .strong(),
-                        )
-                        .on_hover_text(crate::overview::rescue_text(rescue));
-                    }
-                    if !data.kill_list.is_empty()
-                        && ui
-                            .small_button(RichText::new(crate::i18n::tr("🚨 Panic")).strong().color(crate::theme::text_color(ui, BAD)))
-                            .on_hover_text(crate::i18n::tr("End everything on the kill list (Ctrl+Shift+K)"))
-                            .clicked()
-                    {
-                        state.panic = true;
-                    }
-                    if ui
-                        .small_button(crate::i18n::tr("Run new task"))
-                        .on_hover_text(crate::i18n::tr("Start a program, folder, document or website"))
+                        .on_hover_text(crate::i18n::tr(
+                            "End everything on the kill list (Ctrl+Shift+K)",
+                        ))
                         .clicked()
-                    {
-                        state.run_task = Some((String::new(), false));
-                    }
-                    if !data.elevated
-                        && ui
-                            .small_button(crate::i18n::tr("Restart as administrator"))
-                            .on_hover_text(
-                                crate::i18n::tr("Control every process, including those of other users and services"),
-                            )
-                            .clicked()
-                    {
-                        service_cmds.push(UiCommand::RestartElevated);
-                    }
-                    if let Some(s) = &data.snapshot {
-                        ui.label({ let __wtm_i18n_0 = &(s.system.cpu_percent); let __wtm_i18n_1 = &(format_bytes(s.system.memory_used() as f64)); let __wtm_i18n_2 = &(format_bytes(s.system.memory_total as f64)); crate::i18n::format("CPU {0}%   Memory {1} / {2}", &[format!("{:.0}", __wtm_i18n_0), __wtm_i18n_1.to_string(), __wtm_i18n_2.to_string()]) });
-                    }
-                });
+                {
+                    state.panic = true;
+                }
+                if ui
+                    .small_button(crate::i18n::tr("Run new task"))
+                    .on_hover_text(crate::i18n::tr(
+                        "Start a program, folder, document or website",
+                    ))
+                    .clicked()
+                {
+                    state.run_task = Some((String::new(), false));
+                }
+                if !data.elevated
+                    && ui
+                        .small_button(crate::i18n::tr("Restart as administrator"))
+                        .on_hover_text(crate::i18n::tr(
+                            "Control every process, including those of other users and services",
+                        ))
+                        .clicked()
+                {
+                    service_cmds.push(UiCommand::RestartElevated);
+                }
+                if let Some(s) = &data.snapshot {
+                    let summary = {
+                        let __wtm_i18n_0 = &(s.system.cpu_percent);
+                        let __wtm_i18n_1 = &(format_bytes(s.system.memory_used() as f64));
+                        let __wtm_i18n_2 = &(format_bytes(s.system.memory_total as f64));
+                        crate::i18n::format(
+                            "CPU {0}%   Memory {1} / {2}",
+                            &[
+                                format!("{:.0}", __wtm_i18n_0),
+                                __wtm_i18n_1.to_string(),
+                                __wtm_i18n_2.to_string(),
+                            ],
+                        )
+                    };
+                    ui.add(egui::Label::new(&summary).truncate())
+                        .on_hover_text(summary);
+                }
             });
+            let (color, text) = match &data.message {
+                Some((level, text)) => (level_color(ui, *level), crate::i18n::message(text)),
+                None => (
+                    ui.visuals().weak_text_color(),
+                    crate::i18n::tr("Right-click a process for actions.").into(),
+                ),
+            };
+            ui.add(egui::Label::new(RichText::new(text.as_ref()).color(color)).truncate())
+                .on_hover_text(text.as_ref());
         });
         // Only the process table shows them; rebuilt once per data update.
         let labels_key = (data.revision, state.language);
@@ -639,7 +664,7 @@ impl eframe::App for App {
                     }
                     None => crate::theme::loading(ui, crate::i18n::tr("Loading processes…")),
                 },
-                Tab::Performance => performance(ui, &data),
+                Tab::Performance => performance_focused(ui, &data, state.performance_focus.take()),
                 Tab::Disks => crate::disks_tab::disks_tab(ui, &data, &mut state.disks),
                 Tab::Sensors => {
                     service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
@@ -1022,6 +1047,10 @@ impl eframe::App for App {
         }
         for intent in intents {
             match intent {
+                Intent::ShowResource(resource) => {
+                    state.tab = Tab::Performance;
+                    state.performance_focus = Some(resource);
+                }
                 Intent::Select(t) => {
                     backend.send(UiCommand::Inspect(t.clone()));
                     state.processes.selected = Some(t);
@@ -1036,7 +1065,7 @@ impl eframe::App for App {
                 Intent::OpenLocation(target) => backend.send(UiCommand::OpenLocation(target)),
                 Intent::Reveal(target) => {
                     backend.send(UiCommand::Inspect(target.clone()));
-                    state.processes.selected = Some(target);
+                    state.processes.reveal(target);
                     state.tab = Tab::Processes;
                 }
                 Intent::AddToKillList(name) => {
@@ -2257,21 +2286,34 @@ fn core_grid(
     });
 }
 
+#[cfg(test)]
 pub(crate) fn performance(ui: &mut Ui, data: &Data) {
+    performance_focused(ui, data, None);
+}
+
+fn performance_focused(ui: &mut Ui, data: &Data, focus: Option<crate::overview::Resource>) {
     let Some(snap) = &data.snapshot else {
         crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
         return;
     };
     let s = &snap.system;
     type Section = fn(&mut Ui, &Data, &wtm_core::SystemStats);
-    let sections: [Section; 6] = [
-        perf_cpu,
-        perf_memory,
-        perf_gpu,
-        perf_network,
-        perf_disk,
-        perf_summary,
+    use crate::overview::Resource;
+    let sections: [(Option<Resource>, Section); 6] = [
+        (Some(Resource::Cpu), perf_cpu),
+        (Some(Resource::Memory), perf_memory),
+        (Some(Resource::Gpu), perf_gpu),
+        (Some(Resource::Network), perf_network),
+        (Some(Resource::Disk), perf_disk),
+        (None, perf_summary),
     ];
+    let show_section = |ui: &mut Ui, (resource, section): (Option<Resource>, Section)| {
+        let response = ui.scope(|ui| section(ui, data, s)).response;
+        if focus.is_some() && focus == resource {
+            ui.scroll_to_rect(response.rect, Some(egui::Align::TOP));
+        }
+        ui.add_space(10.0);
+    };
     let mut area = egui::ScrollArea::vertical().id_salt("performance");
     if let Some(y) = crate::theme::take_scroll(ui, "performance") {
         area = area.vertical_scroll_offset(y);
@@ -2288,16 +2330,14 @@ pub(crate) fn performance(ui: &mut Ui, data: &Data) {
                     .iter_mut()
                     .zip([&[cpu, disk, summary][..], &[memory, gpu, network][..]])
                 {
-                    for section in list {
-                        section(col, data, s);
-                        col.add_space(10.0);
+                    for &section in list {
+                        show_section(col, section);
                     }
                 }
             });
         } else {
             for section in sections {
-                section(ui, data, s);
-                ui.add_space(10.0);
+                show_section(ui, section);
             }
         }
     });
@@ -3010,6 +3050,142 @@ mod tests {
 
     use crate::backend::Backend;
     use crate::ui_tests::data;
+
+    #[test]
+    fn overview_details_reveal_a_process_despite_old_filters_and_a_paused_list() {
+        let (mut h, _rx) = overview_app(data());
+        {
+            let view = &mut h.state_mut().state.processes;
+            view.search = "does-not-match".into();
+            view.filter = crate::processes::QuickFilter::Memory;
+            view.more.disk_active = true;
+            view.mode = crate::processes::ViewMode::Apps;
+            view.paused = Some(std::sync::Arc::new(Snapshot {
+                processes: Vec::new(),
+                ..crate::ui_tests::snapshot()
+            }));
+        }
+        h.get_all_by_label("Details").next().unwrap().click();
+        h.run_steps(20);
+        let view = &h.state().state.processes;
+        assert_eq!(view.selected.as_ref().unwrap().pid, 100);
+        println!(
+            "EXPECTED: requested process visible despite old filters; ACTUAL search: {:?}",
+            view.search
+        );
+        assert!(view.search.is_empty());
+        assert_eq!(view.filter, crate::processes::QuickFilter::All);
+        assert!(view.more.is_empty());
+        assert!(view.paused.is_none());
+        assert!(view.expanded.contains("alpha.exe"));
+        assert!(h.query_by_label("alpha.exe (1)").is_some());
+    }
+
+    #[test]
+    fn overview_resource_cards_open_and_scroll_to_their_graphs() {
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            for (name, graph_label, keyboard) in [
+                ("CPU", "CPU42%", false),
+                ("Memory", "Memory8.0 GiB", true),
+                ("GPU", "GPU12%", false),
+                ("Disk", "Disk & I/O●", false),
+                ("Network", "Network●", false),
+            ] {
+                let (backend, _rx) = Backend::offline(data());
+                let mut h = Harness::builder()
+                    .allow_missing_glyphs()
+                    .with_size([820.0, 600.0])
+                    .with_theme(theme)
+                    .build_eframe(|cc| {
+                        crate::theme::apply(&cc.egui_ctx);
+                        App {
+                            backend,
+                            state: UiState {
+                                check_updates: false,
+                                ..Default::default()
+                            },
+                            tray: None,
+                            frames: Default::default(),
+                        }
+                    });
+                h.run_steps(3);
+                let card_label = format!("{name}:");
+                let card = h.get_by_label_contains(&card_label);
+                if keyboard {
+                    card.focus();
+                    h.run_steps(2);
+                    h.key_press(egui::Key::Enter);
+                } else {
+                    card.click();
+                }
+                h.run_steps(20);
+                assert_eq!(h.state().state.tab, Tab::Performance, "{name}");
+                let graph = h.get_by_label_contains(graph_label);
+                let rect = graph.rect();
+                assert!(
+                    rect.min.y >= 40.0 && rect.max.y < 200.0,
+                    "{name} graph should be near the top: {rect:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn status_actions_stay_inside_a_compact_window_with_a_long_message() {
+        for language in [
+            crate::i18n::Language::English,
+            crate::i18n::Language::German,
+            crate::i18n::Language::Turkish,
+            crate::i18n::Language::French,
+            crate::i18n::Language::Spanish,
+        ] {
+            let _language = crate::i18n::scope(language);
+            let mut d = data();
+            d.elevated = false;
+            let long = "A process could not be controlled. ".repeat(12);
+            d.message = Some((EventLevel::Warn, long.clone()));
+            let (backend, _rx) = Backend::offline(d);
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([820.0, 500.0])
+                .build_eframe(|cc| {
+                    crate::theme::apply(&cc.egui_ctx);
+                    App {
+                        backend,
+                        state: UiState {
+                            language,
+                            check_updates: false,
+                            ..Default::default()
+                        },
+                        tray: None,
+                        frames: Default::default(),
+                    }
+                });
+            h.run_steps(3);
+            for label in ["Run new task", "Restart as administrator"] {
+                let node = h.get_by_role_and_label(egui::Role::Button, crate::i18n::tr(label));
+                let rect = node.rect();
+                println!("EXPECTED: {label} inside 820x500; ACTUAL: {rect:?}");
+                assert!(
+                    rect.min.x >= 0.0 && rect.max.x <= 820.0 && rect.max.y <= 500.0,
+                    "{label}: {rect:?}"
+                );
+            }
+            let summary = crate::i18n::format(
+                "CPU {0}%   Memory {1} / {2}",
+                &["42".into(), "8.0 GiB".into(), "16.0 GiB".into()],
+            );
+            let rect = h.get_by_label(&summary).rect();
+            assert!(
+                rect.height() <= 30.0,
+                "resource summary stays on one line: {rect:?}"
+            );
+            h.get_by_role_and_label(egui::Role::Button, crate::i18n::tr("Run new task"))
+                .click();
+            h.run_steps(2);
+            assert!(h.state().state.run_task.is_some());
+        }
+    }
 
     #[test]
     fn graphs_place_points_at_their_measurement_time() {
@@ -5141,6 +5317,11 @@ mod tests {
                         Tab::History,
                         Tab::KillList,
                     ] {
+                        if std::env::var("WTM_REVIEW_TABS").ok().is_some_and(|only| {
+                            !only.split(',').any(|name| name == format!("{tab:?}"))
+                        }) {
+                            continue;
+                        }
                         let mut d = data();
                         d.hardware = crate::sensors::fixture();
                         d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
@@ -5228,6 +5409,101 @@ mod tests {
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         h.render().expect("GPU render").save(&path).unwrap();
                         println!("Rendered {}", path.display());
+                        if tab == Tab::Processes {
+                            let target = {
+                                let mut data = h.state().backend.data();
+                                let mut snap = data.snapshot.as_deref().unwrap().clone();
+                                snap.processes = (0..80)
+                                    .map(|i| {
+                                        crate::ui_tests::proc(
+                                            1000 + i,
+                                            0,
+                                            &format!("app-{i:03}.exe"),
+                                            1.0,
+                                        )
+                                    })
+                                    .collect();
+                                snap.system.process_count = snap.processes.len();
+                                let target = ProcessRef::from(&snap.processes[60]);
+                                data.snapshot = Some(std::sync::Arc::new(snap));
+                                data.revision = data.revision.wrapping_add(1);
+                                data.details = None;
+                                target
+                            };
+                            let state = &mut h.state_mut().state.processes;
+                            state.sort = crate::processes::Col::Pid;
+                            state.descending = false;
+                            state.selected = Some(target);
+                            h.run_steps(20);
+                            assert!(
+                                h.query_all_by_label("app-060.exe").any(|node| {
+                                    let rect = node.rect();
+                                    rect.min.x < size[0] * 0.5
+                                        && rect.min.y >= 0.0
+                                        && rect.max.y < size[1]
+                                }),
+                                "selected row is visible in the table, beside the details panel"
+                            );
+                            let path = out
+                                .join(format!("{theme_name}-{size_name}-ProcessesSelection.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
+                        if tab == Tab::Users {
+                            {
+                                let mut data = h.state().backend.data();
+                                let template =
+                                    data.sessions.as_ref().unwrap().as_ref().unwrap()[1].clone();
+                                data.sessions = Some(Ok((0..24)
+                                    .map(|i| {
+                                        let mut session = template.clone();
+                                        session.id = 100 + i;
+                                        session.user = format!("abcdefghijklmnop{i:04}");
+                                        session.domain = "ABCDEFGHIJKLMNO".into();
+                                        session.station = format!("rdp-tcp#{i}");
+                                        session
+                                    })
+                                    .collect()));
+                            }
+                            h.run_steps(3);
+                            h.event(egui::Event::PointerMoved(egui::pos2(400.0, 200.0)));
+                            h.event(egui::Event::MouseWheel {
+                                unit: egui::MouseWheelUnit::Point,
+                                delta: egui::vec2(-3000.0, 0.0),
+                                modifiers: egui::Modifiers::NONE,
+                                phase: egui::TouchPhase::Move,
+                                source: egui::MouseWheelSource::Unknown,
+                            });
+                            h.run_steps(20);
+                            h.event(egui::Event::MouseWheel {
+                                unit: egui::MouseWheelUnit::Point,
+                                delta: egui::vec2(0.0, -3000.0),
+                                modifiers: egui::Modifiers::NONE,
+                                phase: egui::TouchPhase::Move,
+                                source: egui::MouseWheelSource::Unknown,
+                            });
+                            h.run_steps(20);
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-UsersSessions.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
+                        if tab == Tab::Overview {
+                            {
+                                let mut data = h.state().backend.data();
+                                data.elevated = false;
+                                data.mode = Mode::Local;
+                                data.message = Some((
+                                    EventLevel::Warn,
+                                    "The requested process could not be controlled. ".repeat(12),
+                                ));
+                            }
+                            h.run_steps(3);
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-StatusMessage.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
                         if tab == Tab::Settings {
                             h.state_mut().state.config.page = crate::settings::Page::File;
                             h.run_steps(2);

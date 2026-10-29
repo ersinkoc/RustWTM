@@ -344,6 +344,7 @@ struct ProcState {
 
 fn describe_intent(i: &Intent) -> String {
     match i {
+        Intent::ShowResource(r) => format!("resource {r:?}"),
         Intent::Select(t) => format!("select {}", t.pid),
         Intent::Command(t, c) => format!("command {} {c:?}", t.pid),
         Intent::Confirm(t, c) => format!("confirm {} {c:?}", t.pid),
@@ -410,6 +411,193 @@ fn processes_table_sorts_filters_and_shows_tree() {
     h.get_by_label("✖").click();
     h.run();
     assert!(h.state().view.search.is_empty());
+}
+
+#[test]
+fn keyboard_selection_stays_visible_in_a_long_process_list() {
+    use crate::processes::Col;
+    use eframe::egui::Key;
+    for mode in [
+        crate::processes::ViewMode::List,
+        crate::processes::ViewMode::Tree,
+    ] {
+        let mut snap = snapshot();
+        snap.processes = (0..80)
+            .map(|i| proc(1000 + i, 0, &format!("app-{i:03}.exe"), 1.0))
+            .collect();
+        let selected = ProcessRef::from(&snap.processes[0]);
+        let mut view = ProcessView::default();
+        view.selected = Some(selected);
+        view.sort = Col::Pid;
+        view.descending = false;
+        view.mode = mode;
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([820.0, 420.0])
+            .with_context_setup(crate::theme::apply)
+            .build_ui_state(
+                |ui, st: &mut ProcState| {
+                    let intents = st.view.ui(ui, &st.snap, &extra(&st.managed));
+                    for intent in intents {
+                        if let Intent::Select(target) = intent {
+                            st.view.selected = Some(target);
+                        }
+                    }
+                },
+                ProcState {
+                    view,
+                    snap,
+                    intents: Vec::new(),
+                    managed: ManagedMap::new(),
+                    hung: HashMap::new(),
+                },
+            );
+        h.run_steps(3);
+        h.key_press(Key::ArrowDown);
+        h.run_steps(3);
+        assert!(
+            h.query_by_label("app-001.exe").is_some(),
+            "control: nearby selection is visible"
+        );
+        for _ in 0..24 {
+            h.key_press(Key::ArrowDown);
+            h.run_steps(3);
+        }
+        h.run_steps(20);
+        assert_eq!(h.state().view.selected.as_ref().unwrap().pid, 1025);
+        let visible = h.query_by_label("app-025.exe");
+        println!(
+            "EXPECTED: selected app-025.exe visible; ACTUAL: {}",
+            visible.is_some()
+        );
+        let rect = visible
+            .expect("keyboard selection must scroll into view")
+            .rect();
+        assert!(
+            rect.min.y >= 100.0 && rect.max.y < 420.0,
+            "selected row inside table: {rect:?}"
+        );
+        // A selection made by another page must also reveal its row.
+        h.state_mut().view.selected = Some(ProcessRef::from(&h.state().snap.processes[60]));
+        h.run_steps(20);
+        assert!(h.query_by_label("app-060.exe").is_some());
+        h.event(eframe::egui::Event::PointerMoved(eframe::egui::pos2(
+            200.0, 300.0,
+        )));
+        h.event(eframe::egui::Event::MouseWheel {
+            unit: eframe::egui::MouseWheelUnit::Point,
+            delta: eframe::egui::vec2(0.0, 6000.0),
+            modifiers: eframe::egui::Modifiers::NONE,
+            phase: eframe::egui::TouchPhase::Move,
+            source: eframe::egui::MouseWheelSource::Unknown,
+        });
+        h.run_steps(20);
+        assert!(
+            h.query_by_label("app-000.exe").is_some(),
+            "manual scrolling is not overridden by an unchanged selection"
+        );
+        assert_eq!(h.state().view.selected.as_ref().unwrap().pid, 1060);
+    }
+}
+
+#[test]
+fn user_session_actions_are_reachable_in_a_narrow_window() {
+    use eframe::egui::{self, Event, Modifiers, MouseWheelUnit};
+    for width in [1440.0, 820.0] {
+        let mut d = data();
+        let Some(Ok(sessions)) = &mut d.sessions else {
+            panic!("fixture sessions")
+        };
+        sessions.truncate(1);
+        sessions[0].user = "abcdefghijklmnopqrst".into();
+        sessions[0].domain = "ABCDEFGHIJKLMNO".into();
+        sessions[0].station = "rdp-tcp#12345".into();
+        let mut request = None;
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([width, 420.0])
+            .with_context_setup(crate::theme::apply)
+            .build_ui(|ui| {
+                if let Some(r) = views::users(ui, &d) {
+                    request = Some(r);
+                }
+            });
+        h.run_steps(3);
+        if width < 1000.0 {
+            h.event(Event::PointerMoved(egui::pos2(400.0, 80.0)));
+            h.event(Event::MouseWheel {
+                unit: MouseWheelUnit::Point,
+                delta: egui::vec2(-2000.0, 0.0),
+                modifiers: Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+            });
+            h.run_steps(20);
+        }
+        let button = h.get_by_label("Sign off");
+        let rect = button.rect();
+        println!("EXPECTED: Sign off inside {width}px after scrolling; ACTUAL: {rect:?}");
+        assert!(
+            rect.min.x >= 0.0 && rect.max.x <= width,
+            "session actions must be reachable: {rect:?}"
+        );
+        button.click();
+        h.run_steps(2);
+        drop(h);
+        assert!(matches!(
+            request,
+            Some((_, _, crate::backend::SessionOp::SignOff))
+        ));
+    }
+}
+
+#[test]
+fn many_user_sessions_can_be_scrolled_without_changing_their_actions() {
+    use eframe::egui::{self, Event, Modifiers, MouseWheelUnit};
+    let mut d = data();
+    let template = d.sessions.as_ref().unwrap().as_ref().unwrap()[0].clone();
+    d.sessions = Some(Ok((0..24)
+        .map(|i| {
+            let mut session = template.clone();
+            session.id = 100 + i;
+            session.user = format!("person-{i:02}");
+            session
+        })
+        .collect()));
+    let mut request = None;
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1440.0, 420.0])
+        .with_context_setup(crate::theme::apply)
+        .build_ui(|ui| {
+            if let Some(r) = views::users(ui, &d) {
+                request = Some(r);
+            }
+        });
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("person-00").is_some());
+    h.event(Event::PointerMoved(egui::pos2(400.0, 180.0)));
+    h.event(Event::MouseWheel {
+        unit: MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -3000.0),
+        modifiers: Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
+    });
+    h.run_steps(20);
+    let button = h.get_all_by_label("Sign off").last().unwrap();
+    let rect = button.rect();
+    assert!(
+        rect.min.y >= 0.0 && rect.max.y < 420.0,
+        "last session is visible: {rect:?}"
+    );
+    button.click();
+    h.run_steps(2);
+    drop(h);
+    assert!(matches!(
+        request,
+        Some((123, _, crate::backend::SessionOp::SignOff))
+    ));
 }
 
 #[test]

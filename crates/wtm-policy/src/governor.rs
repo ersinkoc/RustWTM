@@ -48,6 +48,10 @@ impl Governor {
 
     /// Replaces the configuration, keeping track of already throttled processes.
     pub fn set_config(&mut self, cfg: GovernorConfig) {
+        if self.cfg.enabled != cfg.enabled {
+            self.high_since = None;
+            self.low_since = None;
+        }
         self.cfg = cfg;
     }
 
@@ -246,6 +250,42 @@ mod tests {
                 Decision::Restore { .. } => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn reenabling_governor_starts_a_new_sustain_window() {
+        let mut g = Governor::new(cfg());
+        let t = Instant::now();
+        let busy = snap(99.0, vec![proc(10, "busy.exe", 70.0)]);
+        assert!(g.tick(t, &busy).is_empty());
+        assert!(
+            !applied(&g.tick(t + secs(3), &busy)).is_empty(),
+            "control: sustained load is limited"
+        );
+        g.set_config(GovernorConfig {
+            enabled: false,
+            ..cfg()
+        });
+        assert!(
+            !g.tick(t + secs(4), &busy).is_empty(),
+            "turning off restores limits"
+        );
+        g.set_config(cfg());
+        let first = g.tick(t + secs(60), &busy);
+        println!("EXPECTED: no action on first sample after re-enabling; ACTUAL: {first:?}");
+        assert!(
+            first.is_empty(),
+            "disabled time must not count as sustained overload"
+        );
+        assert!(g.tick(t + secs(62), &busy).is_empty());
+        assert_eq!(applied(&g.tick(t + secs(63), &busy)).len(), 1);
+        // Even a quick off/on between samples interrupts the observation.
+        g.set_config(GovernorConfig {
+            enabled: false,
+            ..cfg()
+        });
+        g.set_config(cfg());
+        assert!(g.tick(t + secs(64), &busy).is_empty());
     }
 
     #[test]

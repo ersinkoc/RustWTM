@@ -29,9 +29,20 @@ fn app_color(cpu: f32, logical_cpus: u32) -> Option<Color32> {
 /// Side by side from this width, otherwise one below the other.
 const TWO_CARDS: f32 = 1100.0;
 
+/// A resource card opens the corresponding performance section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resource {
+    Cpu,
+    Memory,
+    Gpu,
+    Disk,
+    Network,
+}
+
 /// One resource at a glance: a ring for loads that have a ceiling, or a
 /// big value for rates, and the last few minutes as a sparkline.
 struct Stat<'a> {
+    resource: Resource,
     title: &'static str,
     accent: Color32,
     /// 0..=100 for loads; `None` for rates.
@@ -49,8 +60,8 @@ const STAT_HEADER: f32 = 66.0;
 /// Seconds of history in a card's sparkline.
 const STAT_SECONDS: usize = 60;
 
-fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
-    egui::Frame::new()
+fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
+    let frame = egui::Frame::new()
         .fill(crate::theme::card_fill(ui))
         .stroke(egui::Stroke::new(1.0, s.accent.gamma_multiply(0.45)))
         .corner_radius(10)
@@ -104,10 +115,48 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) {
                 crate::theme::sparkline(ui.painter(), rect, &tail, max, STAT_SECONDS, *color);
             }
         });
+    // A distinct id keeps the frame's hover-only response from relinquishing
+    // the button's keyboard focus at the beginning of the next frame.
+    let response = ui.interact(
+        frame.response.rect,
+        frame.response.id.with("open"),
+        egui::Sense::click(),
+    );
+    let value = s
+        .ring
+        .map_or_else(|| s.value.clone(), |p| format!("{p:.0}%"));
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::Role::Button,
+            ui.is_enabled(),
+            format!("{}: {value} · {}", s.title, s.detail),
+        )
+    });
+    let color = if response.hovered() || response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect,
+            10,
+            egui::Stroke::new(1.5, s.accent),
+            egui::StrokeKind::Inside,
+        );
+        crate::theme::text_color(ui, s.accent)
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    ui.painter().text(
+        response.rect.right_top() + egui::vec2(-10.0, 9.0),
+        egui::Align2::RIGHT_TOP,
+        "↗",
+        egui::FontId::proportional(13.0),
+        color,
+    );
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(crate::i18n::tr("View resource details"))
 }
 
 /// The cards in as many equal columns as fit, wrapping to further rows.
-fn stat_row(ui: &mut Ui, stats: &[Stat<'_>]) {
+fn stat_row(ui: &mut Ui, stats: &[Stat<'_>], intents: &mut Vec<Intent>) {
     let width = ui.available_width();
     let per_row = if width >= 1000.0 {
         stats.len()
@@ -119,7 +168,9 @@ fn stat_row(ui: &mut Ui, stats: &[Stat<'_>]) {
     for chunk in stats.chunks(per_row.max(1)) {
         ui.columns(chunk.len(), |cols| {
             for (col, s) in cols.iter_mut().zip(chunk) {
-                stat_card(col, s);
+                if stat_card(col, s).clicked() {
+                    intents.push(Intent::ShowResource(s.resource));
+                }
             }
         });
         ui.add_space(4.0);
@@ -461,6 +512,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         use crate::theme::{CPU, DISK_READ, DISK_WRITE, GPU, MEMORY, NET_RX, NET_TX};
         let stats = [
             Stat {
+                resource: Resource::Cpu,
                 title: "CPU",
                 accent: CPU,
                 ring: Some(s.cpu_percent),
@@ -473,6 +525,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 max: Some(100.0),
             },
             Stat {
+                resource: Resource::Memory,
                 title: crate::i18n::tr("Memory"),
                 accent: MEMORY,
                 ring: Some(mem),
@@ -489,6 +542,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 max: Some(100.0),
             },
             Stat {
+                resource: Resource::Gpu,
                 title: "GPU",
                 accent: GPU,
                 ring: Some(s.gpu_percent),
@@ -498,6 +552,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 max: Some(100.0),
             },
             Stat {
+                resource: Resource::Disk,
                 title: crate::i18n::tr("Disk"),
                 accent: DISK_READ,
                 ring: None,
@@ -514,6 +569,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 max: None,
             },
             Stat {
+                resource: Resource::Network,
                 title: crate::i18n::tr("Network"),
                 accent: NET_RX,
                 ring: None,
@@ -523,7 +579,7 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
                 max: None,
             },
         ];
-        stat_row(ui, &stats);
+        stat_row(ui, &stats, &mut intents);
         if let Some((color, text)) = verdict_of(data, &apps, &swarm_list) {
             ui.add_space(4.0);
             banner(ui, color, &text);

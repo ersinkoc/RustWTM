@@ -61,56 +61,60 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
         _ => ta.2.cmp(&tb.2),
     });
     let mut request = None;
-    crate::theme::panel(ui, |ui| {
-        egui::Grid::new("users_grid")
-            .num_columns(8)
-            .striped(true)
+    crate::theme::table_panel(ui, "users", 900.0, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("user_sessions")
             .show(ui, |ui| {
-                for (col, (h, numeric)) in [
-                    (crate::i18n::tr("User"), false),
-                    (crate::i18n::tr("Session"), true),
-                    (crate::i18n::tr("Station"), false),
-                    (crate::i18n::tr("State"), false),
-                    (crate::i18n::tr("Processes"), true),
-                    ("CPU", true),
-                    (crate::i18n::tr("Memory"), true),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    header(ui, h, col, numeric, &mut sort);
-                }
-                ui.end_row();
-                for (s, (count, cpu, mem)) in rows {
-                    ui.label(account(s));
-                    right(ui, s.id.to_string());
-                    ui.label(&s.station);
-                    ui.label(crate::i18n::debug(s.state));
-                    right(ui, count.to_string());
-                    right(ui, format!("{cpu:.1}%"));
-                    right(ui, format_bytes(mem as f64));
-                    ui.horizontal(|ui| {
-                        if s.state != wtm_core::SessionState::Disconnected
-                            && ui
-                                .small_button(crate::i18n::tr("Disconnect"))
-                                .on_hover_text(crate::i18n::tr(
-                                    "Programs keep running; the user can sign in again",
-                                ))
-                                .clicked()
+                egui::Grid::new("users_grid")
+                    .num_columns(8)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for (col, (h, numeric)) in [
+                            (crate::i18n::tr("User"), false),
+                            (crate::i18n::tr("Session"), true),
+                            (crate::i18n::tr("Station"), false),
+                            (crate::i18n::tr("State"), false),
+                            (crate::i18n::tr("Processes"), true),
+                            ("CPU", true),
+                            (crate::i18n::tr("Memory"), true),
+                        ]
+                        .into_iter()
+                        .enumerate()
                         {
-                            request = Some((s.id, account(s), SessionOp::Disconnect));
+                            header(ui, h, col, numeric, &mut sort);
                         }
-                        if ui
-                            .small_button(crate::i18n::tr("Sign off"))
-                            .on_hover_text(crate::i18n::tr("Closes the user's programs"))
-                            .clicked()
-                        {
-                            request = Some((s.id, account(s), SessionOp::SignOff));
+                        ui.end_row();
+                        for (s, (count, cpu, mem)) in rows {
+                            ui.label(account(s));
+                            right(ui, s.id.to_string());
+                            ui.label(&s.station);
+                            ui.label(crate::i18n::debug(s.state));
+                            right(ui, count.to_string());
+                            right(ui, format!("{cpu:.1}%"));
+                            right(ui, format_bytes(mem as f64));
+                            ui.horizontal(|ui| {
+                                if s.state != wtm_core::SessionState::Disconnected
+                                    && ui
+                                        .small_button(crate::i18n::tr("Disconnect"))
+                                        .on_hover_text(crate::i18n::tr(
+                                            "Programs keep running; the user can sign in again",
+                                        ))
+                                        .clicked()
+                                {
+                                    request = Some((s.id, account(s), SessionOp::Disconnect));
+                                }
+                                if ui
+                                    .small_button(crate::i18n::tr("Sign off"))
+                                    .on_hover_text(crate::i18n::tr("Closes the user's programs"))
+                                    .clicked()
+                                {
+                                    request = Some((s.id, account(s), SessionOp::SignOff));
+                                }
+                                crate::theme::fill_row(ui);
+                            });
+                            ui.end_row();
                         }
-                        crate::theme::fill_row(ui);
                     });
-                    ui.end_row();
-                }
             });
     });
     sort.store(ui, "users");

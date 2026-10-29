@@ -47,13 +47,13 @@ CI runs the same checks.
 1. Update the root `Cargo.toml`, the hardware provider's project version,
    `Cargo.lock` workspace entries and the README's MSI examples. Move the
    **Unreleased** changelog entries under a dated version heading.
-2. Run `scripts/ci/verify-release.ps1 -Tag v0.21.0`, substituting the intended
+2. Run `scripts/ci/verify-release.ps1 -Tag v0.22.0`, substituting the intended
    tag. It refuses a tag that disagrees with the workspace, hardware provider
    or release notes.
 3. Run the format, Clippy, documentation, workspace test and release build
    checks. Push the release commit and wait for CI, including the disposable-VM
    installer and service checks, before tagging that commit.
-4. Tag and push: `git tag v0.21.0` and `git push origin v0.21.0`.
+4. Tag and push: `git tag v0.22.0` and `git push origin v0.22.0`.
 5. Wait for the release workflow. It gates publication on release identity,
    format, Clippy, documentation, tests and locked builds, then publishes the
    portable ZIP and MSI with their `.sha256` files. Download the published
