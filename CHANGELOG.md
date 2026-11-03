@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-03
+
+### Added
+
+- Containers page for read-only Docker Engine monitoring: search by name, image,
+  ID or Compose project, filter by project and running state, and sort the list.
+- Per-container CPU, memory/limit, network and disk rates, bounded CPU/memory
+  history, IPv4/IPv6 port mappings, health, start time, restart count and the last
+  200 log lines with full-text copy. Overview includes a Docker summary and link.
+- Active local Docker context discovery, including Docker Desktop Linux and
+  Windows named-pipe endpoints, DOCKER_CONTEXT, DOCKER_HOST and DOCKER_CONFIG.
+  Unsupported remote endpoints show an explicit diagnostic.
+- Container controls in English, Turkish, German, French and Spanish,
+  with compact/wide layouts and light/dark themes.
+
+### Reliability
+
+- Docker uses a separate lazy worker and read-only Engine API requests under
+  the interactive user's rights. Requests have deadlines and byte caps; pending
+  pipe I/O is cancelled and drained safely. No Docker CLI subprocess polling.
+- First, missing, repeated, reset or stale samples cannot manufacture zero usage
+  or traffic rates. Sampling is fair and bounded, histories are capped, and
+  failed statistics remain marked until a successful reading.
+- Docker failures retain an explicitly stale snapshot; leaving the relevant
+  pages pauses polling. Selected-container replies are checked against identity.
+  No container control operations, service protocol changes or new dependencies.
+
 ## [0.23.0] - 2026-11-03
 
 ### Added

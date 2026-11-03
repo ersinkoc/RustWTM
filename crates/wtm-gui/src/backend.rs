@@ -154,6 +154,7 @@ pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory
 
 #[derive(Debug, Default)]
 pub struct Data {
+    pub docker: Arc<wtm_core::docker::State>,
     /// The process owning the foreground window, as last seen (also without
     /// the service, whose status names its app).
     pub foreground_pid: Option<u32>,
@@ -407,6 +408,7 @@ pub enum ServiceOp {
 }
 
 pub struct Backend {
+    docker: crate::docker_worker::DockerWorker,
     data: Arc<Mutex<Data>>,
     tx: Sender<UiCommand>,
     /// Show desktop notifications for notable service events.
@@ -446,6 +448,7 @@ impl Backend {
         let (tx, rx) = mpsc::channel();
         let notifications = Arc::new(AtomicBool::new(true));
         let window = Arc::new(AtomicIsize::new(0));
+        let docker = crate::docker_worker::DockerWorker::new(&data, ctx.clone());
         let mut worker = Worker {
             local_hardware: None,
             data: data.clone(),
@@ -480,8 +483,13 @@ impl Backend {
             tx,
             notifications,
             window,
+            docker,
             worker: Some(worker),
         }
+    }
+
+    pub fn request_docker(&self, selected: Option<&str>) {
+        self.docker.request(selected);
     }
 
     pub fn data(&self) -> MutexGuard<'_, Data> {
@@ -502,6 +510,7 @@ impl Backend {
             tx,
             notifications: Arc::new(AtomicBool::new(true)),
             window: Arc::new(AtomicIsize::new(0)),
+            docker: crate::docker_worker::DockerWorker::offline(),
             worker: None,
         };
         (backend, rx)
@@ -2223,6 +2232,7 @@ mod tests {
             tx,
             notifications: Arc::new(AtomicBool::new(true)),
             window: Arc::new(AtomicIsize::new(0)),
+            docker: crate::docker_worker::DockerWorker::offline(),
             worker: Some(worker),
         };
         backend.send(UiCommand::RestoreFrequency);

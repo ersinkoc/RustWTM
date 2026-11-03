@@ -1,4 +1,220 @@
 {
+  "Healthy": {
+    "tr": "Sağlıklı",
+    "de": "Gesund",
+    "fr": "Sain",
+    "es": "Correcto"
+  },
+  "Unhealthy": {
+    "tr": "Sağlıksız",
+    "de": "Fehlerhaft",
+    "fr": "Défaillant",
+    "es": "Con problemas"
+  },
+  "Starting": {
+    "tr": "Başlatılıyor",
+    "de": "Wird gestartet",
+    "fr": "Démarrage",
+    "es": "Iniciando"
+  },
+  "Containers": {
+    "tr": "Konteynerler",
+    "de": "Container",
+    "fr": "Conteneurs",
+    "es": "Contenedores"
+  },
+  "Container": {
+    "tr": "Konteyner",
+    "de": "Container",
+    "fr": "Conteneur",
+    "es": "Contenedor"
+  },
+  "Docker containers, resource usage and recent logs": {
+    "tr": "Docker konteynerleri, kaynak kullanımı ve son loglar",
+    "de": "Docker-Container, Ressourcennutzung und aktuelle Logs",
+    "fr": "Conteneurs Docker, ressources et journaux récents",
+    "es": "Contenedores Docker, recursos y registros recientes"
+  },
+  "All containers": {
+    "tr": "Tüm konteynerler",
+    "de": "Alle Container",
+    "fr": "Tous les conteneurs",
+    "es": "Todos los contenedores"
+  },
+  "All projects": {
+    "tr": "Tüm projeler",
+    "de": "Alle Projekte",
+    "fr": "Tous les projets",
+    "es": "Todos los proyectos"
+  },
+  "CPU uses Docker conventions: 100% per core on Linux.": {
+    "tr": "CPU, Docker ölçümünü kullanır: Linux üzerinde çekirdek başına %100.",
+    "de": "CPU nach Docker-Konvention: 100 % pro Kern unter Linux.",
+    "fr": "CPU selon Docker : 100 % par cœur sous Linux.",
+    "es": "CPU según Docker: 100 % por núcleo en Linux."
+  },
+  "Connecting to Docker…": {
+    "tr": "Docker’a bağlanılıyor…",
+    "de": "Verbindung zu Docker…",
+    "fr": "Connexion à Docker…",
+    "es": "Conectando a Docker…"
+  },
+  "Copy logs": {
+    "tr": "Logları kopyala",
+    "de": "Logs kopieren",
+    "fr": "Copier les journaux",
+    "es": "Copiar registros"
+  },
+  "Created": {
+    "tr": "Oluşturuldu",
+    "de": "Erstellt",
+    "fr": "Créé",
+    "es": "Creado"
+  },
+  "Dead": {
+    "tr": "Çalışamaz durumda",
+    "de": "Defekt",
+    "fr": "Hors service",
+    "es": "Inoperativo"
+  },
+  "Disk I/O": {
+    "tr": "Disk G/Ç",
+    "de": "Datenträger-E/A",
+    "fr": "E/S disque",
+    "es": "E/S de disco"
+  },
+  "Docker data is out of date": {
+    "tr": "Docker verileri güncel değil",
+    "de": "Docker-Daten sind veraltet",
+    "fr": "Les données Docker sont périmées",
+    "es": "Los datos de Docker están desactualizados"
+  },
+  "Docker is unavailable": {
+    "tr": "Docker kullanılamıyor",
+    "de": "Docker ist nicht verfügbar",
+    "fr": "Docker est indisponible",
+    "es": "Docker no está disponible"
+  },
+  "Health": {
+    "tr": "Sağlık",
+    "de": "Zustand",
+    "fr": "État de santé",
+    "es": "Estado de salud"
+  },
+  "Image": {
+    "tr": "İmaj",
+    "de": "Image",
+    "fr": "Image",
+    "es": "Imagen"
+  },
+  "Loading container details…": {
+    "tr": "Konteyner ayrıntıları yükleniyor…",
+    "de": "Containerdetails werden geladen…",
+    "fr": "Chargement des détails du conteneur…",
+    "es": "Cargando detalles del contenedor…"
+  },
+  "No logs available": {
+    "tr": "Kullanılabilir log yok",
+    "de": "Keine Logs verfügbar",
+    "fr": "Aucun journal disponible",
+    "es": "No hay registros disponibles"
+  },
+  "No matching containers": {
+    "tr": "Eşleşen konteyner yok",
+    "de": "Keine passenden Container",
+    "fr": "Aucun conteneur correspondant",
+    "es": "No hay contenedores coincidentes"
+  },
+  "Not configured": {
+    "tr": "Yapılandırılmadı",
+    "de": "Nicht konfiguriert",
+    "fr": "Non configuré",
+    "es": "Sin configurar"
+  },
+  "Project": {
+    "tr": "Proje",
+    "de": "Projekt",
+    "fr": "Projet",
+    "es": "Proyecto"
+  },
+  "Published ports": {
+    "tr": "Yayınlanan portlar",
+    "de": "Veröffentlichte Ports",
+    "fr": "Ports publiés",
+    "es": "Puertos publicados"
+  },
+  "Recent logs (last 200 lines)": {
+    "tr": "Son loglar (son 200 satır)",
+    "de": "Aktuelle Logs (letzte 200 Zeilen)",
+    "fr": "Journaux récents (200 dernières lignes)",
+    "es": "Registros recientes (últimas 200 líneas)"
+  },
+  "Restarting": {
+    "tr": "Yeniden başlatılıyor",
+    "de": "Neustart",
+    "fr": "Redémarrage",
+    "es": "Reiniciando"
+  },
+  "Search containers": {
+    "tr": "Konteynerlerde ara",
+    "de": "Container suchen",
+    "fr": "Rechercher des conteneurs",
+    "es": "Buscar contenedores"
+  },
+  "Showing the first 512 containers.": {
+    "tr": "İlk 512 konteyner gösteriliyor.",
+    "de": "Die ersten 512 Container werden angezeigt.",
+    "fr": "Affichage des 512 premiers conteneurs.",
+    "es": "Se muestran los primeros 512 contenedores."
+  },
+  "Start Docker Desktop and select a local Windows named-pipe context.": {
+    "tr": "Docker Desktop’ı başlatıp yerel Windows named-pipe bağlantısı kullanan bir context seçin.",
+    "de": "Starten Sie Docker Desktop und wählen Sie einen lokalen Windows-Named-Pipe-Kontext.",
+    "fr": "Démarrez Docker Desktop et choisissez un contexte Windows local utilisant un tube nommé.",
+    "es": "Inicie Docker Desktop y seleccione un contexto local de Windows con canalización con nombre."
+  },
+  "Started": {
+    "tr": "Başlatıldı",
+    "de": "Gestartet",
+    "fr": "Démarré",
+    "es": "Iniciado"
+  },
+  "Updated {0}s ago": {
+    "tr": "{0} sn önce güncellendi",
+    "de": "Vor {0} s aktualisiert",
+    "fr": "Mis à jour il y a {0} s",
+    "es": "Actualizado hace {0} s"
+  },
+  "View containers": {
+    "tr": "Konteynerleri görüntüle",
+    "de": "Container anzeigen",
+    "fr": "Voir les conteneurs",
+    "es": "Ver contenedores"
+  },
+  "Waiting for fresh container statistics": {
+    "tr": "Güncel konteyner istatistikleri bekleniyor",
+    "de": "Warten auf aktuelle Containerstatistiken",
+    "fr": "En attente de statistiques récentes",
+    "es": "Esperando estadísticas recientes del contenedor"
+  },
+  "{0} of {1} containers": {
+    "tr": "{0} / {1} konteyner",
+    "de": "{0} von {1} Containern",
+    "fr": "{0} sur {1} conteneurs",
+    "es": "{0} de {1} contenedores"
+  },
+  "{0} restarts": {
+    "tr": "{0} yeniden başlatma",
+    "de": "{0} Neustarts",
+    "fr": "{0} redémarrages",
+    "es": "{0} reinicios"
+  },
+  "{0} running · {1} containers": {
+    "tr": "{0} çalışıyor · {1} konteyner",
+    "de": "{0} laufen · {1} Container",
+    "fr": "{0} actifs · {1} conteneurs",
+    "es": "{0} en ejecución · {1} contenedores"
+  },
   "Copy message": {
     "tr": "Mesajı kopyala",
     "de": "Nachricht kopieren",

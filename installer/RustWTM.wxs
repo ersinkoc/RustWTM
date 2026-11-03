@@ -48,6 +48,9 @@
           <Component Id="CpuDocumentation">
             <File Id="CpuGuide" Source="docs\cpu-controls.md" KeyPath="yes" />
           </Component>
+          <Component Id="DockerDocumentation">
+            <File Id="DockerGuide" Source="docs\docker.md" KeyPath="yes" />
+          </Component>
           <Component Id="LanguageDocumentation">
             <File Id="LanguageGuide" Source="docs\localization.md" KeyPath="yes" />
           </Component>
@@ -148,6 +151,7 @@
       <ComponentRef Id="HardwareDocumentation" />
       <ComponentRef Id="CpuDocumentation" />
       <ComponentRef Id="LanguageDocumentation" />
+      <ComponentRef Id="DockerDocumentation" />
       <ComponentRef Id="Cli" />
       <ComponentRef Id="Service" />
       <ComponentRef Id="Readme" />

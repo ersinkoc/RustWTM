@@ -17,6 +17,7 @@ use crate::views;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Tab {
     Overview,
+    Containers,
     Processes,
     Performance,
     Disks,
@@ -36,7 +37,7 @@ enum Tab {
 }
 
 /// Navigation follows the task: observe, protect, inspect the system, configure.
-const NAV: [(Tab, crate::navigation::Icon, &str); 17] = {
+const NAV: [(Tab, crate::navigation::Icon, &str); 18] = {
     use crate::navigation::Icon as I;
     [
         (Tab::Overview, I::Overview, "Overview"),
@@ -45,6 +46,7 @@ const NAV: [(Tab, crate::navigation::Icon, &str); 17] = {
         (Tab::Disks, I::Disk, "Disks"),
         (Tab::Sensors, I::Sensors, "Sensors & cooling"),
         (Tab::History, I::History, "App history"),
+        (Tab::Containers, I::Containers, "Containers"),
         (Tab::Governor, I::Shield, "Governor"),
         (Tab::Limits, I::Limits, "Limits"),
         (Tab::KillList, I::Stop, "Kill list"),
@@ -89,6 +91,9 @@ impl Tab {
 
     fn subtitle(self) -> &'static str {
         match self {
+            Self::Containers => {
+                crate::i18n::tr("Docker containers, resource usage and recent logs")
+            }
             Self::Overview => crate::i18n::tr("Your machine at a glance"),
             Self::Processes => crate::i18n::tr("Find what is busy. Keep what matters running."),
             Self::Performance => crate::i18n::tr("Live resource usage and recent trends"),
@@ -149,9 +154,9 @@ fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
     for (i, (tab, icon, label)) in NAV.iter().enumerate() {
         let group = match i {
             0 => Some(crate::i18n::tr("MONITOR")),
-            6 => Some(crate::i18n::tr("PROTECT")),
-            10 => Some(crate::i18n::tr("SYSTEM")),
-            15 => Some("RUSTWTM"),
+            7 => Some(crate::i18n::tr("PROTECT")),
+            11 => Some(crate::i18n::tr("SYSTEM")),
+            16 => Some("RUSTWTM"),
             _ => None,
         };
         if let Some(group) = group {
@@ -189,6 +194,7 @@ struct UiState {
     performance_focus: Option<crate::overview::Resource>,
     processes: ProcessView,
     sensors: crate::sensors::SensorsView,
+    containers: crate::containers::View,
     confirm: Option<(ProcessRef, Command)>,
     /// A session to disconnect or sign out, once confirmed: (id, user, op).
     confirm_session: Option<(u32, String, crate::backend::SessionOp)>,
@@ -371,6 +377,7 @@ impl Default for UiState {
             performance_focus: None,
             processes: ProcessView::default(),
             sensors: crate::sensors::SensorsView::default(),
+            containers: crate::containers::View::default(),
             confirm: None,
             confirm_session: None,
             confirm_many: None,
@@ -670,6 +677,7 @@ impl eframe::App for App {
                     service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
                 }
                 Tab::Governor => governor(ui, &data),
+                Tab::Containers => crate::containers::show(ui, &data.docker, &mut state.containers),
                 Tab::Events => events(ui, &data, &mut state.events),
                 Tab::History => {
                     if views::app_history(ui, &data, &mut state.history) {
@@ -992,6 +1000,13 @@ impl eframe::App for App {
         }
 
         drop(data);
+        if matches!(state.tab, Tab::Overview | Tab::Containers) {
+            backend.request_docker(if state.tab == Tab::Containers {
+                state.containers.selected.as_deref()
+            } else {
+                None
+            });
+        }
         if state.tab == Tab::History {
             let stale = state
                 .last_load
@@ -1076,6 +1091,7 @@ impl eframe::App for App {
                     state.limits.prefill(&name);
                     state.tab = Tab::Limits;
                 }
+                Intent::ShowContainers => state.tab = Tab::Containers,
                 Intent::ShowPorts => state.tab = Tab::Ports,
                 Intent::Dump(target) => backend.send(UiCommand::CreateDump(target)),
                 Intent::WatchExit(target) => backend.send(UiCommand::WatchExit(target)),
@@ -3138,6 +3154,56 @@ mod tests {
 
     use crate::backend::Backend;
     use crate::ui_tests::data;
+
+    #[test]
+    fn containers_keep_selected_details_visible_in_a_compact_app_window() {
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            let mut d = data();
+            d.docker = std::sync::Arc::new(crate::containers::fixture());
+            let (backend, _rx) = Backend::offline(d);
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([820.0, 500.0])
+                .build_eframe(|cc| {
+                    crate::theme::apply(&cc.egui_ctx);
+                    cc.egui_ctx.set_theme(theme);
+                    App {
+                        backend,
+                        state: UiState {
+                            tab: Tab::Containers,
+                            autostart: Some(false),
+                            check_updates: false,
+                            ..Default::default()
+                        },
+                        tray: None,
+                        frames: Default::default(),
+                    }
+                });
+            h.run();
+            h.get_by_label("web-0").click();
+            h.run();
+            let rect = h.get_by_label("Close details").rect();
+            assert!(
+                rect.max.y < 445.0,
+                "selected details must be visible above the status bar: {rect:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn overview_opens_the_container_monitor_without_affecting_process_controls() {
+        let mut d = data();
+        d.docker = std::sync::Arc::new(crate::containers::fixture());
+        let (mut h, _rx) = overview_app(d);
+        h.run();
+        h.get_by_label("View containers").click();
+        h.run();
+        assert_eq!(h.state().state.tab, Tab::Containers);
+        assert!(h.query_by_label("Search containers").is_some());
+        h.get_by_label("web-0").click();
+        h.run();
+        assert!(h.state().state.containers.selected.is_some());
+    }
 
     #[test]
     fn overview_details_reveal_a_process_despite_old_filters_and_a_paused_list() {
@@ -5513,6 +5579,7 @@ mod tests {
                 for (size_name, size) in [("wide", [1440.0, 1000.0]), ("compact", [820.0, 500.0])] {
                     for tab in [
                         Tab::Overview,
+                        Tab::Containers,
                         Tab::Processes,
                         Tab::Performance,
                         Tab::Disks,
@@ -5535,6 +5602,7 @@ mod tests {
                             continue;
                         }
                         let mut d = data();
+                        d.docker = std::sync::Arc::new(crate::containers::fixture());
                         d.hardware = crate::sensors::fixture();
                         d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
                         let sensors = crate::sensors::SensorsView::review_fixture(&d.hardware);
@@ -5658,6 +5726,14 @@ mod tests {
                             );
                             let path = out
                                 .join(format!("{theme_name}-{size_name}-ProcessesSelection.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
+                        if tab == Tab::Containers {
+                            h.state_mut().state.containers.selected = Some(format!("{:064x}", 0));
+                            h.run_steps(3);
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-ContainerDetails.png"));
                             h.render().expect("GPU render").save(&path).unwrap();
                             println!("Rendered {}", path.display());
                         }

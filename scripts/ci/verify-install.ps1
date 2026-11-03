@@ -44,6 +44,7 @@ Assert (Test-Path (Join-Path $InstallDir 'hardware/PROVIDER-NOTICES.txt')) 'hard
 Assert (Test-Path (Join-Path $InstallDir 'docs/hardware.md')) 'hardware guide installed'
 Assert (Test-Path (Join-Path $InstallDir 'docs/cpu-controls.md')) 'CPU topology and power guide installed'
 Assert (Test-Path (Join-Path $InstallDir 'docs/localization.md')) 'Language support guide installed'
+Assert (Test-Path (Join-Path $InstallDir 'docs/docker.md')) 'Docker monitoring guide installed'
 if ($Mode -eq 'script') {
     # Only SYSTEM and administrators may change what the service runs.
     $sddl = (Get-Acl -LiteralPath $InstallDir).Sddl

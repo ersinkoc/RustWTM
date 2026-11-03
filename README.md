@@ -18,7 +18,7 @@ usage history.
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Status:** early release (0.23). Sensors and cooling controls are available
+> **Status:** early release (0.24). Sensors and cooling controls are available
 > through the optional hardware provider. Device support varies; physical fan
 > writes still require validation on each supported hardware configuration.
 > Enforcement is **off by default** (dry-run); review the event log first.
@@ -28,6 +28,13 @@ usage history.
 ## Features
 
 **Task manager (GUI `rustwtm`, CLI `wtm`)**
+
+- **Docker containers**: a read-only monitor for the active local Docker context,
+  including Compose project/state/search filters, CPU, memory/limit, network and
+  disk rates, recent graphs, port mappings, health, restart count and bounded logs.
+  Overview shows running containers and the busiest sampled workloads. Docker is
+  optional; engine failures never block the process sampler. [Setup and limits](docs/docker.md).
+  [Container monitor preview](screenshots/containers.png).
 
 - Overview start page: load at a glance, one-click protection on/off and
   protection levels, the busiest apps with quick actions.
@@ -203,8 +210,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.23.0-x64.msi            # interactive
-msiexec /i RustWTM-0.23.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.24.0-x64.msi            # interactive
+msiexec /i RustWTM-0.24.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
@@ -370,7 +377,7 @@ cargo test --workspace
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the roadmap in [PLAN.md](PLAN.md).
 The [0.13.0 system review](docs/0.13.0-review.md) covers the current architecture,
 validation boundaries and the implemented sensors and cooling work.
-The [0.23.0 release review](docs/0.23.0-review.md) records the latest reproduced
+The [0.24.0 release review](docs/0.24.0-review.md) records the latest reproduced
 defects, regression evidence, release checks and remaining hardware boundaries.
 
 ## License

@@ -4,6 +4,7 @@
 
 pub mod control;
 pub mod diskscan;
+pub mod docker;
 pub use wtm_sys::cpu;
 pub mod hardware;
 pub mod launch;

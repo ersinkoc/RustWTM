@@ -23,6 +23,7 @@ pub mod net;
 pub mod nettrace;
 mod ntapi;
 pub mod pipe;
+pub mod pipe_http;
 pub mod power;
 pub mod privilege;
 pub mod process;

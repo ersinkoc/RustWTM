@@ -193,6 +193,7 @@ pub enum Intent {
     ConfirmMany(Vec<ProcessRef>, Command),
     /// Open the Ports tab.
     ShowPorts,
+    ShowContainers,
     /// Write a full memory dump of the process.
     Dump(ProcessRef),
     /// Notify when the process exits.

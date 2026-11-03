@@ -598,6 +598,9 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
     }
     ui.add_space(6.0);
+    if crate::containers::overview(ui, &data.docker) {
+        intents.push(Intent::ShowContainers);
+    }
     crate::theme::card(ui, crate::i18n::tr("Automatic protection"), |ui| {
         protection(ui, data, &mut commands);
     });

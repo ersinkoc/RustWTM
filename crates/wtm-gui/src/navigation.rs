@@ -5,6 +5,7 @@ use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Ui};
 #[derive(Clone, Copy)]
 pub enum Icon {
     Overview,
+    Containers,
     Processes,
     Performance,
     Disk,
@@ -45,6 +46,12 @@ fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
         );
     };
     match icon {
+        Icon::Containers => {
+            for (x, y) in [(2.0, 3.0), (10.0, 3.0), (2.0, 11.0), (10.0, 11.0)] {
+                box_at(x, y, 6.0, 6.0);
+            }
+            line(&[(1.0, 18.0), (18.0, 18.0)]);
+        }
         Icon::Overview => {
             for (x, y) in [(2.0, 2.0), (11.0, 2.0), (2.0, 11.0), (11.0, 11.0)] {
                 box_at(x, y, 6.0, 6.0);
