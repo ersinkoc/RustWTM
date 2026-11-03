@@ -387,7 +387,12 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
             .map(PriorityClass::from)
             .or(t.original_priority);
         if let Some(p) = priority {
-            errors.extend(control::set_priority(target, p).err());
+            match control::set_priority(target, p) {
+                Ok(()) => t.applied.priority = new.priority,
+                Err(e) => errors.push(e),
+            }
+        } else {
+            t.applied.priority = new.priority;
         }
     }
     if new.eco_qos != old.eco_qos {
@@ -396,7 +401,10 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
         } else {
             t.original_eco.unwrap_or(EcoQos::SystemManaged)
         };
-        errors.extend(control::set_eco_qos(target, mode).err());
+        match control::set_eco_qos(target, mode) {
+            Ok(()) => t.applied.eco_qos = new.eco_qos,
+            Err(e) => errors.push(e),
+        }
     }
     if new.limits() != old.limits() {
         let r = if new.limits() != Limits::default() {
@@ -407,7 +415,13 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
             // Applying failed earlier: there is nothing to lift.
             Ok(())
         };
-        errors.extend(r.err());
+        match r {
+            Ok(()) => {
+                t.applied.cpu_cap = new.cpu_cap;
+                t.applied.memory_bytes = new.memory_bytes;
+            }
+            Err(e) => errors.push(e),
+        }
     }
     if new.suspended != old.suspended {
         let r = if new.suspended {
@@ -415,10 +429,14 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
         } else {
             control::resume(target)
         };
-        errors.extend(r.err());
+        match r {
+            Ok(()) => t.applied.suspended = new.suspended,
+            Err(e) => errors.push(e),
+        }
     }
 
-    t.applied = new;
+    // A failed field remains unapplied, so later requests retry it. Successful
+    // fields keep their state and original settings even on partial failure.
     if errors.is_empty() {
         Ok(())
     } else {
@@ -433,6 +451,55 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_controls_are_retried_instead_of_reported_as_success() {
+        // A protected target gives deterministic refusal without changing it.
+        let target = ProcessRef {
+            pid: 4,
+            create_time: 0,
+            name: "System".into(),
+        };
+        let mut monitoring = Executor::new(true, EventLog::default());
+        let decision = |action| Decision::Apply {
+            source: Source::Manual,
+            target: target.clone(),
+            action,
+            reason: "bounded refusal proof".into(),
+        };
+        let mut control = decision(Action::CpuCap(10.0));
+        if let Decision::Apply { source, .. } = &mut control {
+            *source = Source::Governor;
+        }
+        assert!(
+            monitoring.execute(&control).is_ok(),
+            "control: monitoring logs without applying"
+        );
+        assert!(monitoring.managed().is_empty());
+        for action in [
+            Action::CpuCap(10.0),
+            Action::Priority(PriorityLevel::Idle),
+            Action::EcoQos,
+            Action::Suspend,
+        ] {
+            let mut executor = Executor::new(false, EventLog::default());
+            assert!(
+                executor.execute(&decision(action)).is_err(),
+                "protected target must refuse {action:?}"
+            );
+            let repeated = executor.execute(&decision(action));
+            eprintln!("EXPECTED: repeated {action:?} returns Err; ACTUAL: {repeated:?}");
+            assert!(
+                repeated.is_err(),
+                "failed controls must not become an apparent success on retry"
+            );
+            assert_eq!(
+                executor.managed()[0].summary,
+                "none",
+                "refused controls must not be advertised as applied"
+            );
+        }
+    }
 
     #[test]
     fn fold_takes_the_most_restrictive_state() {

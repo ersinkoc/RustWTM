@@ -201,8 +201,8 @@ struct UiState {
     /// for; a new selection narrows it again.
     network_all_for: Option<ProcessRef>,
     services_filter: String,
-    /// The Events tab shows only this level; `None` shows all.
-    event_level: Option<EventLevel>,
+    /// Transient event filters and the open diagnostic record.
+    events: EventsView,
     selected_startup: Option<wtm_core::startup::StartupEntry>,
     history: views::HistoryView,
     history_dirty: bool,
@@ -378,7 +378,7 @@ impl Default for UiState {
             network_filter: String::new(),
             network_all_for: None,
             services_filter: String::new(),
-            event_level: None,
+            events: EventsView::default(),
             selected_startup: None,
             history: views::HistoryView::default(),
             history_dirty: true,
@@ -670,7 +670,7 @@ impl eframe::App for App {
                     service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
                 }
                 Tab::Governor => governor(ui, &data),
-                Tab::Events => events(ui, &data, &mut state.event_level),
+                Tab::Events => events(ui, &data, &mut state.events),
                 Tab::History => {
                     if views::app_history(ui, &data, &mut state.history) {
                         state.history_dirty = true;
@@ -2790,9 +2790,17 @@ fn level_rank(level: EventLevel) -> u8 {
     }
 }
 
-fn events(ui: &mut Ui, data: &Data, level: &mut Option<EventLevel>) {
+#[derive(Default)]
+struct EventsView {
+    level: Option<EventLevel>,
+    search: String,
+    selected: Option<(u64, u64)>,
+}
+
+fn events(ui: &mut Ui, data: &Data, view: &mut EventsView) {
     use crate::sort::{Sort, header, text};
     if data.events.is_empty() {
+        view.selected = None;
         crate::theme::panel(ui, |ui| {
             crate::theme::empty_state(
                 ui,
@@ -2804,27 +2812,94 @@ fn events(ui: &mut Ui, data: &Data, level: &mut Option<EventLevel>) {
         });
         return;
     }
+    crate::theme::panel(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for (value, label) in [
+                (None, crate::i18n::tr("All events")),
+                (Some(EventLevel::Info), crate::i18n::tr("Information")),
+                (Some(EventLevel::Warn), crate::i18n::tr("Warnings")),
+                (Some(EventLevel::Error), crate::i18n::tr("Errors")),
+            ] {
+                ui.selectable_value(&mut view.level, value, label);
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            let label = ui.label(crate::i18n::tr("Search events"));
+            ui.add(
+                egui::TextEdit::singleline(&mut view.search)
+                    .desired_width((ui.available_width() - 100.0).clamp(100.0, 320.0)),
+            )
+            .labelled_by(label.id);
+            if !view.search.is_empty() && ui.small_button(crate::i18n::tr("Clear search")).clicked()
+            {
+                view.search.clear();
+            }
+        });
+    });
+    let query = view.search.trim().to_lowercase();
     let mut items: Vec<_> = data
         .events
         .iter()
         .rev()
-        .filter(|e| level.is_none_or(|l| e.level == l))
+        .filter(|e| view.level.is_none_or(|l| e.level == l))
+        .filter(|e| {
+            query.is_empty()
+                || e.name
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(&query)
+                || e.message.to_lowercase().contains(&query)
+                || crate::i18n::message(&e.message)
+                    .to_lowercase()
+                    .contains(&query)
+                || e.pid.is_some_and(|pid| pid.to_string().contains(&query))
+        })
         .collect();
-    ui.horizontal_wrapped(|ui| {
-        for (value, label) in [
-            (None, crate::i18n::tr("All events")),
-            (Some(EventLevel::Info), crate::i18n::tr("Information")),
-            (Some(EventLevel::Warn), crate::i18n::tr("Warnings")),
-            (Some(EventLevel::Error), crate::i18n::tr("Errors")),
-        ] {
-            ui.selectable_value(level, value, label);
-        }
-        ui.separator();
-        ui.weak(crate::i18n::format(
-            "{0} of {1} events",
-            &[items.len().to_string(), data.events.len().to_string()],
-        ));
-    });
+    ui.weak(crate::i18n::format(
+        "{0} of {1} events",
+        &[items.len().to_string(), data.events.len().to_string()],
+    ));
+    // Filtering keeps an open detail; eviction from the bounded buffer clears it.
+    if let Some(event) = view
+        .selected
+        .and_then(|key| data.events.iter().find(|e| (e.id, e.unix_ms) == key))
+    {
+        crate::theme::card(ui, crate::i18n::tr("Event details"), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                crate::theme::colored(
+                    ui,
+                    level_color(ui, event.level),
+                    crate::i18n::debug(event.level),
+                );
+                if let Some(name) = &event.name {
+                    ui.strong(name);
+                }
+                if let Some(pid) = event.pid {
+                    ui.monospace(format!("PID {pid}"));
+                }
+                if ui.small_button(crate::i18n::tr("Copy message")).clicked() {
+                    ui.ctx()
+                        .copy_text(crate::i18n::message(&event.message).into_owned());
+                }
+                if ui.small_button(crate::i18n::tr("Close details")).clicked() {
+                    view.selected = None;
+                }
+            });
+            egui::ScrollArea::vertical()
+                .id_salt("event_detail")
+                .max_height(96.0)
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(crate::i18n::message(&event.message).as_ref())
+                            .wrap()
+                            .selectable(true),
+                    );
+                });
+        });
+    } else {
+        view.selected = None;
+    }
     ui.add_space(4.0);
     // Newest first, the order they arrive in.
     let mut sort = Sort::load(ui, "events", Sort::new(0, true));
@@ -2906,7 +2981,20 @@ fn events(ui: &mut Ui, data: &Data, level: &mut Option<EventLevel>) {
                         ui.label(e.name.clone().unwrap_or_default());
                     });
                     row.col(|ui| {
-                        ui.label(crate::i18n::message(&e.message).as_ref());
+                        let message = crate::i18n::message(&e.message);
+                        if ui
+                            .add(
+                                egui::Button::selectable(
+                                    view.selected == Some((e.id, e.unix_ms)),
+                                    message.as_ref(),
+                                )
+                                .truncate(),
+                            )
+                            .on_hover_text(message.as_ref())
+                            .clicked()
+                        {
+                            view.selected = Some((e.id, e.unix_ms));
+                        }
                     });
                 });
             });
@@ -3334,7 +3422,7 @@ mod tests {
                         Some(None),
                     );
                     performance(&mut cols[1], &d);
-                    events(&mut cols[1], &d, &mut None);
+                    events(&mut cols[1], &d, &mut EventsView::default());
                 });
             });
         h.run_steps(3);
@@ -3355,7 +3443,7 @@ mod tests {
         d.snapshot = None;
         let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
             governor(ui, &d);
-            events(ui, &d, &mut None);
+            events(ui, &d, &mut EventsView::default());
             performance(ui, &d);
         });
         h.run_steps(2);
@@ -5082,13 +5170,137 @@ mod tests {
     }
 
     #[test]
+    fn event_search_and_full_message_details_work_in_compact_and_wide_themes() {
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            for size in [[820.0, 500.0], [1440.0, 1000.0]] {
+                let mut d = data();
+                d.events[0].message =
+                    "A detailed diagnostic with a path C:\\Apps\\alpha.exe and a reason. "
+                        .repeat(6);
+                let message = d.events[0].message.clone();
+                let mut h = Harness::builder()
+                    .allow_missing_glyphs()
+                    .with_size(size)
+                    .build_ui_state(
+                        |ui, (d, view): &mut (Data, EventsView)| {
+                            crate::theme::apply(ui.ctx());
+                            ui.ctx().set_theme(theme);
+                            events(ui, d, view);
+                        },
+                        (d, EventsView::default()),
+                    );
+                h.run();
+                for query in ["ALPHA.EXE", "100", "detailed diagnostic"] {
+                    h.state_mut().1.search = query.into();
+                    h.run();
+                    assert!(h.query_by_label("1 of 1 events").is_some());
+                }
+                h.state_mut().1.search = "no-such-event".into();
+                h.run();
+                assert!(h.query_by_label("0 of 1 events").is_some());
+                h.get_by_label("Clear search").click();
+                h.run();
+                assert!(h.state().1.search.is_empty());
+                h.get_by_label(&message).focus();
+                h.run();
+                h.key_press(egui::Key::Enter);
+                h.run();
+                assert_eq!(h.state().1.selected, Some((1, 1_700_000_000_000)));
+                assert!(h.query_by_label("Event details").is_some());
+                h.get_by_label("Copy message").click();
+                h.run_steps(1);
+                assert!(h.output().platform_output.commands.iter().any(|command|
+                    matches!(command, egui::OutputCommand::CopyText(text) if text == &message)),
+                    "copy emits the entire message rather than its clipped table text");
+                h.run();
+                assert!(h.query_by_label("Event details").is_some());
+                h.state_mut().1.search = "no-such-event".into();
+                h.run();
+                assert!(
+                    h.query_by_label("Event details").is_some(),
+                    "filtering keeps the open diagnostic"
+                );
+                h.get_by_label("Clear search").click();
+                h.run();
+                h.get_by_label("Close details").click();
+                h.run();
+                assert_eq!(h.state().1.selected, None);
+                h.state_mut().1.selected = Some((1, 1_700_000_000_000));
+                h.state_mut().0.events[0].id = 2;
+                h.run();
+                assert_eq!(
+                    h.state().1.selected,
+                    None,
+                    "eviction also clears details in a nonempty buffer"
+                );
+                h.state_mut().1.selected = Some((2, 1_700_000_000_000));
+                h.state_mut().0.events[0].unix_ms += 1;
+                h.run();
+                assert_eq!(
+                    h.state().1.selected,
+                    None,
+                    "reused IDs after a restart cannot replace an open diagnostic"
+                );
+                h.state_mut().1.selected = Some((2, 1_700_000_000_001));
+                h.state_mut().0.events.clear();
+                h.run();
+                assert_eq!(
+                    h.state().1.selected,
+                    None,
+                    "evicted events leave no stale detail"
+                );
+                assert!(h.query_by_label("No events yet.").is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn event_search_matches_the_displayed_translation() {
+        let _language = crate::i18n::scope(crate::i18n::Language::Turkish);
+        let mut d = data();
+        d.events[0].message =
+            "Governor: priority BelowNormal (system CPU 98%, process at 40.0% (step 1/3))".into();
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([820.0, 500.0])
+            .build_ui_state(
+                |ui, (d, view): &mut (Data, EventsView)| events(ui, d, view),
+                (d, EventsView::default()),
+            );
+        let translated = crate::i18n::message(&h.state().0.events[0].message).into_owned();
+        assert_ne!(
+            translated,
+            h.state().0.events[0].message,
+            "fixture must exercise translated text"
+        );
+        h.state_mut().1.search = translated.to_lowercase();
+        h.run();
+        assert!(
+            h.query_by_label(&crate::i18n::format(
+                "{0} of {1} events",
+                &["1".into(), "1".into()]
+            ))
+            .is_some()
+        );
+        h.state_mut().1.level = Some(EventLevel::Error);
+        h.run();
+        assert!(
+            h.query_by_label(&crate::i18n::format(
+                "{0} of {1} events",
+                &["0".into(), "1".into()]
+            ))
+            .is_some()
+        );
+    }
+
+    #[test]
     fn events_filter_by_level_and_stale_data_is_flagged_in_the_status_bar() {
         let mut h = Harness::builder()
             .allow_missing_glyphs()
             .with_size([1000.0, 600.0])
             .build_ui_state(
-                |ui, (d, level): &mut (Data, Option<EventLevel>)| {
-                    events(ui, d, level);
+                |ui, (d, view): &mut (Data, EventsView)| {
+                    events(ui, d, view);
                     mode_badge(
                         ui,
                         Mode::Service {
@@ -5099,7 +5311,7 @@ mod tests {
                         Some(Some(Duration::from_secs(42))),
                     );
                 },
-                (data(), None),
+                (data(), EventsView::default()),
             );
         h.run();
         let total = h.state().0.events.len().to_string();
@@ -5110,7 +5322,7 @@ mod tests {
         assert!(h.query_by_label("● Service · no data for 42 s").is_some());
         h.get_by_label("Errors").click();
         h.run();
-        assert_eq!(h.state().1, Some(EventLevel::Error));
+        assert_eq!(h.state().1.level, Some(EventLevel::Error));
         assert!(h.query_by_label("No events of this kind").is_some());
         h.get_by_label("All events").click();
         h.run();
@@ -5446,6 +5658,20 @@ mod tests {
                             );
                             let path = out
                                 .join(format!("{theme_name}-{size_name}-ProcessesSelection.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
+                        if tab == Tab::Events {
+                            {
+                                let mut data = h.state().backend.data();
+                                data.events[0].message = "CPU protection: the application exceeded its configured budget. The service reduced background priority and will restore it after recovery. ".repeat(3);
+                            }
+                            h.state_mut().state.events.selected = Some((1, 1_700_000_000_000));
+                            h.state_mut().state.events.search = "protection".into();
+                            h.run_steps(3);
+                            assert!(h.query_by_label(crate::i18n::tr("Event details")).is_some());
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-EventDetails.png"));
                             h.render().expect("GPU render").save(&path).unwrap();
                             println!("Rendered {}", path.display());
                         }

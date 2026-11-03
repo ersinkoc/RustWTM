@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-03
+
+### Added
+
+- Search the Events page by process name, PID or message, including translated
+  messages. Combine search with severity filters and clear it in one click.
+- Open an event message with a click or keyboard activation to read its full,
+  selectable text in a bounded details card, and copy it without truncation.
+  Details remain open while filtering and close when their event is evicted.
+
+### Improved
+
+- Events controls use a separate card and a matching-result count. Navigation
+  rows show an explicit keyboard focus outline in both themes.
+- New event controls are translated into Turkish, German, French and Spanish.
+
+### Fixed
+
+- Failed process controls remain failures on retry instead of being reported as
+  successful without another attempt. Applied-state summaries now reflect only
+  successful operations, retaining independent state after partial failures.
+- Disabling and re-enabling memory protection or the rescue core before the
+  next sample resets the observation timer. Time spent disabled cannot cause
+  an immediate memory trim or rescue-core engagement. Existing trim cooldowns
+  and release behavior are preserved.
+- IPv6 TCP and UDP endpoints preserve their interface scope identifiers, so
+  link-local addresses retain the interface needed to identify the endpoint.
+
 ## [0.22.0] - 2026-10-29
 
 ### Improved

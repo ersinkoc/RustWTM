@@ -18,7 +18,7 @@ usage history.
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> **Status:** early release (0.15). Sensors and cooling controls are available
+> **Status:** early release (0.23). Sensors and cooling controls are available
 > through the optional hardware provider. Device support varies; physical fan
 > writes still require validation on each supported hardware configuration.
 > Enforcement is **off by default** (dry-run); review the event log first.
@@ -41,6 +41,9 @@ usage history.
   (512 MiB+) and managed processes combine with name, PID, path and command-line
   search, with processes started in the last N minutes, disk- or GPU-active
   processes, and user apps versus services. Wide tables scroll horizontally; the details panel scrolls and closes.
+- Events: search by process, PID or message alongside severity filters; open a
+  message to read and copy the full diagnostic, even in compact windows.
+  [Event diagnostics preview](screenshots/events.png).
 - Monitoring data shows its last receipt age on every page. Sampling failures
   and delayed updates display a warning while retaining the last values.
 - **Reserved for RustWTM**: when the CPU is pinned, a rescue core is kept free
@@ -200,8 +203,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.22.0-x64.msi            # interactive
-msiexec /i RustWTM-0.22.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.23.0-x64.msi            # interactive
+msiexec /i RustWTM-0.23.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
@@ -367,7 +370,7 @@ cargo test --workspace
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the roadmap in [PLAN.md](PLAN.md).
 The [0.13.0 system review](docs/0.13.0-review.md) covers the current architecture,
 validation boundaries and the implemented sensors and cooling work.
-The [0.22.0 release review](docs/0.22.0-review.md) records the latest reproduced
+The [0.23.0 release review](docs/0.23.0-review.md) records the latest reproduced
 defects, regression evidence, release checks and remaining hardware boundaries.
 
 ## License

@@ -73,6 +73,9 @@ impl MemoryGuard {
     }
 
     pub fn set_config(&mut self, cfg: MemoryGuardConfig) {
+        if self.cfg.enabled != cfg.enabled {
+            self.high_since = None;
+        }
         self.cfg = cfg;
     }
 
@@ -210,6 +213,67 @@ mod tests {
         // Pressure gone: the timer resets.
         assert!(g.tick(at(401), &snap(50)).is_empty());
         assert!(g.tick(at(402), &snap(95)).is_empty());
+    }
+
+    #[test]
+    fn reenabled_guard_requires_fresh_pressure_and_keeps_trim_cooldowns() {
+        let cfg = MemoryGuardConfig {
+            max_processes: 10,
+            ..MemoryGuardConfig::default()
+        };
+        let t = Instant::now();
+        let mut guard = MemoryGuard::new(cfg.clone());
+        assert!(
+            guard.tick(t, &snap(95)).is_empty(),
+            "control: needs sustained pressure"
+        );
+        guard.set_config(MemoryGuardConfig {
+            enabled: false,
+            ..cfg.clone()
+        });
+        // Two config reloads can happen before another sample is delivered.
+        guard.set_config(cfg.clone());
+        let resumed = t + Duration::from_secs(60);
+        let actual = guard.tick(resumed, &snap(95));
+        eprintln!(
+            "EXPECTED: 0 trims after re-enable; ACTUAL: {}",
+            actual.len()
+        );
+        assert!(
+            actual.is_empty(),
+            "disabled time must not count as memory pressure"
+        );
+        assert!(
+            !guard
+                .tick(resumed + Duration::from_secs(15), &snap(95))
+                .is_empty()
+        );
+        guard.set_config(MemoryGuardConfig {
+            enabled: false,
+            ..cfg.clone()
+        });
+        guard.set_config(cfg.clone());
+        assert!(
+            guard
+                .tick(resumed + Duration::from_secs(16), &snap(95))
+                .is_empty()
+        );
+        assert!(
+            guard
+                .tick(resumed + Duration::from_secs(31), &snap(95))
+                .is_empty(),
+            "recently trimmed apps keep their cooldown"
+        );
+
+        let mut unchanged = MemoryGuard::new(cfg.clone());
+        assert!(unchanged.tick(t, &snap(95)).is_empty());
+        unchanged.set_config(cfg);
+        assert!(
+            !unchanged
+                .tick(t + Duration::from_secs(15), &snap(95))
+                .is_empty(),
+            "identical reload keeps valid observation"
+        );
     }
 
     #[test]

@@ -101,6 +101,9 @@ impl RescueCore {
 
     /// Takes effect on the next tick; turning the rescue core off releases it.
     pub fn set_config(&mut self, cfg: ReserveConfig) {
+        if self.cfg.rescue_core != cfg.rescue_core {
+            self.since = None;
+        }
         self.cfg = cfg;
     }
 
@@ -183,6 +186,45 @@ mod tests {
         });
         assert_eq!(r.tick(t, 100.0), Some(RescueStep::Release));
         assert_eq!(r.tick(t, 100.0), None);
+    }
+
+    #[test]
+    fn reenabled_rescue_requires_a_fresh_overload_window() {
+        let cfg = ReserveConfig::default();
+        let mut r = RescueCore::new(cfg.clone());
+        let t = Instant::now();
+        assert_eq!(
+            r.tick(t, 99.0),
+            None,
+            "control: overload has not lasted long enough"
+        );
+        r.set_config(ReserveConfig {
+            rescue_core: false,
+            ..cfg.clone()
+        });
+        r.set_config(cfg.clone());
+        let actual = r.tick(secs(t, 60), 99.0);
+        eprintln!("EXPECTED: None after re-enable; ACTUAL: {actual:?}");
+        assert_eq!(actual, None, "disabled time must not engage rescue");
+        assert_eq!(r.tick(secs(t, 63), 99.0), Some(RescueStep::Engage));
+        assert_eq!(r.tick(secs(t, 64), 50.0), None);
+        r.set_config(ReserveConfig {
+            rescue_core: false,
+            ..cfg.clone()
+        });
+        assert_eq!(
+            r.tick(secs(t, 65), 50.0),
+            Some(RescueStep::Release),
+            "disable still releases engaged protection"
+        );
+        r.set_config(cfg.clone());
+        assert_eq!(r.tick(secs(t, 66), 99.0), None);
+        assert_eq!(r.tick(secs(t, 69), 99.0), Some(RescueStep::Engage));
+
+        let mut unchanged = RescueCore::new(cfg.clone());
+        assert_eq!(unchanged.tick(t, 99.0), None);
+        unchanged.set_config(cfg);
+        assert_eq!(unchanged.tick(secs(t, 3), 99.0), Some(RescueStep::Engage));
     }
 
     #[test]

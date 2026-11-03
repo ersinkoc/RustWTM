@@ -1,4 +1,22 @@
 {
+  "Copy message": {
+    "tr": "Mesajı kopyala",
+    "de": "Nachricht kopieren",
+    "fr": "Copier le message",
+    "es": "Copiar mensaje"
+  },
+  "Event details": {
+    "tr": "Olay ayrıntıları",
+    "de": "Ereignisdetails",
+    "fr": "Détails de l’événement",
+    "es": "Detalles del evento"
+  },
+  "Search events": {
+    "tr": "Olaylarda ara",
+    "de": "Ereignisse suchen",
+    "fr": "Rechercher des événements",
+    "es": "Buscar eventos"
+  },
   "View resource details": {
     "tr": "Kaynak ayrıntılarını görüntüle",
     "de": "Ressourcendetails anzeigen",

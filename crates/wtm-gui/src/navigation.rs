@@ -224,6 +224,14 @@ pub fn row(
         };
         ui.painter().rect_filled(rect, 5.0, fill);
     }
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect.shrink(1.0),
+            5.0,
+            Stroke::new(1.5, crate::theme::text_color(ui, crate::theme::ACCENT)),
+            egui::StrokeKind::Inside,
+        );
+    }
     if selected {
         ui.painter().rect_filled(
             Rect::from_min_size(
@@ -272,5 +280,7 @@ pub fn row(
             color,
         );
     }
-    response.on_hover_text(label)
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(label)
 }

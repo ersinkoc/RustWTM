@@ -1,6 +1,6 @@
 //! TCP/UDP endpoints with their owning process.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
@@ -78,6 +78,16 @@ fn port(raw: u32) -> u16 {
 fn v4(raw: u32) -> IpAddr {
     // Stored in network byte order, i.e. the in-memory bytes are the octets.
     IpAddr::V4(Ipv4Addr::from(raw.to_ne_bytes()))
+}
+
+// Windows keeps IPv6 scope identifiers separately from the address octets.
+fn scoped_v6(address: [u8; 16], raw_port: u32, scope_id: u32) -> SocketAddr {
+    SocketAddr::V6(SocketAddrV6::new(
+        Ipv6Addr::from(address),
+        port(raw_port),
+        0,
+        scope_id,
+    ))
 }
 
 /// Bytes the TCPv4, TCPv6, UDPv4 and UDPv6 tables needed last time.
@@ -187,16 +197,9 @@ pub fn connections() -> Result<Vec<Connection>> {
         let state = TcpState::from_raw(r.dwState);
         out.push(Connection {
             protocol: Protocol::Tcp,
-            local: SocketAddr::new(
-                IpAddr::V6(Ipv6Addr::from(r.ucLocalAddr)),
-                port(r.dwLocalPort),
-            ),
-            remote: (state != TcpState::Listen).then(|| {
-                SocketAddr::new(
-                    IpAddr::V6(Ipv6Addr::from(r.ucRemoteAddr)),
-                    port(r.dwRemotePort),
-                )
-            }),
+            local: scoped_v6(r.ucLocalAddr, r.dwLocalPort, r.dwLocalScopeId),
+            remote: (state != TcpState::Listen)
+                .then(|| scoped_v6(r.ucRemoteAddr, r.dwRemotePort, r.dwRemoteScopeId)),
             state: Some(state),
             pid: r.dwOwningPid,
         });
@@ -229,10 +232,7 @@ pub fn connections() -> Result<Vec<Connection>> {
     } {
         out.push(Connection {
             protocol: Protocol::Udp,
-            local: SocketAddr::new(
-                IpAddr::V6(Ipv6Addr::from(r.ucLocalAddr)),
-                port(r.dwLocalPort),
-            ),
+            local: scoped_v6(r.ucLocalAddr, r.dwLocalPort, r.dwLocalScopeId),
             remote: None,
             state: None,
             pid: r.dwOwningPid,
@@ -313,6 +313,27 @@ mod tests {
             assert_eq!(mine.pid, std::process::id());
             assert!(mine.remote.is_none() && mine.state.is_none());
         }
+    }
+
+    #[test]
+    fn ipv6_endpoints_preserve_interface_scopes() {
+        let loopback = Ipv6Addr::LOCALHOST.octets();
+        assert_eq!(
+            scoped_v6(loopback, u32::from(8080u16.to_be()), 0),
+            "[::1]:8080".parse().unwrap(),
+            "control: unscoped loopback"
+        );
+        for scope in [1, 7, u32::MAX] {
+            let address = "fe80::1234".parse::<Ipv6Addr>().unwrap().octets();
+            let expected: SocketAddr = format!("[fe80::1234%{scope}]:443").parse().unwrap();
+            let actual = scoped_v6(address, u32::from(443u16.to_be()), scope);
+            eprintln!("EXPECTED: {expected}; ACTUAL: {actual}");
+            assert_eq!(
+                actual, expected,
+                "interface identity must survive TCP/UDP table decoding"
+            );
+        }
+        assert_eq!(scoped_v6(loopback, 0, 0).port(), 0);
     }
 
     #[test]
