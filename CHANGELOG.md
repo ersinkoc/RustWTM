@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-11-03
+
+### Added
+
+- Publishes the Docker container monitoring introduced in 0.24.0: the Containers
+  page, Overview summary, CPU/memory histories, network/disk rates, Compose
+  filters, ports, health and bounded read-only logs in all five languages.
+
+### Fixed
+
+- Classify native named-pipe wait timeouts correctly even when Windows' whole
+  millisecond wait expires before the request's high-resolution deadline.
+  Cancellation and draining still complete before releasing I/O buffers.
+- A deterministic regression covers native timeout and zero-millisecond poll
+  codes independently of wall-clock scheduling, alongside the silent-peer test.
+
+The 0.24.0 source tag is retained for traceability; its release workflow stopped
+at the timeout regression, before publishing any downloadable assets.
+
 ## [0.24.0] - 2026-11-03
 
 ### Added

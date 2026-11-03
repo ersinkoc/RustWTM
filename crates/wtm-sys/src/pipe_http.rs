@@ -4,7 +4,9 @@ use crate::handle::OwnedHandle;
 use std::io;
 use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{ERROR_BROKEN_PIPE, ERROR_IO_PENDING, HANDLE};
+use windows::Win32::Foundation::{
+    ERROR_BROKEN_PIPE, ERROR_IO_INCOMPLETE, ERROR_IO_PENDING, HANDLE, WAIT_TIMEOUT,
+};
 use windows::Win32::Storage::FileSystem::{
     FILE_FLAG_OVERLAPPED, ReadFile, SECURITY_IDENTIFICATION, WriteFile,
 };
@@ -12,6 +14,14 @@ use windows::Win32::System::IO::{
     CancelIoEx, GetOverlappedResult, GetOverlappedResultEx, OVERLAPPED,
 };
 use windows::Win32::System::Threading::{CreateEventW, ResetEvent};
+
+fn timed_out(error: &windows::core::Error, deadline: Instant) -> bool {
+    // Windows waits use whole milliseconds and may expire before Instant reaches
+    // the original deadline. A zero-millisecond poll returns IO_INCOMPLETE.
+    error.code() == windows::core::HRESULT::from_win32(WAIT_TIMEOUT.0)
+        || error.code() == ERROR_IO_INCOMPLETE.to_hresult()
+        || Instant::now() >= deadline
+}
 
 fn complete(
     handle: HANDLE,
@@ -47,7 +57,7 @@ fn complete(
             let _ = CancelIoEx(handle, Some(operation));
             let _ = GetOverlappedResult(handle, operation, &mut transferred, true);
         }
-        if Instant::now() >= deadline {
+        if timed_out(&error, deadline) {
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 "Docker request timed out",
@@ -156,6 +166,20 @@ pub fn get(pipe: &str, path: &str, timeout: Duration, limit: usize) -> io::Resul
 mod tests {
     use super::*;
     use std::io::{Read, Write};
+    #[test]
+    fn native_wait_timeout_does_not_depend_on_clock_rounding() {
+        use windows::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_IO_INCOMPLETE, WAIT_TIMEOUT};
+        let future = Instant::now() + Duration::from_secs(1);
+        for code in [WAIT_TIMEOUT.0, ERROR_IO_INCOMPLETE.0] {
+            let error =
+                windows::core::Error::from_hresult(windows::core::HRESULT::from_win32(code));
+            assert!(timed_out(&error, future));
+        }
+        let other = windows::core::Error::from_hresult(ERROR_ACCESS_DENIED.to_hresult());
+        assert!(!timed_out(&other, future));
+        assert!(timed_out(&other, Instant::now()));
+    }
+
     #[test]
     fn pipe_http_reads_and_bounds_an_exchange() {
         let pipe = format!(r"\\.\pipe\wtm-docker-http-{}", std::process::id());
