@@ -60,6 +60,10 @@ jobs:
             if ($errors) { $errors | ForEach-Object { Write-Error "$($f.Name): $($_.Message)" }; exit 1 }
           }
 
+      - name: Signature verification controls
+        shell: pwsh
+        run: scripts/ci/test-signatures.ps1
+
   coverage:
     runs-on: windows-latest
     steps:
@@ -114,17 +118,62 @@ jobs:
           ./scripts/build-hardware.ps1
           dotnet tool restore
           dotnet wix extension add WixToolset.Util.wixext/5.0.2
-          dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=0.0.1 -d BinDir=target/debug -o dist/RustWTM-test.msi
+          $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^"]+)"').Groups[1].Value
+          dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=$version -d BinDir=target/debug -o dist/RustWTM-test.msi
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Install, verify, uninstall
         shell: pwsh
         run: scripts/ci/verify-install.ps1 -Mode msi -Msi dist/RustWTM-test.msi
 
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: installer-under-test
+          path: dist/RustWTM-test.msi
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: msi-logs
+          path: |
+            *.log
+            C:/ProgramData/RustWTM/logs/
+
+  upgrade:
+    needs: msi
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: installer-under-test
+          path: dist
+      - name: Download pinned upgrade baseline
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.24.1 --repo ersinkoc/RustWTM --pattern RustWTM-0.24.1-x64.msi --dir dist/baseline
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $actual = (Get-FileHash dist/baseline/RustWTM-0.24.1-x64.msi -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -cne '8fa952d5188ced3574eec72350f4ad7d1e655fdfcfd08c00f35551fdfc1fbc32') { throw 'Upgrade baseline digest mismatch' }
+
+      - name: Upgrade, repair, reject downgrade, preserve data
+        shell: pwsh
+        env:
+          RUSTWTM_DISPOSABLE_INSTALL_TESTS: '1'
+        run: |
+          $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^"]+)"').Groups[1].Value
+          scripts/ci/verify-upgrade.ps1 -BaselineMsi dist/baseline/RustWTM-0.24.1-x64.msi -CandidateMsi dist/RustWTM-test.msi -BaselineVersion 0.24.1 -CandidateVersion $version -DisposableMachine
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: failure()
+        with:
+          name: upgrade-logs
           path: |
             *.log
             C:/ProgramData/RustWTM/logs/
@@ -142,3 +191,52 @@ jobs:
       - name: Install from source, verify, uninstall
         shell: pwsh
         run: scripts/ci/verify-install.ps1 -Mode script
+
+  visual:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      WGPU_BACKEND: dx12
+      WTM_REVIEW_LANGS: en,tr,de,fr,es
+      WTM_REVIEW_TABS: Overview,Performance,Containers
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+      - name: Render gauge DPI gallery
+        run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_gauge_review -- --test-threads=1 --nocapture
+      - name: Render localized product screens
+        run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_release_review -- --test-threads=1 --nocapture
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        if: always()
+        with:
+          name: visual-review
+          path: target/visual-review
+          if-no-files-found: warn
+
+  artifact-provenance:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: msi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: installer-under-test
+          path: dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.msi
+      - name: Verify exact CI artifact provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh attestation verify dist/RustWTM-test.msi
+          --repo "$GITHUB_REPOSITORY"
+          --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ci.yml"
+          --source-digest "$GITHUB_SHA"
+          --deny-self-hosted-runners

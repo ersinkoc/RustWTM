@@ -118,14 +118,20 @@ toast notifications.
 
 ## Roadmap
 
-### 0.13.0 and the next product work
+### Current baseline and next product work
 
-The [system review](docs/0.13.0-review.md) records the current review, delivered
-interface improvements and remaining validation. The Sensors workspace and
-capability-based Cooling controls are implemented; see [hardware setup](docs/hardware.md).
-The next gate is physical fan/rollback validation; the large-process-list
-benchmark (1k/10k) found every frame well inside budget. Snapshots carry their measurement time (IPC
-protocol 15): data age, stale warnings and graph time axes use it.
+The [0.25.0 release review](docs/0.25.0-review.md) and
+[visual review](docs/visual-review-2026-11-04.md) record the published baseline.
+The [product completion roadmap](docs/product-roadmap.md) tracks distribution,
+upgrade/visual CI, chart interaction, onboarding, unified diagnosis, dashboard
+customization, Docker persistence and hardware evidence separately.
+For company/individual signing options and the Azure/OIDC setup, see
+[Windows signing](docs/signing.md).
+
+Sensors and capability-based Cooling controls are implemented; physical
+per-model fan/rollback validation remains separate. Snapshots carry measurement
+timestamps for data age, stale warnings and graph time axes. Docker monitoring
+is read-only and local; its histories are not persisted.
 
 ### Implementation phases
 
@@ -138,7 +144,7 @@ protocol 15): data age, stale warnings and graph time axes use it.
 | 4 | IPC + egui GUI: Processes, Performance, Details | Usable task manager |
 | 5 | Blocking (ETW + IFEO), event log, notifications | Blocking works |
 | 6 | Services, Startup, Users, history, disk/net/GPU per process | Feature complete |
-| 7 | MSI installer (`cargo-wix`), signing, IPC ACLs, self-protection | Release |
+| 7 | MSI installer (WiX 5), signing, IPC ACLs, self-protection | Verified distribution |
 | 8 | (optional) Kernel driver via `windows-drivers-rs` | Pre-start blocking |
 
 ## Status
@@ -148,9 +154,9 @@ protocol 15): data age, stale warnings and graph time axes use it.
 - [x] Phase 2 — `wtm info|kill [--tree]|suspend|resume|priority|affinity|eco|limit`
 - [x] Phase 3 — `wtm-policy` (config, rules, governor) + `wtm-service` (SCM, console mode, hot reload, rollback on stop)
 - [x] Phase 4 — per-source executor (governor/rule/manual limits compose), `wtm-ipc` named-pipe protocol, egui GUI (`rustwtm`)
-- [x] Phase 5 — fast start watcher (250 ms) for unconditional rules, notable events + desktop notifications, tray icon.
-  Pre-launch prevention is delegated to Windows AppLocker / WDAC policies.
-- [x] Phase 6 — Users, Services (start/stop/startup type) and Network tabs done; startup-apps backend in `wtm-core::startup` (no UI yet).
+- [x] Phase 5 — fast start watcher (250 ms), notable events, desktop notifications,
+  tray icon and IFEO-based image-name blocking. A custom kernel driver remains optional.
+- [x] Phase 6 — Users, Services (start/stop/startup type), Network and Startup apps tabs are implemented.
   App history: service records per-minute per-app usage to `history.sqlite` (retention `history_days`);
   `[insights]` flags chronic CPU and steady memory growth (slope + R² fit) and applies actions (source `Insight`);
   GUI "App history" tab and `wtm history`.
@@ -158,6 +164,8 @@ protocol 15): data age, stale warnings and graph time axes use it.
   Startup apps tab: list Run keys / Startup folders, enable/disable via StartupApproved (like Task Manager).
 - [~] Phase 7 — done: data-dir ACL, service recovery actions, pipe server verification,
   notification AppUserModelID, install/uninstall scripts, CI and release workflows.
-  Done: MSI package (WiX 5), coverage reporting in CI (98% lines; the rest is
-  console/window entry points and Win32 failures that need fault injection).
-  Pending: code signing (needs a certificate).
+  Done: MSI package (WiX 5), coverage reporting and fresh install/uninstall CI.
+  Prepared: optional Azure/OIDC signing, final-artifact provenance, localized GPU
+  rendering CI and a dedicated upgrade/repair/data-retention VM test.
+  Pending: owner identity/account setup and first publicly trusted signed release;
+  runtime results of the new CI jobs are reported separately from their definitions.

@@ -62,3 +62,13 @@ CI runs the same checks.
 
 Machine-changing installer tests belong on disposable VMs. Never enable them
 on the developer's machine as part of a routine local release check.
+
+Signing is optional until the owner configures it. Follow
+[Windows signing setup](docs/signing.md); once Azure signing is selected, a
+failed/missing signature cannot fall back to an unsigned publication. The
+release attests the final ZIP/MSI after signing and hashing. Verify downloaded
+provenance against this repository and `.github/workflows/release.yml`.
+
+CI also renders the localized visual fixtures and tests a pinned previous MSI
+against the candidate on a separate, clean Windows VM. The upgrade script
+requires explicit disposable-runner guards and must never be run locally.

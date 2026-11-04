@@ -17,8 +17,9 @@ usage history.
 
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/ersinkoc/RustWTM)](https://github.com/ersinkoc/RustWTM/releases/latest)
 
-> **Status:** early release (0.24). Sensors and cooling controls are available
+> **Status:** early release. Sensors and cooling controls are available
 > through the optional hardware provider. Device support varies; physical fan
 > writes still require validation on each supported hardware configuration.
 > Enforcement is **off by default** (dry-run); review the event log first.
@@ -26,6 +27,8 @@ usage history.
 ![RustWTM Performance view with CPU, memory, GPU, disk and network graphs](screenshots/performance.png)
 
 [Overview resource gauges and history cards](screenshots/overview.png)
+
+[Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
 ## Features
 

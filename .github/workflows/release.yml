@@ -4,8 +4,8 @@ on:
   push:
     tags: ['v*']
 
-# Building gets read access only; the publish job, which runs no project
-# code, is the only one that may write the release.
+# Build has read access only. Signing and provenance have separate OIDC jobs;
+# publish is the only job with repository-content write access.
 permissions:
   contents: read
 
@@ -28,7 +28,11 @@ jobs:
       # No build cache: a release is built from scratch.
       - name: Release identity
         shell: pwsh
-        run: scripts/ci/verify-release.ps1 -Tag $env:TAG
+        env:
+          SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+        run: |
+          scripts/ci/verify-release.ps1 -Tag $env:TAG
+          if ($env:SIGNING_PROVIDER -cnotin @('', 'none', 'azure-artifact-signing')) { throw 'Unsupported WINDOWS_SIGNING_PROVIDER' }
 
       - name: Toolchain
         run: rustup show
@@ -89,7 +93,7 @@ jobs:
 
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: release
+          name: release-unsigned
           path: |
             dist/${{ env.ASSET }}
             dist/${{ env.ASSET }}.sha256
@@ -98,15 +102,130 @@ jobs:
             dist/notes.md
           if-no-files-found: error
 
-  publish:
+  sign:
     needs: build
+    if: vars.WINDOWS_SIGNING_PROVIDER == 'azure-artifact-signing'
+    runs-on: windows-latest
+    environment: windows-signing
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      EXPECTED_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      SIGNING_ENDPOINT: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+      SIGNING_ACCOUNT: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+      SIGNING_PROFILE: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Validate signing configuration
+        shell: pwsh
+        run: |
+          foreach ($key in 'EXPECTED_PUBLISHER','AZURE_CLIENT_ID','AZURE_TENANT_ID','AZURE_SUBSCRIPTION_ID','SIGNING_ENDPOINT','SIGNING_ACCOUNT','SIGNING_PROFILE') {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($key))) { throw "Missing signing configuration: $key" }
+          }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-unsigned
+          path: dist/incoming
+      - name: Prepare own executable paths
+        id: prepare
+        shell: pwsh
+        run: |
+          Expand-Archive -LiteralPath "dist/incoming/$env:ASSET" -DestinationPath dist/payload
+          New-Item -ItemType Directory -Path dist/signed -Force | Out-Null
+          "version=$($env:TAG.TrimStart('v'))" | Out-File $env:GITHUB_OUTPUT -Append
+          'files<<FILES' | Out-File $env:GITHUB_OUTPUT -Append
+          foreach ($file in 'rustwtm.exe','wtm.exe','wtm-service.exe','hardware/wtm-hardware.exe') {
+            (Resolve-Path -LiteralPath (Join-Path dist/payload $file)).Path | Out-File $env:GITHUB_OUTPUT -Append
+          }
+          'FILES' | Out-File $env:GITHUB_OUTPUT -Append
+      - uses: Azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign own executable payload
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+          files: ${{ steps.prepare.outputs.files }}
+          file-digest: SHA256
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+      - name: Verify signed payload and rebuild MSI
+        shell: pwsh
+        run: |
+          $files = 'rustwtm.exe','wtm.exe','wtm-service.exe','hardware/wtm-hardware.exe' | ForEach-Object { Join-Path dist/payload $_ }
+          scripts/ci/verify-signatures.ps1 -Path $files -ExpectedPublisher $env:EXPECTED_PUBLISHER -RequireTimestamp
+          dotnet tool restore
+          dotnet wix extension add WixToolset.Util.wixext/5.0.2
+          $version = $env:TAG.TrimStart('v')
+          dotnet wix build installer/RustWTM.wxs -ext WixToolset.Util.wixext -arch x64 -d Version=$version -d BinDir=dist/payload -o "dist/signed/RustWTM-$version-x64.msi"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Sign rebuilt installer
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+          files: ${{ github.workspace }}\dist\signed\RustWTM-${{ steps.prepare.outputs.version }}-x64.msi
+          file-digest: SHA256
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+      - name: Verify installer and hash final signed bytes
+        shell: pwsh
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $msi = "RustWTM-$version-x64.msi"
+          scripts/ci/verify-signatures.ps1 -Path "dist/signed/$msi" -ExpectedPublisher $env:EXPECTED_PUBLISHER -RequireTimestamp
+          Compress-Archive -Path 'dist/payload/*' -DestinationPath "dist/signed/$env:ASSET"
+          foreach ($file in $env:ASSET,$msi) {
+            $hash = (Get-FileHash -LiteralPath "dist/signed/$file" -Algorithm SHA256).Hash.ToLowerInvariant()
+            Set-Content -LiteralPath "dist/signed/$file.sha256" -Value "$hash  $file" -NoNewline
+          }
+          Copy-Item -LiteralPath dist/incoming/notes.md -Destination dist/signed/notes.md
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: release-signed
+          path: dist/signed/*
+          if-no-files-found: error
+
+  provenance:
+    needs: [build, sign]
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ vars.WINDOWS_SIGNING_PROVIDER == 'azure-artifact-signing' && 'release-signed' || 'release-unsigned' }}
+          path: dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.zip
+            dist/*.msi
+
+  publish:
+    needs: [build, sign, provenance]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.provenance.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: release
+          name: ${{ vars.WINDOWS_SIGNING_PROVIDER == 'azure-artifact-signing' && 'release-signed' || 'release-unsigned' }}
           path: dist
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

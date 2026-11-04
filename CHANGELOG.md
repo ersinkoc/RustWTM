@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Distribution and validation
+
+- Optional Azure Artifact Signing with OIDC in a separate signing job: sign the
+  four own executables, rebuild/sign MSI, verify trust/publisher/timestamp, then
+  compute final ZIP/MSI digests. Configured signing failures block publication.
+- Final-artifact GitHub provenance and verification of a real CI installer.
+- Localized GPU rendering CI with four-DPI gauge galleries and screenshot artifacts.
+- Dedicated clean-VM upgrade/repair/downgrade rejection checks with configuration
+  and SQLite history retention, alongside existing fresh-install tests.
+- Estonia company/individual signing guidance and an evidence-based completion
+  roadmap. No public-trust certificate or physical hardware certification is
+  implied by these workflow definitions.
+
 ## [0.25.0] - 2026-11-04
 
 ### Improved
