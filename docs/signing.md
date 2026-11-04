@@ -12,6 +12,14 @@ scope, which is limited to the US and Canada. Use the exact validated legal
 publisher name, not an arbitrary product name.
 [Microsoft eligibility and setup](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart).
 
+Company age needs confirmation before spending: the current Artifact Signing
+quickstart does not state a minimum, but Microsoft's MSIX signing overview
+still lists three years of verifiable tax history. For a newer company, ask
+Microsoft which rule applies to its Organization/Public validation before
+provisioning paid resources. Country eligibility alone does not guarantee
+acceptance.
+[Microsoft's MSIX eligibility statement](https://learn.microsoft.com/en-us/windows/msix/package/signing-package-overview).
+
 For the company route, Microsoft's published Basic reference price is
 USD 9.99/month for 5,000 signatures; regional pricing, tax and overage apply.
 Confirm the actual offer in your Azure account before provisioning.
@@ -41,6 +49,9 @@ immediate absence of SmartScreen warnings.
 [Microsoft SmartScreen guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
 
 ## Company: owner-operated Azure setup
+
+For a company younger than three years, resolve the eligibility question above
+with Microsoft before step 1.
 
 1. Use a paid Azure subscription associated with the company's Entra tenant.
 2. Register `Microsoft.CodeSigning`, create an Artifact Signing account, submit
