@@ -374,6 +374,9 @@ pub fn sparkline(
     if values.len() < 2 || max <= 0.0 {
         return;
     }
+    let painter = painter.with_clip_rect(rect);
+    // Reserve the stroke/endpoint footprint, including antialiasing, at 0/100%.
+    let rect = rect.shrink(2.5);
     let slots = slots.max(values.len()).max(2);
     let step = rect.width() / (slots - 1) as f32;
     let start = slots - values.len();
@@ -388,22 +391,29 @@ pub fn sparkline(
         .collect();
     // The area below the line, as one quad per segment.
     let mut mesh = epaint::Mesh::default();
-    let fill = color.gamma_multiply(0.25);
+    let fill = color.gamma_multiply(0.30);
+    let clear = color.gamma_multiply(0.015);
     for w in points.windows(2) {
         let base = mesh.vertices.len() as u32;
-        for p in [
-            w[0],
-            w[1],
-            egui::pos2(w[1].x, rect.bottom()),
-            egui::pos2(w[0].x, rect.bottom()),
+        for (p, tint) in [
+            (w[0], fill),
+            (w[1], fill),
+            (egui::pos2(w[1].x, rect.bottom()), clear),
+            (egui::pos2(w[0].x, rect.bottom()), clear),
         ] {
-            mesh.colored_vertex(p, fill);
+            mesh.colored_vertex(p, tint);
         }
         mesh.add_triangle(base, base + 1, base + 2);
         mesh.add_triangle(base, base + 2, base + 3);
     }
     painter.add(Shape::mesh(mesh));
-    painter.add(Shape::line(points, Stroke::new(1.5, color)));
+    let last = points.last().copied();
+    painter.add(Shape::line(points, Stroke::new(1.75, color)));
+    if rect.height() >= 24.0
+        && let Some(last) = last
+    {
+        painter.circle_filled(last, 2.25, color);
+    }
 }
 
 /// A ring filled to `percent`, with `center` text inside.
@@ -417,32 +427,78 @@ pub fn ring_gauge(
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(diameter), egui::Sense::hover());
     let painter = ui.painter_at(rect);
     let c = rect.center();
-    let thickness = diameter * 0.11;
-    let r = diameter / 2.0 - thickness / 2.0 - 1.0;
+    let thickness = diameter * 0.085;
+    // A centered path stroke keeps the entire ring inside its allocation.
+    // CircleShape strokes are outside in epaint; treating those as centered
+    // made the old track overflow and get cropped flat on all four sides.
+    let r = diameter * 0.40;
     let track = if ui.visuals().dark_mode {
         Color32::from_rgb(48, 52, 61)
     } else {
         Color32::from_rgb(226, 230, 236)
     };
-    painter.circle_stroke(c, r, Stroke::new(thickness, track));
-    let frac = (percent / 100.0).clamp(0.0, 1.0);
+    let n = (diameter * ui.ctx().pixels_per_point() * 1.5)
+        .ceil()
+        .clamp(64.0, 256.0) as usize;
+    let point = |t: f32, radius: f32| {
+        let a = -std::f32::consts::FRAC_PI_2 + std::f32::consts::TAU * t;
+        c + radius * egui::vec2(a.cos(), a.sin())
+    };
+    // Fine scale marks and a quiet inner rim add depth without obscuring data.
+    for i in 0..20 {
+        let t = i as f32 / 20.0;
+        let outer = diameter / 2.0 - 2.5;
+        painter.line_segment(
+            [point(t, outer - 1.5), point(t, outer)],
+            Stroke::new(1.0, track),
+        );
+    }
+    painter.add(Shape::closed_line(
+        (0..n).map(|i| point(i as f32 / n as f32, r)).collect(),
+        Stroke::new(thickness, track),
+    ));
+    let inner = r - thickness * 0.90;
+    painter.circle_filled(c, inner, color.gamma_multiply(0.035));
+    painter.add(Shape::closed_line(
+        (0..n).map(|i| point(i as f32 / n as f32, inner)).collect(),
+        Stroke::new(0.7, color.gamma_multiply(0.14)),
+    ));
+    let frac = if percent.is_finite() {
+        (percent / 100.0).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     if frac > 0.0 {
-        // Clockwise from the top.
-        let n = (64.0 * frac).ceil().max(2.0) as usize;
-        let start = -std::f32::consts::FRAC_PI_2;
-        let points: Vec<Pos2> = (0..=n)
-            .map(|i| {
-                let a = start + std::f32::consts::TAU * frac * i as f32 / n as f32;
-                c + r * egui::vec2(a.cos(), a.sin())
-            })
+        let steps = (n as f32 * frac).ceil().max(2.0) as usize;
+        let points: Vec<Pos2> = (0..=steps)
+            .map(|i| point(frac * i as f32 / steps as f32, r))
             .collect();
-        painter.add(Shape::line(points, Stroke::new(thickness, color)));
+        // A spatial tint and round end caps, with no timers or idle animation.
+        let tint = move |_: Rect, p: Pos2| {
+            let t = ((p.y - c.y) / (2.0 * r) + 0.5).clamp(0.0, 1.0);
+            color.gamma_multiply(1.0 - 0.25 * t)
+        };
+        if frac < 1.0 {
+            painter.add(Shape::line(
+                points,
+                epaint::PathStroke::new_uv(thickness, tint),
+            ));
+            for end in [point(0.0, r), point(frac, r)] {
+                painter.circle_filled(end, thickness / 2.0, tint(rect, end));
+            }
+        } else {
+            // Close the loop explicitly: no double cap or seam at 100%.
+            painter.add(Shape::closed_line(
+                (0..n).map(|i| point(i as f32 / n as f32, r)).collect(),
+                epaint::PathStroke::new_uv(thickness, tint),
+            ));
+        }
     }
     painter.text(
         c,
         egui::Align2::CENTER_CENTER,
         center,
-        egui::FontId::proportional(diameter * 0.22),
+        egui::FontId::proportional(diameter * 0.24),
         ui.visuals().strong_text_color(),
     );
     response
@@ -546,6 +602,110 @@ pub fn card_fill(ui: &Ui) -> Color32 {
 mod tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
+
+    #[test]
+    fn gauges_keep_all_painted_geometry_inside_their_allocation() {
+        for (diameter, dpi, theme, percent) in [48.0, 60.0, 72.0, 100.0]
+            .into_iter()
+            .flat_map(|d| [1.0, 1.25, 1.5, 2.0].into_iter().map(move |dpi| (d, dpi)))
+            .flat_map(|(d, dpi)| {
+                [Theme::Light, Theme::Dark]
+                    .into_iter()
+                    .map(move |theme| (d, dpi, theme))
+            })
+            .flat_map(|(d, dpi, theme)| {
+                [0.0, 1.0, 42.0, 99.0, 100.0]
+                    .into_iter()
+                    .map(move |p| (d, dpi, theme, p))
+            })
+        {
+            let mut h = egui_kittest::Harness::builder()
+                .with_size([200.0, 180.0])
+                .with_pixels_per_point(dpi)
+                .with_theme(theme)
+                .build_ui_state(
+                    move |ui, rect: &mut Rect| {
+                        *rect =
+                            ring_gauge(ui, diameter, percent, CPU, &format!("{percent:.0}%")).rect;
+                    },
+                    Rect::NOTHING,
+                );
+            h.run();
+            let rect = *h.state();
+            let shapes = h
+                .output()
+                .shapes
+                .iter()
+                .filter(|s| s.clip_rect == rect)
+                .cloned()
+                .collect();
+            let primitives = h.ctx.tessellate(shapes, h.ctx.pixels_per_point());
+            assert!(!primitives.is_empty());
+            for primitive in primitives {
+                if let epaint::Primitive::Mesh(mesh) = primitive.primitive {
+                    for vertex in mesh.vertices {
+                        assert!(
+                            rect.expand(0.05).contains(vertex.pos),
+                            "{diameter}px/{dpi}x/{percent}% gauge is clipped: {:?} outside {rect:?}",
+                            vertex.pos
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "visual-tests")]
+    #[test]
+    fn render_gauge_review() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/visual-review/gauges");
+        std::fs::create_dir_all(&root).unwrap();
+        for (name, theme) in [("dark", Theme::Dark), ("light", Theme::Light)] {
+            for dpi in [1.0, 1.25, 1.5, 2.0] {
+                let mut h = egui_kittest::Harness::builder()
+                    .with_size([880.0, 420.0])
+                    .with_pixels_per_point(dpi)
+                    .with_theme(theme)
+                    .build_ui(move |ui| {
+                        apply(ui.ctx());
+                        ui.ctx().set_theme(theme);
+                        ui.heading("Resource gauges");
+                        ui.label("Native vector rendering · 0–100% · DPI scaling");
+                        ui.add_space(16.0);
+                        for diameter in [48.0, 72.0, 100.0] {
+                            ui.horizontal(|ui| {
+                                ui.set_height(diameter + 12.0);
+                                ui.label(format!("{diameter:.0} pt"));
+                                for (percent, accent) in [
+                                    (0.0, CPU),
+                                    (1.0, CPU),
+                                    (42.0, CPU),
+                                    (50.0, MEMORY),
+                                    (70.0, WARN),
+                                    (99.0, BAD),
+                                    (100.0, GPU),
+                                ] {
+                                    ring_gauge(
+                                        ui,
+                                        diameter,
+                                        percent,
+                                        accent,
+                                        &format!("{percent:.0}%"),
+                                    );
+                                    ui.add_space(7.0);
+                                }
+                            });
+                        }
+                    });
+                h.run();
+                h.render()
+                    .expect("GPU render")
+                    .save(root.join(format!("{name}-{dpi}x.png")))
+                    .unwrap();
+            }
+        }
+    }
 
     #[test]
     fn load_colours() {

@@ -54,9 +54,9 @@ struct Stat<'a> {
     max: Option<f32>,
 }
 
-const STAT_HEIGHT: f32 = 136.0;
+const STAT_HEIGHT: f32 = 166.0;
 /// Ring or value block at the top of every card, so all cards line up.
-const STAT_HEADER: f32 = 66.0;
+const STAT_HEADER: f32 = 80.0;
 /// Seconds of history in a card's sparkline.
 const STAT_SECONDS: usize = 60;
 
@@ -76,7 +76,8 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                 |ui| {
                     ui.set_height(STAT_HEADER);
                     if let Some(p) = s.ring {
-                        crate::theme::ring_gauge(ui, 60.0, p, load_color(p), &format!("{p:.0}%"));
+                        let color = if p >= 70.0 { load_color(p) } else { s.accent };
+                        crate::theme::ring_gauge(ui, 72.0, p, color, &format!("{p:.0}%"));
                         ui.add_space(6.0);
                     }
                     ui.vertical(|ui| {
@@ -88,7 +89,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                                 .color(crate::theme::text_color(ui, s.accent)),
                         );
                         if s.ring.is_none() {
-                            ui.label(RichText::new(&s.value).size(20.0).strong());
+                            ui.label(RichText::new(&s.value).size(24.0).strong());
                         }
                         ui.add(egui::Label::new(RichText::new(&s.detail).weak()).truncate());
                     });
@@ -106,6 +107,17 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                     .flat_map(|(v, _)| v.iter().rev().take(STAT_SECONDS).copied())
                     .fold(1024.0, f32::max)
             });
+            let grid = ui.visuals().weak_text_color().gamma_multiply(0.10);
+            for fraction in [0.0, 0.5, 1.0] {
+                let y = rect.bottom() - 2.5 - (rect.height() - 5.0) * fraction;
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(rect.left() + 2.5, y),
+                        egui::pos2(rect.right() - 2.5, y),
+                    ],
+                    egui::Stroke::new(0.5, grid),
+                );
+            }
             for (values, color) in &s.series {
                 let tail: VecDeque<f32> = values
                     .iter()

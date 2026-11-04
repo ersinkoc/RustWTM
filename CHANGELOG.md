@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-04
+
+### Improved
+
+- Resource gauges render complete, smooth circles at different DPI scales,
+  with round progress caps, an inner rim, fine scale marks and resource colors.
+  Fixes the four flat edges caused by the track stroke extending past its clip.
+- Overview resource cards have clearer values, more graph space, subtle grid
+  lines, fading area fills and visible latest samples. The same sparklines
+  improve container histories and per-core tiles.
+- Performance graphs use a lighter grid, clearer resource lines and quieter
+  fills; per-core tiles reflect load intensity. Visual-review fixtures include
+  timestamps so the full performance histories are visible during review.
+
 ## [0.24.1] - 2026-11-03
 
 ### Added

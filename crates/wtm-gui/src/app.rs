@@ -2084,7 +2084,7 @@ fn process_plot(
 }
 
 /// Height of the large graphs on the Performance tab.
-const PLOT_HEIGHT: f32 = 120.0;
+const PLOT_HEIGHT: f32 = 128.0;
 
 /// `values` at the times they were measured (Unix milliseconds), in seconds
 /// before the newest, so a slower sampling interval or a delayed sample
@@ -2108,9 +2108,12 @@ fn series_points(
 
 /// The common look of the Performance graphs: no interaction, light grid,
 /// time axis without labels (the last five minutes).
-fn perf_plot(id: &str) -> Plot<'static> {
+fn perf_plot(ui: &Ui, id: &str) -> Plot<'static> {
     Plot::new(id)
         .height(PLOT_HEIGHT)
+        .show_background(false)
+        .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.40))
+        .grid_spacing(egui::Rangef::new(48.0, 120.0))
         .include_x(-(HISTORY_LEN as f64))
         .include_x(0.0)
         .include_y(0.0)
@@ -2133,7 +2136,7 @@ fn history_plot(
     values: &std::collections::VecDeque<f32>,
     color: Color32,
 ) {
-    perf_plot(id)
+    perf_plot(ui, id)
         .include_y(100.0)
         .y_axis_formatter(|mark, _| format!("{:.0}%", mark.value))
         .label_formatter(|hover| match hover {
@@ -2148,9 +2151,9 @@ fn history_plot(
             plot.line(
                 Line::new(label.to_owned(), series_points(times, values))
                     .color(color)
-                    .width(2.0)
+                    .width(2.25)
                     .fill(0.0)
-                    .fill_alpha(0.25),
+                    .fill_alpha(0.18),
             );
         });
 }
@@ -2163,7 +2166,7 @@ fn rate_plot(
     times: &std::collections::VecDeque<u64>,
     series: [(&str, &std::collections::VecDeque<f32>, Color32); 2],
 ) {
-    perf_plot(id)
+    perf_plot(ui, id)
         .include_y(1024.0)
         .y_axis_formatter(|mark, _| format_bytes(mark.value.max(0.0)) + "/s")
         .label_formatter(rate_label)
@@ -2246,6 +2249,12 @@ fn core_grid(
             let visuals = ui.visuals();
             let color = crate::theme::text_color(ui, crate::theme::load_color(load));
             painter.rect_filled(rect, 6.0, visuals.extreme_bg_color);
+            painter.rect_filled(
+                rect.shrink(1.0),
+                5.0,
+                crate::theme::load_color(load)
+                    .gamma_multiply(0.035 + 0.07 * load.clamp(0.0, 100.0) / 100.0),
+            );
             painter.rect_stroke(
                 rect,
                 6.0,
@@ -5634,6 +5643,9 @@ mod tests {
                         d.snapshot = Some(std::sync::Arc::new(snap));
                         // Give every graph a full, deterministic history for review.
                         for i in 0..HISTORY_LEN {
+                            d.history
+                                .times
+                                .push_back(1_700_000_000_000 + i as u64 * 1000);
                             d.history
                                 .cpu
                                 .push_back(30.0 + (i as f32 * 0.09).sin() * 18.0);
