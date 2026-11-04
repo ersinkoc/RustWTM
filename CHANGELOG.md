@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-04
+
 ### Improved
 
 - Disk analysis opens in its own page instead of moving below the live file

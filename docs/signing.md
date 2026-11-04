@@ -1,8 +1,9 @@
 # Windows signing setup
 
-Checked on 2026-11-04. Provider eligibility, fees and stock can change. The
-current 0.25.0 release is unsigned; configuring this workflow does not change
-existing release assets or complete identity validation.
+Checked on 2026-11-04. Provider eligibility, fees and stock can change. Releases
+0.25.0 and 0.26.0 are unsigned. Configuring this workflow does not change existing
+release assets or complete identity validation; an approved signing account is
+required for signed releases.
 
 ## Estonia: company and individual
 

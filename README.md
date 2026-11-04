@@ -224,8 +224,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.25.0-x64.msi            # interactive
-msiexec /i RustWTM-0.25.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.26.0-x64.msi            # interactive
+msiexec /i RustWTM-0.26.0-x64.msi /qn        # silent
 ```
 
 ### Uninstall
@@ -391,7 +391,7 @@ cargo test --workspace
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the roadmap in [PLAN.md](PLAN.md).
 The [0.13.0 system review](docs/0.13.0-review.md) covers the current architecture,
 validation boundaries and the implemented sensors and cooling work.
-The [0.25.0 release review](docs/0.25.0-review.md) records the latest reproduced
+The [0.26.0 release review](docs/0.26.0-review.md) records the latest reproduced
 defects, regression evidence, release checks and remaining hardware boundaries.
 
 ## License

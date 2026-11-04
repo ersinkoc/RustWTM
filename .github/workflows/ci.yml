@@ -157,10 +157,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v0.24.1 --repo ersinkoc/RustWTM --pattern RustWTM-0.24.1-x64.msi --dir dist/baseline
+          gh release download v0.25.0 --repo ersinkoc/RustWTM --pattern RustWTM-0.25.0-x64.msi --dir dist/baseline
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          $actual = (Get-FileHash dist/baseline/RustWTM-0.24.1-x64.msi -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -cne '8fa952d5188ced3574eec72350f4ad7d1e655fdfcfd08c00f35551fdfc1fbc32') { throw 'Upgrade baseline digest mismatch' }
+          $actual = (Get-FileHash dist/baseline/RustWTM-0.25.0-x64.msi -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -cne '6612ebe0b5912a8d04aaca50effdf77b3f62c7f2a7ca4b8aaed324cc875f8629') { throw 'Upgrade baseline digest mismatch' }
 
       - name: Upgrade, repair, reject downgrade, preserve data
         shell: pwsh
@@ -168,7 +168,7 @@ jobs:
           RUSTWTM_DISPOSABLE_INSTALL_TESTS: '1'
         run: |
           $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^"]+)"').Groups[1].Value
-          scripts/ci/verify-upgrade.ps1 -BaselineMsi dist/baseline/RustWTM-0.24.1-x64.msi -CandidateMsi dist/RustWTM-test.msi -BaselineVersion 0.24.1 -CandidateVersion $version -DisposableMachine
+          scripts/ci/verify-upgrade.ps1 -BaselineMsi dist/baseline/RustWTM-0.25.0-x64.msi -CandidateMsi dist/RustWTM-test.msi -BaselineVersion 0.25.0 -CandidateVersion $version -DisposableMachine
 
       - name: Collect upgrade diagnostics
         if: failure()
