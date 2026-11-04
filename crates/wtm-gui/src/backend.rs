@@ -152,8 +152,17 @@ pub struct ProcessHistory {
 
 pub type ProcessHistories = std::collections::HashMap<(u32, i64), ProcessHistory>;
 
+#[derive(Debug, Clone)]
+pub struct GuiStartup {
+    pub serial: u64,
+    pub busy: bool,
+    pub settings: wtm_core::gui_startup::Settings,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Default)]
 pub struct Data {
+    pub gui_startup: Option<GuiStartup>,
     pub docker: Arc<wtm_core::docker::State>,
     /// The process owning the foreground window, as last seen (also without
     /// the service, whose status names its app).
@@ -334,6 +343,7 @@ pub enum UiCommand {
     },
     /// Start RustWTM again with administrator rights and close this window.
     RestartElevated,
+    ConfigureGuiStartup(wtm_core::gui_startup::Change),
     /// The user closed the CPU alert; stay quiet for this long.
     CloseAlert(Duration),
     /// Ask GitHub for the latest release.
@@ -1107,6 +1117,51 @@ impl Worker {
                         )
                     })),
                 });
+            }
+            UiCommand::ConfigureGuiStartup(change) => {
+                let serial = {
+                    let mut data = self.data();
+                    if data.gui_startup.as_ref().is_some_and(|s| s.busy) {
+                        return;
+                    }
+                    let serial = data
+                        .gui_startup
+                        .as_ref()
+                        .map_or(1, |s| s.serial.wrapping_add(1));
+                    data.gui_startup = Some(GuiStartup {
+                        serial,
+                        busy: true,
+                        settings: wtm_core::gui_startup::settings(),
+                        error: None,
+                    });
+                    serial
+                };
+                let (data, ctx) = (self.data.clone(), self.ctx.clone());
+                let (thread_data, thread_ctx) = (data.clone(), ctx.clone());
+                let result = std::thread::Builder::new()
+                    .name("gui-startup".into())
+                    .spawn(move || {
+                        let error = wtm_core::gui_startup::configure(change).err();
+                        let settings = wtm_core::gui_startup::settings();
+                        thread_data
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .gui_startup = Some(GuiStartup {
+                            serial,
+                            busy: false,
+                            settings,
+                            error,
+                        });
+                        thread_ctx.request_repaint();
+                    });
+                if let Err(error) = result {
+                    let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+                    if let Some(status) = data.gui_startup.as_mut() {
+                        status.busy = false;
+                        status.error = Some(error.to_string());
+                    }
+                    ctx.request_repaint();
+                }
             }
             UiCommand::CheckUpdate => {
                 let (data, ctx, latest) =
@@ -2142,47 +2197,9 @@ pub fn register_app_id() {
     }
 }
 
-const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-const RUN_VALUE: &str = "RustWTM";
-
-/// The command Windows runs at sign-in: this program, hidden in the tray.
-fn autostart_command() -> io::Result<String> {
-    Ok(format!(
-        "\"{}\" --background",
-        std::env::current_exe()?.display()
-    ))
-}
-
-/// Whether RustWTM starts (in the tray) when the user signs in.
+/// Includes the privileged logon-task preference as well as the ordinary Run entry.
 pub fn autostart_enabled() -> bool {
-    autostart_enabled_in(RUN_KEY)
-}
-
-pub fn set_autostart(on: bool) -> io::Result<()> {
-    set_autostart_in(RUN_KEY, on)
-}
-
-fn autostart_enabled_in(key: &str) -> bool {
-    use winreg::RegKey;
-    use winreg::enums::HKEY_CURRENT_USER;
-    RegKey::predef(HKEY_CURRENT_USER)
-        .open_subkey(key)
-        .and_then(|k| k.get_value::<String, _>(RUN_VALUE))
-        .is_ok()
-}
-
-fn set_autostart_in(key: &str, on: bool) -> io::Result<()> {
-    use winreg::RegKey;
-    use winreg::enums::HKEY_CURRENT_USER;
-    let (run, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(key)?;
-    if on {
-        run.set_value(RUN_VALUE, &autostart_command()?)
-    } else {
-        match run.delete_value(RUN_VALUE) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-            other => other,
-        }
-    }
+    wtm_core::gui_startup::settings().autostart
 }
 
 #[cfg(test)]
@@ -2609,35 +2626,6 @@ mod tests {
         assert!(Updater::default().latest as usize != 0);
     }
 
-    #[test]
-    fn autostart_is_written_and_removed() {
-        use winreg::RegKey;
-        use winreg::enums::HKEY_CURRENT_USER;
-        let key = format!(r"Software\RustWTM-test-autostart-{}", std::process::id());
-        assert!(!autostart_enabled_in(&key));
-        set_autostart_in(&key, true).unwrap();
-        assert!(autostart_enabled_in(&key));
-        let value: String = RegKey::predef(HKEY_CURRENT_USER)
-            .open_subkey(&key)
-            .unwrap()
-            .get_value(RUN_VALUE)
-            .unwrap();
-        assert!(
-            value.ends_with("\" --background") && value.starts_with('"'),
-            "{value}"
-        );
-        set_autostart_in(&key, false).unwrap();
-        assert!(!autostart_enabled_in(&key));
-        // Turning off twice is fine.
-        set_autostart_in(&key, false).unwrap();
-        RegKey::predef(HKEY_CURRENT_USER)
-            .delete_subkey_all(&key)
-            .unwrap();
-        // The real key can be read without changing it.
-        let _ = autostart_enabled();
-    }
-
-    /// Waits for a message from a background job.
     fn background_message(w: &Worker) -> (EventLevel, String) {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {

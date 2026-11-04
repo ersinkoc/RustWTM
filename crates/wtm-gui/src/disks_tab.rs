@@ -22,7 +22,6 @@ const VOLUMES_EVERY: Duration = Duration::from_secs(10);
 const CHILDREN_SHOWN: usize = 300;
 /// Processes listed under "Who is using the disks".
 const TOP_PROCESSES: usize = 8;
-const TABLE_HEIGHT: f32 = 460.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ResultView {
@@ -61,6 +60,8 @@ pub struct DisksView {
     /// Expanded folders, as child-index paths from the root.
     expanded: HashSet<Vec<usize>>,
     error: Option<String>,
+    analysis_open: bool,
+    scan_generation: u64,
 }
 
 impl Default for DisksView {
@@ -75,6 +76,8 @@ impl Default for DisksView {
             view: ResultView::Folders,
             expanded: HashSet::new(),
             error: None,
+            analysis_open: false,
+            scan_generation: 0,
         }
     }
 }
@@ -99,6 +102,7 @@ impl DisksView {
     /// Shows a finished analysis, as if a scan had produced it.
     #[cfg(test)]
     pub fn with_result(mut self, result: ScanResult) -> Self {
+        self.analysis_open = true;
         self.scan = Some(Scan {
             path: result.root_path.clone(),
             progress: Arc::default(),
@@ -113,6 +117,10 @@ impl DisksView {
         self.scan
             .as_ref()
             .is_some_and(|s| s.result().is_none() && !s.unreadable.load(Ordering::Relaxed))
+    }
+
+    pub fn analysis_open(&self) -> bool {
+        self.analysis_open
     }
 
     /// Reads the drive list off the UI thread: a sleeping network drive can
@@ -135,10 +143,17 @@ impl DisksView {
         });
     }
 
-    /// Starts analyzing `path` in the background, replacing any earlier scan.
+    /// Starts analyzing `path` in the background after any earlier scan finishes.
     /// Even whether it is a folder is asked there: a sleeping network drive
     /// can take seconds to answer.
     pub fn start(&mut self, ctx: &egui::Context, path: &Path) {
+        self.analysis_open = true;
+        // Cancellation cannot interrupt a blocked filesystem read. Reopening
+        // the drive page must not accumulate background scan workers.
+        if self.scanning() {
+            return;
+        }
+        self.scan_generation = self.scan_generation.wrapping_add(1);
         if let Some(old) = self.scan.take() {
             old.progress.cancel();
         }
@@ -191,16 +206,39 @@ impl DisksView {
 }
 
 pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) {
+    if view.analysis_open {
+        ui.horizontal(|ui| {
+            if ui.button(crate::i18n::tr("Back to disks")).clicked() {
+                view.analysis_open = false;
+            }
+            ui.heading(crate::i18n::tr("Disk space analysis"));
+        });
+        ui.add_space(6.0);
+        ui.push_id(("analysis_workspace", view.scan_generation), |ui| {
+            card(ui, crate::i18n::tr("What takes up the space"), |ui| {
+                analysis(ui, view)
+            });
+        });
+        return;
+    }
     view.refresh_volumes(ui.ctx());
+    if view.scan.is_some() {
+        if ui.button(crate::i18n::tr("Open disk analysis")).clicked() {
+            view.analysis_open = true;
+        }
+        ui.add_space(6.0);
+    }
     drives(ui, view);
     ui.add_space(6.0);
     activity(ui, data);
     ui.add_space(6.0);
     file_activity(ui, data);
     ui.add_space(6.0);
-    card(ui, crate::i18n::tr("What takes up the space"), |ui| {
-        analysis(ui, view)
-    });
+    if view.scan.is_none() {
+        card(ui, crate::i18n::tr("What takes up the space"), |ui| {
+            analysis(ui, view);
+        });
+    }
 }
 
 fn used_color(percent: f32) -> Color32 {
@@ -693,6 +731,8 @@ fn folders(
         expanded,
         &mut lines,
     );
+    let height = (ui.available_height() - 32.0).max(60.0);
+    let folder_width = (ui.available_width() - 440.0).clamp(100.0, 420.0);
     let row_height = ui.spacing().interact_size.y;
     let mut toggle = None;
     let scroll = crate::theme::take_scroll(ui, "disk_folders");
@@ -704,9 +744,10 @@ fn folders(
     let out = table
         .striped(true)
         .resizable(true)
-        .max_scroll_height(TABLE_HEIGHT)
+        .min_scrolled_height(0.0)
+        .max_scroll_height(height)
         .cell_layout(Layout::left_to_right(Align::Center))
-        .column(Column::initial(420.0).clip(true))
+        .column(Column::initial(folder_width).clip(true))
         .column(Column::initial(100.0))
         .column(Column::initial(150.0))
         .column(Column::initial(90.0))
@@ -823,6 +864,7 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
         ui.weak(crate::i18n::tr("No files found."));
         return;
     }
+    let height = (ui.available_height() - 32.0).max(60.0);
     let row_height = ui.spacing().interact_size.y;
     let scroll = crate::theme::take_scroll(ui, "disk_largest");
     let table = TableBuilder::new(ui).id_salt("disk_largest");
@@ -833,7 +875,8 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
     let out = table
         .striped(true)
         .resizable(true)
-        .max_scroll_height(TABLE_HEIGHT)
+        .min_scrolled_height(0.0)
+        .max_scroll_height(height)
         .cell_layout(Layout::left_to_right(Align::Center))
         .column(Column::initial(100.0))
         .column(Column::initial(130.0))
@@ -890,7 +933,7 @@ fn types(ui: &mut Ui, r: &ScanResult) {
     }
     let mut area = egui::ScrollArea::vertical()
         .id_salt("disk_types")
-        .max_height(TABLE_HEIGHT);
+        .max_height((ui.available_height() - 32.0).max(60.0));
     if let Some(y) = crate::theme::take_scroll(ui, "disk_types") {
         area = area.vertical_scroll_offset(y);
     }
@@ -930,7 +973,7 @@ fn types(ui: &mut Ui, r: &ScanResult) {
 }
 
 /// Drives and a finished analysis for the visual review.
-#[cfg(all(test, feature = "visual-tests"))]
+#[cfg(test)]
 pub fn review_fixture() -> DisksView {
     let volume = |root: &str, label: &str, total: u64, free: u64| Volume {
         root: root.into(),
@@ -1215,6 +1258,152 @@ mod tests {
         h.get_by_label("Largest files").click();
         h.run();
         assert!(h.query_by_label("No files found.").is_some());
+    }
+
+    #[test]
+    fn opening_another_analysis_keeps_the_pending_worker() {
+        let mut view = DisksView::with_volumes(vec![]);
+        let progress = Arc::new(Progress::default());
+        view.scan = Some(Scan {
+            path: r"Z:\pending".into(),
+            progress: progress.clone(),
+            result: Arc::default(),
+            unreadable: Arc::default(),
+            started: Instant::now(),
+        });
+        view.cancel();
+        view.start(&egui::Context::default(), Path::new(r"Z:\another"));
+        assert!(view.analysis_open());
+        let scan = view.scan.as_ref().unwrap();
+        assert_eq!(scan.path, Path::new(r"Z:\pending"));
+        assert!(Arc::ptr_eq(&scan.progress, &progress));
+        assert_eq!(view.scan_generation, 0);
+    }
+
+    #[test]
+    fn analysis_rows_do_not_move_when_live_file_activity_changes() {
+        let result = ScanResult {
+            root_path: r"C:\analysis".into(),
+            root: node(
+                "analysis",
+                80,
+                0,
+                (0..80)
+                    .map(|i| node(&format!("folder-{i:03}"), 1, 1, vec![]))
+                    .collect(),
+            ),
+            largest: vec![],
+            types: vec![],
+            folders: 81,
+            denied: 0,
+            elapsed: Duration::from_secs(1),
+            cancelled: false,
+        };
+        let mut h = harness(DisksView::with_volumes(vec![]).with_result(result));
+        h.run();
+        let before = h.get_by_label("folder-000").rect();
+        h.state_mut().data.disk_activity = Some(Ok((
+            (0..20)
+                .map(|i| wtm_core::FileIo {
+                    pid: 100,
+                    path: Some(format!("C:/busy/file-{i}")),
+                    read: 4096,
+                    write: 1024,
+                })
+                .collect(),
+            1.0,
+        )));
+        h.run();
+        let after = h.get_by_label("folder-000").rect();
+        assert!(
+            (before.top() - after.top()).abs() < 0.5,
+            "live file activity displaced analysis results: {before:?} -> {after:?}"
+        );
+        h.get_by_label("Back to disks").click();
+        h.run();
+        assert!(h.query_by_label("folder-000").is_none());
+        assert!(h.query_by_label("Files being read and written").is_some());
+        h.get_by_label("Open disk analysis").click();
+        h.run();
+        assert!(
+            h.query_by_label("folder-000").is_some(),
+            "the completed scan is retained"
+        );
+    }
+
+    #[test]
+    fn compact_analysis_scrolls_each_result_view_to_the_end() {
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            for view in [ResultView::Folders, ResultView::Largest, ResultView::Types] {
+                let result = ScanResult {
+                    root_path: r"C:\analysis".into(),
+                    root: node(
+                        "analysis",
+                        80,
+                        0,
+                        (0..80)
+                            .map(|i| node(&format!("folder-{i:03}"), 1, 1, vec![]))
+                            .collect(),
+                    ),
+                    largest: (0..80)
+                        .map(|i| diskscan::BigFile {
+                            path: format!(r"C:\analysis\file-{i:03}.bin").into(),
+                            size: 1,
+                            modified: None,
+                        })
+                        .collect(),
+                    types: (0..80)
+                        .map(|i| diskscan::FileType {
+                            extension: format!("type{i:03}"),
+                            size: 1,
+                            files: 1,
+                        })
+                        .collect(),
+                    folders: 81,
+                    denied: 0,
+                    elapsed: Duration::from_secs(1),
+                    cancelled: false,
+                };
+                let mut disk = DisksView::with_volumes(vec![]).with_result(result);
+                disk.view = view;
+                let mut h = Harness::builder()
+                    .allow_missing_glyphs()
+                    .with_size([820.0, 500.0])
+                    .with_theme(theme)
+                    .build_ui_state(
+                        |ui, s: &mut State| disks_tab(ui, &s.data, &mut s.view),
+                        State {
+                            data: crate::ui_tests::data(),
+                            view: disk,
+                        },
+                    );
+                h.run();
+                h.event(egui::Event::PointerMoved(egui::pos2(350.0, 350.0)));
+                h.event(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -10000.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                });
+                h.run_steps(20);
+                let label = match view {
+                    ResultView::Folders => "folder-079",
+                    ResultView::Largest => r"C:\analysis\file-079.bin",
+                    ResultView::Types => ".type079",
+                };
+                let last = h.get_by_label(label).rect();
+                assert!(
+                    last.min.y >= 0.0 && last.max.y <= 500.0,
+                    "{theme:?} {view:?}: last row is outside viewport: {last:?}"
+                );
+                let header = h.get_by_label("Back to disks").rect();
+                assert!(
+                    header.min.y >= 0.0 && header.max.y < 100.0,
+                    "analysis navigation remains fixed"
+                );
+            }
+        }
     }
 
     #[test]

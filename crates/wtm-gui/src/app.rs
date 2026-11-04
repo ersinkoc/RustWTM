@@ -231,6 +231,9 @@ struct UiState {
     tray_on_close: bool,
     /// Start in the tray at sign-in; read from the registry when needed.
     autostart: Option<bool>,
+    prefer_administrator: Option<bool>,
+    startup_serial: u64,
+    startup_error: Option<String>,
     /// Frames left in which the window is hidden (started in the tray).
     hide_frames: u8,
     check_updates: bool,
@@ -248,7 +251,11 @@ struct UiState {
 
 impl App {
     /// `background`: start hidden in the tray.
-    pub fn new(cc: &eframe::CreationContext<'_>, background: bool) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        background: bool,
+        startup_error: Option<String>,
+    ) -> Self {
         // Effective only when started elevated; harmless otherwise.
         wtm_core::control::enable_debug_privilege();
         crate::backend::register_app_id();
@@ -269,12 +276,22 @@ impl App {
             backend.window.clone(),
         );
         let first_run = cc.storage.is_none_or(|s| s.get_string(PREFS_KEY).is_none());
-        if first_run && !cfg!(test) {
-            // Ready to pop up on overload from the next sign-in on; the user
-            // can turn it off in Settings.
-            let _ = crate::backend::set_autostart(true);
+        if !cfg!(test) {
+            backend.send(UiCommand::ConfigureGuiStartup(
+                wtm_core::gui_startup::Change::Initialize { first_run },
+            ));
         }
         let mut state = UiState::restored(cc.storage);
+        if let Some(error) = &startup_error {
+            backend.data().message = Some((
+                EventLevel::Warn,
+                crate::i18n::format(
+                    "Cannot restart as administrator: {0}",
+                    std::slice::from_ref(error),
+                ),
+            ));
+        }
+        state.startup_error = startup_error;
         state.language = crate::i18n::preference();
         // eframe shows the window after its first frame; hide it again.
         state.hide_frames = if background { 3 } else { 0 };
@@ -402,6 +419,9 @@ impl Default for UiState {
             alerts: crate::alert::AlertSettings::default(),
             tray_on_close: true,
             autostart: None,
+            prefer_administrator: None,
+            startup_serial: 0,
+            startup_error: None,
             hide_frames: 0,
             check_updates: true,
             skip_version: None,
@@ -644,10 +664,10 @@ impl eframe::App for App {
             }
             let scroll_page = match state.tab {
                 Tab::Settings => state.config.page.scrolls(),
+                Tab::Disks => !state.disks.analysis_open(),
                 _ => matches!(
                     state.tab,
                     Tab::Overview
-                        | Tab::Disks
                         | Tab::Sensors
                         | Tab::Governor
                         | Tab::About
@@ -726,7 +746,9 @@ impl eframe::App for App {
                 }
                 Tab::Settings => match state.config.page {
                     crate::settings::Page::Window => crate::theme::panel(ui, |ui| {
-                        window_settings(ui, state);
+                        if let Some(command) = window_settings(ui, state, &data) {
+                            backend.send(command);
+                        }
                     }),
                     crate::settings::Page::Telegram => {
                         service_cmds.extend(crate::telegram_settings::telegram(
@@ -1244,7 +1266,18 @@ fn language_settings(
 }
 
 /// Preferences of this window (the service's settings follow below them).
-fn window_settings(ui: &mut Ui, state: &mut UiState) {
+fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCommand> {
+    if let Some(status) = data
+        .gui_startup
+        .as_ref()
+        .filter(|s| !s.busy && s.serial != state.startup_serial)
+    {
+        state.startup_serial = status.serial;
+        state.autostart = Some(status.settings.autostart);
+        state.prefer_administrator = Some(status.settings.administrator);
+        state.startup_error = status.error.clone();
+    }
+    let mut command = None;
     language_settings(ui, state, crate::i18n::save);
     ui.horizontal(|ui| {
         ui.label(crate::i18n::tr("Theme"));
@@ -1297,17 +1330,54 @@ fn window_settings(ui: &mut Ui, state: &mut UiState) {
     let mut on = *state
         .autostart
         .get_or_insert_with(crate::backend::autostart_enabled);
-    if ui
-        .checkbox(
-            &mut on,
-            crate::i18n::tr("Start RustWTM in the tray when I sign in"),
-        )
-        .changed()
-        && crate::backend::set_autostart(on).is_ok()
-    {
-        state.autostart = Some(on);
+    let mut administrator = *state
+        .prefer_administrator
+        .get_or_insert_with(|| wtm_core::gui_startup::settings().administrator);
+    let busy = data.gui_startup.as_ref().is_some_and(|s| s.busy);
+    let mut changed = false;
+    ui.add_enabled_ui(!busy, |ui| {
+        changed |= ui
+            .checkbox(
+                &mut administrator,
+                crate::i18n::tr("Always open RustWTM as administrator"),
+            )
+            .changed();
+        changed |= ui
+            .checkbox(
+                &mut on,
+                crate::i18n::tr("Start RustWTM in the tray when I sign in"),
+            )
+            .changed();
+    });
+    if changed {
+        if administrator && !data.elevated {
+            command = Some(UiCommand::RestartElevated);
+        } else {
+            state.autostart = Some(on);
+            state.prefer_administrator = Some(administrator);
+            command = Some(UiCommand::ConfigureGuiStartup(
+                wtm_core::gui_startup::Change::Set(wtm_core::gui_startup::Settings {
+                    administrator,
+                    autostart: on,
+                }),
+            ));
+        }
+    }
+    if busy {
+        ui.weak(crate::i18n::tr("Saving startup settings…"));
+    }
+    if let Some(error) = &state.startup_error {
+        crate::theme::colored(
+            ui,
+            BAD,
+            crate::i18n::format(
+                "Startup settings could not be saved: {0}",
+                &[crate::i18n::tr(error).to_owned()],
+            ),
+        );
     }
     ui.add_space(6.0);
+    command
 }
 
 /// How much page content fades while its data is out of date.
@@ -3165,6 +3235,138 @@ mod tests {
     use crate::ui_tests::data;
 
     #[test]
+    fn compact_disk_analysis_keeps_scrolled_results_when_activity_changes_and_on_reopen() {
+        for theme in [egui::Theme::Dark, egui::Theme::Light] {
+            let (backend, _rx) = Backend::offline(data());
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([820.0, 500.0])
+                .with_theme(theme)
+                .build_eframe(|cc| {
+                    crate::theme::apply(&cc.egui_ctx);
+                    App {
+                        backend,
+                        state: UiState {
+                            tab: Tab::Disks,
+                            disks: crate::disks_tab::review_fixture(),
+                            autostart: Some(false),
+                            check_updates: false,
+                            ..Default::default()
+                        },
+                        tray: None,
+                        frames: Default::default(),
+                    }
+                });
+            h.run_steps(3);
+            h.event(egui::Event::PointerMoved(egui::pos2(350.0, 350.0)));
+            h.event(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -10000.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Unknown,
+            });
+            h.run_steps(20);
+            let before = h.get_by_label("(files in this folder)").rect();
+            assert!(
+                before.min.y > 100.0 && before.max.y < 440.0,
+                "last folder row must be above the status bar: {before:?}"
+            );
+            h.state().backend.data().disk_activity = Some(Ok((
+                (0..20)
+                    .map(|i| wtm_core::FileIo {
+                        pid: 100,
+                        path: Some(format!("C:/busy/file-{i}")),
+                        read: 4096,
+                        write: 1024,
+                    })
+                    .collect(),
+                1.0,
+            )));
+            h.run_steps(3);
+            let after = h.get_by_label("(files in this folder)").rect();
+            assert!((before.top() - after.top()).abs() < 0.5);
+            h.get_by_label("Back to disks").click();
+            h.run_steps(3);
+            h.get_by_label("Open disk analysis").click();
+            h.run_steps(3);
+            let reopened = h.get_by_label("(files in this folder)").rect();
+            assert!(
+                (before.top() - reopened.top()).abs() < 0.5,
+                "reopening retains scroll position: {before:?} -> {reopened:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn startup_preferences_request_elevation_and_reconcile_failed_saves() {
+        for elevated in [false, true] {
+            let mut d = data();
+            d.elevated = elevated;
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([1000.0, 700.0])
+                .build_ui_state(
+                    |ui, s: &mut (UiState, Data, Option<UiCommand>)| {
+                        if let Some(command) = window_settings(ui, &mut s.0, &s.1) {
+                            s.2 = Some(command);
+                        }
+                    },
+                    (
+                        UiState {
+                            autostart: Some(true),
+                            prefer_administrator: Some(false),
+                            ..Default::default()
+                        },
+                        d,
+                        None,
+                    ),
+                );
+            h.run();
+            h.get_by_label("Always open RustWTM as administrator")
+                .click();
+            h.run();
+            if elevated {
+                assert!(matches!(
+                    h.state().2,
+                    Some(UiCommand::ConfigureGuiStartup(
+                        wtm_core::gui_startup::Change::Set(wtm_core::gui_startup::Settings {
+                            administrator: true,
+                            autostart: true
+                        })
+                    ))
+                ));
+                assert_eq!(h.state().0.prefer_administrator, Some(true));
+            } else {
+                assert!(matches!(h.state().2, Some(UiCommand::RestartElevated)));
+                assert_eq!(h.state().0.prefer_administrator, Some(false));
+            }
+            h.state_mut().1.gui_startup = Some(crate::backend::GuiStartup {
+                serial: 1,
+                busy: false,
+                settings: wtm_core::gui_startup::Settings {
+                    administrator: false,
+                    autostart: true,
+                },
+                error: Some("Owned test failure".into()),
+            });
+            h.run();
+            assert_eq!(h.state().0.prefer_administrator, Some(false));
+            assert!(h.query_by_label_contains("Owned test failure").is_some());
+            h.state_mut().1.gui_startup.as_mut().unwrap().busy = true;
+            h.state_mut().2 = None;
+            h.run();
+            h.get_by_label("Always open RustWTM as administrator")
+                .click();
+            h.run();
+            assert!(
+                h.state().2.is_none(),
+                "a pending save cannot enqueue another startup change"
+            );
+        }
+    }
+
+    #[test]
     fn containers_keep_selected_details_visible_in_a_compact_app_window() {
         for theme in [egui::Theme::Light, egui::Theme::Dark] {
             let mut d = data();
@@ -3372,7 +3574,7 @@ mod tests {
             .allow_missing_glyphs()
             .with_size([1300.0, 850.0])
             .build_eframe(|cc| {
-                let mut app = App::new(cc, false);
+                let mut app = App::new(cc, false, None);
                 app.state.language = crate::i18n::Language::English;
                 app
             });
@@ -3658,6 +3860,7 @@ mod tests {
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
             UiCommand::RestartElevated => "restart elevated".into(),
+            UiCommand::ConfigureGuiStartup(change) => format!("gui startup {change:?}"),
             UiCommand::CloseAlert(quiet) => format!("close alert {}", quiet.as_secs()),
             UiCommand::CheckUpdate => "check update".into(),
             UiCommand::InstallUpdate(r) => format!("install update {}", r.tag),
@@ -5701,6 +5904,34 @@ mod tests {
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         h.render().expect("GPU render").save(&path).unwrap();
                         println!("Rendered {}", path.display());
+                        if tab == Tab::Disks {
+                            assert!(h.query_by_label(crate::i18n::tr("Back to disks")).is_some());
+                            assert!(
+                                h.query_by_label(crate::i18n::tr("Files being read and written"))
+                                    .is_none()
+                            );
+                            for (view, name) in [
+                                (crate::disks_tab::ResultView::Largest, "LargestFiles"),
+                                (crate::disks_tab::ResultView::Types, "FileTypes"),
+                            ] {
+                                h.state_mut().state.disks.view = view;
+                                h.run_steps(3);
+                                let path =
+                                    out.join(format!("{theme_name}-{size_name}-Disk{name}.png"));
+                                h.render().expect("GPU render").save(&path).unwrap();
+                                println!("Rendered {}", path.display());
+                            }
+                            h.get_by_label(crate::i18n::tr("Back to disks")).click();
+                            h.run_steps(3);
+                            assert!(
+                                h.query_by_label(crate::i18n::tr("Open disk analysis"))
+                                    .is_some()
+                            );
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-DiskActivity.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
                         if tab == Tab::Processes {
                             let target = {
                                 let mut data = h.state().backend.data();

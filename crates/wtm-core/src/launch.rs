@@ -36,9 +36,26 @@ pub fn run(line: &str, elevated: bool) -> Result<(), String> {
 /// once it returns `Ok`; the new copy is told to wait for that (see
 /// [`REPLACE_ARG`]) instead of finding this one and closing again.
 pub fn restart_elevated() -> Result<(), String> {
+    restart_elevated_with(false)
+}
+
+pub fn restart_elevated_with(background: bool) -> Result<(), String> {
+    if crate::gui_startup::launch_task(background).is_ok() {
+        return Ok(());
+    }
+    restart_with_uac(background)
+}
+
+/// Direct fallback when a scheduled launch did not receive administrator rights.
+/// Do not re-enter the same scheduled task and create a relaunch loop.
+pub fn restart_with_uac(background: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe = exe.to_string_lossy();
-    let args = format!("{REPLACE_ARG} {}", std::process::id());
+    let args = format!(
+        "{REPLACE_ARG} {}{}",
+        std::process::id(),
+        if background { " --background" } else { "" }
+    );
     wtm_sys::shell::launch(&exe, &args, true).map_err(|e| describe(&exe, e.is_cancelled(), e))
 }
 

@@ -73,6 +73,34 @@ function Check-Preserved {
     $history = & (Join-Path $install 'wtm.exe') history --hours 1 -n 10000
     Assert ($LASTEXITCODE -eq 0 -and [bool]($history | Select-String -SimpleMatch $fixture)) 'history fixture readable over service IPC'
 }
+function Check-AdministratorTasks {
+    $scheduler = New-Object -ComObject Schedule.Service
+    $scheduler.Connect()
+    $folder = $scheduler.GetFolder('\')
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    foreach ($kind in @('Open', 'Logon')) {
+        $task = $folder.GetTask("RustWTM-Administrator-$kind-$sid")
+        $definition = $task.Definition
+        $arguments = if ($kind -ceq 'Open') { '--scheduled-open' } else { '--scheduled-open --background' }
+        Assert ($definition.Principal.UserId -ceq $sid -and $definition.Principal.LogonType -eq 3 -and $definition.Principal.RunLevel -eq 1) "$kind task uses current interactive user at highest privilege"
+        Assert ($definition.Actions.Count -eq 1 -and $definition.Actions.Item(1).Path -ieq (Join-Path $install 'rustwtm.exe') -and $definition.Actions.Item(1).Arguments -ceq $arguments) "$kind task uses fixed installed GUI and arguments"
+        Assert ($definition.Triggers.Count -eq [int]($kind -ceq 'Logon')) "$kind task has only the expected trigger"
+        if ($kind -ceq 'Logon') { Assert ($definition.Triggers.Item(1).UserId -ceq $sid) 'logon trigger belongs to the current user' }
+        $security = [Security.AccessControl.RawSecurityDescriptor]::new($task.GetSecurityDescriptor(7))
+        Assert ($security.Owner.Value -cin @('S-1-5-32-544', 'S-1-5-18') -and [bool]($security.ControlFlags -band 4096)) "$kind task has protected administrator ownership"
+        $userCanRun = $false
+        foreach ($ace in $security.DiscretionaryAcl) {
+            $who = $ace.SecurityIdentifier.Value
+            Assert ($ace.AceType -eq 0 -and $who -cin @('S-1-5-32-544', 'S-1-5-18', $sid)) "$kind task has only expected access rules"
+            if ($who -ceq $sid) {
+                $mask = [long]$ace.AccessMask -band 0xffffffffL
+                Assert (($mask -band (-bnot 0xa01200a9L)) -eq 0) "$kind task cannot be modified by the ordinary user"
+                $userCanRun = [bool]($mask -band 0x20000000L) -or (($mask -band 0x1200a9L) -eq 0x1200a9L)
+            }
+        }
+        Assert $userCanRun "$kind task grants current user read and execute"
+    }
+}
 Msi '/i' $baseline 'upgrade-baseline.log'
 Installed $BaselineVersion
 Wait-Until { Test-Path -LiteralPath $database } 'history database creation'
@@ -87,12 +115,23 @@ Check-Preserved
 Msi '/i' $candidate 'upgrade-candidate.log'
 Installed $CandidateVersion
 Check-Preserved
+# Real persistent privileged tasks are tested only behind this script's
+# disposable-VM guard. Repeat configuration to verify existing-task validation.
+foreach ($attempt in 1..2) {
+    $startup = & (Join-Path $install 'wtm.exe') gui-startup --administrator true --autostart true
+    Assert ($LASTEXITCODE -eq 0) "administrator startup configuration attempt $attempt"
+    $settings = $startup | ConvertFrom-Json
+    Assert ($settings.administrator -and $settings.autostart) 'administrator and logon preferences remembered'
+    Check-AdministratorTasks
+}
 Msi '/fa' $candidate 'upgrade-repair.log'
 Installed $CandidateVersion
 Check-Preserved
+Check-AdministratorTasks
 Msi '/i' $baseline 'upgrade-downgrade.log' -ExpectFailure
 Installed $CandidateVersion
 Check-Preserved
+Check-AdministratorTasks
 Msi '/x' $candidate 'upgrade-uninstall.log'
 Wait-Until { -not (Get-Service RustWTM -ErrorAction SilentlyContinue) } 'service removal'
 Assert (Test-Path -LiteralPath $config) 'configuration retained after uninstall'
@@ -100,4 +139,6 @@ Assert ((Get-FileHash -LiteralPath $config -Algorithm SHA256).Hash -ceq $script:
 & python -c $sqlite $database $fixture 'assert'
 Assert ($LASTEXITCODE -eq 0) 'history retained after uninstall'
 Assert (-not (Test-Path -LiteralPath (Join-Path $install 'wtm-service.exe'))) 'installed service binary removed'
+$remaining = @(Get-ScheduledTask | Where-Object { $_.TaskName -like 'RustWTM-Administrator-*' })
+Assert ($remaining.Count -eq 0) 'uninstall removed administrator launch tasks'
 Write-Host 'Upgrade / repair / downgrade rejection / uninstall retention verification passed.'

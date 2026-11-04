@@ -10,6 +10,21 @@ use windows::core::{PCWSTR, w};
 use crate::Result;
 use crate::handle::OwnedHandle;
 
+/// Trusted Windows system directory, independent of PATH and user variables.
+pub fn system_directory() -> Result<std::path::PathBuf> {
+    let mut buffer = [0u16; 260];
+    // SAFETY: fixed writable buffer; the returned length is checked before use.
+    let n = unsafe {
+        windows::Win32::System::SystemInformation::GetSystemDirectoryW(Some(&mut buffer))
+    } as usize;
+    if n == 0 || n >= buffer.len() {
+        return Err(windows::core::Error::from_thread().into());
+    }
+    Ok(std::path::PathBuf::from(String::from_utf16_lossy(
+        &buffer[..n],
+    )))
+}
+
 /// Whether the current process runs with an elevated (administrator) token.
 pub fn is_elevated() -> Result<bool> {
     let mut token = HANDLE::default();

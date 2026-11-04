@@ -150,6 +150,13 @@ enum Command {
         #[arg(long, short = 'n', default_value_t = 20)]
         limit: usize,
     },
+    /// Inspect or change this user's RustWTM administrator/startup preference
+    GuiStartup {
+        #[arg(long, action = clap::ArgAction::Set)]
+        administrator: Option<bool>,
+        #[arg(long, action = clap::ArgAction::Set)]
+        autostart: Option<bool>,
+    },
     /// Per-app CPU / memory budgets enforced by the service (persistent)
     AppLimit {
         #[command(subcommand)]
@@ -400,6 +407,25 @@ fn main() -> anyhow::Result<ExitCode> {
                 .map(|()| ExitCode::SUCCESS)
         }
         Command::Info { targets, json } => actions::info(&targets, json),
+        Command::GuiStartup {
+            administrator,
+            autostart,
+        } => {
+            let mut settings = wtm_core::gui_startup::settings();
+            if administrator.is_some() || autostart.is_some() {
+                if let Some(value) = administrator {
+                    settings.administrator = value;
+                }
+                if let Some(value) = autostart {
+                    settings.autostart = value;
+                }
+                settings =
+                    wtm_core::gui_startup::configure(wtm_core::gui_startup::Change::Set(settings))
+                        .map_err(anyhow::Error::msg)?;
+            }
+            println!("{}", serde_json::to_string(&settings)?);
+            Ok(ExitCode::SUCCESS)
+        }
         Command::History { hours, limit } => history(
             wtm_ipc::Client::connect(),
             hours,
@@ -696,6 +722,40 @@ mod tests {
         assert_eq!(eco("on"), EcoQos::On);
         assert_eq!(eco("off"), EcoQos::Off);
         assert_eq!(eco("auto"), EcoQos::SystemManaged);
+    }
+
+    #[test]
+    fn parses_explicit_gui_startup_preferences() {
+        let cli = Cli::try_parse_from(["wtm", "gui-startup"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::GuiStartup {
+                administrator: None,
+                autostart: None
+            }
+        ));
+        for value in ["true", "false"] {
+            let cli = Cli::try_parse_from([
+                "wtm",
+                "gui-startup",
+                "--administrator",
+                value,
+                "--autostart",
+                value,
+            ])
+            .unwrap();
+            let Command::GuiStartup {
+                administrator,
+                autostart,
+            } = cli.command
+            else {
+                panic!("wrong command")
+            };
+            assert_eq!(administrator, Some(value == "true"));
+            assert_eq!(autostart, administrator);
+        }
+        assert!(Cli::try_parse_from(["wtm", "gui-startup", "--administrator"]).is_err());
+        assert!(Cli::try_parse_from(["wtm", "gui-startup", "--autostart", "maybe"]).is_err());
     }
 
     #[test]

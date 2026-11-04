@@ -88,6 +88,12 @@ fn main() -> eframe::Result {
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let background = args.iter().any(|a| a == "--background");
+    let scheduled = args
+        .iter()
+        .any(|a| a == wtm_core::gui_startup::SCHEDULED_OPEN);
+    if scheduled {
+        wtm_core::gui_startup::wait_launcher();
+    }
     // "Restart as administrator": the copy that started us is closing; it
     // must be gone before we look for another instance.
     if let Some(pid) = replaced_pid(&args) {
@@ -108,6 +114,20 @@ fn main() -> eframe::Result {
             }
         }
     };
+    let startup_error =
+        if !wtm_core::launch::is_elevated() && wtm_core::gui_startup::settings().administrator {
+            let restarted = if scheduled {
+                wtm_core::launch::restart_with_uac(background)
+            } else {
+                wtm_core::launch::restart_elevated_with(background)
+            };
+            match restarted {
+                Ok(()) => return Ok(()),
+                Err(error) => Some(error),
+            }
+        } else {
+            None
+        };
     harden();
     eframe::run_native(
         "RustWTM",
@@ -117,7 +137,7 @@ fn main() -> eframe::Result {
             // closes RustWTM even while it waits in the tray.
             let ctx = cc.egui_ctx.clone();
             wtm_core::window::watch_session_end(move || tray::request_exit(&ctx));
-            Ok(Box::new(app::App::new(cc, background)))
+            Ok(Box::new(app::App::new(cc, background, startup_error)))
         }),
     )
 }

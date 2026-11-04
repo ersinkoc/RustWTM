@@ -97,8 +97,12 @@ usage history.
 - **Disks**: every drive with its free space, live activity per physical disk
   and the processes reading and writing the most. *Analyze* any drive or folder
   to see what takes up the space: a folder tree with sizes and shares, the 200
-  largest files and the space per file type, each with *Show in Explorer*. The
-  scan runs on a few background-priority threads (a 2 TB, 6 million file system
+  largest files and the space per file type, each with *Show in Explorer*.
+  Results open in a dedicated analysis page with independent scrolling. Live
+  file activity cannot displace the results; *Back to disks* and *Open disk
+  analysis* retain the scan, expanded folders and scroll position. Columns adapt
+  to compact windows.
+  The scan runs on a few background-priority threads (a 2 TB, 6 million file system
   drive took about a minute) and never follows junctions or symbolic links.
   *Files being read and written* lists, per program, the files moving the most
   disk bytes right now (a kernel trace that runs only while the tab is open,
@@ -108,6 +112,11 @@ usage history.
   by itself.
 - Run new task (optionally as administrator) and one-click restart as
   administrator; the window remembers its size, tab, columns and sorts.
+  Opening it as administrator also remembers that preference. In a protected
+  installation folder, fixed per-user scheduled tasks provide administrator
+  launches and optional sign-in startup without storing a password. Settings
+  can turn either preference off. Portable copies use the normal UAC prompt;
+  automatic privileged startup requires an administrator-protected install.
 - GUI and desktop notifications in English, Türkçe, Deutsch, Français and
   Español, with immediate language selection and a saved per-user preference.
   The first launch follows the Windows UI language. See [language support](docs/localization.md).

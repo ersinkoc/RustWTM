@@ -241,7 +241,7 @@ fn elevated_install(msi: &Download) -> String {
 
 /// `text` as a single-quoted PowerShell string. PowerShell ends one at any
 /// of ' ‘ ’ ‚ ‛ (as in C:\Users\O’Brien), so each is doubled.
-fn ps_quote(text: &str) -> String {
+pub(crate) fn ps_quote(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 2);
     out.push('\'');
     for c in text.chars() {
@@ -255,7 +255,7 @@ fn ps_quote(text: &str) -> String {
 }
 
 /// A script for `powershell -EncodedCommand`: base64 of its UTF-16LE.
-fn encode_command(script: &str) -> String {
+pub(crate) fn encode_command(script: &str) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);

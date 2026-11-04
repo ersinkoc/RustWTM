@@ -6,6 +6,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Improved
+
+- Disk analysis opens in its own page instead of moving below the live file
+  activity list. Folder, largest-file and file-type results scroll within the
+  available window height; returning to disks and reopening preserves results,
+  expansion and scroll position. Folder columns fit compact windows.
+- Reopening analysis while an earlier scan is still pending retains the worker
+  instead of accumulating scans blocked on filesystem access.
+- Remember administrator mode after an elevated launch, for manual reopen and
+  optional Windows sign-in startup. Fixed current-user tasks require a protected
+  installation path, highest interactive privilege and administrator-owned task
+  ACLs; portable builds retain the normal UAC fallback. Settings expose both
+  preferences and report save failures. Uninstall removes owned launch tasks.
+
 ### Distribution and validation
 
 - Optional Azure Artifact Signing with OIDC in a separate signing job: sign the

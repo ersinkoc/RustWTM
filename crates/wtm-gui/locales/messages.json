@@ -6406,5 +6406,53 @@
     "de": "Alle anzeigen",
     "fr": "Tout afficher",
     "es": "Mostrar todo"
+  },
+  "Always open RustWTM as administrator": {
+    "de": "RustWTM immer als Administrator öffnen",
+    "es": "Abrir siempre RustWTM como administrador",
+    "fr": "Toujours ouvrir RustWTM en tant qu’administrateur",
+    "tr": "RustWTM’yi her zaman yönetici olarak aç"
+  },
+  "Automatic administrator startup requires RustWTM in an administrator-protected installation folder": {
+    "de": "Für den automatischen Administratorstart muss RustWTM in einem geschützten Installationsordner liegen",
+    "es": "El inicio automático como administrador requiere una carpeta de instalación protegida",
+    "fr": "Le démarrage administrateur automatique nécessite un dossier d’installation protégé",
+    "tr": "Otomatik yönetici başlangıcı için RustWTM yönetici korumalı bir kurulum klasöründe olmalıdır"
+  },
+  "Back to disks": {
+    "de": "Zurück zu den Datenträgern",
+    "es": "Volver a los discos",
+    "fr": "Retour aux disques",
+    "tr": "Disklere dön"
+  },
+  "Disk space analysis": {
+    "de": "Speicherplatzanalyse",
+    "es": "Análisis del espacio en disco",
+    "fr": "Analyse de l’espace disque",
+    "tr": "Disk alanı analizi"
+  },
+  "Open disk analysis": {
+    "de": "Speicherplatzanalyse öffnen",
+    "es": "Abrir el análisis del disco",
+    "fr": "Ouvrir l’analyse du disque",
+    "tr": "Disk analizini aç"
+  },
+  "Restart RustWTM as administrator to change administrator startup": {
+    "de": "Starten Sie RustWTM als Administrator neu, um den Administratorstart zu ändern",
+    "es": "Reinicie RustWTM como administrador para cambiar este inicio",
+    "fr": "Relancez RustWTM en tant qu’administrateur pour modifier ce démarrage",
+    "tr": "Yönetici başlangıcını değiştirmek için RustWTM’yi yönetici olarak yeniden açın"
+  },
+  "Saving startup settings…": {
+    "de": "Starteinstellungen werden gespeichert…",
+    "es": "Guardando la configuración de inicio…",
+    "fr": "Enregistrement des paramètres de démarrage…",
+    "tr": "Başlangıç ayarları kaydediliyor…"
+  },
+  "Startup settings could not be saved: {0}": {
+    "de": "Starteinstellungen konnten nicht gespeichert werden: {0}",
+    "es": "No se pudo guardar la configuración de inicio: {0}",
+    "fr": "Impossible d’enregistrer les paramètres de démarrage : {0}",
+    "tr": "Başlangıç ayarları kaydedilemedi: {0}"
   }
 }

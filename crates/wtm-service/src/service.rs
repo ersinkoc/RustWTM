@@ -291,11 +291,19 @@ pub fn cleanup() -> anyhow::Result<()> {
         &Paths::under(&engine::default_data_dir()).power_plan,
         &mut |line| println!("{line}"),
     );
-    let failures = clean(
+    let mut failures = clean(
         Blocker::system(String::new()),
         wtm_sys::firewall::unblock_all,
         &mut |line| println!("{line}"),
     );
+    if let Some(folder) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_owned))
+        && let Err(error) = wtm_core::gui_startup::cleanup_tasks(&folder.join("rustwtm.exe"))
+    {
+        println!("Could not remove RustWTM administrator launch tasks: {error}");
+        failures += 1;
+    }
     anyhow::ensure!(failures == 0, "{failures} item(s) could not be removed");
     Ok(())
 }
