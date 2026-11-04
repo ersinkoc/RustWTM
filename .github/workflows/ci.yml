@@ -170,13 +170,20 @@ jobs:
           $version = [regex]::Match((Get-Content Cargo.toml -Raw), '(?m)^version = "([^"]+)"').Groups[1].Value
           scripts/ci/verify-upgrade.ps1 -BaselineMsi dist/baseline/RustWTM-0.24.1-x64.msi -CandidateMsi dist/RustWTM-test.msi -BaselineVersion 0.24.1 -CandidateVersion $version -DisposableMachine
 
+      - name: Collect upgrade diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path upgrade-diagnostics -Force | Out-Null
+          Get-ChildItem -Path . -Filter *.log -File | Copy-Item -Destination upgrade-diagnostics
+          if (Test-Path -LiteralPath C:/ProgramData/RustWTM/logs) {
+            Get-ChildItem -LiteralPath C:/ProgramData/RustWTM/logs -File | Copy-Item -Destination upgrade-diagnostics
+          }
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: failure()
         with:
           name: upgrade-logs
-          path: |
-            *.log
-            C:/ProgramData/RustWTM/logs/
+          path: upgrade-diagnostics/
 
   install-script:
     runs-on: windows-latest

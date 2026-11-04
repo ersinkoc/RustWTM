@@ -74,6 +74,10 @@ function Check-Preserved {
     Assert ($LASTEXITCODE -eq 0 -and [bool]($history | Select-String -SimpleMatch $fixture)) 'history fixture readable over service IPC'
 }
 function Check-AdministratorTasks {
+    function UserSid([string]$Value) {
+        if ($Value -match '^S-[0-9]-') { return [Security.Principal.SecurityIdentifier]::new($Value).Value }
+        return [Security.Principal.NTAccount]::new($Value).Translate([Security.Principal.SecurityIdentifier]).Value
+    }
     $scheduler = New-Object -ComObject Schedule.Service
     $scheduler.Connect()
     $folder = $scheduler.GetFolder('\')
@@ -82,10 +86,10 @@ function Check-AdministratorTasks {
         $task = $folder.GetTask("RustWTM-Administrator-$kind-$sid")
         $definition = $task.Definition
         $arguments = if ($kind -ceq 'Open') { '--scheduled-open' } else { '--scheduled-open --background' }
-        Assert ($definition.Principal.UserId -ceq $sid -and $definition.Principal.LogonType -eq 3 -and $definition.Principal.RunLevel -eq 1) "$kind task uses current interactive user at highest privilege"
+        Assert ((UserSid $definition.Principal.UserId) -ceq $sid -and $definition.Principal.LogonType -eq 3 -and $definition.Principal.RunLevel -eq 1) "$kind task uses current interactive user at highest privilege (user=$($definition.Principal.UserId), logon=$($definition.Principal.LogonType), level=$($definition.Principal.RunLevel))"
         Assert ($definition.Actions.Count -eq 1 -and $definition.Actions.Item(1).Path -ieq (Join-Path $install 'rustwtm.exe') -and $definition.Actions.Item(1).Arguments -ceq $arguments) "$kind task uses fixed installed GUI and arguments"
         Assert ($definition.Triggers.Count -eq [int]($kind -ceq 'Logon')) "$kind task has only the expected trigger"
-        if ($kind -ceq 'Logon') { Assert ($definition.Triggers.Item(1).UserId -ceq $sid) 'logon trigger belongs to the current user' }
+        if ($kind -ceq 'Logon') { Assert ((UserSid $definition.Triggers.Item(1).UserId) -ceq $sid) 'logon trigger belongs to the current user' }
         $security = [Security.AccessControl.RawSecurityDescriptor]::new($task.GetSecurityDescriptor(7))
         Assert ($security.Owner.Value -cin @('S-1-5-32-544', 'S-1-5-18') -and [bool]($security.ControlFlags -band 4096)) "$kind task has protected administrator ownership"
         $userCanRun = $false

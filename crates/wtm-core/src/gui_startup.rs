@@ -141,6 +141,10 @@ $sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $service=New-Object -ComObject Schedule.Service
 $service.Connect()
 $folder=$service.GetFolder('\')
+function UserSid($value) {{
+    if($value -match '^S-[0-9]-') {{return [System.Security.Principal.SecurityIdentifier]::new($value).Value}}
+    return [System.Security.Principal.NTAccount]::new($value).Translate([System.Security.Principal.SecurityIdentifier]).Value
+}}
 function Owned($name,$arguments) {{
     try {{ $task=$folder.GetTask($name) }} catch {{
         $e=$_.Exception; while($e.InnerException){{$e=$e.InnerException}}
@@ -148,7 +152,7 @@ function Owned($name,$arguments) {{
         return $null
     }}
     $d=$task.Definition
-    if($d.RegistrationInfo.Description -cne $marker -or $d.Principal.UserId -cne $sid -or $d.Principal.LogonType -ne 3 -or $d.Principal.RunLevel -ne 1 -or $d.Actions.Count -ne 1 -or $d.Actions.Item(1).Path -ine $exe -or $d.Actions.Item(1).Arguments -cne $arguments) {{throw 'Existing task is not this RustWTM launch task'}}
+    if($d.RegistrationInfo.Description -cne $marker -or (UserSid $d.Principal.UserId) -cne $sid -or $d.Principal.LogonType -ne 3 -or $d.Principal.RunLevel -ne 1 -or $d.Actions.Count -ne 1 -or $d.Actions.Item(1).Path -ine $exe -or $d.Actions.Item(1).Arguments -cne $arguments) {{throw 'Existing task is not this RustWTM launch task'}}
     $security=[System.Security.AccessControl.RawSecurityDescriptor]::new($task.GetSecurityDescriptor(7))
     if($security.Owner.Value -cnotin @('S-1-5-32-544','S-1-5-18') -or -not ($security.ControlFlags -band 4096)) {{throw 'Launch task is not administrator-owned and protected'}}
     foreach($ace in $security.DiscretionaryAcl) {{
@@ -277,7 +281,9 @@ pub fn cleanup_tasks(exe: &Path) -> Result<(), String> {
     let operation = format!(
         r#"foreach($task in @($folder.GetTasks(1))) {{
         $d=$task.Definition
-        if($task.Name -cin @(('RustWTM-Administrator-Open-'+$d.Principal.UserId),('RustWTM-Administrator-Logon-'+$d.Principal.UserId)) -and $d.RegistrationInfo.Description -ceq $marker -and $d.Principal.LogonType -eq 3 -and $d.Principal.RunLevel -eq 1 -and $d.Actions.Count -eq 1 -and $d.Actions.Item(1).Path -ieq $exe -and $d.Actions.Item(1).Arguments -cin @('{SCHEDULED_OPEN}','{SCHEDULED_BACKGROUND}')) {{$folder.DeleteTask($task.Name,0)}}
+        if($d.RegistrationInfo.Description -cne $marker) {{continue}}
+        try {{$owner=UserSid $d.Principal.UserId}} catch {{continue}}
+        if($task.Name -cin @(('RustWTM-Administrator-Open-'+$owner),('RustWTM-Administrator-Logon-'+$owner)) -and $d.Principal.LogonType -eq 3 -and $d.Principal.RunLevel -eq 1 -and $d.Actions.Count -eq 1 -and $d.Actions.Item(1).Path -ieq $exe -and $d.Actions.Item(1).Arguments -cin @('{SCHEDULED_OPEN}','{SCHEDULED_BACKGROUND}')) {{$folder.DeleteTask($task.Name,0)}}
     }}"#
     );
     run(&script(exe, &operation))
@@ -337,6 +343,12 @@ $assignment=@($ast.FindAll({{param($n) $n -is [System.Management.Automation.Lang
 if($assignment.Count -ne 1){{throw 'Executable assignment is missing or duplicated'}}
 $literal=$assignment[0].Right.Expression
 if($literal -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or $literal.Value -cne $expected){{throw 'Executable path was not preserved as one literal'}}
+$normalize=$ast.Find({{param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'UserSid'}},$true)
+Invoke-Expression $normalize.Extent.Text
+$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()
+foreach($value in @($identity.User.Value,$identity.Name)) {{
+    if((UserSid $value) -cne $identity.User.Value) {{throw 'Task principal account name and SID did not resolve to the same user'}}
+}}
 "#,
             source = crate::update::encode_command(&s),
             path = crate::update::encode_command(&path.to_string_lossy())
