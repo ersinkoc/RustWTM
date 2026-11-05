@@ -67,21 +67,31 @@ impl Governor {
                 .any(|p| p.pid == pid && p.create_time == created)
         });
         let mut out = Vec::new();
-        if self.cfg.protect_foreground {
-            let in_use: Vec<Key> = self
-                .throttled
-                .keys()
-                .filter(|k| self.foreground.contains(k))
-                .copied()
-                .collect();
-            for key in in_use {
-                let t = self.throttled.remove(&key).expect("listed above");
-                out.push(Decision::Restore {
-                    source: Source::Governor,
-                    target: t.target,
-                    reason: "in use (foreground app)".into(),
-                });
-            }
+        let released: Vec<_> = self
+            .throttled
+            .iter()
+            .filter_map(|(key, t)| {
+                if self
+                    .cfg
+                    .exempt
+                    .iter()
+                    .any(|e| glob_match(e, &t.target.name))
+                {
+                    Some((*key, "exempt from governor"))
+                } else if self.cfg.protect_foreground && self.foreground.contains(key) {
+                    Some((*key, "in use (foreground app)"))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (key, reason) in released {
+            let t = self.throttled.remove(&key).expect("listed above");
+            out.push(Decision::Restore {
+                source: Source::Governor,
+                target: t.target,
+                reason: reason.into(),
+            });
         }
         out.extend(self.tick_load(now, snap));
         out
@@ -407,6 +417,40 @@ mod tests {
         });
         let d = g.tick(t0, &snap(95.0, procs()));
         assert!(matches!(d.as_slice(), [Decision::Restore { .. }]));
+    }
+
+    #[test]
+    fn newly_exempt_processes_are_restored_without_releasing_other_offenders() {
+        for pattern in ["hog.exe", "HOG.*", "*"] {
+            let cfg = GovernorConfig {
+                sustain_secs: 0,
+                ladder: vec![Action::Priority(PriorityLevel::Idle)],
+                ..cfg()
+            };
+            let mut g = Governor::new(cfg.clone());
+            let now = Instant::now();
+            let busy = snap(
+                99.0,
+                vec![proc(10, "hog.exe", 70.0), proc(11, "other.exe", 40.0)],
+            );
+            assert_eq!(applied(&g.tick(now, &busy)).len(), 2);
+            g.set_config(GovernorConfig {
+                exempt: vec![pattern.into()],
+                ..cfg.clone()
+            });
+            let released = g.tick(now, &busy);
+            let expected = if pattern == "*" { 2 } else { 1 };
+            assert_eq!(released.len(), expected);
+            assert!(
+                released
+                    .iter()
+                    .all(|d| matches!(d, Decision::Restore { .. }))
+            );
+            assert_eq!(g.throttled_count(), 2 - expected);
+            assert!(g.tick(now, &busy).is_empty(), "release is not repeated");
+            g.set_config(cfg);
+            assert_eq!(applied(&g.tick(now, &busy)).len(), expected);
+        }
     }
 
     #[test]

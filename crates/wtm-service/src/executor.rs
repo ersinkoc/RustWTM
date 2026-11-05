@@ -82,6 +82,7 @@ struct Touched {
     original_priority: Option<PriorityClass>,
     original_eco: Option<EcoQos>,
     actions: HashMap<Source, Vec<Action>>,
+    pending_restores: HashSet<Source>,
     applied: Effective,
 }
 
@@ -128,14 +129,10 @@ impl Executor {
         let mut out: Vec<Managed> = self
             .touched
             .values()
-            .map(|t| {
-                let mut sources: Vec<Source> = t.actions.keys().copied().collect();
-                sources.sort_by_key(|s| *s as u8);
-                Managed {
-                    target: t.target.clone(),
-                    sources,
-                    summary: t.applied.summary(),
-                }
+            .map(|t| Managed {
+                target: t.target.clone(),
+                sources: self.sources(&t.target),
+                summary: t.applied.summary(),
             })
             .collect();
         out.sort_by_key(|m| m.target.pid);
@@ -151,6 +148,11 @@ impl Executor {
             let alive = live.contains(k);
             if !alive {
                 limiter.forget(&t.target);
+            } else if !t.pending_restores.is_empty()
+                && reconcile(limiter, t).is_ok()
+                && t.actions.is_empty()
+            {
+                return false;
             }
             alive
         });
@@ -229,7 +231,9 @@ impl Executor {
             control::trim_memory(t).map_err(|e| e.to_string())
         } else if action == Action::Kill {
             let r = control::kill(t).map_err(|e| e.to_string());
-            if let Some(entry) = self.touched.remove(&key(t)) {
+            if r.is_ok()
+                && let Some(entry) = self.touched.remove(&key(t))
+            {
                 self.limiter.forget(&entry.target);
             }
             r
@@ -240,6 +244,7 @@ impl Executor {
                 original_priority: None,
                 original_eco: None,
                 actions: HashMap::new(),
+                pending_restores: HashSet::new(),
                 applied: Effective::default(),
             });
             notable |= source == Source::Governor && !entry.actions.contains_key(&source);
@@ -270,11 +275,13 @@ impl Executor {
         let Some(entry) = self.touched.get_mut(&k) else {
             return Ok(());
         };
-        if entry.actions.remove(&source).is_none() {
+        if entry.actions.remove(&source).is_some() {
+            entry.pending_restores.insert(source);
+        } else if !entry.pending_restores.contains(&source) {
             return Ok(());
         }
         let result = reconcile(&mut self.limiter, entry);
-        if entry.actions.is_empty() {
+        if result.is_ok() && entry.actions.is_empty() {
             self.touched.remove(&k);
         }
         match &result {
@@ -296,7 +303,7 @@ impl Executor {
             .flat_map(|t| {
                 sources
                     .iter()
-                    .filter(|s| t.actions.contains_key(s))
+                    .filter(|s| t.actions.contains_key(s) || t.pending_restores.contains(s))
                     .map(|s| (*s, t.target.clone()))
             })
             .collect();
@@ -311,9 +318,16 @@ impl Executor {
         let mut sources: Vec<Source> = self
             .touched
             .get(&key(t))
-            .map(|e| e.actions.keys().copied().collect())
+            .map(|e| {
+                e.actions
+                    .keys()
+                    .chain(&e.pending_restores)
+                    .copied()
+                    .collect()
+            })
             .unwrap_or_default();
         sources.sort_by_key(|s| *s as u8);
+        sources.dedup();
         sources
     }
 
@@ -438,6 +452,7 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
     // A failed field remains unapplied, so later requests retry it. Successful
     // fields keep their state and original settings even on partial failure.
     if errors.is_empty() {
+        t.pending_restores.clear();
         Ok(())
     } else {
         Err(errors
@@ -451,6 +466,49 @@ fn reconcile(limiter: &mut Limiter, t: &mut Touched) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_restores_keep_their_state_and_retry_instead_of_succeeding() {
+        let target = ProcessRef {
+            pid: 4,
+            create_time: 0,
+            name: "System".into(),
+        };
+        let mut e = Executor::new(false, EventLog::default());
+        // State left by an applied priority; refusal is injected at the
+        // existing protection seam before any native operation is attempted.
+        e.touched.insert(
+            key(&target),
+            Touched {
+                target: target.clone(),
+                original_priority: Some(PriorityClass::Normal),
+                original_eco: None,
+                actions: HashMap::from([(
+                    Source::Manual,
+                    vec![Action::Priority(PriorityLevel::Idle)],
+                )]),
+                pending_restores: HashSet::new(),
+                applied: Effective {
+                    priority: Some(PriorityLevel::Idle),
+                    ..Effective::default()
+                },
+            },
+        );
+        let restore = Decision::Restore {
+            source: Source::Manual,
+            target: target.clone(),
+            reason: "refusal fixture".into(),
+        };
+        for _ in 0..2 {
+            assert!(e.execute(&restore).is_err());
+            assert_eq!(e.sources(&target), [Source::Manual]);
+            assert_eq!(e.managed()[0].summary, "Idle");
+        }
+        e.forget_exited(&HashSet::from([key(&target)]));
+        assert_eq!(e.managed().len(), 1);
+        e.forget_exited(&HashSet::new());
+        assert!(e.managed().is_empty(), "exited targets require no rollback");
+    }
 
     #[test]
     fn failed_controls_are_retried_instead_of_reported_as_success() {
@@ -737,6 +795,83 @@ mod process_tests {
     }
 
     #[test]
+    fn failed_restores_recover_on_live_ticks_and_preserve_other_sources() {
+        for other in [false, true] {
+            for tick in [false, true] {
+                let (_child, target) = spawn();
+                let original = priority(&target);
+                let mut e = Executor::new(false, EventLog::default());
+                apply(
+                    &mut e,
+                    Source::Governor,
+                    &target,
+                    Action::Priority(PriorityLevel::Idle),
+                )
+                .unwrap();
+                if other {
+                    apply(
+                        &mut e,
+                        Source::Manual,
+                        &target,
+                        Action::Priority(PriorityLevel::BelowNormal),
+                    )
+                    .unwrap();
+                }
+                // Inject refusal after the real change on this owned child.
+                e.touched.get_mut(&key(&target)).unwrap().target.name = "System".into();
+                assert!(restore(&mut e, Source::Governor, &target).is_err());
+                assert!(restore(&mut e, Source::Governor, &target).is_err());
+                assert_eq!(priority(&target), Some(PriorityClass::Idle));
+                e.touched.get_mut(&key(&target)).unwrap().target = target.clone();
+                if tick {
+                    e.forget_exited(&HashSet::from([key(&target)]));
+                } else {
+                    e.restore_sources(&[Source::Governor], "retry");
+                }
+                assert_eq!(
+                    priority(&target),
+                    if other {
+                        Some(PriorityClass::BelowNormal)
+                    } else {
+                        original
+                    }
+                );
+                assert_eq!(
+                    e.sources(&target),
+                    if other { vec![Source::Manual] } else { vec![] }
+                );
+                e.restore_all("cleanup");
+                assert_eq!(priority(&target), original);
+                assert!(e.managed().is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn a_failed_kill_keeps_the_live_process_available_for_rollback() {
+        let (_child, target) = spawn();
+        let original = priority(&target);
+        let mut e = Executor::new(false, EventLog::default());
+        apply(
+            &mut e,
+            Source::Manual,
+            &target,
+            Action::Priority(PriorityLevel::Idle),
+        )
+        .unwrap();
+        let mut refused = target.clone();
+        // Deterministic failure at the existing protection seam, before kill.
+        refused.name = "System".into();
+        for _ in 0..2 {
+            assert!(apply(&mut e, Source::Manual, &refused, Action::Kill).is_err());
+            assert_eq!(e.sources(&target), [Source::Manual]);
+        }
+        e.restore_all("after failed kill");
+        assert_eq!(priority(&target), original);
+        assert!(e.managed().is_empty());
+    }
+
+    #[test]
     fn suspend_memory_cap_and_kill() {
         let (mut child, t) = spawn();
         let mut e = Executor::new(false, EventLog::default());
@@ -836,7 +971,12 @@ mod process_tests {
         });
         let err = restore(&mut e, Source::Manual, &t).unwrap_err();
         assert!(!err.is_empty());
-        assert!(e.managed().is_empty(), "the entry is dropped regardless");
+        assert_eq!(e.managed().len(), 1, "failed rollback remains pending");
+        e.forget_exited(&HashSet::new());
+        assert!(
+            e.managed().is_empty(),
+            "the next snapshot drops exited targets"
+        );
         assert!(
             events
                 .after(0)

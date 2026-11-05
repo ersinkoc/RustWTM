@@ -171,8 +171,23 @@ pub fn http_body(raw: &[u8]) -> Result<Vec<u8>, String> {
                 .map_err(|_| "Invalid Docker chunk size")?;
             body = &body[end + 2..];
             if size == 0 {
-                if body.len() < 2 {
-                    return Err("Incomplete Docker chunk terminator".into());
+                loop {
+                    let end = body
+                        .windows(2)
+                        .position(|w| w == b"\r\n")
+                        .ok_or("Incomplete Docker chunk terminator")?;
+                    if end == 0 {
+                        break;
+                    }
+                    let trailer = std::str::from_utf8(&body[..end])
+                        .map_err(|_| "Invalid Docker chunk trailer")?;
+                    if !trailer
+                        .split_once(':')
+                        .is_some_and(|(key, _)| !key.is_empty())
+                    {
+                        return Err("Invalid Docker chunk trailer".into());
+                    }
+                    body = &body[end + 2..];
                 }
                 break;
             }
@@ -816,6 +831,19 @@ mod tests {
             assert!(http_body(raw).is_err());
         }
     }
+    #[test]
+    fn docker_chunked_response_requires_complete_trailers() {
+        let response = |tail: &str| {
+            format!("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{{}}\r\n0\r\n{tail}")
+        };
+        for tail in ["XX", "", "\r", "Digest: value\r\n", "bad-trailer\r\n\r\n"] {
+            assert!(http_body(response(tail).as_bytes()).is_err(), "{tail:?}");
+        }
+        for tail in ["\r\n", "Digest: value\r\n\r\n"] {
+            assert_eq!(http_body(response(tail).as_bytes()).unwrap(), b"{}");
+        }
+    }
+
     #[test]
     fn docker_rates_use_deltas_and_never_invent_a_first_sample() {
         let mut sampler = Sampler::default();

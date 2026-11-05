@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-05
+
+### Fixed
+
+- Reject incomplete or malformed trailers in chunked Docker HTTP responses.
+- Restore existing governor throttles when an application becomes exempt.
+- Retain failed rollback requests and original settings until reconciliation
+  succeeds; retry them on live-process ticks and preserve other active sources.
+- Keep process rollback information when termination fails, so later restores
+  can still undo priority, efficiency and limit changes.
+
 ## [0.26.0] - 2026-11-04
 
 ### Improved
