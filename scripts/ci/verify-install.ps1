@@ -85,10 +85,23 @@ Assert ((Get-ItemPropertyValue $taskManagerKey -Name Debugger) -ceq "`"$InstallD
 # Exercise Windows' real IFEO launch on this disposable VM. Forwarded taskmgr
 # arguments must not hide the replacement or create a second GUI instance.
 $taskmgr = Join-Path $env:WINDIR 'System32/taskmgr.exe'
-Start-Process -FilePath $taskmgr -ArgumentList '--background'
-Wait-Until {
-    @(Get-Process rustwtm -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }).Count -eq 1
-} 'visible replacement GUI after launching Windows Task Manager' 30
+$launch = Start-Process -FilePath $taskmgr -ArgumentList '--background' -PassThru `
+    -RedirectStandardOutput task-manager-launch.stdout.log -RedirectStandardError task-manager-launch.stderr.log
+try {
+    Wait-Until {
+        @(Get-Process rustwtm -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }).Count -eq 1
+    } 'visible replacement GUI after launching Windows Task Manager' 30
+} catch {
+    $launch.Refresh()
+    Write-Host "Task Manager launch: pid=$($launch.Id), exited=$($launch.HasExited), session=$((Get-Process -Id $PID).SessionId), interactive=$([Environment]::UserInteractive)"
+    if ($launch.HasExited) { Write-Host "Launch exit code: $($launch.ExitCode)" }
+    foreach ($log in 'task-manager-launch.stdout.log','task-manager-launch.stderr.log') {
+        if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log | Write-Host }
+    }
+    Get-CimInstance Win32_Process -Filter "Name='rustwtm.exe' OR Name='taskmgr.exe'" |
+        Select-Object ProcessId, ParentProcessId, SessionId, ExecutablePath, CommandLine | Format-List | Out-Host
+    throw
+}
 $gui = @(Get-Process rustwtm -ErrorAction SilentlyContinue)
 Assert ($gui.Count -eq 1 -and $gui[0].Path -ieq (Join-Path $InstallDir 'rustwtm.exe')) 'Windows launched the installed replacement visibly'
 $secondLaunch = Start-Process -FilePath $taskmgr -PassThru

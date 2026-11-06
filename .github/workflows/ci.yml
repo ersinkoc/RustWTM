@@ -132,13 +132,20 @@ jobs:
           path: dist/RustWTM-test.msi
           if-no-files-found: error
 
+      - name: Collect installer diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path installer-diagnostics/service -Force | Out-Null
+          Get-ChildItem -Path . -Filter *.log -File | Copy-Item -Destination installer-diagnostics
+          if (Test-Path -LiteralPath C:/ProgramData/RustWTM/logs) {
+            Get-ChildItem -LiteralPath C:/ProgramData/RustWTM/logs -File | Copy-Item -Destination installer-diagnostics/service
+          }
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: msi-logs
-          path: |
-            *.log
-            C:/ProgramData/RustWTM/logs/
+          path: installer-diagnostics/
 
   upgrade:
     name: upgrade (${{ matrix.baseline }})
@@ -212,6 +219,21 @@ jobs:
       - name: Install from source, verify, uninstall
         shell: pwsh
         run: scripts/ci/verify-install.ps1 -Mode script
+
+      - name: Collect installer diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path installer-diagnostics/service -Force | Out-Null
+          Get-ChildItem -Path . -Filter *.log -File | Copy-Item -Destination installer-diagnostics
+          if (Test-Path -LiteralPath C:/ProgramData/RustWTM/logs) {
+            Get-ChildItem -LiteralPath C:/ProgramData/RustWTM/logs -File | Copy-Item -Destination installer-diagnostics/service
+          }
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: install-script-logs
+          path: installer-diagnostics/
 
   visual:
     runs-on: windows-latest
