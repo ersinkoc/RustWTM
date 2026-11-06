@@ -78,6 +78,7 @@ Assert (-not ($writers | Where-Object { $_ -match 'Users$|Everyone' })) "standar
 
 # The CLI talks to the real (verified) service over the pipe.
 $wtm = Join-Path $InstallDir 'wtm.exe'
+& (Join-Path $PSScriptRoot 'enable-software-opengl.ps1') -InstallDir $InstallDir
 & $wtm task-manager --enable
 Assert ($LASTEXITCODE -eq 0) 'Task Manager replacement enabled from the protected installation'
 $taskManagerKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe'
