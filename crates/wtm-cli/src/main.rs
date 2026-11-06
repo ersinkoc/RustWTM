@@ -29,6 +29,14 @@ struct Cli {
 /// a name applies to every process with that name.
 #[derive(Subcommand)]
 enum Command {
+    /// Inspect or change the Ctrl+Shift+Esc Task Manager replacement
+    TaskManager {
+        #[arg(long, conflicts_with = "restore")]
+        enable: bool,
+        /// Restore Windows Task Manager (only removes this installation's entry)
+        #[arg(long, conflicts_with = "enable")]
+        restore: bool,
+    },
     /// Read or explicitly change shared Windows power-plan frequency limits
     Power {
         #[command(subcommand)]
@@ -407,6 +415,16 @@ fn main() -> anyhow::Result<ExitCode> {
                 .map(|()| ExitCode::SUCCESS)
         }
         Command::Info { targets, json } => actions::info(&targets, json),
+        Command::TaskManager { enable, restore } => {
+            let state = if enable || restore {
+                wtm_core::task_manager::configure(enable)
+            } else {
+                wtm_core::task_manager::status()
+            }
+            .map_err(anyhow::Error::msg)?;
+            println!("{}", serde_json::to_string(&state)?);
+            Ok(ExitCode::SUCCESS)
+        }
         Command::GuiStartup {
             administrator,
             autostart,
@@ -722,6 +740,22 @@ mod tests {
         assert_eq!(eco("on"), EcoQos::On);
         assert_eq!(eco("off"), EcoQos::Off);
         assert_eq!(eco("auto"), EcoQos::SystemManaged);
+    }
+
+    #[test]
+    fn task_manager_registration_requires_explicit_mutually_exclusive_flags() {
+        let cli = Cli::try_parse_from(["wtm", "task-manager"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::TaskManager {
+                enable: false,
+                restore: false
+            }
+        ));
+        for flag in ["--enable", "--restore"] {
+            assert!(Cli::try_parse_from(["wtm", "task-manager", flag]).is_ok());
+        }
+        assert!(Cli::try_parse_from(["wtm", "task-manager", "--enable", "--restore"]).is_err());
     }
 
     #[test]

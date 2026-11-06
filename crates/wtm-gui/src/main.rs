@@ -81,12 +81,12 @@ fn harden() {
 
 fn main() -> eframe::Result {
     i18n::initialize();
-    if let Some(name) = blocked_program(std::env::args().skip(1)) {
+    let args = launch_arguments(std::env::args().skip(1).collect());
+    if let Some(name) = blocked_program(args.clone().into_iter()) {
         backend::register_app_id();
         backend::notify_blocked(&name);
         std::process::exit(1);
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
     let background = args.iter().any(|a| a == "--background");
     let scheduled = args
         .iter()
@@ -142,6 +142,19 @@ fn main() -> eframe::Result {
     )
 }
 
+/// IFEO appends the original Task Manager executable and its arguments.
+/// They belong to Windows, never to RustWTM's startup/control switches.
+fn launch_arguments(args: Vec<String>) -> Vec<String> {
+    if args
+        .first()
+        .is_some_and(|a| a == wtm_core::task_manager::LAUNCH_ARG)
+    {
+        Vec::new()
+    } else {
+        args
+    }
+}
+
 /// Held by the running RustWTM window of this session.
 const INSTANCE_MUTEX: &str = r"Local\RustWTM-GUI";
 
@@ -172,6 +185,27 @@ fn show_other_instance() {
 #[cfg(test)]
 mod tests {
     use super::blocked_program;
+
+    #[test]
+    fn task_manager_launch_is_visible_and_ignores_forwarded_switches() {
+        let forwarded = [
+            "--task-manager",
+            r"C:\Windows\System32\taskmgr.exe",
+            "--background",
+            "--replace",
+            "4",
+            "--new-instance",
+            "--blocked",
+        ];
+        assert!(super::launch_arguments(args(&forwarded).collect()).is_empty());
+        for ordinary in [
+            vec![],
+            vec!["--background".to_owned()],
+            vec!["--replace".into(), "42".into()],
+        ] {
+            assert_eq!(super::launch_arguments(ordinary.clone()), ordinary);
+        }
+    }
 
     fn args(list: &[&str]) -> impl Iterator<Item = String> {
         list.iter()

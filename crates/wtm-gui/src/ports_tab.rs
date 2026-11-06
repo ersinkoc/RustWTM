@@ -552,6 +552,7 @@ fn listening_table(
     .map(|(label, width)| crate::sort::width(ui, label, *width))
     .collect();
     let min_width = widths.iter().sum::<f32>() + 120.0;
+    let menu_id = ui.scope_id().with("port_context_menu");
     crate::theme::table_panel(ui, "ports", min_width, |ui| {
         TableBuilder::new(ui)
             .id_salt("ports_table")
@@ -636,7 +637,16 @@ fn listening_table(
                     {
                         intents.push(Intent::Select(ProcessRef::from(p)));
                     }
-                    response.context_menu(|ui| port_menu(ui, u, p, view, intents));
+                    // A refresh may move rows or replace a port's owner.
+                    // Keep the popup bound to the original listener/process.
+                    egui::Popup::context_menu(&response)
+                        .id(menu_id.with((
+                            u.port,
+                            u.protocol == Protocol::Tcp,
+                            u.pid,
+                            p.map(|p| p.create_time),
+                        )))
+                        .show(|ui| port_menu(ui, u, p, view, intents));
                 });
             });
     });
@@ -887,5 +897,88 @@ mod tests {
             h.state().intents.as_slice(),
             [Intent::Confirm(t, Command::Kill)] if t.pid == 200
         ));
+    }
+
+    #[test]
+    fn port_context_menu_keeps_its_target_when_a_listener_is_inserted() {
+        let mut h = harness(PortsView::default());
+        h.run_steps(2);
+        h.get_all_by_label("PostgreSQL")
+            .last()
+            .unwrap()
+            .click_secondary();
+        h.run_steps(2);
+        h.state_mut()
+            .data
+            .connections
+            .as_mut()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .push(listen("127.0.0.1:4000", 100));
+        h.run_steps(2);
+        h.get_by_label("End process tree").click();
+        h.run_steps(2);
+        assert!(matches!(
+            h.state().intents.as_slice(),
+            [Intent::Confirm(t, Command::KillTree)] if t.pid == 200
+        ));
+    }
+
+    #[test]
+    fn port_context_menu_closes_when_its_owner_or_protocol_changes() {
+        for change in ["pid", "creation", "protocol"] {
+            let mut h = harness(PortsView {
+                show_udp: true,
+                ..Default::default()
+            });
+            h.run_steps(2);
+            h.get_all_by_label("PostgreSQL")
+                .last()
+                .unwrap()
+                .click_secondary();
+            h.run_steps(2);
+            if change == "creation" {
+                std::sync::Arc::make_mut(h.state_mut().data.snapshot.as_mut().unwrap())
+                    .processes
+                    .iter_mut()
+                    .find(|p| p.pid == 200)
+                    .unwrap()
+                    .create_time += 1;
+            } else {
+                let c = h
+                    .state_mut()
+                    .data
+                    .connections
+                    .as_mut()
+                    .unwrap()
+                    .as_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|c| c.local.port() == 5432)
+                    .unwrap();
+                if change == "pid" {
+                    c.pid = 100;
+                } else {
+                    c.protocol = Protocol::Udp;
+                    c.state = None;
+                }
+            }
+            h.run_steps(2);
+            assert!(h.query_by_label("End process tree").is_none(), "{change}");
+            assert!(h.state().intents.is_empty());
+            h.get_all_by_label("PostgreSQL")
+                .last()
+                .unwrap()
+                .click_secondary();
+            h.run_steps(2);
+            h.get_by_label("End process tree").click();
+            h.run_steps(2);
+            let expected = if change == "pid" { 100 } else { 200 };
+            assert!(matches!(
+                h.state().intents.as_slice(),
+                [Intent::Confirm(t, Command::KillTree)] if t.pid == expected
+            ));
+        }
     }
 }

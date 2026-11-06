@@ -872,6 +872,9 @@ impl ProcessView {
         // on to the right.
         let scroll_style = ui.spacing().scroll;
         ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        // Row indices move with live sorting. An open menu belongs to its
+        // process identity (including PID reuse), never to that row position.
+        let menu_id = ui.scope_id().with("process_context_menu");
         egui::ScrollArea::horizontal()
             .id_salt("process_columns")
             .auto_shrink([false, false])
@@ -1048,22 +1051,24 @@ impl ProcessView {
                                 if response.clicked() && !self.expanded.remove(&g.key) {
                                     self.expanded.insert(g.key.clone());
                                 }
-                                response.context_menu(|ui| {
-                                    app_menu(ui, g, &snap.processes, &mut intents)
-                                });
+                                egui::Popup::context_menu(&response)
+                                    .id(menu_id.with(("app", &g.key)))
+                                    .show(|ui| app_menu(ui, g, &snap.processes, &mut intents));
                             } else {
                                 if response.clicked() {
                                     intents.push(Intent::Select(target.clone()));
                                 }
-                                response.context_menu(|ui| {
-                                    context_menu(
-                                        ui,
-                                        &target,
-                                        logical_cpus,
-                                        extra.topology,
-                                        &mut intents,
-                                    )
-                                });
+                                egui::Popup::context_menu(&response)
+                                    .id(menu_id.with(("process", key)))
+                                    .show(|ui| {
+                                        context_menu(
+                                            ui,
+                                            &target,
+                                            logical_cpus,
+                                            extra.topology,
+                                            &mut intents,
+                                        )
+                                    });
                             }
                         });
                     });

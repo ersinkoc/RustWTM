@@ -951,6 +951,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn protection_button_saves_quoted_or_defaulted_mode_keys() {
+        use egui_kittest::kittest::Queryable;
+        for text in ["\"dry_run\" = true\n", "[governor]\nenabled = false\n"] {
+            let mut d = crate::ui_tests::data();
+            d.mode = crate::backend::Mode::Service {
+                admin: true,
+                verified: true,
+            };
+            d.config = Some(Ok(("config.toml".into(), text.into())));
+            let mut h = egui_kittest::Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([1200.0, 1400.0])
+                .build_ui_state(
+                    |ui, s: &mut (Data, Vec<UiCommand>)| s.1.extend(overview(ui, &s.0).0),
+                    (d, Vec::new()),
+                );
+            h.run();
+            h.get_by_label("Turn protection on").click();
+            h.run();
+            let saved = h
+                .state()
+                .1
+                .iter()
+                .find_map(|command| match command {
+                    UiCommand::SaveConfig(text) => Some(text),
+                    _ => None,
+                })
+                .expect("mode switch sends a config save");
+            assert!(!wtm_policy::Config::from_toml(saved).unwrap().dry_run);
+        }
+    }
+
+    #[test]
     fn a_swarm_is_shown_with_ways_to_end_it() {
         use egui_kittest::kittest::Queryable;
         let mut d = crate::ui_tests::data();

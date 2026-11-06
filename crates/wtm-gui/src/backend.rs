@@ -162,6 +162,9 @@ pub struct GuiStartup {
 
 #[derive(Debug, Default)]
 pub struct Data {
+    pub task_manager: Option<Result<wtm_core::task_manager::State, String>>,
+    pub task_manager_busy: bool,
+    pub task_manager_error: Option<String>,
     pub gui_startup: Option<GuiStartup>,
     pub docker: Arc<wtm_core::docker::State>,
     /// The process owning the foreground window, as last seen (also without
@@ -344,6 +347,8 @@ pub enum UiCommand {
     /// Start RustWTM again with administrator rights and close this window.
     RestartElevated,
     ConfigureGuiStartup(wtm_core::gui_startup::Change),
+    /// None refreshes status; Some changes the machine-wide replacement.
+    TaskManager(Option<bool>),
     /// The user closed the CPU alert; stay quiet for this long.
     CloseAlert(Duration),
     /// Ask GitHub for the latest release.
@@ -450,6 +455,7 @@ impl Drop for Backend {
 impl Backend {
     pub fn start(ctx: egui::Context) -> Self {
         let data = Arc::new(Mutex::new(Data {
+            task_manager: Some(wtm_core::task_manager::status()),
             elevated: wtm_core::launch::is_elevated(),
             installable: std::env::current_exe()
                 .is_ok_and(|exe| wtm_core::update::installed_by_msi(&exe)),
@@ -1117,6 +1123,39 @@ impl Worker {
                         )
                     })),
                 });
+            }
+            UiCommand::TaskManager(enabled) => {
+                {
+                    let mut data = self.data();
+                    if data.task_manager_busy {
+                        return;
+                    }
+                    data.task_manager_busy = true;
+                    data.task_manager_error = None;
+                }
+                let (data, ctx) = (self.data.clone(), self.ctx.clone());
+                let worker_data = data.clone();
+                let result = std::thread::Builder::new()
+                    .name("task-manager-settings".into())
+                    .spawn(move || {
+                        let result = match enabled {
+                            Some(value) => wtm_core::task_manager::configure(value),
+                            None => wtm_core::task_manager::status(),
+                        };
+                        let error = result.err();
+                        let status = wtm_core::task_manager::status();
+                        let mut data = worker_data.lock().unwrap_or_else(PoisonError::into_inner);
+                        data.task_manager = Some(status);
+                        data.task_manager_error = error;
+                        data.task_manager_busy = false;
+                        drop(data);
+                        ctx.request_repaint();
+                    });
+                if let Err(error) = result {
+                    let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+                    data.task_manager_busy = false;
+                    data.task_manager_error = Some(error.to_string());
+                }
             }
             UiCommand::ConfigureGuiStartup(change) => {
                 let serial = {

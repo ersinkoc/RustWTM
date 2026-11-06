@@ -6454,5 +6454,65 @@
     "es": "No se pudo guardar la configuración de inicio: {0}",
     "fr": "Impossible d’enregistrer les paramètres de démarrage : {0}",
     "tr": "Başlangıç ayarları kaydedilemedi: {0}"
+  },
+  "Windows Task Manager": {
+    "tr": "Windows Görev Yöneticisi",
+    "de": "Windows-Task-Manager",
+    "fr": "Gestionnaire des tâches Windows",
+    "es": "Administrador de tareas de Windows"
+  },
+  "Open RustWTM whenever Windows starts Task Manager. Applies to all users.": {
+    "tr": "Windows Görev Yöneticisi yerine RustWTM açılsın. Tüm kullanıcılar için geçerlidir.",
+    "de": "RustWTM statt des Windows-Task-Managers öffnen. Gilt für alle Benutzer.",
+    "fr": "Ouvrir RustWTM à la place du Gestionnaire des tâches Windows. Pour tous les utilisateurs.",
+    "es": "Abrir RustWTM en lugar del Administrador de tareas de Windows. Se aplica a todos los usuarios."
+  },
+  "Use RustWTM for Ctrl+Shift+Esc": {
+    "tr": "Ctrl+Shift+Esc ile RustWTM’i aç",
+    "de": "RustWTM mit Strg+Umschalt+Esc öffnen",
+    "fr": "Ouvrir RustWTM avec Ctrl+Maj+Échap",
+    "es": "Abrir RustWTM con Ctrl+Mayús+Esc"
+  },
+  "Another application currently replaces Task Manager. Restore it there first.": {
+    "tr": "Görev Yöneticisi’nin yerini başka bir uygulama almış. Önce o uygulamadan Windows Görev Yöneticisi’ne dönün.",
+    "de": "Eine andere Anwendung ersetzt den Task-Manager. Zuerst dort zurücksetzen.",
+    "fr": "Une autre application remplace le Gestionnaire des tâches. Rétablissez-le d’abord depuis cette application.",
+    "es": "Otra aplicación reemplaza el Administrador de tareas. Restáurelo primero desde esa aplicación."
+  },
+  "Requires an administrator-protected installation. Turn this off to restore Windows Task Manager.": {
+    "tr": "Yönetici korumalı bir kurulum gerektirir. Windows Görev Yöneticisi’ne dönmek için bu seçeneği kapatın.",
+    "de": "Erfordert eine administratorgeschützte Installation. Zum Wiederherstellen des Windows-Task-Managers ausschalten.",
+    "fr": "Nécessite une installation protégée par l’administrateur. Désactivez cette option pour rétablir le Gestionnaire des tâches Windows.",
+    "es": "Requiere una instalación protegida por el administrador. Desactive esta opción para restaurar el Administrador de tareas de Windows."
+  },
+  "Checking Task Manager integration…": {
+    "tr": "Görev Yöneticisi entegrasyonu denetleniyor…",
+    "de": "Task-Manager-Integration wird geprüft…",
+    "fr": "Vérification de l’intégration du Gestionnaire des tâches…",
+    "es": "Comprobando la integración del Administrador de tareas…"
+  },
+  "Saving Task Manager settings…": {
+    "tr": "Görev Yöneticisi ayarları kaydediliyor…",
+    "de": "Task-Manager-Einstellungen werden gespeichert…",
+    "fr": "Enregistrement des paramètres du Gestionnaire des tâches…",
+    "es": "Guardando la configuración del Administrador de tareas…"
+  },
+  "Another application controls the Task Manager replacement": {
+    "tr": "Görev Yöneticisi yönlendirmesini başka bir uygulama yönetiyor",
+    "de": "Eine andere Anwendung verwaltet den Task-Manager-Ersatz",
+    "fr": "Une autre application contrôle le remplacement du Gestionnaire des tâches",
+    "es": "Otra aplicación controla el reemplazo del Administrador de tareas"
+  },
+  "Restart RustWTM as administrator to change the Task Manager replacement": {
+    "tr": "Görev Yöneticisi yönlendirmesini değiştirmek için RustWTM’i yönetici olarak yeniden başlatın",
+    "de": "RustWTM als Administrator neu starten, um den Task-Manager-Ersatz zu ändern",
+    "fr": "Redémarrez RustWTM en tant qu’administrateur pour modifier le remplacement du Gestionnaire des tâches",
+    "es": "Reinicie RustWTM como administrador para cambiar el reemplazo del Administrador de tareas"
+  },
+  "Task Manager replacement requires an administrator-protected RustWTM installation": {
+    "tr": "Görev Yöneticisi yönlendirmesi, yönetici korumalı bir RustWTM kurulumu gerektirir",
+    "de": "Der Task-Manager-Ersatz erfordert eine administratorgeschützte RustWTM-Installation",
+    "fr": "Le remplacement du Gestionnaire des tâches nécessite une installation de RustWTM protégée par l’administrateur",
+    "es": "El reemplazo del Administrador de tareas requiere una instalación de RustWTM protegida por el administrador"
   }
 }

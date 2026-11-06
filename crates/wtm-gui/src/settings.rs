@@ -85,32 +85,11 @@ impl ConfigView {
     }
 }
 
-/// Rewrites the top-level `dry_run = ...` line; `None` when there is none.
+/// Updates or inserts the top-level mode without rewriting unrelated TOML.
+/// Invalid service configurations are left untouched.
 pub fn set_dry_run(text: &str, dry_run: bool) -> Option<String> {
-    let mut found = false;
-    let lines: Vec<String> = text
-        .lines()
-        .map(|line| {
-            let key = line.split('=').next().unwrap_or("").trim();
-            if !found && key == "dry_run" {
-                found = true;
-                let comment = line.find('#').map_or("", |i| &line[i..]);
-                let value = format!("dry_run = {dry_run}");
-                if comment.is_empty() {
-                    value
-                } else {
-                    format!("{value}  {comment}")
-                }
-            } else {
-                line.to_owned()
-            }
-        })
-        .collect();
-    let mut out = lines.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
-    found.then_some(out)
+    wtm_policy::Config::from_toml(text).ok()?;
+    wtm_policy::set_config_value(text, "", "dry_run", dry_run).ok()
 }
 
 /// Returns the commands to send (reload, save).
@@ -625,17 +604,36 @@ mod tests {
     }
 
     #[test]
-    fn set_dry_run_rewrites_only_the_first_key() {
-        let text = "# dry_run = x\ndry_run = true  # safe\n[a]\ndry_run = true\n";
+    fn set_dry_run_preserves_valid_config_and_quoted_keys() {
+        let text = "# dry_run = x\ndry_run = true  # safe\n[governor]\nenabled = true\n";
         assert_eq!(
             set_dry_run(text, false).unwrap(),
-            "# dry_run = x\ndry_run = false  # safe\n[a]\ndry_run = true\n"
+            "# dry_run = x\ndry_run = false  # safe\n[governor]\nenabled = true\n"
         );
         assert_eq!(
             set_dry_run("dry_run=false", true).unwrap(),
-            "dry_run = true"
+            "dry_run=true\n"
         );
+        for text in [
+            "\"dry_run\" = true\n",
+            "'dry_run' = true # keep\n",
+            "",
+            "[governor]\nenabled = false\n",
+        ] {
+            let changed = set_dry_run(text, false).unwrap();
+            assert!(!wtm_policy::Config::from_toml(&changed).unwrap().dry_run);
+        }
         assert_eq!(set_dry_run("x = 1", true), None);
+    }
+
+    #[test]
+    fn changing_mode_preserves_multiline_rule_text() {
+        let text = "dry_run=true\n[[rule]]\nname='test'\nactions=['eco_qos']\n[rule.match]\nname='test.exe'\ncmdline='''\ndry_run = literal\n'''\n";
+        let before = wtm_policy::Config::from_toml(text).unwrap();
+        let changed = set_dry_run(text, false).unwrap();
+        let after = wtm_policy::Config::from_toml(&changed).unwrap();
+        assert!(!after.dry_run);
+        assert_eq!(before.rules, after.rules);
     }
 
     #[test]

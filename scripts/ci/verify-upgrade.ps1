@@ -128,14 +128,20 @@ foreach ($attempt in 1..2) {
     Assert ($settings.administrator -and $settings.autostart) 'administrator and logon preferences remembered'
     Check-AdministratorTasks
 }
+$taskManagerKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe'
+& (Join-Path $install 'wtm.exe') task-manager --enable
+Assert ($LASTEXITCODE -eq 0) 'Task Manager replacement configured before repair'
+$taskManagerDebugger = (Get-ItemPropertyValue $taskManagerKey -Name Debugger)
 Msi '/fa' $candidate 'upgrade-repair.log'
 Installed $CandidateVersion
 Check-Preserved
 Check-AdministratorTasks
+Assert ((Get-ItemPropertyValue $taskManagerKey -Name Debugger) -ceq $taskManagerDebugger) 'repair preserves Task Manager replacement'
 Msi '/i' $baseline 'upgrade-downgrade.log' -ExpectFailure
 Installed $CandidateVersion
 Check-Preserved
 Check-AdministratorTasks
+Assert ((Get-ItemPropertyValue $taskManagerKey -Name Debugger) -ceq $taskManagerDebugger) 'rejected downgrade preserves Task Manager replacement'
 Msi '/x' $candidate 'upgrade-uninstall.log'
 Wait-Until { -not (Get-Service RustWTM -ErrorAction SilentlyContinue) } 'service removal'
 Assert (Test-Path -LiteralPath $config) 'configuration retained after uninstall'
@@ -145,4 +151,5 @@ Assert ($LASTEXITCODE -eq 0) 'history retained after uninstall'
 Assert (-not (Test-Path -LiteralPath (Join-Path $install 'wtm-service.exe'))) 'installed service binary removed'
 $remaining = @(Get-ScheduledTask | Where-Object { $_.TaskName -like 'RustWTM-Administrator-*' })
 Assert ($remaining.Count -eq 0) 'uninstall removed administrator launch tasks'
+Assert ($null -eq (Get-ItemProperty $taskManagerKey -Name Debugger -ErrorAction SilentlyContinue)) 'uninstall restored Windows Task Manager'
 Write-Host 'Upgrade / repair / downgrade rejection / uninstall retention verification passed.'

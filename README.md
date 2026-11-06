@@ -224,9 +224,30 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.26.1-x64.msi            # interactive
-msiexec /i RustWTM-0.26.1-x64.msi /qn        # silent
+msiexec /i RustWTM-0.26.2-x64.msi            # interactive
+msiexec /i RustWTM-0.26.2-x64.msi /qn        # silent
 ```
+
+### Open with Ctrl+Shift+Esc
+
+In **Settings → This window → Windows Task Manager**, enable **Use RustWTM for
+Ctrl+Shift+Esc**. This optional machine-wide setting opens RustWTM from Windows
+Task Manager entry points, even when RustWTM is not running; an existing window
+is brought forward. It requires administrator rights and a protected installed
+copy. Portable/development copies cannot enable it.
+
+Turn the option off to restore Windows Task Manager. Existing replacements from
+other applications are preserved; restore them in their application first.
+The CLI offers read-only status and explicit enable/restore commands:
+
+```powershell
+wtm task-manager
+wtm task-manager --enable     # elevated terminal
+wtm task-manager --restore    # elevated terminal; also works without the GUI
+```
+
+See [Task Manager integration](docs/task-manager.md) for recovery and validation
+boundaries. Uninstall removes only RustWTM's own registration.
 
 ### Uninstall
 
@@ -391,7 +412,7 @@ cargo test --workspace
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the roadmap in [PLAN.md](PLAN.md).
 The [0.13.0 system review](docs/0.13.0-review.md) covers the current architecture,
 validation boundaries and the implemented sensors and cooling work.
-The [0.26.1 release review](docs/0.26.1-review.md) records the latest reproduced
+The [0.26.2 release review](docs/0.26.2-review.md) records the latest reproduced
 defects, regression evidence, release checks and remaining hardware boundaries.
 
 ## License

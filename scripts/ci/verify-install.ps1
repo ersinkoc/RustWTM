@@ -11,6 +11,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_OS -cne 'Windows') {
+    throw 'This machine-changing verification runs only on a disposable GitHub Windows runner.'
+}
 $InstallDir = Join-Path $env:ProgramFiles 'RustWTM'
 $DataDir = Join-Path $env:ProgramData 'RustWTM'
 
@@ -45,6 +48,7 @@ Assert (Test-Path (Join-Path $InstallDir 'docs/hardware.md')) 'hardware guide in
 Assert (Test-Path (Join-Path $InstallDir 'docs/cpu-controls.md')) 'CPU topology and power guide installed'
 Assert (Test-Path (Join-Path $InstallDir 'docs/localization.md')) 'Language support guide installed'
 Assert (Test-Path (Join-Path $InstallDir 'docs/docker.md')) 'Docker monitoring guide installed'
+Assert (Test-Path (Join-Path $InstallDir 'docs/task-manager.md')) 'Task Manager integration guide installed'
 if ($Mode -eq 'script') {
     # Only SYSTEM and administrators may change what the service runs.
     $sddl = (Get-Acl -LiteralPath $InstallDir).Sddl
@@ -74,6 +78,31 @@ Assert (-not ($writers | Where-Object { $_ -match 'Users$|Everyone' })) "standar
 
 # The CLI talks to the real (verified) service over the pipe.
 $wtm = Join-Path $InstallDir 'wtm.exe'
+& $wtm task-manager --enable
+Assert ($LASTEXITCODE -eq 0) 'Task Manager replacement enabled from the protected installation'
+$taskManagerKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe'
+Assert ((Get-ItemPropertyValue $taskManagerKey -Name Debugger) -ceq "`"$InstallDir\rustwtm.exe`" --task-manager") 'Ctrl+Shift+Esc replacement points to the fixed GUI command'
+# Exercise Windows' real IFEO launch on this disposable VM. Forwarded taskmgr
+# arguments must not hide the replacement or create a second GUI instance.
+$taskmgr = Join-Path $env:WINDIR 'System32/taskmgr.exe'
+Start-Process -FilePath $taskmgr -ArgumentList '--background'
+Wait-Until {
+    @(Get-Process rustwtm -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }).Count -eq 1
+} 'visible replacement GUI after launching Windows Task Manager' 30
+$gui = @(Get-Process rustwtm -ErrorAction SilentlyContinue)
+Assert ($gui.Count -eq 1 -and $gui[0].Path -ieq (Join-Path $InstallDir 'rustwtm.exe')) 'Windows launched the installed replacement visibly'
+$secondLaunch = Start-Process -FilePath $taskmgr -PassThru
+Assert ($secondLaunch.WaitForExit(30000)) 'second launch exits after handing off to the original GUI'
+$reopened = @(Get-Process rustwtm -ErrorAction SilentlyContinue)
+Assert ($reopened.Count -eq 1 -and $reopened[0].Id -eq $gui[0].Id) 'repeated Task Manager launch reuses the original GUI'
+# End only the owned disposable-test GUI before the installer lifecycle checks.
+Stop-Process -Id $gui[0].Id -Force
+Wait-Until { -not (Get-Process -Id $gui[0].Id -ErrorAction SilentlyContinue) } 'test GUI exit'
+& $wtm task-manager --restore
+Assert ($LASTEXITCODE -eq 0) 'Windows Task Manager restored explicitly'
+Assert ($null -eq (Get-ItemProperty $taskManagerKey -Name Debugger -ErrorAction SilentlyContinue)) 'owned debugger removed on restore'
+& $wtm task-manager --enable
+Assert ($LASTEXITCODE -eq 0) 'replacement reenabled for uninstall cleanup verification'
 Wait-Until { & $wtm history --hours 1 -n 3 *> $null; $LASTEXITCODE -eq 0 } 'wtm history via the service' 30
 Assert $true 'wtm history reaches the service'
 
@@ -99,6 +128,7 @@ Wait-Until { -not (Get-Service RustWTM -ErrorAction SilentlyContinue) } 'service
 Assert $true 'service removed'
 Assert (-not (Test-Path (Join-Path $InstallDir 'wtm-service.exe'))) 'binaries removed'
 Assert (-not (Test-Path $shortcut)) 'shortcut removed'
+Assert ($null -eq (Get-ItemProperty $taskManagerKey -Name Debugger -ErrorAction SilentlyContinue)) 'Windows Task Manager restored on uninstall'
 $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';'
 Assert (-not ($machinePath -contains $InstallDir)) 'PATH entry removed'
 Assert (Test-Path (Join-Path $DataDir 'config.toml')) 'configuration kept after uninstall'

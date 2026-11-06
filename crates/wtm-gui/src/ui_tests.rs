@@ -733,6 +733,77 @@ fn processes_row_click_and_context_menu_produce_intents() {
 }
 
 #[test]
+fn process_context_menu_keeps_its_target_when_live_rows_reorder() {
+    for (action, expected) in [
+        ("Suspend", "command 100 Suspend"),
+        ("End task", "confirm 100 Kill"),
+    ] {
+        let mut h = process_harness();
+        h.run_steps(2);
+        h.get_by_label("alpha.exe").click_secondary();
+        h.run_steps(2);
+        for p in &mut h.state_mut().snap.processes {
+            if p.pid == 100 {
+                p.cpu_percent = 0.5;
+            }
+            if p.pid == 200 {
+                p.cpu_percent = 20.0;
+            }
+        }
+        h.run_steps(2);
+        h.get_by_label(action).click();
+        h.run_steps(2);
+        assert_eq!(h.state().intents, [expected]);
+    }
+}
+
+#[test]
+fn process_context_menu_does_not_transfer_to_a_reused_pid() {
+    let mut h = process_harness();
+    h.run_steps(2);
+    h.get_by_label("alpha.exe").click_secondary();
+    h.run_steps(2);
+    let p = h
+        .state_mut()
+        .snap
+        .processes
+        .iter_mut()
+        .find(|p| p.pid == 100)
+        .unwrap();
+    p.create_time += 1;
+    p.name = "replacement.exe".into();
+    h.run_steps(2);
+    assert!(h.query_by_label("Suspend").is_none());
+    assert!(h.state().intents.is_empty());
+    h.get_by_label("replacement.exe").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Suspend").click();
+    h.run_steps(2);
+    assert_eq!(h.state().intents, ["command 100 Suspend"]);
+}
+
+#[test]
+fn app_context_menu_keeps_its_group_when_live_totals_reorder() {
+    let mut h = process_harness();
+    h.state_mut().view.mode = crate::processes::ViewMode::Apps;
+    h.run_steps(2);
+    h.get_by_label("alpha.exe (1)").click_secondary();
+    h.run_steps(2);
+    for p in &mut h.state_mut().snap.processes {
+        if p.pid == 100 {
+            p.cpu_percent = 0.5;
+        }
+        if p.pid == 200 {
+            p.cpu_percent = 20.0;
+        }
+    }
+    h.run_steps(2);
+    h.get_by_label("Suspend all").click();
+    h.run_steps(2);
+    assert_eq!(h.state().intents, ["command 100 Suspend"]);
+}
+
+#[test]
 fn the_network_list_narrows_to_a_selection_only_while_it_runs() {
     let d = data();
     let alpha = ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0));

@@ -474,7 +474,12 @@ impl eframe::App for App {
         }
         let service_mode = matches!(data.mode, Mode::Service { .. });
         data.alert_watch.settings = state.alerts;
-        if state.hide_frames > 0 && data.alert_watch.active.is_none() {
+        if state.hide_frames > 0 && tray.is_none() {
+            // A failed tray icon must not leave a hidden window with no way
+            // to reopen it. The initial --background viewport is hidden too.
+            state.hide_frames = 0;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        } else if state.hide_frames > 0 && data.alert_watch.active.is_none() {
             state.hide_frames -= 1;
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             let window = backend.window.load(std::sync::atomic::Ordering::Relaxed);
@@ -1375,6 +1380,80 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
                 &[crate::i18n::tr(error).to_owned()],
             ),
         );
+    }
+    ui.separator();
+    ui.strong(crate::i18n::tr("Windows Task Manager"));
+    if ui
+        .add_enabled(
+            !data.task_manager_busy,
+            egui::Button::new(crate::i18n::tr("Refresh")),
+        )
+        .clicked()
+    {
+        command = Some(UiCommand::TaskManager(None));
+    }
+    ui.label(crate::i18n::tr(
+        "Open RustWTM whenever Windows starts Task Manager. Applies to all users.",
+    ));
+    use wtm_core::task_manager::State as TaskManager;
+    match &data.task_manager {
+        Some(Ok(status)) => {
+            let mut enabled = *status == TaskManager::RustWTM;
+            if ui
+                .add_enabled(
+                    data.elevated && !data.task_manager_busy && *status != TaskManager::Other,
+                    egui::Checkbox::new(
+                        &mut enabled,
+                        crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc"),
+                    ),
+                )
+                .changed()
+            {
+                command = Some(UiCommand::TaskManager(Some(enabled)));
+            }
+            if *status == TaskManager::Other {
+                ui.weak(crate::i18n::tr(
+                    "Another application currently replaces Task Manager. Restore it there first.",
+                ));
+            }
+            if !data.elevated
+                && *status != TaskManager::Other
+                && ui
+                    .button(crate::i18n::tr("Restart as administrator"))
+                    .clicked()
+            {
+                command = Some(UiCommand::RestartElevated);
+            }
+            ui.weak(crate::i18n::tr("Requires an administrator-protected installation. Turn this off to restore Windows Task Manager."));
+        }
+        Some(Err(error)) => {
+            crate::theme::colored(ui, BAD, error);
+            if !data.elevated
+                && ui
+                    .button(crate::i18n::tr("Restart as administrator"))
+                    .clicked()
+            {
+                command = Some(UiCommand::RestartElevated);
+            }
+            if ui
+                .add_enabled(
+                    !data.task_manager_busy,
+                    egui::Button::new(crate::i18n::tr("Retry")),
+                )
+                .clicked()
+            {
+                command = Some(UiCommand::TaskManager(None));
+            }
+        }
+        None => {
+            ui.weak(crate::i18n::tr("Checking Task Manager integration…"));
+        }
+    }
+    if data.task_manager_busy {
+        ui.weak(crate::i18n::tr("Saving Task Manager settings…"));
+    }
+    if let Some(error) = &data.task_manager_error {
+        crate::theme::colored(ui, BAD, crate::i18n::message(error));
     }
     ui.add_space(6.0);
     command
@@ -3235,6 +3314,97 @@ mod tests {
     use crate::ui_tests::data;
 
     #[test]
+    fn service_startup_menu_and_confirmation_keep_the_selected_service_on_refresh() {
+        let (mut h, rx) = kill_app(Tab::Services);
+        h.run_steps(2);
+        h.get_by_label("Spooler").click();
+        h.run_steps(2);
+        h.get_by_label("Startup type").click();
+        h.run_steps(2);
+        h.state()
+            .backend
+            .data()
+            .services
+            .as_mut()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .reverse();
+        h.run_steps(2);
+        h.get_by_label("Disabled").click();
+        h.run_steps(2);
+        assert!(matches!(
+            &h.state().state.confirm_change,
+            Some(Change::Service { name, .. }) if name == "Spooler"
+        ));
+        // The confirmation also retains its target if a later sample no
+        // longer contains the service, rather than using the remaining row.
+        h.state()
+            .backend
+            .data()
+            .services
+            .as_mut()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .retain(|s| s.name != "Spooler");
+        h.run_steps(2);
+        h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Disable")
+            .last()
+            .unwrap()
+            .click();
+        h.run_steps(2);
+        let commands: Vec<_> = rx
+            .try_iter()
+            .filter(|c| matches!(c, UiCommand::Service { .. }))
+            .collect();
+        assert!(matches!(
+            commands.as_slice(),
+            [UiCommand::Service {
+                name,
+                op: ServiceOp::StartType(wtm_core::StartType::Disabled)
+            }] if name == "Spooler"
+        ));
+    }
+
+    #[test]
+    fn background_without_a_tray_reveals_the_window_and_cancels_pending_hides() {
+        for alert in [false, true] {
+            let mut d = data();
+            if alert {
+                d.alert_watch.active = Some(crate::alert::Alert {
+                    cpu: 97.0,
+                    started: Instant::now(),
+                });
+            }
+            let (backend, _rx) = Backend::offline(d);
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([1240.0, 780.0])
+                .build_eframe(|_| App {
+                    backend,
+                    state: UiState {
+                        check_updates: false,
+                        ..Default::default()
+                    },
+                    tray: None,
+                    frames: Default::default(),
+                });
+            h.state_mut().state.hide_frames = 3;
+            h.run_steps(1);
+            let commands = &h.output().viewport_output[&egui::ViewportId::ROOT].commands;
+            assert!(commands.contains(&egui::ViewportCommand::Visible(true)));
+            assert!(!commands.contains(&egui::ViewportCommand::Visible(false)));
+            assert_eq!(h.state().state.hide_frames, 0);
+            for _ in 0..4 {
+                h.run_steps(1);
+                let commands = &h.output().viewport_output[&egui::ViewportId::ROOT].commands;
+                assert!(!commands.contains(&egui::ViewportCommand::Visible(false)));
+            }
+        }
+    }
+
+    #[test]
     fn compact_disk_analysis_keeps_scrolled_results_when_activity_changes_and_on_reopen() {
         for theme in [egui::Theme::Dark, egui::Theme::Light] {
             let (backend, _rx) = Backend::offline(data());
@@ -3296,6 +3466,105 @@ mod tests {
                 "reopening retains scroll position: {before:?} -> {reopened:?}"
             );
         }
+    }
+
+    #[test]
+    fn task_manager_settings_handle_enable_restore_conflicts_and_busy_state() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        use wtm_core::task_manager::State;
+        for current in [State::Windows, State::RustWTM, State::Other] {
+            let mut d = data();
+            d.elevated = true;
+            d.task_manager = Some(Ok(current));
+            let mut h = Harness::builder()
+                .with_size([1000.0, 1100.0])
+                .build_ui_state(
+                    |ui, s: &mut (UiState, Data, Option<UiCommand>)| {
+                        if let Some(command) = window_settings(ui, &mut s.0, &s.1) {
+                            s.2 = Some(command);
+                        }
+                    },
+                    (
+                        UiState {
+                            autostart: Some(false),
+                            prefer_administrator: Some(false),
+                            ..Default::default()
+                        },
+                        d,
+                        None,
+                    ),
+                );
+            h.run();
+            h.get_by_label("Use RustWTM for Ctrl+Shift+Esc").click();
+            h.run();
+            match current {
+                State::Windows => assert!(matches!(
+                    h.state().2,
+                    Some(UiCommand::TaskManager(Some(true)))
+                )),
+                State::RustWTM => assert!(matches!(
+                    h.state().2,
+                    Some(UiCommand::TaskManager(Some(false)))
+                )),
+                State::Other => assert!(h.state().2.is_none()),
+            }
+            h.state_mut().2 = None;
+            h.state_mut().1.task_manager_busy = true;
+            h.run();
+            h.get_by_label("Use RustWTM for Ctrl+Shift+Esc").click();
+            h.run();
+            assert!(h.state().2.is_none());
+            h.state_mut().1.task_manager_busy = false;
+            h.state_mut().1.task_manager_error = Some("Owned setting failure".into());
+            h.run();
+            assert!(h.query_by_label("Owned setting failure").is_some());
+            h.get_by_label("Refresh").click();
+            h.run();
+            assert!(matches!(h.state().2, Some(UiCommand::TaskManager(None))));
+        }
+    }
+
+    #[test]
+    fn task_manager_changes_need_elevation_and_unreadable_state_can_retry() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let mut d = data();
+        d.elevated = false;
+        d.task_manager = Some(Ok(wtm_core::task_manager::State::Windows));
+        let mut h = Harness::builder()
+            .with_size([1000.0, 1100.0])
+            .build_ui_state(
+                |ui, s: &mut (UiState, Data, Option<UiCommand>)| {
+                    if let Some(command) = window_settings(ui, &mut s.0, &s.1) {
+                        s.2 = Some(command);
+                    }
+                },
+                (
+                    UiState {
+                        autostart: Some(false),
+                        prefer_administrator: Some(false),
+                        ..Default::default()
+                    },
+                    d,
+                    None,
+                ),
+            );
+        h.run();
+        h.get_by_label("Use RustWTM for Ctrl+Shift+Esc").click();
+        h.run();
+        assert!(h.state().2.is_none());
+        h.get_by_label("Restart as administrator").click();
+        h.run();
+        assert!(matches!(h.state().2, Some(UiCommand::RestartElevated)));
+        h.state_mut().2 = None;
+        h.state_mut().1.elevated = true;
+        h.state_mut().1.task_manager = Some(Err("Read failure".into()));
+        h.run();
+        assert!(h.query_by_label("Read failure").is_some());
+        h.get_by_label("Retry").click();
+        h.run();
+        assert!(matches!(h.state().2, Some(UiCommand::TaskManager(None))));
     }
 
     #[test]
@@ -3861,6 +4130,7 @@ mod tests {
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
             UiCommand::RestartElevated => "restart elevated".into(),
             UiCommand::ConfigureGuiStartup(change) => format!("gui startup {change:?}"),
+            UiCommand::TaskManager(enabled) => format!("task manager {enabled:?}"),
             UiCommand::CloseAlert(quiet) => format!("close alert {}", quiet.as_secs()),
             UiCommand::CheckUpdate => "check update".into(),
             UiCommand::InstallUpdate(r) => format!("install update {}", r.tag),
@@ -5828,6 +6098,7 @@ mod tests {
                             wtm_policy::DEFAULT_CONFIG_TOML.into(),
                         )));
                         d.telegram = Some(Ok(wtm_policy::TelegramConfig::default()));
+                        d.task_manager = Some(Ok(wtm_core::task_manager::State::Windows));
                         let mut snap = d.snapshot.as_deref().unwrap().clone();
                         snap.system.core_percent =
                             vec![95.0, 70.0, 10.0, 0.0, 45.0, 8.0, 14.0, 4.0];
@@ -5883,6 +6154,7 @@ mod tests {
                                         language,
                                         sensors,
                                         autostart: Some(false),
+                                        prefer_administrator: Some(false),
                                         check_updates: false,
                                         disks: crate::disks_tab::review_fixture(),
                                         ..UiState::default()
@@ -6050,6 +6322,30 @@ mod tests {
                             println!("Rendered {}", path.display());
                         }
                         if tab == Tab::Settings {
+                            h.event(egui::Event::PointerMoved(egui::pos2(
+                                size[0] * 0.6,
+                                size[1] * 0.6,
+                            )));
+                            h.event(egui::Event::MouseWheel {
+                                unit: egui::MouseWheelUnit::Point,
+                                delta: egui::vec2(0.0, -3000.0),
+                                modifiers: egui::Modifiers::NONE,
+                                phase: egui::TouchPhase::Move,
+                                source: egui::MouseWheelSource::Unknown,
+                            });
+                            h.run_steps(20);
+                            let checkbox = h
+                                .get_by_label(crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc"))
+                                .rect();
+                            assert!(
+                                checkbox.min.y >= 0.0 && checkbox.max.y < size[1],
+                                "integration setting is reachable in {code}/{size_name}"
+                            );
+                            let path = out.join(format!(
+                                "{theme_name}-{size_name}-TaskManagerIntegration.png"
+                            ));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
                             h.state_mut().state.config.page = crate::settings::Page::File;
                             h.run_steps(2);
                             let path =

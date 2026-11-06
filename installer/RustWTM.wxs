@@ -51,6 +51,9 @@
           <Component Id="DockerDocumentation">
             <File Id="DockerGuide" Source="docs\docker.md" KeyPath="yes" />
           </Component>
+          <Component Id="TaskManagerDocumentation">
+            <File Id="TaskManagerGuide" Source="docs\task-manager.md" KeyPath="yes" />
+          </Component>
           <Component Id="LanguageDocumentation">
             <File Id="LanguageGuide" Source="docs\localization.md" KeyPath="yes" />
           </Component>
@@ -118,7 +121,8 @@
          needs no reboot. The util extension schedules this before
          InstallFiles, which on uninstall (and on the removal of this
          version by a later upgrade) comes after RemoveFiles: moved to just
-         before RemoveFiles, still inside the script phase it needs. -->
+         before cleanup and RemoveFiles, still inside the script phase it needs.
+         Close first so the window cannot save a new replacement after cleanup. -->
     <util:CloseApplication Id="CloseGui"
                            Target="rustwtm.exe"
                            CloseMessage="yes"
@@ -128,20 +132,21 @@
     <!-- On a full uninstall (not an upgrade), remove the blocked-program
          entries and firewall rules RustWTM made: the entries would keep
          sending blocked programs to a deleted rustwtm.exe. Runs as SYSTEM
-         after the service stopped and before its files go; a failure never
-         stops the uninstall. -->
+         after the service stopped and before its files go. A cleanup failure
+         keeps installation files so an owned Task Manager redirect cannot
+         point to a deleted program. -->
     <CustomAction Id="RustWTMCleanup"
                   FileRef="ServiceExe"
                   ExeCommand="cleanup"
                   Execute="deferred"
                   Impersonate="no"
-                  Return="ignore" />
+                  Return="check" />
     <InstallExecuteSequence>
       <Custom Action="override Wix4CloseApplications_$(sys.BUILDARCHSHORT)"
-              Before="RemoveFiles"
+              Before="RustWTMCleanup"
               Condition="VersionNT &gt; 400" />
       <Custom Action="RustWTMCleanup"
-              After="StopServices"
+              Before="RemoveFiles"
               Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
 
@@ -152,6 +157,7 @@
       <ComponentRef Id="CpuDocumentation" />
       <ComponentRef Id="LanguageDocumentation" />
       <ComponentRef Id="DockerDocumentation" />
+      <ComponentRef Id="TaskManagerDocumentation" />
       <ComponentRef Id="Cli" />
       <ComponentRef Id="Service" />
       <ComponentRef Id="Readme" />

@@ -78,6 +78,16 @@ Get-Process -Name 'rustwtm', 'wtm' -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -like "$InstallDir*" } |
     Stop-Process -Force
 
+# Cleanup must also run when the service was already removed. Never delete
+# rustwtm.exe while an owned Task Manager redirect could still point to it.
+$cleanupExe = Join-Path $InstallDir 'wtm-service.exe'
+if (Test-Path -LiteralPath $cleanupExe) {
+    & $cleanupExe cleanup
+    if ($LASTEXITCODE -ne 0) { throw 'RustWTM cleanup failed; installation files were kept so Task Manager can still open.' }
+} elseif (Test-Path -LiteralPath (Join-Path $InstallDir 'rustwtm.exe')) {
+    throw 'The RustWTM cleanup binary is missing. Repair the installation before uninstalling; the GUI files were kept so Task Manager can still open.'
+}
+
 $link = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'RustWTM.lnk'
 if (Test-Path $link) {
     Remove-Item $link -Force

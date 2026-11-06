@@ -299,6 +299,14 @@ pub fn cleanup() -> anyhow::Result<()> {
     if let Some(folder) = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(std::path::Path::to_owned))
+        && let Err(error) = wtm_core::task_manager::cleanup(&folder.join("rustwtm.exe"))
+    {
+        println!("Could not restore Windows Task Manager: {error}");
+        failures += 1;
+    }
+    if let Some(folder) = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_owned))
         && let Err(error) = wtm_core::gui_startup::cleanup_tasks(&folder.join("rustwtm.exe"))
     {
         println!("Could not remove RustWTM administrator launch tasks: {error}");

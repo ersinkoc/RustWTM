@@ -15,6 +15,7 @@ pub mod power;
 mod protection;
 mod sampler;
 pub mod startup;
+pub mod task_manager;
 mod tree;
 pub mod update;
 

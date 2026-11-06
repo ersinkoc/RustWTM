@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-11-06
+
+### Added
+
+- Optional Windows Task Manager replacement in Settings → This window, with
+  `Ctrl+Shift+Esc` opening or bringing forward RustWTM. Enabling requires an
+  elevated window and an administrator-protected installation. Existing foreign
+  replacements/image filters are preserved. The setting is off by default.
+- `wtm task-manager` reports the current integration; `--enable` enables it and
+  `--restore` removes only this installation's owned registration. Uninstall
+  restores the Windows launch path before removing binaries, including when the
+  service was already removed. Cleanup failures keep the installation files.
+
+### Fixed
+
+- Keep port menus on their original listener when a refresh inserts rows;
+  close stale menus if the protocol, owning PID or process creation time changes.
+- Keep process and app context menus attached to their original targets when
+  live sorting moves rows; an old menu cannot transfer to a reused PID.
+- Keep background launches visible when the notification-area icon cannot be
+  created, so the window remains accessible without a tray icon.
+- Monitor/Protect controls now handle valid quoted TOML keys and omitted default
+  mode keys, preserving comments and unrelated rule text when saving.
+
 ## [0.26.1] - 2026-11-05
 
 ### Fixed
