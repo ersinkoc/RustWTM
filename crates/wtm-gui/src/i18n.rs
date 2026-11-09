@@ -454,6 +454,8 @@ mod tests {
     fn literal_ui_lookups_have_catalog_entries() {
         let sources = [
             include_str!("app.rs"),
+            include_str!("charts.rs"),
+            include_str!("performance_view.rs"),
             include_str!("about.rs"),
             include_str!("alert.rs"),
             include_str!("disks_tab.rs"),
@@ -465,6 +467,8 @@ mod tests {
             include_str!("ports_tab.rs"),
             include_str!("power_controls.rs"),
             include_str!("processes.rs"),
+            include_str!("process_columns.rs"),
+            include_str!("resource_strip.rs"),
             include_str!("sensors.rs"),
             include_str!("settings.rs"),
             include_str!("sort.rs"),

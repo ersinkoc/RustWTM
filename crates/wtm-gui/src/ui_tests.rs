@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use eframe::egui;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use wtm_core::control::{EcoQos, PriorityClass, ProcessDetails, ProcessRef};
@@ -758,6 +759,208 @@ fn process_context_menu_keeps_its_target_when_live_rows_reorder() {
 }
 
 #[test]
+fn inspecting_process_rows_keeps_order_but_updates_values_then_resumes_sorting() {
+    let mut h = process_harness();
+    h.run_steps(2);
+    let original_y = h.get_by_label("alpha.exe").rect().min.y;
+    h.get_by_label("alpha.exe").hover();
+    h.run_steps(2);
+    for p in &mut h.state_mut().snap.processes {
+        if p.pid == 100 {
+            p.cpu_percent = 21.0;
+        }
+        if p.pid == 200 {
+            p.cpu_percent = 40.0;
+        }
+    }
+    h.run_steps(2);
+    assert_eq!(h.get_by_label("alpha.exe").rect().min.y, original_y);
+    assert!(h.query_by_label("21.0%").is_some(), "values remain live");
+    assert!(h.get_by_label("alpha.exe").rect().min.y < h.get_by_label("beta.exe").rect().min.y);
+    h.get_by_label("Search:").hover();
+    h.run_steps(2);
+    assert!(h.get_by_label("beta.exe").rect().min.y < h.get_by_label("alpha.exe").rect().min.y);
+}
+
+#[test]
+fn inspecting_process_rows_preserves_tree_and_app_structure_with_new_members() {
+    use crate::processes::ViewMode;
+    for mode in [ViewMode::Tree, ViewMode::Apps] {
+        let mut h = process_harness();
+        h.state_mut().view.mode = mode;
+        let app = mode == ViewMode::Apps;
+        h.state_mut().snap.processes = vec![
+            proc(100, 0, "alpha.exe", 20.0),
+            proc(101, 100, if app { "alpha.exe" } else { "child.exe" }, 3.0),
+            proc(200, 0, "beta.exe", 10.0),
+        ];
+        if app {
+            h.state_mut().view.expanded.insert("alpha.exe".into());
+        }
+        h.run_steps(2);
+        h.get_by_label(if app { "alpha.exe (2)" } else { "alpha.exe" })
+            .hover();
+        h.run_steps(2);
+        h.state_mut().snap.processes[0].cpu_percent = 2.0;
+        h.state_mut().snap.processes[1].cpu_percent = 8.0;
+        h.state_mut().snap.processes[2].cpu_percent = 90.0;
+        h.state_mut().snap.processes.push(proc(
+            102,
+            100,
+            if app { "alpha.exe" } else { "new-child.exe" },
+            99.0,
+        ));
+        h.run_steps(2);
+        let y = |pid: &str| h.get_all_by_label(pid).last().unwrap().rect().min.y;
+        assert!(
+            y("100") < y("101") && y("101") < y("102"),
+            "{mode:?}: existing members before new members"
+        );
+        let beta = h
+            .get_by_label(if app { "beta.exe (1)" } else { "beta.exe" })
+            .rect()
+            .min
+            .y;
+        assert!(y("102") < beta, "{mode:?}: hierarchy stays contiguous");
+        h.get_by_label("Search:").hover();
+        h.run_steps(2);
+        // In Apps, alpha's combined CPU is now highest. Tree sorts root CPU.
+        if !app {
+            assert!(
+                h.get_by_label("beta.exe").rect().min.y < h.get_by_label("alpha.exe").rect().min.y
+            );
+        }
+    }
+}
+
+#[test]
+fn inspecting_process_rows_reconciles_exits_pid_reuse_and_explicit_sort_changes() {
+    let mut h = process_harness();
+    h.run_steps(2);
+    h.get_by_label("alpha.exe").hover();
+    h.run_steps(2);
+    let p = h
+        .state_mut()
+        .snap
+        .processes
+        .iter_mut()
+        .find(|p| p.pid == 100)
+        .unwrap();
+    p.create_time += 1;
+    p.name = "replacement.exe".into();
+    p.cpu_percent = 99.0;
+    h.run_steps(2);
+    assert!(h.query_by_label("alpha.exe").is_none());
+    assert!(
+        h.get_by_label("beta.exe").rect().min.y < h.get_by_label("replacement.exe").rect().min.y,
+        "a reused PID is a new identity, appended after surviving rows"
+    );
+    h.state_mut().view.sort = crate::processes::Col::Pid;
+    h.state_mut().view.descending = false;
+    h.run_steps(2);
+    assert!(
+        h.get_by_label("replacement.exe").rect().min.y < h.get_by_label("beta.exe").rect().min.y,
+        "an explicit sort takes effect during inspection"
+    );
+}
+
+#[test]
+fn inspecting_cached_process_rows_resumes_without_a_new_snapshot() {
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1300.0, 700.0])
+        .build_ui_state(
+            |ui, state: &mut (ProcessView, Snapshot, u64)| {
+                let labels = ManagedMap::new();
+                state.0.ui_cached(ui, &state.1, &extra(&labels), state.2);
+            },
+            (ProcessView::default(), snapshot(), 1),
+        );
+    h.run_steps(2);
+    h.get_by_label("alpha.exe").hover();
+    h.run_steps(2);
+    h.state_mut()
+        .1
+        .processes
+        .iter_mut()
+        .find(|p| p.pid == 200)
+        .unwrap()
+        .cpu_percent = 99.0;
+    h.state_mut().2 += 1;
+    h.run_steps(2);
+    assert!(h.get_by_label("alpha.exe").rect().min.y < h.get_by_label("beta.exe").rect().min.y);
+    h.get_by_label("Search:").hover();
+    h.run_steps(2);
+    assert!(h.get_by_label("beta.exe").rect().min.y < h.get_by_label("alpha.exe").rect().min.y);
+    assert_eq!(
+        h.state().2,
+        2,
+        "release itself must invalidate cached ordering"
+    );
+}
+
+#[test]
+fn inspecting_cyclic_process_tree_survives_snapshot_enumeration_changes() {
+    let mut h = process_harness();
+    h.state_mut().view.mode = crate::processes::ViewMode::Tree;
+    h.state_mut().snap.processes = vec![
+        proc(100, 101, "alpha.exe", 10.0),
+        proc(101, 100, "beta.exe", 20.0),
+    ];
+    let same_time = h.state().snap.processes[0].create_time;
+    h.state_mut().snap.processes[1].create_time = same_time;
+    h.run_steps(2);
+    let y = h.get_by_label("alpha.exe").rect().min.y;
+    h.get_by_label("alpha.exe").hover();
+    h.run_steps(2);
+    h.state_mut().snap.processes.reverse();
+    h.run_steps(2);
+    assert_eq!(h.get_by_label("alpha.exe").rect().min.y, y);
+    assert!(h.get_by_label("alpha.exe").rect().min.y < h.get_by_label("beta.exe").rect().min.y);
+}
+
+#[test]
+fn process_confirmation_holds_order_with_the_pointer_outside_the_table() {
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1300.0, 700.0])
+        .build_ui_state(
+            |ui, state: &mut (ProcessView, Snapshot, bool)| {
+                state.0.ui(ui, &state.1, &extra(&ManagedMap::new()));
+                if state.2 {
+                    egui::Modal::new(egui::Id::unique("inspection-proof")).show(ui.ctx(), |ui| {
+                        if ui.button("Dismiss inspection").clicked() {
+                            state.2 = false;
+                        }
+                    });
+                }
+            },
+            (ProcessView::default(), snapshot(), false),
+        );
+    h.run_steps(2);
+    h.get_by_label("Search:").hover();
+    h.state_mut().2 = true;
+    h.run_steps(2);
+    h.state_mut()
+        .1
+        .processes
+        .iter_mut()
+        .find(|p| p.pid == 200)
+        .unwrap()
+        .cpu_percent = 99.0;
+    h.run_steps(2);
+    assert!(h.get_by_label("alpha.exe").rect().min.y < h.get_by_label("beta.exe").rect().min.y);
+    h.get_by_label("Dismiss inspection").click();
+    h.run_steps(3);
+    assert!(!h.state().2);
+    // Closing the centered dialog leaves the pointer above the table.
+    // Release that independent pointer hold as well.
+    h.get_by_label("Search:").hover();
+    h.run_steps(2);
+    assert!(h.get_by_label("beta.exe").rect().min.y < h.get_by_label("alpha.exe").rect().min.y);
+}
+
+#[test]
 fn process_context_menu_does_not_transfer_to_a_reused_pid() {
     let mut h = process_harness();
     h.run_steps(2);
@@ -1246,6 +1449,8 @@ fn process_columns_can_be_shown_hidden_and_sorted() {
     ] {
         h.get_by_label("Columns").click();
         h.run();
+        h.get_by_label(label).scroll_to_me();
+        h.run();
         h.get_by_label(label).click();
         h.run();
         assert!(h.state().view_has(label), "{label} not shown");
@@ -1292,9 +1497,126 @@ fn process_columns_can_be_shown_hidden_and_sorted() {
     h.get_by_label("Columns").click();
     h.run();
     h.get_by_role_and_label(eframe::egui::accesskit::Role::CheckBox, "Commit")
+        .scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(eframe::egui::accesskit::Role::CheckBox, "Commit")
         .click();
     h.run();
     assert!(!h.state().view_has("Commit"));
+}
+
+#[test]
+fn process_column_profiles_select_the_relevant_metrics() {
+    use crate::processes::Col;
+    for (profile, column, sort) in [
+        ("Basic profile", "Memory", Col::Cpu),
+        ("CPU profile", "Base priority", Col::Cpu),
+        ("Memory profile", "Commit", Col::Memory),
+        ("I/O profile", "Disk", Col::Disk),
+        ("Network profile", "Network", Col::Network),
+        ("Diagnostics profile", "Session", Col::Name),
+    ] {
+        let mut h = process_harness();
+        h.run_steps(2);
+        h.get_by_label("Columns").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Column profiles").is_some());
+        h.get_by_label("Column profiles").hover();
+        h.run_steps(3);
+        h.get_by_label(profile).click();
+        h.run_steps(2);
+        assert!(h.state().view.view_has(column), "{profile}");
+        assert_eq!(h.state().view.sort, sort);
+        assert_eq!(h.state().view.descending, sort != Col::Name);
+        assert!(!egui::Popup::is_any_open(&h.ctx));
+    }
+}
+
+#[test]
+fn process_column_editor_applies_order_and_visibility_only_after_accepting() {
+    use eframe::egui::accesskit::Role;
+    let mut h = process_harness();
+    let open = |h: &mut Harness<'_, ProcState>| {
+        h.get_by_label("Columns").click();
+        h.run_steps(2);
+        h.get_by_label("Arrange columns…").click();
+        h.run();
+        assert!(h.query_by_label("Find a column").is_some());
+    };
+    h.run_steps(2);
+    let original = h.state().view.column_order.clone();
+    open(&mut h);
+    h.get_by_label("Move GPU up").click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::CheckBox, "Commit").click();
+    h.run_steps(2);
+    assert_eq!(
+        h.state().view.column_order,
+        original,
+        "draft must not leak into saved state"
+    );
+    assert!(!h.state().view.view_has("Commit"));
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert_eq!(h.state().view.column_order, original);
+    assert!(!h.state().view.view_has("Commit"));
+    open(&mut h);
+    h.get_by_label("Move GPU up").focus();
+    h.run_steps(2);
+    h.key_press(egui::Key::Space);
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::CheckBox, "Commit").click();
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    h.run_steps(2);
+    assert!(h.state().view.view_has("Commit"));
+    assert!(h.get_by_label("GPU").rect().min.x < h.get_by_label("Network").rect().min.x);
+    assert_eq!(h.state().view.column_order[0], crate::processes::Col::Name);
+    open(&mut h);
+    h.get_by_label("Restore default columns").click();
+    h.run_steps(2);
+    assert!(
+        h.state().view.view_has("Commit"),
+        "reset is a draft until accepted"
+    );
+    h.get_by_label("Apply").click();
+    h.run_steps(2);
+    assert_eq!(h.state().view.column_order, original);
+    assert!(!h.state().view.view_has("Commit"));
+}
+
+#[test]
+fn process_column_editor_search_cancel_and_hidden_sort_are_safe() {
+    use eframe::egui::accesskit::Role;
+    let mut h = process_harness();
+    h.run_steps(2);
+    h.get_by_label("Columns").click();
+    h.run_steps(2);
+    h.get_by_label("Arrange columns…").click();
+    h.run();
+    let search_rect = h.get_by_label("Find a column").rect();
+    h.get_by_label("Find a column").click();
+    h.run_steps(2);
+    assert_eq!(h.get_by_label("Find a column").rect(), search_rect);
+    assert!(h.get_by_label("Find a column").is_focused());
+    h.get_by_label("Find a column").type_text("not-a-column");
+    h.run_steps(2);
+    assert!(h.query_by_role_and_label(Role::CheckBox, "CPU").is_none());
+    assert_eq!(
+        h.get_by_label("Find a column").rect(),
+        search_rect,
+        "filtering must not move the dialog"
+    );
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.query_by_label("Find a column").is_none());
+    assert!(h.state().view.view_has("CPU"));
+    h.get_by_label("Columns").click();
+    h.run_steps(2);
+    h.get_by_role_and_label(Role::CheckBox, "CPU").click();
+    h.run_steps(2);
+    assert_eq!(h.state().view.sort, crate::processes::Col::Name);
+    assert!(!h.state().view.descending);
 }
 
 /// Command lines for the synthetic processes.

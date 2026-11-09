@@ -115,7 +115,7 @@ pub fn apply(ctx: &egui::Context) {
             v.window_corner_radius = CornerRadius::same(10);
             v.menu_corner_radius = CornerRadius::same(8);
             v.selection.bg_fill = if dark {
-                Color32::from_rgb(76, 49, 34)
+                Color32::from_rgb(65, 44, 32)
             } else {
                 Color32::from_rgb(255, 232, 213)
             };
@@ -135,11 +135,11 @@ pub fn apply(ctx: &egui::Context) {
             };
             v.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT.gamma_multiply(0.7));
             if dark {
-                v.panel_fill = Color32::from_rgb(19, 23, 29);
-                v.window_fill = Color32::from_rgb(26, 31, 38);
-                v.extreme_bg_color = Color32::from_rgb(14, 18, 23);
-                v.faint_bg_color = Color32::from_rgb(25, 30, 37);
-                v.widgets.noninteractive.fg_stroke.color = Color32::from_rgb(198, 207, 218);
+                v.panel_fill = Color32::from_rgb(14, 20, 27);
+                v.window_fill = Color32::from_rgb(23, 30, 39);
+                v.extreme_bg_color = Color32::from_rgb(10, 16, 22);
+                v.faint_bg_color = Color32::from_rgb(24, 32, 41);
+                v.widgets.noninteractive.fg_stroke.color = Color32::from_rgb(211, 220, 230);
                 v.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(47, 56, 66);
                 v.weak_text_color = Some(Color32::from_rgb(155, 166, 180));
             } else {
@@ -592,7 +592,7 @@ pub fn more_below<R>(
 /// Background of a [`card`].
 pub fn card_fill(ui: &Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(26, 31, 38)
+        Color32::from_rgb(23, 30, 39)
     } else {
         Color32::WHITE
     }

@@ -65,6 +65,9 @@ jobs:
           Copy-Item target/release/rustwtm.exe, target/release/wtm.exe, target/release/wtm-service.exe $stage
           Copy-Item target/release/hardware $stage -Recurse
           Copy-Item docs $stage -Recurse
+          Copy-Item screenshots $stage -Recurse
+          New-Item -ItemType Directory -Path "$stage/assets" -Force | Out-Null
+          Copy-Item assets/logo.svg "$stage/assets"
           Copy-Item scripts/install.ps1, scripts/uninstall.ps1, README.md, LICENSE, CHANGELOG.md $stage
           Compress-Archive -Path "$stage/*" -DestinationPath "dist/$env:ASSET" -Force
           $hash = (Get-FileHash -Algorithm SHA256 "dist/$env:ASSET").Hash.ToLowerInvariant()

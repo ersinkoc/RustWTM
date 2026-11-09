@@ -128,6 +128,11 @@ customization, Docker persistence and hardware evidence separately.
 For company/individual signing options and the Azure/OIDC setup, see
 [Windows signing](docs/signing.md).
 
+The [desktop experience plan](docs/desktop-experience-plan.md) reviews the
+0.26.2 source baseline and specifies the next UI, history and diagnosis
+milestones, their dependencies and bounded validation gates. Its proposed
+work is separate from implemented features and release certification.
+
 Sensors and capability-based Cooling controls are implemented; physical
 per-model fan/rollback validation remains separate. Snapshots carry measurement
 timestamps for data age, stale warnings and graph time axes. Docker monitoring

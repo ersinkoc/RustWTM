@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-09
+
+### Added
+
+- Shared CPU, memory, disk, network and GPU resource cards above Processes,
+  with keyboard-accessible navigation and a saved visibility preference.
+- Live process inspection that holds identity-based row order under the pointer
+  and while menus or dialogs are open, while resource values keep updating.
+  List, tree and Apps membership reconcile new/exited processes and PID reuse;
+  F6 retains its separate frozen-snapshot behavior.
+- Basic, CPU, Memory, I/O, Network and Diagnostics column profiles, a searchable
+  transactional column editor, accessible ordering and saved column layouts.
+  Unknown future column identifiers preserve compatible preferences.
+- Timestamp-based Performance timeline with covered 1/2/5-minute ranges,
+  synchronized cursors, pinned inspection, zoom/reset, keyboard stepping,
+  recent event markers and return to live. Sampling gaps and invalid values
+  remain unavailable instead of appearing as zero activity.
+- Focused CPU, memory, GPU, network and disk views with saved resource selection,
+  CPU performance-tier filters and searchable current GPU engine types.
+
+### Improved
+
+- Coordinated dark surfaces, resource colors, selection and process inspector
+  hierarchy, with primary actions near process identity and current load.
+- Compact process filters, layouts and scroll behavior, plus localized controls
+  and synthetic visual coverage in all five supported languages.
+- Portable packages include the documentation's screenshot previews and logo.
+
+### Scope
+
+The timeline uses the existing bounded recent samples. Physical device-specific
+history, persistent system history and the remaining desktop roadmap milestones
+are not included in this release. Service policy and IPC contracts are unchanged.
+
 ## [0.26.2] - 2026-11-06
 
 ### Added

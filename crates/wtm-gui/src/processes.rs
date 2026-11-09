@@ -96,10 +96,13 @@ pub enum Col {
     Started,
     Limits,
     CommandLine,
+    /// Forward-compatible saved preferences; never a rendered column.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Column, header, initial width, numeric (sorts largest first), shown by default.
-const COLUMNS: [(Col, &str, f32, bool, bool); 17] = [
+pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 17] = [
     (Col::Name, "Name", 240.0, false, true),
     (Col::Pid, "PID", 64.0, false, true),
     (Col::Cpu, "CPU", 64.0, true, true),
@@ -291,6 +294,9 @@ pub struct ProcessView {
     pub selected: Option<ProcessRef>,
     /// Columns the user turned on or off (Name is always shown).
     pub visible: HashSet<Col>,
+    pub column_order: Vec<Col>,
+    column_editor: Option<crate::process_columns::Editor>,
+    table_layout: Vec<Col>,
     /// Shade CPU, memory, disk and GPU cells by how much they use.
     pub heat: bool,
     pub filter: QuickFilter,
@@ -305,6 +311,10 @@ pub struct ProcessView {
     /// The filtered and sorted rows of an earlier frame. Every frame draws
     /// the table, but the rows only change with the data or the settings.
     cache: Option<RowCache>,
+    /// Only ordering is held. Every row still reads the current snapshot.
+    inspection_held: bool,
+    inspection_rect: Option<egui::Rect>,
+    last_order: Option<StableOrder>,
 }
 
 /// One table row: a process (index into the snapshot) at a tree depth, or
@@ -317,8 +327,9 @@ enum Row {
 
 /// Everything the rows are built from. `revision` stands for the data the
 /// window received (snapshot, labels, command lines, hung windows).
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 struct RowKey {
+    inspection_held: bool,
     revision: u64,
     snapshot: usize,
     processes: usize,
@@ -341,6 +352,12 @@ struct RowCache {
     shown: usize,
 }
 
+struct StableOrder {
+    key: RowKey,
+    processes: HashMap<(u32, i64), usize>,
+    apps: HashMap<String, usize>,
+}
+
 impl Default for ProcessView {
     fn default() -> Self {
         Self {
@@ -351,6 +368,9 @@ impl Default for ProcessView {
             descending: true,
             selected: None,
             visible: COLUMNS.iter().filter(|c| c.4).map(|c| c.0).collect(),
+            column_order: crate::process_columns::default_order(),
+            column_editor: None,
+            table_layout: Vec::new(),
             heat: true,
             filter: QuickFilter::All,
             more: MoreFilters::default(),
@@ -358,11 +378,39 @@ impl Default for ProcessView {
             paused: None,
             revealed: None,
             cache: None,
+            inspection_held: false,
+            inspection_rect: None,
+            last_order: None,
         }
     }
 }
 
 impl ProcessView {
+    pub fn normalize_columns(&mut self) {
+        self.visible.remove(&Col::Unknown);
+        self.visible.insert(Col::Name);
+        crate::process_columns::normalize_order(&mut self.column_order);
+        if self.sort == Col::Unknown || !self.visible.contains(&self.sort) {
+            self.sort = Col::Name;
+            self.descending = false;
+        }
+    }
+
+    fn apply_columns(&mut self, selection: crate::process_columns::Selection) {
+        self.visible = selection.visible;
+        self.column_order = selection.order;
+        self.normalize_columns();
+    }
+
+    fn edit_columns(&mut self, ctx: &egui::Context, was_open: bool) {
+        if was_open
+            && let Some(selection) =
+                crate::process_columns::show_editor(ctx, &mut self.column_editor)
+        {
+            self.apply_columns(selection);
+        }
+    }
+
     /// A request from another page must show the target, even if the last
     /// process search or a frozen snapshot would otherwise hide it.
     pub fn reveal(&mut self, target: ProcessRef) {
@@ -375,6 +423,8 @@ impl ProcessView {
         }
         self.selected = Some(target);
         self.revealed = None;
+        self.last_order = None;
+        self.cache = None;
     }
 
     /// Turns the "started in the last" filter on or off; on also shows how
@@ -504,7 +554,7 @@ impl ProcessView {
 
 fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col, extra: &Extra<'_>) -> Ordering {
     match col {
-        Col::Name => crate::sort::text(&a.name, &b.name),
+        Col::Name | Col::Unknown => crate::sort::text(&a.name, &b.name),
         Col::Pid => a.pid.cmp(&b.pid),
         Col::Cpu => a.cpu_percent.total_cmp(&b.cpu_percent),
         Col::Memory => a.private_working_set.cmp(&b.private_working_set),
@@ -556,11 +606,23 @@ fn tree_rows<'a>(
 }
 
 /// `tree_rows` (a test helper) as (index, depth) pairs.
+#[cfg(test)]
 fn tree_order(
     procs: &[ProcessInfo],
     col: Col,
     descending: bool,
     extra: &Extra<'_>,
+) -> Vec<(usize, usize)> {
+    tree_order_by(procs, false, |a, b| {
+        let o = compare(a, b, col, extra);
+        if descending { o.reverse() } else { o }
+    })
+}
+
+fn tree_order_by(
+    procs: &[ProcessInfo],
+    ordered_fallback: bool,
+    order: impl Fn(&ProcessInfo, &ProcessInfo) -> Ordering,
 ) -> Vec<(usize, usize)> {
     let index: HashMap<u32, usize> = procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
     let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -574,10 +636,7 @@ fn tree_order(
         }
     }
     let sort = |v: &mut Vec<usize>| {
-        v.sort_by(|&a, &b| {
-            let o = compare(&procs[a], &procs[b], col, extra);
-            if descending { o.reverse() } else { o }
-        });
+        v.sort_by(|&a, &b| order(&procs[a], &procs[b]));
     };
     sort(&mut roots);
     children.values_mut().for_each(sort);
@@ -587,7 +646,11 @@ fn tree_order(
     let mut stack = Vec::new();
     // Processes that are only reachable through a parent cycle (same create
     // time, PIDs reused) are appended as extra roots so none goes missing.
-    for start in roots.into_iter().chain(0..procs.len()) {
+    let mut fallback: Vec<_> = (0..procs.len()).collect();
+    if ordered_fallback {
+        sort(&mut fallback);
+    }
+    for start in roots.into_iter().chain(fallback) {
         stack.push((start, 0));
         while let Some((i, depth)) = stack.pop() {
             if std::mem::replace(&mut seen[i], true) {
@@ -706,6 +769,7 @@ impl ProcessView {
     ) -> Vec<Intent> {
         let mut intents = Vec::new();
         let logical_cpus = snap.system.logical_cpus.max(1);
+        let editor_was_open = self.column_editor.is_some();
 
         ui.horizontal_wrapped(|ui| {
             crate::theme::search_bar(
@@ -713,7 +777,7 @@ impl ProcessView {
                 egui::Id::unique("process_search"),
                 &mut self.search,
                 crate::i18n::tr("name, PID, path or command line"),
-                240.0,
+                if ui.available_width() < 600.0 { 150.0 } else { 240.0 },
             );
             for (mode, label) in [
                 (ViewMode::List, crate::i18n::tr("List")),
@@ -723,10 +787,32 @@ impl ProcessView {
                 ui.selectable_value(&mut self.mode, mode, label);
             }
             ui.menu_button(crate::i18n::tr("Columns"), |ui| {
+                ui.menu_button(crate::i18n::tr("Column profiles"), |ui| {
+                    for profile in crate::process_columns::Profile::ALL {
+                        if ui.button(profile.label()).clicked() {
+                            self.apply_columns(profile.selection());
+                            self.sort = profile.sort();
+                            self.descending = self.sort != Col::Name;
+                            egui::Popup::close_all(ui.ctx());
+                            ui.close();
+                        }
+                    }
+                });
+                if ui.button(crate::i18n::tr("Arrange columns…")).clicked() {
+                    self.column_editor = Some(crate::process_columns::Editor::new(&self.visible, &self.column_order));
+                    ui.close();
+                }
+                if ui.button(crate::i18n::tr("Restore default columns")).clicked() {
+                    self.apply_columns(crate::process_columns::Selection::default());
+                    ui.close();
+                }
+                ui.separator();
                 ui.checkbox(&mut self.heat, crate::i18n::tr("Heat map"))
                     .on_hover_text(crate::i18n::tr("Shade busy CPU, memory, disk and GPU cells"));
                 ui.separator();
-                for (col, label, ..) in COLUMNS.iter().skip(1) {
+                egui::ScrollArea::vertical().id_salt("column-visibility-menu")
+                    .max_height((ui.ctx().content_rect().height() - 230.0).max(120.0))
+                    .show(ui, |ui| { for (col, label, ..) in COLUMNS.iter().skip(1) {
                     let mut on = self.visible.contains(col);
                     if ui.checkbox(&mut on, crate::i18n::tr(label)).changed() {
                         if on {
@@ -735,7 +821,7 @@ impl ProcessView {
                             self.visible.remove(col);
                         }
                     }
-                }
+                } });
             });
             let toggle_key = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F6))
                 && !ui.ctx().text_edit_focused()
@@ -747,10 +833,12 @@ impl ProcessView {
                 self.paused = if self.paused.is_some() { None } else { Some(std::sync::Arc::new(snap.clone())) };
             }
         });
+        self.normalize_columns();
         let paused = self.paused.clone();
         let snap = paused.as_deref().unwrap_or(snap);
+        let compact_filters = ui.available_width() < 600.0;
         ui.horizontal_wrapped(|ui| {
-            for (filter, label, hint) in [
+            let filters = [
                 (
                     QuickFilter::All,
                     crate::i18n::tr("All processes"),
@@ -776,13 +864,29 @@ impl ProcessView {
                     crate::i18n::tr("Not responding"),
                     crate::i18n::tr("Programs whose window Windows marks as not responding"),
                 ),
-            ] {
-                ui.selectable_value(&mut self.filter, filter, label)
-                    .on_hover_text(hint);
+            ];
+            if compact_filters {
+                let label = filters.iter().find(|f| f.0 == self.filter).unwrap().1;
+                ui.menu_button(label, |ui| {
+                    for (filter, label, hint) in filters {
+                        if ui
+                            .selectable_value(&mut self.filter, filter, label)
+                            .on_hover_text(hint)
+                            .clicked()
+                        {
+                            ui.close();
+                        }
+                    }
+                });
+            } else {
+                for (filter, label, hint) in filters {
+                    ui.selectable_value(&mut self.filter, filter, label)
+                        .on_hover_text(hint);
+                }
             }
             ui.separator();
             let mut recent = self.more.started_within.is_some();
-            if ui
+            if !compact_filters && ui
                 .toggle_value(
                     &mut recent,
                     crate::i18n::format(
@@ -808,20 +912,38 @@ impl ProcessView {
         });
         ui.separator();
 
+        self.inspection_held = ui.input(|i| i.raw.focused)
+            && (self.inspection_rect.is_some_and(|rect| {
+                ui.input(|i| i.pointer.hover_pos().is_some_and(|pos| rect.contains(pos)))
+            }) || egui::Popup::is_any_open(ui.ctx())
+                || ui.memory(|m| m.top_modal_layer().is_some()));
         let cache = self.rows(snap, extra, revision);
         let (rows, groups, shown) = (&cache.rows, &cache.groups, cache.shown);
-        ui.label(
-            RichText::new({
-                let __wtm_i18n_0 = &(snap.processes.len());
-                crate::i18n::format(
-                    "{0} of {1} processes",
-                    &[format!("{}", shown), format!("{}", __wtm_i18n_0)],
-                )
-            })
-            .small()
-            .weak(),
-        );
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new({
+                    let __wtm_i18n_0 = &(snap.processes.len());
+                    crate::i18n::format(
+                        "{0} of {1} processes",
+                        &[format!("{}", shown), format!("{}", __wtm_i18n_0)],
+                    )
+                })
+                .small()
+                .weak(),
+            );
+            if self.inspection_held && paused.is_none() {
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(crate::i18n::tr("Order held · values are live"))
+                            .small()
+                            .weak(),
+                    )
+                    .truncate(),
+                ).on_hover_text(crate::i18n::tr("Automatic sorting resumes after the pointer leaves the table and open menus or dialogs close."));
+            }
+        });
         if rows.is_empty() {
+            self.inspection_rect = None;
             crate::theme::empty_state(
                 ui,
                 crate::i18n::tr("No matching processes"),
@@ -833,7 +955,18 @@ impl ProcessView {
                 self.more = MoreFilters::default();
             }
             self.keep(cache, revision);
+            self.edit_columns(ui.ctx(), editor_was_open);
             return intents;
+        }
+        let layout: Vec<_> = self
+            .column_order
+            .iter()
+            .copied()
+            .filter(|c| self.visible.contains(c))
+            .collect();
+        if layout != self.table_layout {
+            self.revealed = None;
+            self.table_layout.clone_from(&layout);
         }
         let row_height = ui.spacing().interact_size.y;
         let memory_total = snap.system.memory_total.max(1) as f64;
@@ -846,9 +979,9 @@ impl ProcessView {
             .flatten();
         self.revealed = selected;
 
-        let columns: Vec<_> = COLUMNS
+        let columns: Vec<_> = layout
             .iter()
-            .filter(|c| c.0 == Col::Name || self.visible.contains(&c.0))
+            .filter_map(|col| COLUMNS.iter().find(|c| c.0 == *col))
             .collect();
 
         // Every header fits in its column at first, with room for the sort
@@ -883,6 +1016,7 @@ impl ProcessView {
                 let width: f32 = widths.iter().sum();
                 ui.set_min_width(width + ui.spacing().item_spacing.x * columns.len() as f32);
                 let mut table = TableBuilder::new(ui)
+                    .id_salt(("process-table-layout", &layout))
                     .striped(true)
                     .resizable(true)
                     .sense(Sense::click())
@@ -916,7 +1050,8 @@ impl ProcessView {
                             });
                         }
                     })
-                    .body(|body| {
+                    .body(|mut body| {
+                        self.inspection_rect = Some(body.max_rect().intersect(body.ui_mut().clip_rect()));
                         body.rows(row_height, rows.len(), |mut row| {
                             let (p, depth, group) = match rows[row.index()] {
                                 Row::Process(i, depth) => (&snap.processes[i], depth, None),
@@ -1036,6 +1171,7 @@ impl ProcessView {
                                                 .on_hover_text(label);
                                             }
                                         }
+                                        Col::Unknown => {},
                                         Col::CommandLine => {
                                             let cmd = extra.command_line(p);
                                             ui.label(RichText::new(cmd).monospace().small())
@@ -1074,6 +1210,7 @@ impl ProcessView {
                     });
             });
         self.keep(cache, revision);
+        self.edit_columns(ui.ctx(), editor_was_open);
         intents
     }
 
@@ -1090,7 +1227,8 @@ impl ProcessView {
         revision: u64,
         second: Option<u64>,
     ) -> bool {
-        key.revision == revision
+        key.inspection_held == self.inspection_held
+            && key.revision == revision
             && key.snapshot == std::ptr::from_ref(snap) as usize
             && key.processes == snap.processes.len()
             && key.search == self.search
@@ -1101,6 +1239,15 @@ impl ProcessView {
             && key.more == self.more
             && key.second == second
             && (self.mode != ViewMode::Apps || key.expanded == self.expanded)
+    }
+
+    fn same_order_settings(&self, key: &RowKey) -> bool {
+        key.search == self.search
+            && key.mode == self.mode
+            && key.sort == self.sort
+            && key.descending == self.descending
+            && key.filter == self.filter
+            && key.more == self.more
     }
 
     /// The rows to show: the cached ones while they are current, otherwise
@@ -1140,9 +1287,22 @@ impl ProcessView {
                         .get(&(p.pid, p.create_time))
                         .is_some_and(|p| p.to_lowercase().contains(&filter)))
         };
-        let order = |a: &ProcessInfo, b: &ProcessInfo| {
+        let stable = self
+            .last_order
+            .as_ref()
+            .filter(|s| self.inspection_held && self.same_order_settings(&s.key));
+        let live_order = |a: &ProcessInfo, b: &ProcessInfo| {
             let o = compare(a, b, self.sort, extra);
             if self.descending { o.reverse() } else { o }
+        };
+        let order = |a: &ProcessInfo, b: &ProcessInfo| {
+            let rank = |p: &ProcessInfo| {
+                stable
+                    .and_then(|s| s.processes.get(&(p.pid, p.create_time)))
+                    .copied()
+                    .unwrap_or(usize::MAX)
+            };
+            rank(a).cmp(&rank(b)).then_with(|| live_order(a, b))
         };
         let unfiltered =
             filter.is_empty() && self.filter == QuickFilter::All && self.more.is_empty();
@@ -1150,7 +1310,7 @@ impl ProcessView {
         let mut groups = Vec::new();
         let (rows, shown) = match self.mode {
             ViewMode::Tree if unfiltered => {
-                let rows = tree_order(procs, self.sort, self.descending, extra)
+                let rows = tree_order_by(procs, stable.is_some(), order)
                     .into_iter()
                     .map(|(i, depth)| Row::Process(i, depth))
                     .collect();
@@ -1159,7 +1319,17 @@ impl ProcessView {
             ViewMode::Apps => {
                 let members: Vec<usize> = matching().collect();
                 groups = app_groups(procs, &members);
-                groups.sort_by(|a, b| order(&a.total, &b.total));
+                groups.sort_by(|a, b| {
+                    let rank = |g: &AppGroup| {
+                        stable
+                            .and_then(|s| s.apps.get(&g.key))
+                            .copied()
+                            .unwrap_or(usize::MAX)
+                    };
+                    rank(a)
+                        .cmp(&rank(b))
+                        .then_with(|| live_order(&a.total, &b.total))
+                });
                 let mut rows = Vec::with_capacity(groups.len());
                 for (i, g) in groups.iter().enumerate() {
                     rows.push(Row::App(i));
@@ -1178,8 +1348,9 @@ impl ProcessView {
                 (v.into_iter().map(|i| Row::Process(i, 0)).collect(), shown)
             }
         };
-        RowCache {
+        let cache = RowCache {
             key: RowKey {
+                inspection_held: self.inspection_held,
                 revision: revision.unwrap_or_default(),
                 snapshot: std::ptr::from_ref(snap) as usize,
                 processes: procs.len(),
@@ -1199,7 +1370,25 @@ impl ProcessView {
             rows,
             groups,
             shown,
+        };
+        let mut processes = HashMap::new();
+        let mut apps = HashMap::new();
+        for (rank, row) in cache.rows.iter().enumerate() {
+            match *row {
+                Row::Process(i, _) => {
+                    processes.insert((procs[i].pid, procs[i].create_time), rank);
+                }
+                Row::App(i) => {
+                    apps.insert(cache.groups[i].key.clone(), rank);
+                }
+            }
         }
+        self.last_order = Some(StableOrder {
+            key: cache.key.clone(),
+            processes,
+            apps,
+        });
+        cache
     }
 }
 

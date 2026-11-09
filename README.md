@@ -28,6 +28,18 @@ usage history.
 
 [Overview resource gauges and history cards](screenshots/overview.png)
 
+[Process workspace and inspector](screenshots/processes.png) ·
+[Light theme](screenshots/processes-light.png) ·
+[Compact layout](screenshots/processes-compact.png)
+
+[Timeline inspection](screenshots/performance-timeline.png) ·
+[Compact timeline](screenshots/performance-timeline-compact.png) ·
+[Sampling gaps](screenshots/performance-gap.png)
+
+[CPU tier filter](screenshots/performance-cpu.png) ·
+[GPU engine search](screenshots/performance-gpu.png) ·
+[Compact GPU search](screenshots/performance-gpu-compact.png)
+
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
 ## Features
@@ -53,6 +65,17 @@ usage history.
   (512 MiB+) and managed processes combine with name, PID, path and command-line
   search, with processes started in the last N minutes, disk- or GPU-active
   processes, and user apps versus services. Wide tables scroll horizontally; the details panel scrolls and closes.
+- Inspect live processes without chasing the sort: while the pointer is over
+  the table or a menu/dialog is open, existing rows keep their relative order
+  and resource values continue updating. New processes appear after existing
+  peers; exited processes disappear. List, tree and Apps views retain their
+  structure. Leaving the table and closing menus/dialogs resumes sorting;
+  an explicit sort or filter change applies immediately. F6 remains a separate
+  frozen-snapshot mode.
+- **Column layouts**: Basic, CPU, Memory, I/O, Network and Diagnostics profiles;
+  a searchable column editor with keyboard-operable ordering, Apply/Cancel and
+  reset. Name stays first. The active layout is shared by List/Tree/Apps and
+  survives restart. [Usage and compatibility](docs/process-columns.md).
 - Events: search by process, PID or message alongside severity filters; open a
   message to read and copy the full diagnostic, even in compact windows.
   [Event diagnostics preview](screenshots/events.png).
@@ -69,6 +92,14 @@ usage history.
   disk I/O), App history, Startup apps,
   Users, Services (start / stop / startup type), Network connections, Events;
   every list sorts by any column.
+- **Timeline inspection**: covered 1/2/5-minute ranges, shared time cursor,
+  pinning, zoom/reset, keyboard stepping and recent event markers. Real
+  timestamps and explicit gaps preserve missing data; return to live with a
+  button or double-click. [Usage and limits](docs/performance-timeline.md).
+- **Focused resource views**: full-width CPU, memory, GPU, network and disk
+  views with a saved resource selection. Filter CPU tiles by relative Windows
+  performance tier and search all current GPU engine types, including idle
+  engines. [Measurement scope and limits](docs/performance-resources.md).
 - **Why it hangs, why it won't end**: programs whose window does not respond
   are marked *Not responding* (with a quick filter and an Overview warning);
   *Analyze wait chain* shows what their blocked threads wait for, across
@@ -224,8 +255,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.26.2-x64.msi            # interactive
-msiexec /i RustWTM-0.26.2-x64.msi /qn        # silent
+msiexec /i RustWTM-0.27.0-x64.msi            # interactive
+msiexec /i RustWTM-0.27.0-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc
@@ -414,6 +445,8 @@ The [0.13.0 system review](docs/0.13.0-review.md) covers the current architectur
 validation boundaries and the implemented sensors and cooling work.
 The [0.26.2 release review](docs/0.26.2-review.md) records the latest reproduced
 defects, regression evidence, release checks and remaining hardware boundaries.
+The [0.27.0 desktop review](docs/0.27.0-review.md) describes the new process
+workspace, column layouts, timeline interactions and focused resource views.
 
 ## License
 

@@ -4,13 +4,22 @@ Baseline: 0.25.0, reviewed on 2026-11-04. An implementation or a CI definition
 is not equivalent to hosted validation or a published feature. Record those
 outcomes separately.
 
+The [desktop experience plan](desktop-experience-plan.md), reviewed against
+0.26.2 on 2026-11-09, expands the UI and diagnosis backlog into implementation
+milestones: shared resource context, stable process inspection, interactive
+charts, historical attribution, file ownership, onboarding, background refresh,
+battery/disk health and local organization. It records source-confirmed gaps
+and acceptance gates. The first visual subset, stable live process inspection
+and column profiles/order editing are implemented locally; the remaining
+milestone scope stays proposed.
+
 | Priority | Work | Concrete acceptance gate | Current boundary |
 | --- | --- | --- | --- |
 | P0 | Windows publisher signing | Own executable payload signed before MSI build; MSI signed; trust/publisher/timestamp verified; final digests match downloaded files | Optional Azure/OIDC workflow prepared; owner identity/account configuration and first signed release required |
 | P0 | Build provenance | ZIP/MSI attestation verifies repository, workflow and exact source commit | Release provenance job defined; CI uses a real installer artifact as its verification control |
 | P0 | Upgrade durability | Previous release -> candidate, repair, downgrade rejection, config byte retention, SQLite record retention, service IPC and uninstall retention | Dedicated disposable-VM job defined; never run on developer hardware |
 | P1 | Visual CI | Gauge gallery at four DPI scales; Overview/Performance/Containers in five languages, both themes and sizes; screenshots uploaded | GPU rendering job defined; image artifacts aid review, not automatic pixel-diff acceptance |
-| P1 | Interactive charts | Explicit time ranges, synchronized cursor, zoom/reset, real timestamps and event markers; correct missing/stale samples; keyboard access | Current plots remain fixed-window; start with in-memory ranges, then persisted aggregates for longer windows |
+| P1 | Interactive charts | Explicit time ranges, synchronized cursor, zoom/reset, real timestamps and event markers; correct missing/stale samples; keyboard access | Initial bounded timeline and focused resource views with CPU tier/GPU engine filters implemented locally; [timeline](performance-timeline.md), [resource views](performance-resources.md). Physical device selection/history, further axis controls and persisted aggregates remain pending |
 | P1 | Guided first use | Explain service/elevation/capabilities, monitoring vs protection, safe profile choices and what will change before enabling controls | Existing settings/protection levels are available; dedicated onboarding is not implemented |
 | P1 | Unified diagnosis | Correlate process, system, sensor, governor and container events by timestamp; explain source and uncertainty; navigate to existing details | Existing diagnostics and events are separate surfaces; a shared incident timeline is not implemented |
 | P2 | Personal dashboard | Persist card visibility/order with a default/reset path; responsive layout, keyboard operation and migration tests | Overview card layout remains fixed |

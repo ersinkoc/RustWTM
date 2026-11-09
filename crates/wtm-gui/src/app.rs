@@ -8,7 +8,7 @@ use wtm_core::control::ProcessRef;
 use wtm_core::{Snapshot, format_bytes};
 use wtm_ipc::{Command, EventLevel};
 
-use crate::backend::{Backend, Data, HISTORY_LEN, Mode, Panel, ServiceOp, UiCommand, describe};
+use crate::backend::{Backend, Data, Mode, Panel, ServiceOp, UiCommand, describe};
 use crate::processes::{Intent, ManagedMap, ProcessView, context_menu, limit_labels};
 use crate::theme::{BAD, GOOD, WARN};
 use crate::tray::Tray;
@@ -188,6 +188,9 @@ pub struct App {
 }
 
 struct UiState {
+    charts: crate::charts::State,
+    performance: crate::performance_view::State,
+    resource_strip: bool,
     language: crate::i18n::Language,
     language_error: Option<String>,
     tab: Tab,
@@ -311,6 +314,8 @@ const PREFS_KEY: &str = "prefs";
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct Prefs {
+    resource_strip: bool,
+    performance_page: crate::performance_view::Page,
     language: crate::i18n::Language,
     tab: Tab,
     nav_collapsed: Option<bool>,
@@ -318,6 +323,7 @@ struct Prefs {
     process_sort: crate::processes::Col,
     process_descending: bool,
     process_columns: std::collections::HashSet<crate::processes::Col>,
+    process_column_order: Vec<crate::processes::Col>,
     process_heat: bool,
     cooling_profiles: HashMap<String, wtm_policy::CoolingProfile>,
     alerts: crate::alert::AlertSettings,
@@ -339,6 +345,8 @@ impl UiState {
     fn prefs(&self) -> Prefs {
         let p = &self.processes;
         Prefs {
+            resource_strip: self.resource_strip,
+            performance_page: self.performance.page,
             language: self.language,
             tab: self.tab,
             nav_collapsed: self.nav_collapsed,
@@ -346,6 +354,7 @@ impl UiState {
             process_sort: p.sort,
             process_descending: p.descending,
             process_columns: p.visible.clone(),
+            process_column_order: p.column_order.clone(),
             process_heat: p.heat,
             cooling_profiles: self.sensors.profiles.clone(),
             alerts: self.alerts,
@@ -367,6 +376,8 @@ impl UiState {
     }
 
     fn apply(&mut self, prefs: Prefs) {
+        self.resource_strip = prefs.resource_strip;
+        self.performance.page = prefs.performance_page;
         self.language = prefs.language;
         self.tab = prefs.tab;
         self.nav_collapsed = prefs.nav_collapsed;
@@ -375,6 +386,8 @@ impl UiState {
         p.sort = prefs.process_sort;
         p.descending = prefs.process_descending;
         p.visible = prefs.process_columns;
+        p.column_order = prefs.process_column_order;
+        p.normalize_columns();
         p.heat = prefs.process_heat;
         self.sensors.profiles = prefs.cooling_profiles;
         self.alerts = prefs.alerts;
@@ -388,6 +401,9 @@ impl UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            charts: crate::charts::State::default(),
+            performance: crate::performance_view::State::default(),
+            resource_strip: true,
             language: crate::i18n::Language::System,
             language_error: None,
             tab: Tab::Overview,
@@ -630,6 +646,22 @@ impl eframe::App for App {
             _ => (ManagedMap::new(), false),
         };
 
+        if state.tab == Tab::Processes && state.resource_strip {
+            egui::Panel::top("process_workspace_header").show(ui, |ui| {
+                page_header(ui, state.tab, &data, Instant::now());
+                ui.add_space(8.0);
+                ui.scope(|ui| {
+                    if stale_age(&data, Instant::now()).is_some() {
+                        ui.multiply_opacity(STALE_OPACITY);
+                    }
+                    if let Some(resource) = crate::resource_strip::show(ui, &data) {
+                        state.performance_focus = Some(resource);
+                        state.tab = Tab::Performance;
+                    }
+                });
+            });
+        }
+
         if state.tab == Tab::Processes
             && let (Some(sel), Some(snap)) = (state.processes.selected.clone(), &data.snapshot)
         {
@@ -637,6 +669,7 @@ impl eframe::App for App {
                 .resizable(true)
                 .default_size(330.0)
                 .show(ui, |ui| {
+                    ui.add_space(8.0);
                     if ui
                         .small_button(crate::i18n::tr("Close details"))
                         .on_hover_text("Esc")
@@ -658,8 +691,10 @@ impl eframe::App for App {
 
         egui::CentralPanel::default().show(ui, |ui| {
             let now = Instant::now();
-            page_header(ui, state.tab, &data, now);
-            ui.add_space(12.0);
+            if state.tab != Tab::Processes || !state.resource_strip {
+                page_header(ui, state.tab, &data, now);
+                ui.add_space(12.0);
+            }
             // Values that stopped updating must not pass for live ones.
             if stale_age(&data, now).is_some() {
                 ui.multiply_opacity(STALE_OPACITY);
@@ -692,11 +727,24 @@ impl eframe::App for App {
                             icons: &data.icons,
                             hung: &data.hung,
                         };
-                        intents.extend(state.processes.ui_cached(ui, snap, &extra, data.revision));
+                        crate::theme::panel(ui, |ui| {
+                            intents.extend(state.processes.ui_cached(
+                                ui,
+                                snap,
+                                &extra,
+                                data.revision,
+                            ));
+                        });
                     }
                     None => crate::theme::loading(ui, crate::i18n::tr("Loading processes…")),
                 },
-                Tab::Performance => performance_focused(ui, &data, state.performance_focus.take()),
+                Tab::Performance => performance_focused(
+                    ui,
+                    &data,
+                    state.performance_focus.take(),
+                    &mut state.charts,
+                    &mut state.performance,
+                ),
                 Tab::Disks => crate::disks_tab::disks_tab(ui, &data, &mut state.disks),
                 Tab::Sensors => {
                     service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
@@ -1284,6 +1332,10 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
     }
     let mut command = None;
     language_settings(ui, state, crate::i18n::save);
+    ui.checkbox(
+        &mut state.resource_strip,
+        crate::i18n::tr("Show resource cards above processes"),
+    );
     ui.horizontal(|ui| {
         ui.label(crate::i18n::tr("Theme"));
         let mut preference = ui.ctx().options(|o| o.theme_preference);
@@ -1993,6 +2045,12 @@ fn details_panel(
     sel: &ProcessRef,
     intents: &mut Vec<Intent>,
 ) {
+    ui.label(
+        RichText::new(crate::i18n::tr("Process inspector"))
+            .small()
+            .color(crate::theme::text_color(ui, crate::theme::ACCENT)),
+    );
+    ui.add_space(4.0);
     ui.heading(&sel.name);
     let Some(p) = snap
         .processes
@@ -2002,6 +2060,100 @@ fn details_panel(
         crate::theme::colored(ui, WARN, crate::i18n::tr("This process has exited."));
         return;
     };
+
+    ui.horizontal_wrapped(|ui| {
+        ui.weak(format!("PID {}", p.pid));
+        ui.separator();
+        ui.weak(uptime(p.start_time()));
+        if data.foreground_pid == Some(p.pid) {
+            crate::theme::colored(ui, GOOD, crate::i18n::tr("Foreground app"));
+        }
+    });
+    ui.add_space(8.0);
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .button(
+                RichText::new(crate::i18n::tr("End task")).color(crate::theme::text_color(ui, BAD)),
+            )
+            .clicked()
+        {
+            intents.push(Intent::Confirm(sel.clone(), Command::Kill));
+        }
+        ui.menu_button(crate::i18n::tr("More actions"), |ui| {
+            context_menu(
+                ui,
+                sel,
+                snap.system.logical_cpus,
+                data.cpu_topology.as_ref(),
+                intents,
+            )
+        });
+        if ui.button(crate::i18n::tr("Open file location")).clicked() {
+            intents.push(Intent::OpenLocation(sel.clone()));
+        }
+        if ui.button(crate::i18n::tr("Refresh")).clicked() {
+            intents.push(Intent::Select(sel.clone()));
+        }
+    });
+
+    ui.add_space(10.0);
+    crate::theme::panel(ui, |ui| {
+        ui.columns(2, |cols| {
+            cols[0].label(RichText::new("CPU").small().weak());
+            cols[0].label(
+                RichText::new(format!("{:.1}%", p.cpu_percent))
+                    .size(27.0)
+                    .color(crate::theme::text_color(&cols[0], crate::theme::CPU)),
+            );
+            cols[1].label(RichText::new(crate::i18n::tr("Memory")).small().weak());
+            cols[1].label(
+                RichText::new(format_bytes(p.private_working_set as f64))
+                    .size(22.0)
+                    .color(crate::theme::text_color(&cols[1], crate::theme::MEMORY)),
+            );
+        });
+        if let Some(h) = data.process_history.get(&(p.pid, p.create_time))
+            && h.cpu.len() > 1
+        {
+            ui.add_space(8.0);
+            process_plot(ui, "proc_cpu", "CPU", &h.times, &h.cpu, false);
+            process_plot(
+                ui,
+                "proc_mem",
+                crate::i18n::tr("Memory"),
+                &h.times,
+                &h.memory,
+                true,
+            );
+            ui.weak(crate::i18n::tr("Last two minutes"));
+        }
+    });
+    ui.add_space(12.0);
+
+    if let Some((r, Ok(d))) = &data.details
+        && r == sel
+    {
+        if let Some(user) = &d.user {
+            ui.add_space(6.0);
+            ui.label(crate::i18n::format("User: {0}", std::slice::from_ref(user)));
+        }
+        if let Some(path) = &d.path {
+            ui.add_space(6.0);
+            ui.label(RichText::new(path).small().weak());
+        }
+        if let Some(cmd) = d.command_line.as_deref().filter(|c| !c.is_empty()) {
+            ui.add_space(4.0);
+            ui.label(RichText::new(cmd).small().monospace());
+            if ui
+                .small_button(crate::i18n::tr("Copy command line"))
+                .clicked()
+            {
+                ui.ctx().copy_text(cmd.to_owned());
+            }
+        }
+    }
+
+    diagnostics(ui, data, sel, intents);
 
     egui::Grid::new("details_grid")
         .num_columns(2)
@@ -2097,31 +2249,6 @@ fn details_panel(
             }
         });
 
-    if let Some((r, Ok(d))) = &data.details
-        && r == sel
-    {
-        if let Some(user) = &d.user {
-            ui.add_space(6.0);
-            ui.label(crate::i18n::format("User: {0}", std::slice::from_ref(user)));
-        }
-        if let Some(path) = &d.path {
-            ui.add_space(6.0);
-            ui.label(RichText::new(path).small().weak());
-        }
-        if let Some(cmd) = d.command_line.as_deref().filter(|c| !c.is_empty()) {
-            ui.add_space(4.0);
-            ui.label(RichText::new(cmd).small().monospace());
-            if ui
-                .small_button(crate::i18n::tr("Copy command line"))
-                .clicked()
-            {
-                ui.ctx().copy_text(cmd.to_owned());
-            }
-        }
-    }
-
-    diagnostics(ui, data, sel, intents);
-
     if let Some(Ok(conns)) = &data.connections {
         let uses: Vec<_> = wtm_core::ports::port_uses(conns)
             .into_iter()
@@ -2151,49 +2278,6 @@ fn details_panel(
             }
         }
     }
-
-    if let Some(h) = data.process_history.get(&(p.pid, p.create_time))
-        && h.cpu.len() > 1
-    {
-        ui.add_space(8.0);
-        ui.label(RichText::new(crate::i18n::tr("Last two minutes")).strong());
-        process_plot(ui, "proc_cpu", "CPU", &h.times, &h.cpu, false);
-        process_plot(
-            ui,
-            "proc_mem",
-            crate::i18n::tr("Memory"),
-            &h.times,
-            &h.memory,
-            true,
-        );
-    }
-
-    ui.add_space(8.0);
-    ui.horizontal_wrapped(|ui| {
-        if ui
-            .button(
-                RichText::new(crate::i18n::tr("End task")).color(crate::theme::text_color(ui, BAD)),
-            )
-            .clicked()
-        {
-            intents.push(Intent::Confirm(sel.clone(), Command::Kill));
-        }
-        ui.menu_button(crate::i18n::tr("More actions"), |ui| {
-            context_menu(
-                ui,
-                sel,
-                snap.system.logical_cpus,
-                data.cpu_topology.as_ref(),
-                intents,
-            )
-        });
-        if ui.button(crate::i18n::tr("Open file location")).clicked() {
-            intents.push(Intent::OpenLocation(sel.clone()));
-        }
-        if ui.button(crate::i18n::tr("Refresh")).clicked() {
-            intents.push(Intent::Select(sel.clone()));
-        }
-    });
 }
 
 /// A small graph in the details panel: CPU in percent or memory in bytes.
@@ -2228,12 +2312,19 @@ fn process_plot(
         .y_axis_formatter(move |mark, _| unit(mark.value))
         .legend(egui_plot::Legend::default())
         .show(ui, |plot| {
-            plot.line(Line::new(format!("{label} {}", unit(latest)), points));
+            let color = if bytes {
+                crate::theme::MEMORY
+            } else {
+                crate::theme::CPU
+            };
+            plot.line(
+                Line::new(format!("{label} {}", unit(latest)), points)
+                    .color(color)
+                    .width(1.8)
+                    .fill(0.0),
+            );
         });
 }
-
-/// Height of the large graphs on the Performance tab.
-const PLOT_HEIGHT: f32 = 128.0;
 
 /// `values` at the times they were measured (Unix milliseconds), in seconds
 /// before the newest, so a slower sampling interval or a delayed sample
@@ -2255,28 +2346,7 @@ fn series_points(
         .collect()
 }
 
-/// The common look of the Performance graphs: no interaction, light grid,
-/// time axis without labels (the last five minutes).
-fn perf_plot(ui: &Ui, id: &str) -> Plot<'static> {
-    Plot::new(id)
-        .height(PLOT_HEIGHT)
-        .show_background(false)
-        .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.40))
-        .grid_spacing(egui::Rangef::new(48.0, 120.0))
-        .include_x(-(HISTORY_LEN as f64))
-        .include_x(0.0)
-        .include_y(0.0)
-        .allow_drag(false)
-        .allow_zoom(false)
-        .allow_scroll(false)
-        .allow_boxed_zoom(false)
-        .show_x(false)
-        .x_axis_formatter(|mark, _| format!("{:.0}s", mark.value))
-        // One width for every graph, so that graphs above each other line up.
-        .y_axis_min_width(64.0)
-}
-
-/// A 0..=100% history as a filled area.
+/// A percentage series on the shared, interactive time window.
 fn history_plot(
     ui: &mut Ui,
     id: &str,
@@ -2284,52 +2354,26 @@ fn history_plot(
     times: &std::collections::VecDeque<u64>,
     values: &std::collections::VecDeque<f32>,
     color: Color32,
+    view: &mut crate::charts::State,
 ) {
-    perf_plot(ui, id)
-        .include_y(100.0)
-        .y_axis_formatter(|mark, _| format!("{:.0}%", mark.value))
-        .label_formatter(|hover| match hover {
-            egui_plot::HoverPosition::NearDataPoint {
-                plot_name,
-                position,
-                ..
-            } => Some(format!("{plot_name}: {:.0}%", position.y)),
-            egui_plot::HoverPosition::Elsewhere { .. } => None,
-        })
-        .show(ui, |plot| {
-            plot.line(
-                Line::new(label.to_owned(), series_points(times, values))
-                    .color(color)
-                    .width(2.25)
-                    .fill(0.0)
-                    .fill_alpha(0.18),
-            );
-        });
+    view.plot(
+        ui,
+        id,
+        times,
+        &[(label, values, color)],
+        crate::charts::Unit::Percent,
+    );
 }
 
-/// Two byte rates (for example download and upload) on an auto-scaled axis.
-/// The card title carries the legend (see [`rate_legend`]).
+/// Paired byte rates on the same time window as the percentage charts.
 fn rate_plot(
     ui: &mut Ui,
     id: &str,
     times: &std::collections::VecDeque<u64>,
     series: [(&str, &std::collections::VecDeque<f32>, Color32); 2],
+    view: &mut crate::charts::State,
 ) {
-    perf_plot(ui, id)
-        .include_y(1024.0)
-        .y_axis_formatter(|mark, _| format_bytes(mark.value.max(0.0)) + "/s")
-        .label_formatter(rate_label)
-        .show(ui, |plot| {
-            for (label, values, color) in series {
-                plot.line(
-                    Line::new(label.to_owned(), series_points(times, values))
-                        .color(color)
-                        .width(2.0)
-                        .fill(0.0)
-                        .fill_alpha(0.15),
-                );
-            }
-        });
+    view.plot(ui, id, times, &series, crate::charts::Unit::Rate);
 }
 pub(crate) fn rate_label(hover: &egui_plot::HoverPosition<'_>) -> Option<String> {
     match hover {
@@ -2375,15 +2419,18 @@ fn core_grid(
     cores: &[f32],
     history: &[std::collections::VecDeque<f32>],
     topology: Option<&wtm_core::cpu::Topology>,
+    class: Option<u8>,
 ) {
     const CELL: egui::Vec2 = egui::vec2(124.0, 46.0);
-    let topology =
-        topology.filter(|t| t.hybrid() && t.groups().len() == 1 && t.cpus.len() == cores.len());
+    let topology = crate::performance_view::matched_topology(topology, cores.len());
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
         for (i, &load) in cores.iter().enumerate() {
             let cpu = topology.and_then(|t| t.cpus.iter().find(|c| usize::from(c.index) == i));
-            let label = cpu.zip(topology).map_or_else(
+            if class.is_some_and(|class| cpu.is_none_or(|c| c.efficiency_class != class)) {
+                continue;
+            }
+            let label = cpu.zip(topology.filter(|t| t.hybrid())).map_or_else(
                 || crate::i18n::format("CPU {0}", &[format!("{}", i)]),
                 |(c, t)| {
                     let __wtm_i18n_0 = &(t.tier(c.efficiency_class));
@@ -2462,56 +2509,80 @@ fn core_grid(
 
 #[cfg(test)]
 pub(crate) fn performance(ui: &mut Ui, data: &Data) {
-    performance_focused(ui, data, None);
+    performance_focused(
+        ui,
+        data,
+        None,
+        &mut crate::charts::State::default(),
+        &mut crate::performance_view::State::default(),
+    );
 }
 
-fn performance_focused(ui: &mut Ui, data: &Data, focus: Option<crate::overview::Resource>) {
+fn performance_focused(
+    ui: &mut Ui,
+    data: &Data,
+    focus: Option<crate::overview::Resource>,
+    view: &mut crate::charts::State,
+    selection: &mut crate::performance_view::State,
+) {
     let Some(snap) = &data.snapshot else {
         crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
         return;
     };
     let s = &snap.system;
-    type Section = fn(&mut Ui, &Data, &wtm_core::SystemStats);
-    use crate::overview::Resource;
-    let sections: [(Option<Resource>, Section); 6] = [
-        (Some(Resource::Cpu), perf_cpu),
-        (Some(Resource::Memory), perf_memory),
-        (Some(Resource::Gpu), perf_gpu),
-        (Some(Resource::Network), perf_network),
-        (Some(Resource::Disk), perf_disk),
-        (None, perf_summary),
-    ];
-    let show_section = |ui: &mut Ui, (resource, section): (Option<Resource>, Section)| {
-        let response = ui.scope(|ui| section(ui, data, s)).response;
-        if focus.is_some() && focus == resource {
-            ui.scroll_to_rect(response.rect, Some(egui::Align::TOP));
-        }
-        ui.add_space(10.0);
-    };
-    let mut area = egui::ScrollArea::vertical().id_salt("performance");
-    if let Some(y) = crate::theme::take_scroll(ui, "performance") {
+    use crate::performance_view::Page;
+    let focused = focus.is_some();
+    if let Some(resource) = focus {
+        selection.page = resource.into();
+    }
+    let changed = selection.navigation(ui) || focused;
+    let mut area = egui::ScrollArea::vertical().id_salt(("performance", selection.page));
+    let requested_scroll = crate::theme::take_scroll(ui, "performance");
+    if changed {
+        area = area.vertical_scroll_offset(0.0);
+    } else if let Some(y) = requested_scroll {
         area = area.vertical_scroll_offset(y);
     }
     let out = area.show(ui, |ui| {
+        view.controls(ui, data);
+        let mut show_section = |ui: &mut Ui, page| {
+            match page {
+                Page::Cpu => perf_cpu(ui, data, s, view, (selection.page == Page::Cpu).then_some(&mut selection.class)),
+                Page::Memory => perf_memory(ui, data, s, view),
+                Page::Gpu => perf_gpu(ui, data, s, view, (selection.page == Page::Gpu).then_some(&mut selection.engine_search)),
+                Page::Network => {
+                    if selection.page == Page::Network {
+                        ui.weak(crate::i18n::tr("Combined adapter traffic; individual adapter history is not recorded."));
+                    }
+                    perf_network(ui, data, s, view);
+                }
+                Page::Disk => {
+                    if selection.page == Page::Disk {
+                        ui.weak(crate::i18n::tr("The chart shows total process I/O. Physical disk counters below are current readings."));
+                    }
+                    perf_disk(ui, data, s, view);
+                }
+                Page::All => perf_summary(ui, data, s, view),
+            }
+            ui.add_space(10.0);
+        };
         ui.add_space(4.0);
-        // Two columns of similar height when there is room: the tall CPU
-        // card with Disk and the summary on the left, the others on the
-        // right.
-        if ui.available_width() >= PERF_TWO_COLUMNS {
-            let [cpu, memory, gpu, network, disk, summary] = sections;
+        if selection.page != Page::All {
+            show_section(ui, selection.page);
+        } else if ui.available_width() >= PERF_TWO_COLUMNS {
             ui.columns(2, |cols| {
-                for (col, list) in cols
-                    .iter_mut()
-                    .zip([&[cpu, disk, summary][..], &[memory, gpu, network][..]])
-                {
-                    for &section in list {
-                        show_section(col, section);
+                for (col, list) in cols.iter_mut().zip([
+                    &[Page::Cpu, Page::Disk, Page::All][..],
+                    &[Page::Memory, Page::Gpu, Page::Network][..],
+                ]) {
+                    for &page in list {
+                        show_section(col, page);
                     }
                 }
             });
         } else {
-            for section in sections {
-                show_section(ui, section);
+            for page in [Page::Cpu, Page::Memory, Page::Gpu, Page::Network, Page::Disk, Page::All] {
+                show_section(ui, page);
             }
         }
     });
@@ -2530,7 +2601,13 @@ fn rate_legend(series: [(&str, f64, Color32); 2]) -> [(String, Color32); 2] {
     series.map(|(name, rate, color)| (format!("● {name} {}/s", format_bytes(rate)), color))
 }
 
-fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+fn perf_cpu(
+    ui: &mut Ui,
+    data: &Data,
+    s: &wtm_core::SystemStats,
+    view: &mut crate::charts::State,
+    mut filter: Option<&mut Option<u8>>,
+) {
     crate::theme::card_with(
         ui,
         "CPU",
@@ -2546,6 +2623,7 @@ fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                 &data.history.times,
                 &data.history.cpu,
                 crate::theme::CPU,
+                view,
             );
             if !s.core_percent.is_empty() {
                 ui.add_space(6.0);
@@ -2582,18 +2660,32 @@ fn perf_cpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                         ui.weak(crate::i18n::tr("Per-core tier labels are unavailable across multiple processor groups."));
                     }
                 }
+                if let Some(class) = filter.as_mut() {
+                    crate::performance_view::cpu_filter(
+                        ui,
+                        class,
+                        data.cpu_topology.as_ref(),
+                        s.core_percent.len(),
+                    );
+                }
                 core_grid(
                     ui,
                     &s.core_percent,
                     &data.history.cores,
                     data.cpu_topology.as_ref(),
+                    filter.as_deref().copied().flatten(),
                 );
             }
         },
     );
 }
 
-fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+fn perf_memory(
+    ui: &mut Ui,
+    data: &Data,
+    s: &wtm_core::SystemStats,
+    view: &mut crate::charts::State,
+) {
     let mem_pct = if s.memory_total > 0 {
         s.memory_used() as f64 / s.memory_total as f64 * 100.0
     } else {
@@ -2618,6 +2710,7 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                 &data.history.times,
                 &data.history.memory,
                 crate::theme::MEMORY,
+                view,
             );
             ui.add_space(4.0);
             let committed = s.commit_limit.saturating_sub(s.commit_available);
@@ -2645,7 +2738,13 @@ fn perf_memory(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
     );
 }
 
-fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+fn perf_gpu(
+    ui: &mut Ui,
+    data: &Data,
+    s: &wtm_core::SystemStats,
+    view: &mut crate::charts::State,
+    mut search: Option<&mut String>,
+) {
     crate::theme::card_with(
         ui,
         "GPU",
@@ -2661,21 +2760,41 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                 &data.history.times,
                 &data.history.gpu,
                 crate::theme::GPU,
+                view,
             );
+            if let Some(search) = search.as_mut() {
+                ui.weak(crate::i18n::tr("Current engine-type totals across GPUs; the chart follows the busiest engine. Per-device history and VRAM are not recorded here."));
+                let search_label = ui.label(crate::i18n::tr("Find GPU engine types"));
+                ui.add(egui::TextEdit::singleline(*search).desired_width(ui.available_width()))
+                    .labelled_by(search_label.id);
+                if s.gpu_engines.is_empty() {
+                    ui.weak(crate::i18n::tr("GPU engine counters are unavailable."));
+                }
+            }
             if !s.gpu_engines.is_empty() {
                 // The busiest engines; most of the others idle at 0%.
                 let mut engines: Vec<&(String, f32)> = s.gpu_engines.iter().collect();
                 engines.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                let limit = if let Some(query) = search.as_deref() {
+                    let query = query.trim().to_lowercase();
+                    engines.retain(|(name, _)| name.to_lowercase().contains(&query));
+                    if engines.is_empty() {
+                        ui.weak(crate::i18n::tr("No GPU engine types match this search."));
+                    }
+                    engines.len()
+                } else {
+                    GPU_ENGINES_SHOWN
+                };
                 ui.add_space(6.0);
                 load_bars(
                     ui,
                     "gpu_engines",
                     engines
                         .iter()
-                        .take(GPU_ENGINES_SHOWN)
+                        .take(limit)
                         .map(|(name, load)| (name.clone(), *load, format!("{load:.0}%"))),
                 );
-                if engines.len() > GPU_ENGINES_SHOWN {
+                if engines.len() > limit {
                     let rest: Vec<String> = engines[GPU_ENGINES_SHOWN..]
                         .iter()
                         .map(|(name, load)| format!("{name} {load:.0}%"))
@@ -2691,7 +2810,12 @@ fn perf_gpu(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
     );
 }
 
-fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+fn perf_network(
+    ui: &mut Ui,
+    data: &Data,
+    s: &wtm_core::SystemStats,
+    view: &mut crate::charts::State,
+) {
     let legend = rate_legend([
         (
             crate::i18n::tr("Receive"),
@@ -2721,12 +2845,13 @@ fn perf_network(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                         crate::theme::NET_TX,
                     ),
                 ],
+                view,
             );
         },
     );
 }
 
-fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
+fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats, view: &mut crate::charts::State) {
     let legend = rate_legend([
         (
             crate::i18n::tr("Read"),
@@ -2760,6 +2885,7 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
                         crate::theme::DISK_WRITE,
                     ),
                 ],
+                view,
             );
             if !s.disks.is_empty() {
                 ui.add_space(6.0);
@@ -2794,7 +2920,12 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
     );
 }
 
-fn perf_summary(ui: &mut Ui, _data: &Data, s: &wtm_core::SystemStats) {
+fn perf_summary(
+    ui: &mut Ui,
+    _data: &Data,
+    s: &wtm_core::SystemStats,
+    _view: &mut crate::charts::State,
+) {
     crate::theme::card(ui, crate::i18n::tr("System"), |ui| {
         // A short list of facts: no stripes that would end mid-card.
         egui::Grid::new("perf_grid")
@@ -3716,7 +3847,7 @@ mod tests {
     }
 
     #[test]
-    fn overview_resource_cards_open_and_scroll_to_their_graphs() {
+    fn overview_resource_cards_open_their_focused_graph_below_timeline_controls() {
         for theme in [egui::Theme::Dark, egui::Theme::Light] {
             for (name, graph_label, keyboard) in [
                 ("CPU", "CPU42%", false),
@@ -3754,11 +3885,15 @@ mod tests {
                 }
                 h.run_steps(20);
                 assert_eq!(h.state().state.tab, Tab::Performance, "{name}");
+                assert_ne!(
+                    h.state().state.performance.page,
+                    crate::performance_view::Page::All
+                );
                 let graph = h.get_by_label_contains(graph_label);
                 let rect = graph.rect();
                 assert!(
-                    rect.min.y >= 40.0 && rect.max.y < 200.0,
-                    "{name} graph should be near the top: {rect:?}"
+                    rect.min.y >= 40.0 && rect.max.y < 350.0,
+                    "{name} graph must be visible below the resource navigation and timeline controls: {rect:?}"
                 );
             }
         }
@@ -3835,6 +3970,307 @@ mod tests {
         // The extra oldest value has no time and is left out.
         assert_eq!(xy, [[-11.0, 1.0], [-9.0, 2.0], [-7.0, 3.0], [0.0, 4.0]]);
         assert!(series_points(&VecDeque::new(), &values).points().is_empty());
+    }
+
+    #[test]
+    fn performance_cpu_tiers_filter_tiles_and_reset_when_topology_changes() {
+        let mut d = timeline_fixture(false);
+        d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
+        std::sync::Arc::make_mut(d.snapshot.as_mut().unwrap())
+            .system
+            .core_percent = vec![10.0; 8];
+        let (mut h, _) = overview_app(d);
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "CPU performance view")
+            .click();
+        h.run_steps(2);
+        h.get_by_label("P tier (2)").click();
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("CPU 0 · P:").is_some());
+        assert!(h.query_by_label_contains("CPU 2 · E:").is_none());
+        assert!(h.query_by_label_contains("CPU 7 · LP-E:").is_none());
+        h.get_by_label("LP-E tier (2)").click();
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("CPU 0 · P:").is_none());
+        assert!(h.query_by_label_contains("CPU 7 · LP-E:").is_some());
+        assert!(h.query_by_label("CPU history graph").is_some());
+        h.state().backend.data().cpu_topology.as_mut().unwrap().cpus[7].group = 1;
+        h.run_steps(2);
+        assert!(h.state().state.performance.class.is_none());
+        assert!(h.query_by_label_contains("CPU 0:").is_some());
+        assert!(h.query_by_label_contains("CPU 7:").is_some());
+        assert!(h.query_by_label("P tier (2)").is_none());
+        // Duplicate indices are also ambiguous despite matching CPU counts.
+        {
+            let mut d = h.state().backend.data();
+            d.cpu_topology = Some(crate::ui_tests::hybrid_topology());
+            d.cpu_topology.as_mut().unwrap().cpus[7].index = 0;
+        }
+        h.run_steps(2);
+        assert!(h.query_by_label("P tier (2)").is_none());
+        assert!(h.query_by_label_contains("CPU 7:").is_some());
+    }
+
+    #[test]
+    fn performance_gpu_search_includes_idle_engines_and_explains_missing_counters() {
+        let (mut h, _) = overview_app(timeline_fixture(false));
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "GPU performance view")
+            .click();
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("OFA_0").is_some(),
+            "idle engines remain available"
+        );
+        let search =
+            h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Find GPU engine types");
+        search.click();
+        search.type_text("vIdEo");
+        h.run_steps(2);
+        assert!(h.query_by_label("Video Decode").is_some());
+        assert!(h.query_by_label("OFA_0").is_none());
+        h.state_mut().state.performance.engine_search = "absent-engine".into();
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("No GPU engine types match this search.")
+                .is_some()
+        );
+        {
+            let mut d = h.state().backend.data();
+            std::sync::Arc::make_mut(d.snapshot.as_mut().unwrap())
+                .system
+                .gpu_engines
+                .clear();
+        }
+        h.run_steps(2);
+        assert!(
+            h.query_by_label("GPU engine counters are unavailable.")
+                .is_some()
+        );
+        assert!(h.query_by_label("GPU history graph").is_some());
+    }
+
+    #[test]
+    fn performance_resource_pages_keep_the_timeline_and_restore_selection() {
+        let (mut h, rx) = overview_app(timeline_fixture(false));
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "CPU performance view")
+            .click();
+        h.run_steps(2);
+        assert!(h.query_by_label("CPU history graph").is_some());
+        assert!(h.query_by_label("Memory history graph").is_none());
+        h.get_by_label("Inspect timeline").click();
+        h.run_steps(2);
+        let window = h.state().state.charts.window;
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Memory performance view")
+            .click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Memory history graph").is_some());
+        assert!(h.query_by_label("CPU history graph").is_none());
+        assert_eq!(h.state().state.charts.window, window);
+        let encoded = serde_json::to_string(&h.state().state.prefs()).unwrap();
+        let mut restored = UiState::default();
+        restored.apply(serde_json::from_str(&encoded).unwrap());
+        assert_eq!(restored.prefs(), h.state().state.prefs());
+        assert_eq!(
+            restored.performance.page,
+            crate::performance_view::Page::Memory
+        );
+        assert_eq!(
+            serde_json::from_str::<Prefs>("{}")
+                .unwrap()
+                .performance_page,
+            crate::performance_view::Page::All
+        );
+        assert_eq!(
+            serde_json::from_str::<Prefs>(r#"{"performance_page":"FutureDevice"}"#)
+                .unwrap()
+                .performance_page,
+            crate::performance_view::Page::All
+        );
+        h.get_by_label("All resources").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("CPU history graph").is_some());
+        assert!(h.query_by_label("Memory history graph").is_some());
+        assert!(
+            rx.try_iter()
+                .all(|c| !matches!(c, UiCommand::Control { .. }))
+        );
+    }
+
+    #[test]
+    fn performance_has_timeline_inspection_controls() {
+        let (mut h, _) = kill_app(Tab::Performance);
+        h.run_steps(3);
+        assert!(h.query_by_label("Inspect timeline").is_some());
+    }
+
+    fn timeline_fixture(gap: bool) -> Data {
+        let mut d = data();
+        d.history = Default::default();
+        d.events.clear();
+        for i in 0..300 {
+            if gap && (240..=260).contains(&i) {
+                continue;
+            }
+            d.history.times.push_back(1_700_000_000_000 + i * 1000);
+            d.history.cpu.push_back(42.0);
+            d.history.memory.push_back(50.0);
+            d.history.gpu.push_back(12.0);
+            d.history.net_rx.push_back(2048.0);
+            d.history.net_tx.push_back(512.0);
+            d.history.io_read.push_back(1000.0);
+            d.history.io_write.push_back(0.0);
+        }
+        d
+    }
+
+    #[test]
+    fn performance_cursor_zoom_keyboard_and_live_mode_follow_real_sample_times() {
+        let mut fixture = timeline_fixture(false);
+        for (i, value) in fixture.history.memory.iter_mut().enumerate() {
+            *value = (i % 90) as f32;
+        }
+        let (mut h, _) = overview_app(fixture);
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_label("1 min").click();
+        h.run_steps(2);
+        let plot_rect = h
+            .get_by_role_and_label(egui::accesskit::Role::Image, "CPU history graph")
+            .rect();
+        h.get_by_role_and_label(egui::accesskit::Role::Image, "CPU history graph")
+            .click();
+        h.run_steps(2);
+        let window = h.state().state.charts.window.unwrap();
+        assert_eq!(
+            h.get_by_role_and_label(egui::accesskit::Role::Image, "CPU history graph")
+                .rect(),
+            plot_rect,
+            "pinning must not move the chart under the pointer"
+        );
+        assert_eq!(window.end - window.start, 60_000);
+        assert!(h.state().state.charts.cursor.is_some());
+        assert!(h.query_by_label("CPU: 42.0%").is_some());
+        let selected = h.state().state.charts.cursor.unwrap();
+        let nearest = h
+            .state()
+            .backend
+            .data()
+            .history
+            .times
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, t)| t.abs_diff(selected))
+            .map(|(i, _)| i)
+            .unwrap();
+        let memory = format!("Memory: {:.1}%", (nearest % 90) as f32);
+        assert!(
+            h.query_by_label(&memory).is_some(),
+            "both plots use the selected instant"
+        );
+        h.get_by_label("Zoom in").click();
+        h.run_steps(2);
+        let zoom = h.state().state.charts.window.unwrap();
+        assert_eq!(zoom.end - zoom.start, 30_000);
+        h.get_by_label("Previous sample").click();
+        h.run_steps(2);
+        let before = h.state().state.charts.cursor.unwrap();
+        h.key_press(egui::Key::ArrowLeft);
+        h.run_steps(2);
+        assert_eq!(h.state().state.charts.cursor, Some(before - 1000));
+        let pinned = h.state().state.charts.cursor;
+        let mut newer = timeline_fixture(false);
+        for (i, t) in newer.history.times.iter_mut().enumerate() {
+            *t += 1000;
+            newer.history.memory[i] = ((i + 1) % 90) as f32;
+        }
+        h.state().backend.data().history = newer.history;
+        h.run_steps(2);
+        assert_eq!(h.state().state.charts.window, Some(zoom));
+        assert_eq!(h.state().state.charts.cursor, pinned);
+        h.get_by_label("Reset zoom").click();
+        h.run_steps(2);
+        let reset = h.state().state.charts.window.unwrap();
+        assert_eq!(reset.end - reset.start, 60_000);
+        h.get_by_label("Back to live").click();
+        h.run_steps(2);
+        assert!(h.state().state.charts.window.is_none());
+        assert!(h.state().state.charts.cursor.is_none());
+    }
+
+    #[test]
+    fn performance_event_selection_explains_a_gap_instead_of_showing_zero() {
+        let mut d = timeline_fixture(true);
+        d.events.push_back(wtm_ipc::Event {
+            id: 99,
+            unix_ms: 1_700_000_250_000,
+            level: EventLevel::Warn,
+            pid: None,
+            name: None,
+            message: "Synthetic timeline event".into(),
+            notify: false,
+        });
+        let (mut h, _) = overview_app(d);
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_label("Recent events in view (1)").click();
+        h.run_steps(2);
+        h.get_by_label_contains("Synthetic timeline event").click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.charts.cursor, Some(1_700_000_250_000));
+        assert!(
+            h.query_by_label("No recorded sample at this time.")
+                .is_some()
+        );
+        assert!(h.query_by_label("CPU: —").is_some());
+        h.get_by_label("Next sample").click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.charts.cursor, Some(1_700_000_261_000));
+        assert!(h.query_by_label("CPU: 42.0%").is_some());
+    }
+
+    #[test]
+    fn performance_double_click_returns_to_live_without_moving_the_plot() {
+        let (backend, _rx) = Backend::offline(timeline_fixture(false));
+        // The standard harness advances 250 ms per frame. Use a bounded
+        // 60 Hz input clock to exercise an actual double-click interval.
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 1000.0])
+            .with_step_dt(1.0 / 60.0)
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Performance,
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(3);
+        let label = "CPU history graph";
+        let rect = h
+            .get_by_role_and_label(egui::accesskit::Role::Image, label)
+            .rect();
+        h.get_by_role_and_label(egui::accesskit::Role::Image, label)
+            .click();
+        h.run_steps(2);
+        assert!(h.state().state.charts.window.is_some());
+        assert_eq!(
+            h.get_by_role_and_label(egui::accesskit::Role::Image, label)
+                .rect(),
+            rect
+        );
+        h.get_by_role_and_label(egui::accesskit::Role::Image, label)
+            .click();
+        h.run_steps(2);
+        assert!(h.state().state.charts.window.is_none());
+        assert!(h.state().state.charts.cursor.is_none());
     }
 
     #[test]
@@ -4057,6 +4493,7 @@ mod tests {
         state.processes.sort = Col::Memory;
         state.processes.descending = false;
         state.processes.visible.insert(Col::CommandLine);
+        state.processes.column_order.swap(2, 3);
         state.processes.heat = false;
         eframe::set_value(&mut storage, PREFS_KEY, &state.prefs());
 
@@ -4084,6 +4521,46 @@ mod tests {
         assert!(uptime(Some(start)).starts_with("2d 03h 04m"));
         let start = SystemTime::now() - Duration::from_secs(3661);
         assert!(uptime(Some(start)).starts_with("1h 01m 0"));
+    }
+
+    #[test]
+    fn future_process_columns_do_not_discard_other_window_preferences() {
+        use eframe::Storage as _;
+        let mut storage = MemStorage::default();
+        storage.set_string(
+            PREFS_KEY,
+            "(tab: About, language: German, process_columns: [Name, FutureColumn, Cpu])".into(),
+        );
+        let restored = UiState::restored(Some(&storage));
+        assert_eq!(restored.tab, Tab::About);
+        assert_eq!(restored.language, crate::i18n::Language::German);
+        assert!(
+            restored
+                .processes
+                .visible
+                .contains(&crate::processes::Col::Cpu)
+        );
+    }
+
+    #[test]
+    fn saved_column_order_normalizes_future_ids_duplicates_and_missing_columns() {
+        use crate::processes::Col;
+        use eframe::Storage as _;
+        let mut storage = MemStorage::default();
+        storage.set_string(PREFS_KEY, "(tab: About, process_sort: FutureColumn, process_columns: [FutureColumn, Cpu], process_column_order: [FutureColumn, Cpu, Cpu, Name])".into());
+        let restored = UiState::restored(Some(&storage));
+        assert_eq!(restored.tab, Tab::About);
+        assert_eq!(restored.processes.sort, Col::Name);
+        assert_eq!(
+            &restored.processes.column_order[..2],
+            &[Col::Name, Col::Cpu]
+        );
+        assert_eq!(restored.processes.column_order.len(), 17);
+        assert!(restored.processes.visible.contains(&Col::Name));
+        assert!(!restored.processes.visible.contains(&Col::Unknown));
+        let saved = restored.prefs();
+        eframe::set_value(&mut storage, PREFS_KEY, &saved);
+        assert_eq!(UiState::restored(Some(&storage)).prefs(), saved);
     }
 
     /// Clicks the navigation entry ending with `label` (entries carry an icon).
@@ -5904,6 +6381,97 @@ mod tests {
     }
 
     #[test]
+    fn process_resource_cards_navigate_and_the_preference_survives_restart() {
+        for (label, resource) in [
+            ("CPU: 42%", crate::overview::Resource::Cpu),
+            ("Memory: 8.0 GiB", crate::overview::Resource::Memory),
+            ("GPU: 12%", crate::overview::Resource::Gpu),
+        ] {
+            let (mut h, rx) = kill_app(Tab::Processes);
+            h.run_steps(2);
+            h.get_by_role_and_label(egui::accesskit::Role::Button, label)
+                .click();
+            h.run_steps(2);
+            assert_eq!(h.state().state.tab, Tab::Performance);
+            assert!(
+                rx.try_iter()
+                    .all(|c| !matches!(c, UiCommand::Control { .. }))
+            );
+            // The navigation focus is consumed by the Performance renderer.
+            assert_eq!(h.state().state.performance_focus, None, "{resource:?}");
+        }
+        let (mut h, _) = kill_app(Tab::Settings);
+        h.run_steps(2);
+        h.get_by_label("Show resource cards above processes")
+            .click();
+        h.run_steps(2);
+        assert!(!h.state().state.resource_strip);
+        let encoded = serde_json::to_string(&h.state().state.prefs()).unwrap();
+        let mut restored = UiState::default();
+        restored.apply(serde_json::from_str(&encoded).unwrap());
+        assert!(!restored.resource_strip);
+        let old: Prefs = serde_json::from_str("{}").unwrap();
+        assert!(old.resource_strip, "older preferences receive the default");
+    }
+
+    #[test]
+    fn process_resource_cards_wait_for_a_sample_and_keep_selection_on_navigation() {
+        let (mut h, _) = kill_app(Tab::Processes);
+        h.state().backend.data().snapshot = None;
+        h.run_steps(2);
+        assert!(h.query_by_label("Loading processes…").is_some());
+        assert!(h.query_by_label("CPU: 42%").is_none());
+        h.state().backend.data().snapshot = Some(std::sync::Arc::new(crate::ui_tests::snapshot()));
+        h.run_steps(2);
+        h.get_by_label("alpha.exe").click();
+        h.run_steps(2);
+        let selected = h.state().state.processes.selected.clone();
+        assert!(h.query_by_label("Process inspector").is_some());
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "CPU: 42%")
+            .click();
+        h.run_steps(2);
+        assert_eq!(h.state().state.processes.selected, selected);
+    }
+
+    #[test]
+    fn compact_process_inspection_keeps_filters_and_actions_reachable() {
+        let (backend, rx) = Backend::offline(data());
+        let selected = ProcessRef::from(&crate::ui_tests::snapshot().processes[2]);
+        let mut state = UiState {
+            tab: Tab::Processes,
+            check_updates: false,
+            ..Default::default()
+        };
+        state.processes.selected = Some(selected.clone());
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([820.0, 500.0])
+            .build_eframe(|_| App {
+                backend,
+                state,
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(3);
+        h.get_by_label("All processes").click();
+        h.run_steps(2);
+        h.get_by_label("High CPU").click();
+        h.run_steps(2);
+        assert_eq!(
+            h.state().state.processes.filter,
+            crate::processes::QuickFilter::Cpu
+        );
+        assert_eq!(h.state().state.processes.selected.as_ref(), Some(&selected));
+        let action = h.get_by_label("More actions");
+        assert!(action.rect().max.y < 440.0);
+        action.click();
+        h.run_steps(2);
+        h.get_by_label("Suspend").click();
+        h.run_steps(2);
+        assert!(rx.try_iter().any(|c| matches!(c, UiCommand::Control { target, command: Command::Suspend } if target == selected)));
+    }
+
+    #[test]
     fn navigation_collapses_to_icons_by_choice_or_on_narrow_windows() {
         let (mut h, _rx) = overview_app(data());
         assert!(
@@ -6038,6 +6606,16 @@ mod tests {
     fn render_release_review() {
         let root =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/visual-review");
+        let dpi = std::env::var("WTM_REVIEW_DPI")
+            .ok()
+            .map(|v| v.parse::<f32>().expect("numeric WTM_REVIEW_DPI"))
+            .unwrap_or(1.0);
+        assert!((1.0..=2.0).contains(&dpi));
+        let root = if dpi == 1.0 {
+            root
+        } else {
+            root.join(format!("dpi-{dpi}"))
+        };
         // `WTM_REVIEW_LANGS=en,de` renders only those languages.
         let only = std::env::var("WTM_REVIEW_LANGS").ok();
         for (code, language) in [
@@ -6100,6 +6678,39 @@ mod tests {
                         d.telegram = Some(Ok(wtm_policy::TelegramConfig::default()));
                         d.task_manager = Some(Ok(wtm_core::task_manager::State::Windows));
                         let mut snap = d.snapshot.as_deref().unwrap().clone();
+                        if tab == Tab::Processes {
+                            snap.processes = [
+                                ("Code.exe", 12.4, 1340),
+                                ("msedge.exe", 8.1, 2670),
+                                ("rustwtm.exe", 0.3, 43),
+                                ("explorer.exe", 0.4, 168),
+                                ("WindowsTerminal.exe", 0.6, 89),
+                                ("node.exe", 16.2, 684),
+                                ("rust-analyzer.exe", 2.4, 1010),
+                                ("Spotify.exe", 0.8, 312),
+                                ("cargo.exe", 1.3, 54),
+                                ("SearchHost.exe", 0.2, 121),
+                                ("dwm.exe", 0.5, 86),
+                                ("RuntimeBroker.exe", 0.1, 32),
+                            ]
+                            .into_iter()
+                            .enumerate()
+                            .map(|(i, (name, cpu, mib))| {
+                                let mut p = crate::ui_tests::proc(100 + i as u32, 0, name, cpu);
+                                p.private_working_set = mib << 20;
+                                p.working_set = p.private_working_set + (20 << 20);
+                                p.private_bytes = p.private_working_set + (100 << 20);
+                                let now = SystemTime::now()
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap()
+                                    .as_secs();
+                                p.create_time = 116_444_736_000_000_000
+                                    + (now - 7200 - i as u64 * 60) as i64 * 10_000_000;
+                                p
+                            })
+                            .collect();
+                            snap.system.process_count = snap.processes.len();
+                        }
                         snap.system.core_percent =
                             vec![95.0, 70.0, 10.0, 0.0, 45.0, 8.0, 14.0, 4.0];
                         d.history.cores = snap
@@ -6116,7 +6727,15 @@ mod tests {
                             .collect();
                         d.snapshot = Some(std::sync::Arc::new(snap));
                         // Give every graph a full, deterministic history for review.
-                        for i in 0..HISTORY_LEN {
+                        d.history.times.clear();
+                        d.history.cpu.clear();
+                        d.history.memory.clear();
+                        d.history.gpu.clear();
+                        d.history.io_read.clear();
+                        d.history.io_write.clear();
+                        d.history.net_rx.clear();
+                        d.history.net_tx.clear();
+                        for i in 0..crate::backend::HISTORY_LEN {
                             d.history
                                 .times
                                 .push_back(1_700_000_000_000 + i as u64 * 1000);
@@ -6138,10 +6757,37 @@ mod tests {
                                 .push_back(2048.0 + (i as f32 * 0.1).sin() * 1800.0);
                             d.history.net_tx.push_back(512.0);
                         }
+                        if tab == Tab::Processes {
+                            let p = &d.snapshot.as_ref().unwrap().processes[0];
+                            let times = d
+                                .history
+                                .times
+                                .iter()
+                                .skip(crate::backend::HISTORY_LEN - 120)
+                                .copied()
+                                .collect();
+                            d.process_history.insert(
+                                (p.pid, p.create_time),
+                                crate::backend::ProcessHistory {
+                                    times,
+                                    cpu: (0..120)
+                                        .map(|i| 12.0 + (i as f32 * 0.16).sin() * 5.0)
+                                        .collect(),
+                                    memory: (0..120)
+                                        .map(|i| {
+                                            p.private_working_set as f32
+                                                + (i as f32 * 0.03).sin() * 1_000_000.0
+                                        })
+                                        .collect(),
+                                },
+                            );
+                            d.foreground_pid = Some(p.pid);
+                        }
                         let (backend, _rx) = Backend::offline(d);
                         let mut h = Harness::builder()
                             .allow_missing_glyphs()
                             .with_size(size)
+                            .with_pixels_per_point(dpi)
                             .with_theme(theme)
                             .build_eframe(|cc| {
                                 crate::theme::install_fonts(&cc.egui_ctx);
@@ -6205,7 +6851,75 @@ mod tests {
                             println!("Rendered {}", path.display());
                         }
                         if tab == Tab::Processes {
+                            let selected = {
+                                let data = h.state().backend.data();
+                                ProcessRef::from(&data.snapshot.as_ref().unwrap().processes[0])
+                            };
+                            h.state_mut().state.processes.selected = Some(selected);
+                            h.run_steps(3);
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-ProcessInspector.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
                             let target = {
+                                // Inspection changes ordering only; its status
+                                // must fit without displacing any table row.
+                                let node = h
+                                    .query_all_by_label("Code.exe")
+                                    .min_by(|a, b| a.rect().min.x.total_cmp(&b.rect().min.x))
+                                    .unwrap();
+                                node.hover();
+                                h.run_steps(2);
+                                assert!(
+                                    h.query_by_label(crate::i18n::tr(
+                                        "Order held · values are live"
+                                    ))
+                                    .is_some()
+                                );
+                                let path = out.join(format!(
+                                    "{theme_name}-{size_name}-ProcessesInspecting.png"
+                                ));
+                                h.render().expect("GPU render").save(&path).unwrap();
+                                println!("Rendered {}", path.display());
+                                h.get_by_label(crate::i18n::tr("Search:")).hover();
+                                h.run_steps(2);
+                                h.get_by_label(crate::i18n::tr("Columns")).click();
+                                h.run_steps(2);
+                                h.get_by_label(crate::i18n::tr("Arrange columns…")).click();
+                                h.run_steps(4);
+                                assert!(
+                                    h.query_by_label(crate::i18n::tr("Find a column")).is_some()
+                                );
+                                h.state().backend.data().sample_received_at = Some(Instant::now());
+                                h.run_steps(2);
+                                let path =
+                                    out.join(format!("{theme_name}-{size_name}-ColumnEditor.png"));
+                                h.render().expect("GPU render").save(&path).unwrap();
+                                println!("Rendered {}", path.display());
+                                h.get_by_label(crate::i18n::tr("Cancel")).click();
+                                h.run_steps(3);
+                                h.get_by_label(crate::i18n::tr("Columns")).click();
+                                h.run_steps(2);
+                                h.get_by_label(crate::i18n::tr("Column profiles")).hover();
+                                h.run_steps(3);
+                                h.get_by_label(crate::i18n::tr("Memory profile")).click();
+                                h.run_steps(3);
+                                assert_eq!(
+                                    h.state().state.processes.sort,
+                                    crate::processes::Col::Memory
+                                );
+                                assert!(!egui::Popup::is_any_open(&h.ctx));
+                                h.state().backend.data().sample_received_at = Some(Instant::now());
+                                h.run_steps(2);
+                                let path =
+                                    out.join(format!("{theme_name}-{size_name}-MemoryProfile.png"));
+                                h.render().expect("GPU render").save(&path).unwrap();
+                                println!("Rendered {}", path.display());
+                                h.get_by_label(crate::i18n::tr("Columns")).click();
+                                h.run_steps(2);
+                                h.get_by_label(crate::i18n::tr("Restore default columns"))
+                                    .click();
+                                h.run_steps(3);
                                 let mut data = h.state().backend.data();
                                 let mut snap = data.snapshot.as_deref().unwrap().clone();
                                 snap.processes = (0..80)
@@ -6221,6 +6935,7 @@ mod tests {
                                 snap.system.process_count = snap.processes.len();
                                 let target = ProcessRef::from(&snap.processes[60]);
                                 data.snapshot = Some(std::sync::Arc::new(snap));
+                                data.sample_received_at = Some(Instant::now());
                                 data.revision = data.revision.wrapping_add(1);
                                 data.details = None;
                                 target
@@ -6353,6 +7068,168 @@ mod tests {
                             h.render().expect("GPU render").save(&path).unwrap();
                         }
                         if tab == Tab::Performance {
+                            for (page, label, suffix) in [
+                                (crate::performance_view::Page::Cpu, "CPU", "PerformanceCpu"),
+                                (
+                                    crate::performance_view::Page::Memory,
+                                    "Memory",
+                                    "PerformanceMemory",
+                                ),
+                                (crate::performance_view::Page::Gpu, "GPU", "PerformanceGpu"),
+                                (
+                                    crate::performance_view::Page::Network,
+                                    "Network",
+                                    "PerformanceNetwork",
+                                ),
+                                (
+                                    crate::performance_view::Page::Disk,
+                                    "Disk & I/O",
+                                    "PerformanceDisk",
+                                ),
+                            ] {
+                                let label = crate::i18n::format(
+                                    "{0} performance view",
+                                    &[crate::i18n::tr(label).into()],
+                                );
+                                h.get_by_role_and_label(egui::accesskit::Role::Button, &label)
+                                    .click();
+                                h.run_steps(3);
+                                assert_eq!(h.state().state.performance.page, page);
+                                if size_name == "compact" {
+                                    h.event(egui::Event::PointerMoved(egui::pos2(
+                                        size[0] * 0.7,
+                                        size[1] * 0.6,
+                                    )));
+                                    h.event(egui::Event::MouseWheel {
+                                        unit: egui::MouseWheelUnit::Point,
+                                        delta: egui::vec2(0.0, -320.0),
+                                        modifiers: egui::Modifiers::NONE,
+                                        phase: egui::TouchPhase::Move,
+                                        source: egui::MouseWheelSource::Unknown,
+                                    });
+                                    h.run_steps(20);
+                                }
+                                if page == crate::performance_view::Page::Cpu {
+                                    let filter_label = crate::i18n::format(
+                                        "{0} tier ({1})",
+                                        &["P".into(), "2".into()],
+                                    );
+                                    let filter = h.get_by_label(&filter_label);
+                                    assert!(
+                                        filter.rect().min.y >= 0.0
+                                            && filter.rect().max.y < size[1] - 40.0
+                                    );
+                                    filter.click();
+                                    h.run_steps(2);
+                                    assert!(h.state().state.performance.class.is_some());
+                                }
+                                if page == crate::performance_view::Page::Gpu {
+                                    let label = crate::i18n::tr("Find GPU engine types");
+                                    let field = h.get_by_role_and_label(
+                                        egui::accesskit::Role::TextInput,
+                                        label,
+                                    );
+                                    assert!(
+                                        field.rect().min.y >= 0.0
+                                            && field.rect().max.y < size[1] - 40.0
+                                    );
+                                    field.click();
+                                    field.type_text("Video");
+                                    h.run_steps(2);
+                                    assert_eq!(h.state().state.performance.engine_search, "Video");
+                                }
+                                h.state().backend.data().sample_received_at = Some(Instant::now());
+                                h.run_steps(2);
+                                let path =
+                                    out.join(format!("{theme_name}-{size_name}-{suffix}.png"));
+                                h.render().expect("GPU render").save(&path).unwrap();
+                                println!("Rendered {}", path.display());
+                            }
+                            h.state_mut().state.performance.class = None;
+                            h.state_mut().state.performance.engine_search.clear();
+                            h.get_by_label(crate::i18n::tr("All resources")).click();
+                            h.run_steps(3);
+                            h.get_by_label(crate::i18n::tr("1 min")).click();
+                            h.run_steps(2);
+                            let graph = crate::i18n::format("{0} history graph", &["CPU".into()]);
+                            h.get_by_role_and_label(egui::accesskit::Role::Image, &graph)
+                                .click();
+                            h.run_steps(2);
+                            h.get_by_label(crate::i18n::tr("Zoom in")).click();
+                            h.run_steps(2);
+                            h.get_by_label(crate::i18n::tr("Previous sample")).click();
+                            h.state().backend.data().sample_received_at = Some(Instant::now());
+                            h.run_steps(2);
+                            let path = out
+                                .join(format!("{theme_name}-{size_name}-PerformanceInspect.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                            h.get_by_label(crate::i18n::tr("Back to live")).click();
+                            h.run_steps(2);
+                            {
+                                let mut data = h.state().backend.data();
+                                let mut i = 0;
+                                data.history.times.retain(|_| {
+                                    let keep = !(145..166).contains(&i);
+                                    i += 1;
+                                    keep
+                                });
+                                let hist = &mut data.history;
+                                for series in [
+                                    &mut hist.cpu,
+                                    &mut hist.memory,
+                                    &mut hist.gpu,
+                                    &mut hist.net_rx,
+                                    &mut hist.net_tx,
+                                    &mut hist.io_read,
+                                    &mut hist.io_write,
+                                ] {
+                                    let mut i = 0;
+                                    series.retain(|_| {
+                                        let keep = !(145..166).contains(&i);
+                                        i += 1;
+                                        keep
+                                    });
+                                }
+                                data.events.clear();
+                                data.events.push_back(wtm_ipc::Event {
+                                    id: 99,
+                                    unix_ms: 1_700_000_155_000,
+                                    level: EventLevel::Warn,
+                                    pid: None,
+                                    name: None,
+                                    message: "Recorded event during a sampling gap.".into(),
+                                    notify: false,
+                                });
+                                data.sample_received_at = Some(Instant::now());
+                            }
+                            h.get_by_label(crate::i18n::tr("5 min")).click();
+                            h.run_steps(2);
+                            h.get_by_label(&crate::i18n::format(
+                                "Recent events in view ({0})",
+                                &["1".into()],
+                            ))
+                            .click();
+                            h.run_steps(2);
+                            h.get_by_label_contains(crate::i18n::tr(
+                                "Recorded event during a sampling gap.",
+                            ))
+                            .click();
+                            h.run_steps(2);
+                            assert!(
+                                h.query_by_label(crate::i18n::tr(
+                                    "No recorded sample at this time."
+                                ))
+                                .is_some()
+                            );
+                            h.state().backend.data().sample_received_at = Some(Instant::now());
+                            h.run_steps(2);
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-PerformanceGap.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                            h.get_by_label(crate::i18n::tr("Back to live")).click();
+                            h.run_steps(2);
                             {
                                 let mut data = h.state().backend.data();
                                 data.sample_received_at =
@@ -6374,7 +7251,14 @@ mod tests {
             }
             // Keep native GPU review contexts in one test; parallel review tests
             // exited with a native access violation on the development machine.
-            crate::power_controls::tests::render_power_review(&out);
+            if std::env::var("WTM_REVIEW_SKIP_POWER").as_deref() != Ok("1")
+                && std::env::var("WTM_REVIEW_TABS").ok().is_none_or(|only| {
+                    only.split(',')
+                        .any(|tab| matches!(tab, "Performance" | "Sensors"))
+                })
+            {
+                crate::power_controls::tests::render_power_review(&out);
+            }
         }
     }
 
