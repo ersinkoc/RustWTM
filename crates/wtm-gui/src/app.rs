@@ -6885,8 +6885,20 @@ mod tests {
                                 h.run_steps(2);
                                 h.get_by_label(crate::i18n::tr("Columns")).click();
                                 h.run_steps(2);
+                                // A kittest click queues pointer move, press and
+                                // release together. Let the popup process hover
+                                // and finish its layout before querying the click
+                                // position; GPU fixtures can expose a stale rect.
+                                h.get_by_label(crate::i18n::tr("Arrange columns…")).hover();
+                                h.run();
                                 h.get_by_label(crate::i18n::tr("Arrange columns…")).click();
-                                h.run_steps(4);
+                                h.run();
+                                if h.query_by_label(crate::i18n::tr("Find a column")).is_none() {
+                                    let path = out.join(format!(
+                                        "{theme_name}-{size_name}-ColumnEditorFailure.png"
+                                    ));
+                                    h.render().expect("GPU render").save(&path).unwrap();
+                                }
                                 assert!(
                                     h.query_by_label(crate::i18n::tr("Find a column")).is_some()
                                 );
