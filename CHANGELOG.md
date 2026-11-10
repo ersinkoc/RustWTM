@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.27.2] - 2026-11-10
+
+### Fixed
+
+- Copy the actual hardware inventory from System overview, including model,
+  manufacturer, RAM module, disk and graphics details. Keep copying disabled
+  until inventory is available; never substitute current utilization readings.
+
+### Improved
+
+- Apply a shared page gutter and section spacing to every desktop tab. Align
+  form headings/navigation with their content; remove stacked card margins and
+  keep raw configuration editing at full width.
+- Unify tab/selector styling, distinguish primary actions and group window
+  settings into readable cards. Use consistent resizable tables for user
+  sessions and managed processes, retaining scrolling and action confirmations.
+
 ## [0.27.1] - 2026-11-10
 
 ### Improved
@@ -1130,7 +1147,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.27.1...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.27.2...HEAD
+[0.27.2]: https://github.com/ersinkoc/RustWTM/compare/v0.27.1...v0.27.2
 [0.27.1]: https://github.com/ersinkoc/RustWTM/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/ersinkoc/RustWTM/compare/v0.26.2...v0.27.0
 [0.20.2]: https://github.com/ersinkoc/RustWTM/compare/v0.20.1...v0.20.2

@@ -15,8 +15,14 @@ with the readings.
 - Resource card boundaries are neutral. Resource hues belong to readings, charts,
   gauges and small identity marks; hover/focus can accent a resource card.
 - Sidebar boundaries are subdued. Group labels have their own inset and spacing.
-- Cards retain internal padding, small outer gaps and square corners. Table cells
-  remain joined with fine separators.
+- All pages use one workspace gutter, rather than a per-tab padding allowlist.
+  Cards have internal padding and zero outer margins; their parent owns section
+  spacing. Table cells remain joined with fine separators and square corners.
+- Selected tabs and segmented choices share an accent underline. Primary save,
+  add and analyze actions have a distinct brand treatment; utility buttons stay
+  neutral. Header, tabs and settings form share one fixed reading column.
+- User sessions and governor-managed processes use the same resizable, padded
+  table component as the other lists, including horizontal/vertical scrolling.
 
 ## Type and density
 
@@ -33,7 +39,9 @@ use the brand colour with a white thumb; disabled switches stay neutral.
 Settings use a bounded reading column. Related options remain grouped, with
 aligned control columns on wide screens. At narrow widths labels and controls
 stack, preserving the whole interactive area. The raw configuration editor keeps
-the available width. Percentage controls remain directly editable sliders.
+the available width. Percentage controls remain directly editable sliders. Settings
+use short tab captions below 820 points, with full accessible names and tooltips.
+Below 620 points, the seven tabs use balanced rows of four and three.
 
 ## Validation
 
@@ -47,10 +55,10 @@ and 820×500 in light and dark themes, plus focused performance, dialogs and
 inspection states. Synthetic fixtures do not modify services, startup entries,
 hardware configuration or host resource limits.
 
-The final GUI suite passes 233 tests, with three explicit opt-outs (benchmark,
+The final GUI suite passes 238 tests, with three explicit opt-outs (benchmark,
 asset regeneration and the opt-in hardware smoke). Clippy covers all GUI targets
 and features with warnings denied. Evidence is retained locally under
-`.temp_files/visual-polish/`: alignment red/green results, contrast and interaction
+`.temp_files/hardware-copy-layout/`: alignment and hardware-copy red/green results, contrast and interaction
 checks, complete screen matrices and build logs. These are local checks, not a
 published release or a test of a running installed application.
 

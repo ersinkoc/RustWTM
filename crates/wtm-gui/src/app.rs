@@ -725,7 +725,7 @@ impl eframe::App for App {
                         Some(&mut state.inspector_mode),
                     );
                     ui.add_space(0.0);
-                    ui.scope(|ui| {
+                    crate::theme::workspace(ui, |ui| {
                         if stale_age(&data, Instant::now()).is_some() {
                             ui.multiply_opacity(STALE_OPACITY);
                         }
@@ -748,7 +748,7 @@ impl eframe::App for App {
         {
             let selected = state.processes.selected.clone();
             egui::Panel::right("details")
-                .frame(crate::theme::surface(ui).inner_margin(8.0))
+                .frame(crate::theme::surface(ui).inner_margin(crate::theme::CONTENT_PADDING))
                 .resizable(true)
                 .default_size(330.0)
                 .show(ui, |ui| {
@@ -824,6 +824,10 @@ impl eframe::App for App {
                             now,
                             Some(&mut state.inspector_mode),
                         );
+                    } else if state.tab == Tab::Settings {
+                        crate::theme::reading_column(ui, |ui| {
+                            page_header(ui, state.tab, &data, now)
+                        });
                     } else {
                         page_header(ui, state.tab, &data, now);
                     }
@@ -834,7 +838,9 @@ impl eframe::App for App {
                     ui.multiply_opacity(STALE_OPACITY);
                 }
                 if state.tab == Tab::Settings {
-                    crate::settings::page_bar(ui, &mut state.config.page);
+                    crate::theme::reading_column(ui, |ui| {
+                        crate::settings::page_bar(ui, &mut state.config.page)
+                    });
                 }
                 let scroll_page = match state.tab {
                     Tab::Settings => state.config.page.scrolls(),
@@ -846,26 +852,6 @@ impl eframe::App for App {
                 };
                 let page_id = state.tab.label();
                 let settings_page = state.config.page;
-                let needs_workspace = matches!(
-                    state.tab,
-                    Tab::History
-                        | Tab::Sensors
-                        | Tab::Governor
-                        | Tab::Limits
-                        | Tab::KillList
-                        | Tab::Services
-                        | Tab::Startup
-                        | Tab::Users
-                        | Tab::Network
-                        | Tab::Ports
-                        | Tab::About
-                ) || (state.tab == Tab::Settings
-                    && matches!(
-                        settings_page,
-                        crate::settings::Page::Service
-                            | crate::settings::Page::File
-                            | crate::settings::Page::Telegram
-                    ));
                 let settings_layout =
                     state.tab == Tab::Settings && state.config.page != crate::settings::Page::File;
                 let mut content = |ui: &mut Ui| match state.tab {
@@ -978,11 +964,11 @@ impl eframe::App for App {
                         crate::settings::Page::Charts => {
                             crate::preferences::charts(ui, &mut state.charts)
                         }
-                        crate::settings::Page::Window => crate::theme::panel(ui, |ui| {
+                        crate::settings::Page::Window => {
                             if let Some(command) = window_settings(ui, state, &data) {
                                 backend.send(command);
                             }
-                        }),
+                        }
                         crate::settings::Page::Telegram => {
                             service_cmds.extend(crate::telegram_settings::telegram(
                                 ui,
@@ -1044,16 +1030,10 @@ impl eframe::App for App {
                 let mut page_content = |ui: &mut Ui| {
                     if settings_layout {
                         crate::theme::reading_column(ui, |ui| {
-                            if needs_workspace {
-                                crate::theme::workspace(ui, &mut content);
-                            } else {
-                                content(ui);
-                            }
+                            crate::theme::workspace(ui, &mut content)
                         });
-                    } else if needs_workspace {
-                        crate::theme::workspace(ui, &mut content);
                     } else {
-                        content(ui);
+                        crate::theme::workspace(ui, &mut content);
                     }
                 };
                 if scroll_page {
@@ -1546,171 +1526,174 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
         state.startup_error = status.error.clone();
     }
     let mut command = None;
-    language_settings(ui, state, crate::i18n::save);
-    ui.checkbox(
-        &mut state.resource_strip,
-        crate::i18n::tr("Show resource cards above processes"),
-    );
-    theme_settings(ui);
-    let a = &mut state.alerts;
-    ui.horizontal_wrapped(|ui| {
+    crate::theme::card(ui, crate::i18n::tr("Language and theme"), |ui| {
+        language_settings(ui, state, crate::i18n::save);
         ui.checkbox(
-            &mut a.enabled,
-            crate::i18n::tr("Pop up when the CPU stays above"),
+            &mut state.resource_strip,
+            crate::i18n::tr("Show resource cards above processes"),
         );
-        ui.add_enabled(
-            a.enabled,
-            egui::Slider::new(&mut a.threshold, 50.0..=100.0)
-                .suffix("%")
-                .text("CPU"),
-        );
-        ui.label(crate::i18n::tr("for"));
-        ui.add_enabled(
-            a.enabled,
-            egui::DragValue::new(&mut a.seconds)
-                .range(1..=120)
-                .suffix(" s"),
-        );
-    })
-    .response
-    .on_hover_text(crate::i18n::tr(
-        "Shows the busiest apps with one-click fixes before the PC becomes unusable",
-    ));
-    ui.checkbox(
-        &mut state.tray_on_close,
-        crate::i18n::tr("Keep running in the tray when the window is closed"),
-    );
-    ui.checkbox(
-        &mut state.check_updates,
-        crate::i18n::tr("Check for updates automatically"),
-    )
-    .on_hover_text(crate::i18n::tr(
-        "Asks GitHub for a newer release at start and twice a day",
-    ));
-    let mut on = *state
-        .autostart
-        .get_or_insert_with(crate::backend::autostart_enabled);
-    let mut administrator = *state
-        .prefer_administrator
-        .get_or_insert_with(|| wtm_core::gui_startup::settings().administrator);
-    let busy = data.gui_startup.as_ref().is_some_and(|s| s.busy);
-    let mut changed = false;
-    ui.add_enabled_ui(!busy, |ui| {
-        changed |= ui
-            .checkbox(
-                &mut administrator,
-                crate::i18n::tr("Always open RustWTM as administrator"),
-            )
-            .changed();
-        changed |= ui
-            .checkbox(
-                &mut on,
-                crate::i18n::tr("Start RustWTM in the tray when I sign in"),
-            )
-            .changed();
+        theme_settings(ui);
     });
-    if changed {
-        if administrator && !data.elevated {
-            command = Some(UiCommand::RestartElevated);
-        } else {
-            state.autostart = Some(on);
-            state.prefer_administrator = Some(administrator);
-            command = Some(UiCommand::ConfigureGuiStartup(
-                wtm_core::gui_startup::Change::Set(wtm_core::gui_startup::Settings {
-                    administrator,
-                    autostart: on,
-                }),
-            ));
-        }
-    }
-    if busy {
-        ui.weak(crate::i18n::tr("Saving startup settings…"));
-    }
-    if let Some(error) = &state.startup_error {
-        crate::theme::colored(
-            ui,
-            BAD,
-            crate::i18n::format(
-                "Startup settings could not be saved: {0}",
-                &[crate::i18n::tr(error).to_owned()],
-            ),
+    crate::theme::card(ui, crate::i18n::tr("Window behavior"), |ui| {
+        let a = &mut state.alerts;
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(
+                &mut a.enabled,
+                crate::i18n::tr("Pop up when the CPU stays above"),
+            );
+            ui.add_enabled(
+                a.enabled,
+                egui::Slider::new(&mut a.threshold, 50.0..=100.0)
+                    .suffix("%")
+                    .text("CPU"),
+            );
+            ui.label(crate::i18n::tr("for"));
+            ui.add_enabled(
+                a.enabled,
+                egui::DragValue::new(&mut a.seconds)
+                    .range(1..=120)
+                    .suffix(" s"),
+            );
+        })
+        .response
+        .on_hover_text(crate::i18n::tr(
+            "Shows the busiest apps with one-click fixes before the PC becomes unusable",
+        ));
+        ui.checkbox(
+            &mut state.tray_on_close,
+            crate::i18n::tr("Keep running in the tray when the window is closed"),
         );
-    }
-    crate::theme::divider(ui);
-    ui.strong(crate::i18n::tr("Windows Task Manager"));
-    if ui
-        .add_enabled(
-            !data.task_manager_busy,
-            egui::Button::new(crate::i18n::tr("Refresh")),
+        ui.checkbox(
+            &mut state.check_updates,
+            crate::i18n::tr("Check for updates automatically"),
         )
-        .clicked()
-    {
-        command = Some(UiCommand::TaskManager(None));
-    }
-    ui.label(crate::i18n::tr(
-        "Open RustWTM whenever Windows starts Task Manager. Applies to all users.",
-    ));
-    use wtm_core::task_manager::State as TaskManager;
-    match &data.task_manager {
-        Some(Ok(status)) => {
-            let mut enabled = *status == TaskManager::RustWTM;
-            if ui
-                .add_enabled(
-                    data.elevated && !data.task_manager_busy && *status != TaskManager::Other,
-                    egui::Checkbox::new(
-                        &mut enabled,
-                        crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc"),
-                    ),
+        .on_hover_text(crate::i18n::tr(
+            "Asks GitHub for a newer release at start and twice a day",
+        ));
+        let mut on = *state
+            .autostart
+            .get_or_insert_with(crate::backend::autostart_enabled);
+        let mut administrator = *state
+            .prefer_administrator
+            .get_or_insert_with(|| wtm_core::gui_startup::settings().administrator);
+        let busy = data.gui_startup.as_ref().is_some_and(|s| s.busy);
+        let mut changed = false;
+        ui.add_enabled_ui(!busy, |ui| {
+            changed |= ui
+                .checkbox(
+                    &mut administrator,
+                    crate::i18n::tr("Always open RustWTM as administrator"),
                 )
-                .changed()
-            {
-                command = Some(UiCommand::TaskManager(Some(enabled)));
-            }
-            if *status == TaskManager::Other {
-                ui.weak(crate::i18n::tr(
-                    "Another application currently replaces Task Manager. Restore it there first.",
+                .changed();
+            changed |= ui
+                .checkbox(
+                    &mut on,
+                    crate::i18n::tr("Start RustWTM in the tray when I sign in"),
+                )
+                .changed();
+        });
+        if changed {
+            if administrator && !data.elevated {
+                command = Some(UiCommand::RestartElevated);
+            } else {
+                state.autostart = Some(on);
+                state.prefer_administrator = Some(administrator);
+                command = Some(UiCommand::ConfigureGuiStartup(
+                    wtm_core::gui_startup::Change::Set(wtm_core::gui_startup::Settings {
+                        administrator,
+                        autostart: on,
+                    }),
                 ));
             }
-            if !data.elevated
-                && *status != TaskManager::Other
-                && ui
-                    .button(crate::i18n::tr("Restart as administrator"))
+        }
+        if busy {
+            ui.weak(crate::i18n::tr("Saving startup settings…"));
+        }
+        if let Some(error) = &state.startup_error {
+            crate::theme::colored(
+                ui,
+                BAD,
+                crate::i18n::format(
+                    "Startup settings could not be saved: {0}",
+                    &[crate::i18n::tr(error).to_owned()],
+                ),
+            );
+        }
+    });
+    crate::theme::card(ui, crate::i18n::tr("Windows Task Manager"), |ui| {
+        if ui
+            .add_enabled(
+                !data.task_manager_busy,
+                egui::Button::new(crate::i18n::tr("Refresh")),
+            )
+            .clicked()
+        {
+            command = Some(UiCommand::TaskManager(None));
+        }
+        ui.label(crate::i18n::tr(
+            "Open RustWTM whenever Windows starts Task Manager. Applies to all users.",
+        ));
+        use wtm_core::task_manager::State as TaskManager;
+        match &data.task_manager {
+            Some(Ok(status)) => {
+                let mut enabled = *status == TaskManager::RustWTM;
+                if ui
+                    .add_enabled(
+                        data.elevated && !data.task_manager_busy && *status != TaskManager::Other,
+                        egui::Checkbox::new(
+                            &mut enabled,
+                            crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc"),
+                        ),
+                    )
+                    .changed()
+                {
+                    command = Some(UiCommand::TaskManager(Some(enabled)));
+                }
+                if *status == TaskManager::Other {
+                    ui.weak(crate::i18n::tr(
+                    "Another application currently replaces Task Manager. Restore it there first.",
+                ));
+                }
+                if !data.elevated
+                    && *status != TaskManager::Other
+                    && ui
+                        .button(crate::i18n::tr("Restart as administrator"))
+                        .clicked()
+                {
+                    command = Some(UiCommand::RestartElevated);
+                }
+                ui.weak(crate::i18n::tr("Requires an administrator-protected installation. Turn this off to restore Windows Task Manager."));
+            }
+            Some(Err(error)) => {
+                crate::theme::colored(ui, BAD, error);
+                if !data.elevated
+                    && ui
+                        .button(crate::i18n::tr("Restart as administrator"))
+                        .clicked()
+                {
+                    command = Some(UiCommand::RestartElevated);
+                }
+                if ui
+                    .add_enabled(
+                        !data.task_manager_busy,
+                        egui::Button::new(crate::i18n::tr("Retry")),
+                    )
                     .clicked()
-            {
-                command = Some(UiCommand::RestartElevated);
+                {
+                    command = Some(UiCommand::TaskManager(None));
+                }
             }
-            ui.weak(crate::i18n::tr("Requires an administrator-protected installation. Turn this off to restore Windows Task Manager."));
-        }
-        Some(Err(error)) => {
-            crate::theme::colored(ui, BAD, error);
-            if !data.elevated
-                && ui
-                    .button(crate::i18n::tr("Restart as administrator"))
-                    .clicked()
-            {
-                command = Some(UiCommand::RestartElevated);
-            }
-            if ui
-                .add_enabled(
-                    !data.task_manager_busy,
-                    egui::Button::new(crate::i18n::tr("Retry")),
-                )
-                .clicked()
-            {
-                command = Some(UiCommand::TaskManager(None));
+            None => {
+                ui.weak(crate::i18n::tr("Checking Task Manager integration…"));
             }
         }
-        None => {
-            ui.weak(crate::i18n::tr("Checking Task Manager integration…"));
+        if data.task_manager_busy {
+            ui.weak(crate::i18n::tr("Saving Task Manager settings…"));
         }
-    }
-    if data.task_manager_busy {
-        ui.weak(crate::i18n::tr("Saving Task Manager settings…"));
-    }
-    if let Some(error) = &data.task_manager_error {
-        crate::theme::colored(ui, BAD, crate::i18n::message(error));
-    }
-    ui.add_space(0.0);
+        if let Some(error) = &data.task_manager_error {
+            crate::theme::colored(ui, BAD, crate::i18n::message(error));
+        }
+    });
     command
 }
 
@@ -1740,7 +1723,7 @@ fn page_header_with_inspector(
     mut inspector: Option<&mut crate::workspace_inspector::Mode>,
 ) {
     egui::Frame::new()
-        .inner_margin(crate::theme::CONTENT_PADDING)
+        .inner_margin(crate::theme::PAGE_PADDING)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing = crate::theme::CONTENT_SPACING;
@@ -3291,33 +3274,71 @@ fn managed_table(ui: &mut Ui, status: &wtm_ipc::Status) {
         2 => text(&sources(a), &sources(b)),
         _ => text(&a.summary, &b.summary),
     });
-    egui::Grid::new("managed_grid")
-        .num_columns(4)
-        .striped(true)
-        .spacing([8.0, 4.0])
+    let row_height = ui.spacing().interact_size.y;
+    egui::ScrollArea::horizontal()
+        .id_salt("managed_columns")
+        .auto_shrink([false, true])
         .show(ui, |ui| {
-            for (col, label) in [
-                "PID",
-                crate::i18n::tr("Name"),
-                crate::i18n::tr("Source"),
-                crate::i18n::tr("Effective limits"),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                header(ui, label, col, col == 0, &mut sort);
-            }
-            crate::theme::end_row(ui);
-            for m in rows {
-                crate::theme::right(ui, m.target.pid.to_string());
-                ui.label(&m.target.name);
-                ui.label(sources(m));
-                ui.horizontal(|ui| {
-                    ui.label(crate::i18n::message(&m.summary).as_ref());
-                    crate::theme::fill_row(ui);
+            ui.set_min_width(680.0);
+            crate::theme::table(ui)
+                .id_salt("managed_table")
+                .striped(true)
+                .resizable(true)
+                .auto_shrink([false, true])
+                .min_scrolled_height(0.0)
+                .max_scroll_height(320.0)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                .column(Column::initial(64.0))
+                .column(Column::initial(220.0).clip(true))
+                .column(Column::initial(160.0).clip(true))
+                .column(Column::remainder().at_least(200.0).clip(true))
+                .header(row_height, |mut row| {
+                    for (col, label) in [
+                        "PID",
+                        crate::i18n::tr("Name"),
+                        crate::i18n::tr("Source"),
+                        crate::i18n::tr("Effective limits"),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        row.col(|ui| {
+                            crate::theme::table_cell(ui, |ui| {
+                                header(ui, label, col, col == 0, &mut sort)
+                            })
+                        });
+                    }
+                })
+                .body(|body| {
+                    body.rows(row_height, rows.len(), |mut row| {
+                        let managed = rows[row.index()];
+                        row.col(|ui| {
+                            crate::theme::table_cell(ui, |ui| {
+                                crate::theme::right(ui, managed.target.pid.to_string())
+                            })
+                        });
+                        row.col(|ui| {
+                            crate::theme::table_cell(ui, |ui| {
+                                ui.add(egui::Label::new(&managed.target.name).truncate())
+                                    .on_hover_text(&managed.target.name);
+                            })
+                        });
+                        row.col(|ui| {
+                            crate::theme::table_cell(ui, |ui| {
+                                let value = sources(managed);
+                                ui.add(egui::Label::new(&value).truncate())
+                                    .on_hover_text(value);
+                            })
+                        });
+                        row.col(|ui| {
+                            crate::theme::table_cell(ui, |ui| {
+                                let value = crate::i18n::message(&managed.summary);
+                                ui.add(egui::Label::new(value.as_ref()).truncate())
+                                    .on_hover_text(value.as_ref());
+                            })
+                        });
+                    })
                 });
-                crate::theme::end_row(ui);
-            }
         });
     sort.store(ui, "managed");
 }
@@ -4261,7 +4282,38 @@ mod tests {
         h.get_by_label("Copy system summary").click();
         h.step();
         assert!(h.output().platform_output.commands.iter().any(|command|
-            matches!(command, egui::OutputCommand::CopyText(text) if text.contains("CPU: —") && text.contains("GPU: —") && !text.contains("NaN"))));
+            matches!(command, egui::OutputCommand::CopyText(text) if text.contains("Example processor") && !text.contains("NaN"))));
+    }
+
+    #[test]
+    fn desktop_contract_copy_contains_hardware_identity() {
+        let (mut h, _) = overview_app(data());
+        h.state_mut().state.tab = Tab::Processes;
+        h.run_steps(3);
+        h.get_by_label("Copy system summary").click();
+        h.step();
+        assert!(h.output().platform_output.commands.iter().any(|command|
+            matches!(command, egui::OutputCommand::CopyText(text) if text.contains("Example processor") && !text.contains("42.0%"))), "copy must describe hardware, not current utilization");
+    }
+
+    #[test]
+    fn desktop_contract_resource_cards_align_with_page_heading() {
+        let (mut h, _) = overview_app(data());
+        for tab in [Tab::Overview, Tab::Processes] {
+            h.state_mut().state.tab = tab;
+            h.run_steps(3);
+            let heading = h
+                .get_all_by_label(tab.label())
+                .filter(|n| n.rect().top() < 60.0)
+                .max_by(|a, b| a.rect().min.x.total_cmp(&b.rect().min.x))
+                .unwrap()
+                .rect();
+            let card = h.get_by_label_contains("CPU: 42%").rect();
+            assert!(
+                (heading.left() - card.left()).abs() < 1.0,
+                "{tab:?}: heading and resource card must share the page gutter: {heading:?}, {card:?}"
+            );
+        }
     }
 
     #[test]
@@ -4273,7 +4325,7 @@ mod tests {
         h.get_by_label("Copy system summary").click();
         h.step();
         assert!(h.output().platform_output.commands.iter().any(|command|
-            matches!(command, egui::OutputCommand::CopyText(text) if text.contains("CPU: 42.0%") && text.contains("Memory: 8.0 GiB / 16.0 GiB"))));
+            matches!(command, egui::OutputCommand::CopyText(text) if text.contains("Example processor") && !text.contains("CPU: 42.0%"))));
         h.get_by_label("alpha.exe").click();
         h.run_steps(3);
         assert!(h.query_by_label("Process inspector").is_some());

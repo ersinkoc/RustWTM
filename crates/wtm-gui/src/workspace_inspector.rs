@@ -119,36 +119,6 @@ fn rate(value: f64) -> String {
     }
 }
 
-pub fn summary(data: &Data) -> Option<String> {
-    let s = &data.snapshot.as_ref()?.system;
-    let memory = if s.memory_total > 0 && s.memory_available <= s.memory_total {
-        format!(
-            "{} / {}",
-            format_bytes(s.memory_used() as f64),
-            format_bytes(s.memory_total as f64)
-        )
-    } else {
-        "—".into()
-    };
-    Some(format!(
-        "CPU: {}\n{}: {}\n{}: {}\n{}: {}\n{}: {}\nGPU: {}\n{}: {}\n{}: {}",
-        percent(s.cpu_percent, s.logical_cpus > 0, 1),
-        crate::i18n::tr("Logical processors"),
-        s.logical_cpus,
-        crate::i18n::tr("Memory"),
-        memory,
-        crate::i18n::tr("Processes"),
-        s.process_count,
-        crate::i18n::tr("Threads"),
-        s.thread_count,
-        percent(s.gpu_percent, !s.gpu_engines.is_empty(), 1),
-        crate::i18n::tr("Receive"),
-        rate(s.net_rx_rate),
-        crate::i18n::tr("Send"),
-        rate(s.net_tx_rate)
-    ))
-}
-
 pub fn show(ui: &mut Ui, data: &Data) {
     use crate::navigation::Icon;
     ui.horizontal(|ui| {
@@ -167,15 +137,26 @@ pub fn show(ui: &mut Ui, data: &Data) {
         });
     });
     ui.add_space(0.0);
+    let summary = crate::inventory::clipboard_summary(ui);
+    let ready = matches!(summary, crate::inventory::ClipboardSummary::Ready(_));
     if ui
         .add_enabled(
-            data.snapshot.is_some(),
+            ready,
             egui::Button::new(crate::i18n::tr("Copy system summary")).small(),
         )
         .clicked()
-        && let Some(text) = summary(data)
+        && let crate::inventory::ClipboardSummary::Ready(text) = &summary
     {
-        ui.ctx().copy_text(text);
+        ui.ctx().copy_text(text.clone());
+    }
+    match summary {
+        crate::inventory::ClipboardSummary::Loading => {
+            ui.weak(crate::i18n::tr("Reading hardware details…"));
+        }
+        crate::inventory::ClipboardSummary::Unavailable => {
+            ui.weak(crate::i18n::tr("Hardware details unavailable"));
+        }
+        crate::inventory::ClipboardSummary::Ready(_) => {}
     }
     ui.add_space(0.0);
     let Some(snapshot) = &data.snapshot else {

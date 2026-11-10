@@ -501,20 +501,19 @@ fn file_activity(ui: &mut Ui, data: &Data) {
 }
 
 fn analysis(ui: &mut Ui, view: &mut DisksView) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.label(crate::i18n::tr("Folder:"));
         let edit = ui.add(
             egui::TextEdit::singleline(&mut view.path)
                 .hint_text(r"C:\Users")
-                .desired_width(360.0),
+                .desired_width((ui.available_width() - 120.0).clamp(120.0, 360.0)),
         );
         let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if view.scanning() {
             if ui.button(crate::i18n::tr("Stop")).clicked() {
                 view.cancel();
             }
-        } else if ui
-            .button(crate::i18n::tr("Analyze"))
+        } else if crate::theme::primary_action(ui, true, crate::i18n::tr("Analyze"))
             .on_hover_text(crate::i18n::tr(
                 "Runs in the background at low priority; the PC stays responsive",
             ))

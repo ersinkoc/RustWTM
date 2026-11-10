@@ -7288,5 +7288,47 @@
     "de": "Version",
     "fr": "Version",
     "es": "Versión"
+  },
+  "Part number": {
+    "tr": "Parça numarası",
+    "de": "Teilenummer",
+    "fr": "Référence",
+    "es": "Número de pieza"
+  },
+  "Physical cores": {
+    "tr": "Fiziksel çekirdekler",
+    "de": "Physische Kerne",
+    "fr": "Cœurs physiques",
+    "es": "Núcleos físicos"
+  },
+  "Actions": {
+    "tr": "İşlemler",
+    "de": "Aktionen",
+    "fr": "Actions",
+    "es": "Acciones"
+  },
+  "Window behavior": {
+    "tr": "Pencere davranışı",
+    "de": "Fensterverhalten",
+    "fr": "Comportement de la fenêtre",
+    "es": "Comportamiento de la ventana"
+  },
+  "Window": {
+    "tr": "Pencere",
+    "de": "Fenster",
+    "fr": "Fenêtre",
+    "es": "Ventana"
+  },
+  "Charts": {
+    "tr": "Grafikler",
+    "de": "Diagramme",
+    "fr": "Graphiques",
+    "es": "Gráficos"
+  },
+  "Service": {
+    "tr": "Hizmet",
+    "de": "Dienst",
+    "fr": "Service",
+    "es": "Servicio"
   }
 }

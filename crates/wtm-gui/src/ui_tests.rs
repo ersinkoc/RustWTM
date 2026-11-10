@@ -526,7 +526,8 @@ fn user_session_actions_are_reachable_in_a_narrow_window() {
             });
         h.run_steps(3);
         if width < 1000.0 {
-            h.event(Event::PointerMoved(egui::pos2(400.0, 80.0)));
+            let row = h.get_by_label("rdp-tcp#12345").rect();
+            h.event(Event::PointerMoved(row.center()));
             h.event(Event::MouseWheel {
                 unit: MouseWheelUnit::Point,
                 delta: egui::vec2(-2000.0, 0.0),

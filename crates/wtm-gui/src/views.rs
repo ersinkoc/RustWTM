@@ -61,39 +61,82 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
         _ => ta.2.cmp(&tb.2),
     });
     let mut request = None;
-    crate::theme::table_panel(ui, "users", 900.0, |ui| {
-        egui::ScrollArea::vertical()
+    let row_height = ui.spacing().interact_size.y;
+    crate::theme::table_panel(ui, "users", 1100.0, |ui| {
+        crate::theme::table(ui)
             .id_salt("user_sessions")
-            .show(ui, |ui| {
-                egui::Grid::new("users_grid")
-                    .num_columns(8)
-                    .striped(true)
-                    .show(ui, |ui| {
-                        for (col, (h, numeric)) in [
-                            (crate::i18n::tr("User"), false),
-                            (crate::i18n::tr("Session"), true),
-                            (crate::i18n::tr("Station"), false),
-                            (crate::i18n::tr("State"), false),
-                            (crate::i18n::tr("Processes"), true),
-                            ("CPU", true),
-                            (crate::i18n::tr("Memory"), true),
-                        ]
-                        .into_iter()
-                        .enumerate()
-                        {
-                            header(ui, h, col, numeric, &mut sort);
-                        }
-                        crate::theme::end_row(ui);
-                        for (s, (count, cpu, mem)) in rows {
-                            ui.label(account(s));
-                            right(ui, s.id.to_string());
-                            ui.label(&s.station);
-                            ui.label(crate::i18n::debug(s.state));
-                            right(ui, count.to_string());
-                            right(ui, format!("{cpu:.1}%"));
-                            right(ui, format_bytes(mem as f64));
+            .striped(true)
+            .resizable(true)
+            .auto_shrink([false, true])
+            .min_scrolled_height(0.0)
+            .cell_layout(Layout::left_to_right(Align::Center))
+            .column(Column::initial(200.0).clip(true))
+            .column(Column::initial(72.0))
+            .column(Column::initial(120.0).clip(true))
+            .column(Column::initial(108.0).clip(true))
+            .column(Column::initial(104.0))
+            .column(Column::initial(90.0))
+            .column(Column::initial(120.0))
+            .column(Column::remainder().at_least(264.0))
+            .header(row_height, |mut row| {
+                for (col, (label, numeric)) in [
+                    (crate::i18n::tr("User"), false),
+                    (crate::i18n::tr("Session"), true),
+                    (crate::i18n::tr("Station"), false),
+                    (crate::i18n::tr("State"), false),
+                    (crate::i18n::tr("Processes"), true),
+                    ("CPU", true),
+                    (crate::i18n::tr("Memory"), true),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            header(ui, label, col, numeric, &mut sort)
+                        })
+                    });
+                }
+                row.col(|ui| {
+                    crate::theme::table_cell(ui, |ui| {
+                        ui.weak(crate::i18n::tr("Actions"));
+                    })
+                });
+            })
+            .body(|body| {
+                body.rows(row_height, rows.len(), |mut row| {
+                    let (session, (count, cpu, memory)) = rows[row.index()];
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.add(egui::Label::new(account(session)).truncate())
+                                .on_hover_text(account(session));
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| right(ui, session.id.to_string()))
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.add(egui::Label::new(&session.station).truncate())
+                                .on_hover_text(&session.station);
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(crate::i18n::debug(session.state));
+                        })
+                    });
+                    row.col(|ui| crate::theme::table_cell(ui, |ui| right(ui, count.to_string())));
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| right(ui, format!("{cpu:.1}%")))
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| right(ui, format_bytes(memory as f64)))
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
                             ui.horizontal(|ui| {
-                                if s.state != wtm_core::SessionState::Disconnected
+                                if session.state != wtm_core::SessionState::Disconnected
                                     && ui
                                         .small_button(crate::i18n::tr("Disconnect"))
                                         .on_hover_text(crate::i18n::tr(
@@ -101,20 +144,21 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
                                         ))
                                         .clicked()
                                 {
-                                    request = Some((s.id, account(s), SessionOp::Disconnect));
+                                    request =
+                                        Some((session.id, account(session), SessionOp::Disconnect));
                                 }
                                 if ui
                                     .small_button(crate::i18n::tr("Sign off"))
                                     .on_hover_text(crate::i18n::tr("Closes the user's programs"))
                                     .clicked()
                                 {
-                                    request = Some((s.id, account(s), SessionOp::SignOff));
+                                    request =
+                                        Some((session.id, account(session), SessionOp::SignOff));
                                 }
-                                crate::theme::fill_row(ui);
                             });
-                            crate::theme::end_row(ui);
-                        }
+                        })
                     });
+                })
             });
     });
     sort.store(ui, "users");

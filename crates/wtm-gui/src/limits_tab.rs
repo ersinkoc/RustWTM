@@ -431,11 +431,7 @@ egui::Grid::new("app_limits_grid")
             let valid = !candidate.name.is_empty()
                 && (candidate.cpu_cores.is_some() || candidate.memory_gb.is_some());
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .add_enabled(
-                        admin && valid,
-                        egui::Button::new(crate::i18n::tr("Save limit")),
-                    )
+                if crate::theme::primary_action(ui, admin && valid, crate::i18n::tr("Save limit"))
                     .clicked()
                 {
                     match view.apply(text) {

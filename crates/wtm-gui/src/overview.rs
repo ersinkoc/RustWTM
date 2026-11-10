@@ -73,7 +73,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                 .gamma_multiply(0.75),
         ))
         .corner_radius(0.0)
-        .inner_margin(egui::Margin::symmetric(8, 6))
+        .inner_margin(crate::theme::CONTENT_PADDING)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.set_height(STAT_HEIGHT - 24.0);
@@ -185,9 +185,9 @@ fn stat_row(ui: &mut Ui, stats: &[Stat<'_>], intents: &mut Vec<Intent>) {
     } else {
         2
     };
-    for chunk in stats.chunks(per_row.max(1)) {
-        ui.scope(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        for chunk in stats.chunks(per_row.max(1)) {
             ui.columns(chunk.len(), |cols| {
                 for (col, s) in cols.iter_mut().zip(chunk) {
                     if stat_card(col, s).clicked() {
@@ -195,9 +195,8 @@ fn stat_row(ui: &mut Ui, stats: &[Stat<'_>], intents: &mut Vec<Intent>) {
                     }
                 }
             });
-        });
-        ui.add_space(4.0);
-    }
+        }
+    });
 }
 
 fn rate(bytes_per_sec: f64) -> String {

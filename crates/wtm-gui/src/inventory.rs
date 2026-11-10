@@ -10,7 +10,7 @@ const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $items = @()
 foreach ($spec in @(
- @('CPU','Win32_Processor',@('Name','Manufacturer')),
+ @('CPU','Win32_Processor',@('Name','Manufacturer','NumberOfCores','NumberOfLogicalProcessors')),
  @('Motherboard','Win32_BaseBoard',@('Manufacturer','Product','Version')),
  @('RAM','Win32_PhysicalMemory',@('Manufacturer','PartNumber','Capacity','ConfiguredClockSpeed','DeviceLocator')),
  @('Disk','Win32_DiskDrive',@('Index','Manufacturer','Model','Size','InterfaceType')),
@@ -278,6 +278,109 @@ pub fn resource_identities(ui: &Ui) -> Identities {
     }
 }
 
+fn formatted_fields(item: &Item) -> Vec<(&'static str, String)> {
+    item.fields
+        .iter()
+        .filter_map(|raw| {
+            let (key, _) = raw.split_once(": ")?;
+            let value = field(item, key)?;
+            let label = match key {
+                "Name" | "Product" | "Model" => "Model",
+                "PartNumber" => "Part number",
+                "Manufacturer" | "AdapterCompatibility" => "Manufacturer",
+                "Capacity" | "Size" => "Capacity",
+                "ConfiguredClockSpeed" => "Memory speed",
+                "DeviceLocator" => "Slot",
+                "NumberOfCores" => "Physical cores",
+                "NumberOfLogicalProcessors" => "Logical processors",
+                "DriverVersion" => "Driver version",
+                "InterfaceType" => "Interface",
+                "Version" => "Version",
+                _ => return None,
+            };
+            let display = match key {
+                "Capacity" | "Size" => value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|v| *v > 0)
+                    .map(|v| wtm_core::format_bytes(v as f64))
+                    .unwrap_or_else(|| "—".into()),
+                "ConfiguredClockSpeed" => {
+                    if value == "0" {
+                        "—".into()
+                    } else {
+                        format!("{value} MHz")
+                    }
+                }
+                "NumberOfCores" | "NumberOfLogicalProcessors" if value == "0" => "—".into(),
+                _ => value.to_owned(),
+            };
+            Some((label, display))
+        })
+        .collect()
+}
+
+fn summary_text(items: &[Item]) -> Option<String> {
+    let mut text = crate::i18n::tr("System overview").to_owned();
+    let mut any = false;
+    let mut counts = std::collections::HashMap::<&str, usize>::new();
+    for item in items {
+        let fields = formatted_fields(item);
+        let count = counts.entry(&item.kind).or_default();
+        *count += 1;
+        let title = if item.kind == "Disk" {
+            field(item, "Index")
+                .and_then(|v| v.parse::<u32>().ok())
+                .map(|v| format!("{} {v}", crate::i18n::tr("Disk")))
+                .unwrap_or_else(|| crate::i18n::tr("Disk").into())
+        } else if item.kind == "RAM" || items.iter().filter(|v| v.kind == item.kind).count() > 1 {
+            format!("{} {}", crate::i18n::tr(&item.kind), count)
+        } else {
+            crate::i18n::tr(&item.kind).to_owned()
+        };
+        while text.ends_with('\n') {
+            text.pop();
+        }
+        text.push_str(&format!("\n\n{title}\n"));
+        if fields.is_empty() {
+            text.push_str(crate::i18n::tr("Hardware details unavailable"));
+            text.push('\n');
+        }
+        for (label, value) in fields {
+            any = true;
+            text.push_str(&format!("  {}: {value}\n", crate::i18n::tr(label)));
+        }
+    }
+    any.then(|| text.trim_end().to_owned())
+}
+
+pub enum ClipboardSummary {
+    Loading,
+    Unavailable,
+    Ready(String),
+}
+
+pub fn clipboard_summary(ui: &Ui) -> ClipboardSummary {
+    let shared = state(ui);
+    let inventory = shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match inventory.as_ref() {
+        None => ClipboardSummary::Loading,
+        Some(Ok(items)) => summary_text(items)
+            .map(ClipboardSummary::Ready)
+            .unwrap_or(ClipboardSummary::Unavailable),
+        Some(Err(_)) => ClipboardSummary::Unavailable,
+    }
+}
+
+#[cfg(test)]
+pub fn set_test_inventory(ctx: &egui::Context, result: Option<Result<&[u8], &str>>) {
+    let inventory = result.map(|r| r.map_err(str::to_owned).and_then(parse));
+    let shared: Shared = Arc::new(Mutex::new(inventory));
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("hardware-inventory"), shared));
+}
+
 pub fn show(ui: &mut Ui) {
     ui.add_space(4.0);
     ui.strong(crate::i18n::tr("Hardware details"));
@@ -301,51 +404,7 @@ pub fn show(ui: &mut Ui) {
                     if item.fields.is_empty() {
                         ui.weak(crate::i18n::tr("Hardware details unavailable"));
                     }
-                    for field in &item.fields {
-                        let (key, value) = field.split_once(": ").unwrap_or(("", field));
-                        let value = value.trim();
-                        if key == "Index" {
-                            continue;
-                        }
-                        if [
-                            "unknown",
-                            "default string",
-                            "to be filled by o.e.m.",
-                            "system manufacturer",
-                            "system product name",
-                            "(Standard disk drives)",
-                        ]
-                        .iter()
-                        .any(|p| value.eq_ignore_ascii_case(p))
-                        {
-                            continue;
-                        }
-                        let label = match key {
-                            "Name" | "Product" | "Model" | "PartNumber" => "Model",
-                            "Manufacturer" | "AdapterCompatibility" => "Manufacturer",
-                            "Capacity" | "Size" => "Capacity",
-                            "ConfiguredClockSpeed" => "Memory speed",
-                            "DeviceLocator" => "Slot",
-                            "DriverVersion" => "Driver version",
-                            "InterfaceType" => "Interface",
-                            _ => "Version",
-                        };
-                        let display = if matches!(key, "Capacity" | "Size") {
-                            value
-                                .parse::<u64>()
-                                .ok()
-                                .filter(|n| *n > 0)
-                                .map(|n| wtm_core::format_bytes(n as f64))
-                                .unwrap_or_else(|| "—".into())
-                        } else if key == "ConfiguredClockSpeed" {
-                            if value == "0" {
-                                "—".into()
-                            } else {
-                                format!("{value} MHz")
-                            }
-                        } else {
-                            value.to_owned()
-                        };
+                    for (label, display) in formatted_fields(item) {
                         ui.horizontal_wrapped(|ui| {
                             ui.weak(crate::i18n::tr(label));
                             ui.label(display);
@@ -360,11 +419,88 @@ pub fn show(ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    const SUMMARY_FIXTURE: &[u8] = br#"[
+        {"kind":"CPU","fields":["Name: Example CPU","Manufacturer: Example CPU maker","NumberOfCores: 16","NumberOfLogicalProcessors: 32"]},
+        {"kind":"Motherboard","fields":["Manufacturer: Board maker","Product: Mainboard model","Version: Rev 1"]},
+        {"kind":"RAM","fields":["Manufacturer: RAM maker","PartNumber: DIMM-32","Capacity: 34359738368","ConfiguredClockSpeed: 3600","DeviceLocator: DIMM A1"]},
+        {"kind":"Disk","fields":["Index: 2","Manufacturer: (Standard disk drives)","Model: Example SSD","Size: 1099511627776","InterfaceType: SCSI"]},
+        {"kind":"GPU","fields":["Name: Example graphics","AdapterCompatibility: Graphics maker","DriverVersion: 1.2.3"]}
+    ]"#;
+
+    #[test]
+    fn clipboard_summary_contains_inventory_fields_without_live_utilization() {
+        let _language = crate::i18n::scope(crate::i18n::Language::English);
+        let text = summary_text(&parse(SUMMARY_FIXTURE).unwrap()).unwrap();
+        for expected in [
+            "Example CPU",
+            "Physical cores: 16",
+            "Logical processors: 32",
+            "Board maker",
+            "Mainboard model",
+            "Rev 1",
+            "RAM maker",
+            "Part number: DIMM-32",
+            "32.0 GiB",
+            "3600 MHz",
+            "DIMM A1",
+            "Disk 2",
+            "Example SSD",
+            "1.0 TiB",
+            "SCSI",
+            "Example graphics",
+            "Graphics maker",
+            "Driver version: 1.2.3",
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+        assert!(!text.contains('%'));
+        assert!(!text.contains("Standard disk drives"));
+        assert!(summary_text(&[]).is_none());
+        assert!(summary_text(&parse(br#"[{"kind":"CPU","fields":[]}]"#).unwrap()).is_none());
+    }
+
+    #[test]
+    fn copy_waits_for_inventory_and_handles_errors_without_snapshot_fallback() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let mut h = egui_kittest::Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([450.0, 700.0])
+            .build_ui(|ui| crate::workspace_inspector::show(ui, &crate::backend::Data::default()));
+        set_test_inventory(&h.ctx, None);
+        h.run();
+        assert!(
+            h.get_by_label("Copy system summary")
+                .accesskit_node()
+                .is_disabled()
+        );
+        assert!(h.query_by_label("Reading hardware details…").is_some());
+        set_test_inventory(&h.ctx, Some(Err("injected inventory failure")));
+        h.run();
+        assert!(
+            h.get_by_label("Copy system summary")
+                .accesskit_node()
+                .is_disabled()
+        );
+        assert!(h.query_by_label("Hardware details unavailable").is_some());
+        set_test_inventory(&h.ctx, Some(Ok(SUMMARY_FIXTURE)));
+        h.run();
+        assert!(
+            !h.get_by_label("Copy system summary")
+                .accesskit_node()
+                .is_disabled()
+        );
+        h.get_by_label("Copy system summary").click();
+        h.step();
+        assert!(h.output().platform_output.commands.iter().any(|command| matches!(command,
+            egui::OutputCommand::CopyText(text) if text.contains("Example SSD") && text.contains("DIMM-32") && !text.contains('%'))));
+    }
+
     #[test]
     #[ignore = "reads local CIM inventory; run explicitly for a read-only hardware smoke"]
     fn local_inventory_smoke() {
         let items = collect().expect("bounded local inventory");
         assert!(!items.is_empty());
+        println!("{}", summary_text(&items).expect("hardware summary"));
         for item in items {
             println!("{}: {}", item.kind, item.fields.join(" | "));
         }

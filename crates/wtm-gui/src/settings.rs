@@ -27,19 +27,89 @@ impl Page {
 
 /// The bar of Settings pages.
 pub fn page_bar(ui: &mut Ui, page: &mut Page) {
-    ui.horizontal_wrapped(|ui| {
-        for (p, label) in [
-            (Page::Window, crate::i18n::tr("This window")),
-            (Page::Appearance, crate::i18n::tr("Appearance")),
-            (Page::Processes, crate::i18n::tr("Process workspace")),
-            (Page::Charts, crate::i18n::tr("Charts and history")),
-            (Page::Service, crate::i18n::tr("Service settings")),
-            (Page::File, "config.toml"),
-            (Page::Telegram, "Telegram"),
-        ] {
-            crate::theme::choice(ui, page, p, RichText::new(label).size(15.0));
-        }
-    });
+    egui::Frame::new()
+        .inner_margin(egui::Margin {
+            left: 12,
+            right: 12,
+            top: 0,
+            bottom: 8,
+        })
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
+            let width = ui.available_width();
+            let compact = width < 820.0;
+            let tight = width < 620.0;
+            let tabs = [
+                (
+                    Page::Window,
+                    crate::i18n::tr("This window"),
+                    crate::i18n::tr("Window"),
+                ),
+                (
+                    Page::Appearance,
+                    crate::i18n::tr("Appearance"),
+                    crate::i18n::tr("Theme"),
+                ),
+                (
+                    Page::Processes,
+                    crate::i18n::tr("Process workspace"),
+                    crate::i18n::tr("Processes"),
+                ),
+                (
+                    Page::Charts,
+                    crate::i18n::tr("Charts and history"),
+                    crate::i18n::tr("Charts"),
+                ),
+                (
+                    Page::Service,
+                    crate::i18n::tr("Service settings"),
+                    crate::i18n::tr("Service"),
+                ),
+                (Page::File, "config.toml", crate::i18n::tr("File")),
+                (Page::Telegram, "Telegram", "Telegram"),
+            ];
+            let mut render = |ui: &mut Ui, p, label: &str, short: &str| {
+                let response = crate::theme::choice(
+                    ui,
+                    page,
+                    p,
+                    RichText::new(if compact { short } else { label }).size(if compact {
+                        13.0
+                    } else {
+                        15.0
+                    }),
+                );
+                response.widget_info(|| {
+                    egui::WidgetInfo::selected(
+                        egui::Role::Button,
+                        ui.is_enabled(),
+                        *page == p,
+                        label,
+                    )
+                });
+                response.on_hover_text(label);
+            };
+            if tight {
+                let cell = ((width - 12.0) / 4.0).max(0.0);
+                for row in tabs.chunks(4) {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        for &(p, label, short) in row {
+                            ui.allocate_ui(egui::vec2(cell, 28.0), |ui| {
+                                ui.set_width(cell);
+                                render(ui, p, label, short);
+                            });
+                        }
+                    });
+                }
+            } else {
+                ui.horizontal_wrapped(|ui| {
+                    for (p, label, short) in tabs {
+                        render(ui, p, label, short);
+                    }
+                });
+            }
+        });
     crate::theme::divider(ui);
 }
 
@@ -152,13 +222,13 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
             ),
         );
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let label = if view.conflict {
             crate::i18n::tr("Save and replace the other changes")
         } else {
             crate::i18n::tr("Save")
         };
-        let save = ui.add_enabled(admin && dirty && valid.is_ok(), egui::Button::new(label));
+        let save = crate::theme::primary_action(ui, admin && dirty && valid.is_ok(), label);
         if save.clicked() {
             commands.push(UiCommand::SaveConfig(view.text.clone()));
         }
@@ -558,6 +628,52 @@ mod toml_edit_value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn settings_tabs_keep_balanced_rows_and_accessible_names() {
+        use egui_kittest::kittest::Queryable;
+        for language in [
+            crate::i18n::Language::English,
+            crate::i18n::Language::Turkish,
+            crate::i18n::Language::German,
+            crate::i18n::Language::French,
+            crate::i18n::Language::Spanish,
+        ] {
+            let _scope = crate::i18n::scope(language);
+            for width in [420.0, 740.0] {
+                let mut h = egui_kittest::Harness::builder()
+                    .allow_missing_glyphs()
+                    .with_size([width, 200.0])
+                    .build_ui_state(page_bar, Page::Window);
+                h.run();
+                let first = h.get_by_label(crate::i18n::tr("This window")).rect();
+                for (index, label) in [
+                    "Appearance",
+                    "Process workspace",
+                    "Charts and history",
+                    "Service settings",
+                    "config.toml",
+                    "Telegram",
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let rect = h.get_by_label(crate::i18n::tr(label)).rect();
+                    assert!(
+                        rect.right() <= width
+                            && if width < 620.0 && index >= 3 {
+                                rect.top() > first.top()
+                            } else {
+                                (rect.top() - first.top()).abs() < 1.0
+                            },
+                        "{language:?}/{width}: {label} {rect:?}, first {first:?}"
+                    );
+                }
+                h.get_by_label("Telegram").click();
+                h.run();
+                assert_eq!(*h.state(), Page::Telegram);
+            }
+        }
+    }
 
     #[test]
     fn a_change_made_elsewhere_while_editing_is_a_conflict() {

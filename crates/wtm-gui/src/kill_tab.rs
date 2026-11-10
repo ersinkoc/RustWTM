@@ -487,7 +487,7 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
                 } else {
                     crate::i18n::tr("Add entry")
                 };
-                if ui.add_enabled(admin, egui::Button::new(label)).clicked()
+                if crate::theme::primary_action(ui, admin, label).clicked()
                     && let Some(new) = view.save(text, &data.kill_list)
                 {
                     commands.push(UiCommand::SaveConfig(new));

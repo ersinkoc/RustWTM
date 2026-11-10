@@ -48,10 +48,8 @@ impl State {
                 (Page::Network, "Network"),
                 (Page::Disk, "Disk & I/O"),
             ] {
-                let response = ui.add(egui::Button::selectable(
-                    self.page == page,
-                    crate::i18n::tr(label),
-                ));
+                let response =
+                    crate::theme::choice(ui, &mut self.page, page, crate::i18n::tr(label));
                 if page != Page::All {
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(

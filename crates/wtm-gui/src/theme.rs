@@ -231,6 +231,9 @@ const TITLE_SIZE: f32 = 16.0;
 
 /// Outer surfaces join at their borders; contents have their own breathing room.
 pub const CONTENT_PADDING: Margin = Margin::symmetric(10, 8);
+/// Page gutters and section gaps are separate from control/cell padding.
+pub const PAGE_PADDING: Margin = Margin::symmetric(12, 8);
+pub const SECTION_SPACING: Vec2 = egui::vec2(8.0, 8.0);
 pub const CONTROL_PADDING: Vec2 = egui::vec2(8.0, 4.0);
 pub const CONTENT_SPACING: Vec2 = egui::vec2(6.0, 4.0);
 
@@ -309,10 +312,10 @@ pub fn end_row(ui: &mut Ui) {
 
 pub fn workspace<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::new()
-        .inner_margin(CONTENT_PADDING)
+        .inner_margin(PAGE_PADDING)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing = CONTENT_SPACING;
+            ui.spacing_mut().item_spacing = SECTION_SPACING;
             add(ui)
         })
         .inner
@@ -328,16 +331,55 @@ pub fn choice<T: PartialEq>(
     let mut response = ui.add(
         egui::Button::new(label)
             .selected(selected)
-            .stroke(Stroke::new(
-                1.0,
-                ui.visuals().widgets.noninteractive.bg_stroke.color,
-            )),
+            .fill(if selected {
+                ui.visuals().selection.bg_fill
+            } else {
+                Color32::TRANSPARENT
+            })
+            .stroke(Stroke::NONE),
     );
+    if selected || response.hovered() || response.has_focus() {
+        let color = if selected || response.has_focus() {
+            ACCENT
+        } else {
+            ui.visuals().widgets.noninteractive.bg_stroke.color
+        };
+        let rect = response.rect;
+        ui.painter().line_segment(
+            [rect.left_bottom(), rect.right_bottom()],
+            Stroke::new(2.0, color),
+        );
+    }
     if response.clicked() && !selected {
         *current = value;
         response.mark_changed();
     }
     response
+}
+
+/// Primary actions share a deliberate brand treatment; utility controls stay neutral.
+pub fn primary_action(ui: &mut Ui, enabled: bool, label: &str) -> egui::Response {
+    ui.scope(|ui| {
+        let visuals = ui.visuals_mut();
+        for (widget, fill) in [
+            (
+                &mut visuals.widgets.inactive,
+                Color32::from_rgb(153, 71, 31),
+            ),
+            (&mut visuals.widgets.hovered, Color32::from_rgb(175, 83, 35)),
+            (&mut visuals.widgets.active, Color32::from_rgb(132, 58, 25)),
+        ] {
+            widget.weak_bg_fill = fill;
+            widget.bg_fill = fill;
+            widget.bg_stroke = Stroke::new(1.0, fill);
+            widget.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+        }
+        ui.add_enabled(
+            enabled,
+            egui::Button::new(RichText::new(label).strong()).min_size(egui::vec2(104.0, 28.0)),
+        )
+    })
+    .inner
 }
 
 /// Apply the shared geometry even in embedded/headless application hosts.
@@ -558,7 +600,7 @@ pub fn panel<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
         ))
         .corner_radius(0.0)
         .inner_margin(CONTENT_PADDING)
-        .outer_margin(2)
+        .outer_margin(0)
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing = CONTENT_SPACING;
             ui.set_width(ui.available_width());

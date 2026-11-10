@@ -1,6 +1,9 @@
 # Desktop controls and hardware identity
 
-Cards have a two-pixel outer margin; resource cards have four-pixel gaps.
+Every page has a single 12-pixel horizontal / 8-pixel vertical gutter.
+Sections are separated by 8 pixels; cards use 10-pixel horizontal / 8-pixel
+vertical internal padding, without an additional outer margin. Resource grids
+keep 4-pixel gaps.
 Table cells remain joined, with internal padding and square corners. A sortable
 header selects, highlights and responds across its full cell, including totals.
 
@@ -23,6 +26,15 @@ adapter identities directly in the corresponding live resource cards. Repeated
 RAM modules are grouped with their module count; physical disks match their CIM
 index, never their enumeration order. Motherboard identity has its own system row.
 There is no separate Hardware details list beneath the inspector. Overview also offers Hardware details.
+
+Copy system summary exports this hardware inventory: model/manufacturer, CPU core
+counts, motherboard revision, individual RAM part numbers/capacities/configured
+clocks/slots, physical disk models/capacities/interfaces and GPU driver details.
+It does not export live utilization, process counts or transient memory use.
+The action is disabled while inventory loads or if no usable inventory exists;
+partial category failures remain explicitly unavailable. Copying does not require
+a live monitoring snapshot.
+
 Names, manufacturers, part numbers, capacities, configured memory clocks and
 reported interfaces come from local CIM classes. Disk interfaces are displayed
 as reported, without inferring NVMe from a generic SCSI interface. GPU models are
@@ -49,7 +61,7 @@ raw configuration editor retains the window width. Focused performance pages
 allocate more height to charts; processor tiles use adaptive columns and small
 gutters. Compact windows retain scrolling and a wrapping footer.
 
-Verification: 233 GUI tests passed with three explicit opt-outs (benchmark,
+Verification: 238 GUI tests passed with three explicit opt-outs (benchmark,
 asset regeneration and hardware smoke). The read-only hardware smoke was run
 separately and passed on the local machine. Clippy covers all targets/features
 with warnings denied. Updated visual previews cover both themes and both widths.
