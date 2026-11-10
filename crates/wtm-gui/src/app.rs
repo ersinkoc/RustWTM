@@ -7901,6 +7901,53 @@ mod tests {
         }
     }
 
+    fn reveal_task_manager_control(h: &mut Harness<'_, App>) -> egui::Rect {
+        // Later settings may extend the page below this card. Ask the actual
+        // accessible control to scroll into view instead of scrolling to the end.
+        let label = crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc");
+        h.get_by_label(label).scroll_to_me();
+        h.run_steps(20);
+        h.get_by_label(label).rect()
+    }
+
+    #[test]
+    fn task_manager_control_is_reachable_in_compact_settings() {
+        let mut d = data();
+        d.mode = Mode::Service {
+            admin: true,
+            verified: true,
+        };
+        d.elevated = true;
+        d.task_manager = Some(Ok(wtm_core::task_manager::State::Windows));
+        let (backend, _rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([820.0, 500.0])
+            .with_theme(egui::Theme::Dark)
+            .build_eframe(|cc| {
+                crate::theme::install_fonts(&cc.egui_ctx);
+                crate::theme::apply(&cc.egui_ctx);
+                App {
+                    backend,
+                    state: UiState {
+                        tab: Tab::Settings,
+                        autostart: Some(false),
+                        prefer_administrator: Some(false),
+                        check_updates: false,
+                        ..Default::default()
+                    },
+                    tray: None,
+                    frames: Default::default(),
+                }
+            });
+        h.run_steps(3);
+        let checkbox = reveal_task_manager_control(&mut h);
+        assert!(
+            checkbox.min.y >= 0.0 && checkbox.max.y < 500.0,
+            "integration setting is reachable: {checkbox:?}"
+        );
+    }
+
     /// Reproducible product screenshots, without connecting to or controlling
     /// the host. Run with `--features visual-tests render_release_review`.
     #[cfg(feature = "visual-tests")]
@@ -8526,21 +8573,7 @@ mod tests {
                             println!("Rendered {}", path.display());
                         }
                         if tab == Tab::Settings {
-                            h.event(egui::Event::PointerMoved(egui::pos2(
-                                size[0] * 0.6,
-                                size[1] * 0.6,
-                            )));
-                            h.event(egui::Event::MouseWheel {
-                                unit: egui::MouseWheelUnit::Point,
-                                delta: egui::vec2(0.0, -3000.0),
-                                modifiers: egui::Modifiers::NONE,
-                                phase: egui::TouchPhase::Move,
-                                source: egui::MouseWheelSource::Unknown,
-                            });
-                            h.run_steps(20);
-                            let checkbox = h
-                                .get_by_label(crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc"))
-                                .rect();
+                            let checkbox = reveal_task_manager_control(&mut h);
                             assert!(
                                 checkbox.min.y >= 0.0 && checkbox.max.y < size[1],
                                 "integration setting is reachable in {code}/{size_name}"
