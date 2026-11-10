@@ -1,58 +1,652 @@
 {
-  "{0} performance view": { "tr": "{0} performans görünümü", "de": "Leistungsansicht {0}", "fr": "Vue des performances {0}", "es": "Vista de rendimiento de {0}" },
-  "All resources": { "tr": "Tüm kaynaklar", "de": "Alle Ressourcen", "fr": "Toutes les ressources", "es": "Todos los recursos" },
-  "All CPU tiers": { "tr": "Tüm CPU sınıfları", "de": "Alle CPU-Klassen", "fr": "Toutes les classes CPU", "es": "Todas las clases de CPU" },
-  "{0} tier ({1})": { "tr": "{0} sınıfı ({1})", "de": "Klasse {0} ({1})", "fr": "Classe {0} ({1})", "es": "Clase {0} ({1})" },
-  "CPU tier filtering requires matching single-group hybrid topology.": { "tr": "CPU sınıf filtresi için tek işlemci grubuyla eşleşen hibrit topoloji gerekir.", "de": "CPU-Klassenfilter erfordern eine passende Hybridtopologie mit einer Prozessorgruppe.", "fr": "Le filtrage des classes CPU nécessite une topologie hybride correspondante à un seul groupe.", "es": "El filtro de clases CPU requiere una topología híbrida coincidente de un solo grupo." },
-  "The tier filter affects logical-processor tiles; the main chart remains total CPU usage.": { "tr": "Sınıf filtresi mantıksal işlemci kutularını etkiler; ana grafik toplam CPU kullanımını gösterir.", "de": "Der Klassenfilter wirkt auf die Prozessorkacheln; das Hauptdiagramm zeigt die gesamte CPU-Auslastung.", "fr": "Le filtre agit sur les tuiles des processeurs logiques ; le graphique principal affiche la charge CPU totale.", "es": "El filtro afecta a los mosaicos de procesadores lógicos; el gráfico principal muestra el uso total de CPU." },
-  "Combined adapter traffic; individual adapter history is not recorded.": { "tr": "Birleşik bağdaştırıcı trafiği; ayrı bağdaştırıcı geçmişi kaydedilmez.", "de": "Zusammengefasster Adapterverkehr; einzelne Adapterverläufe werden nicht aufgezeichnet.", "fr": "Trafic cumulé des adaptateurs ; aucun historique individuel n’est enregistré.", "es": "Tráfico combinado de adaptadores; no se registra el historial individual." },
-  "The chart shows total process I/O. Physical disk counters below are current readings.": { "tr": "Grafik toplam işlem G/Ç verisini gösterir. Aşağıdaki fiziksel disk sayaçları güncel ölçümlerdir.", "de": "Das Diagramm zeigt die gesamte Prozess-E/A. Die physischen Datenträgerzähler darunter sind aktuelle Werte.", "fr": "Le graphique montre les E/S totales des processus. Les compteurs des disques physiques ci-dessous sont actuels.", "es": "El gráfico muestra la E/S total de procesos. Los contadores de discos físicos de abajo son actuales." },
-  "Current engine-type totals across GPUs; the chart follows the busiest engine. Per-device history and VRAM are not recorded here.": { "tr": "GPU’lar genelinde güncel motor türü toplamları; grafik en yoğun motoru izler. Burada cihaz başına geçmiş ve VRAM kaydedilmez.", "de": "Aktuelle Summen je Engine-Typ über alle GPUs; das Diagramm folgt der aktivsten Engine. Gerätespezifischer Verlauf und VRAM werden hier nicht aufgezeichnet.", "fr": "Totaux actuels par type de moteur sur tous les GPU ; le graphique suit le moteur le plus actif. Aucun historique par appareil ni VRAM n’est enregistré ici.", "es": "Totales actuales por tipo de motor de todas las GPU; el gráfico sigue al motor más activo. Aquí no se registran historial por dispositivo ni VRAM." },
-  "Find GPU engine types": { "tr": "GPU motor türlerinde ara", "de": "GPU-Engine-Typen suchen", "fr": "Rechercher des types de moteurs GPU", "es": "Buscar tipos de motores GPU" },
-  "GPU engine counters are unavailable.": { "tr": "GPU motor sayaçları kullanılamıyor.", "de": "GPU-Engine-Zähler sind nicht verfügbar.", "fr": "Les compteurs des moteurs GPU sont indisponibles.", "es": "Los contadores de motores GPU no están disponibles." },
-  "No GPU engine types match this search.": { "tr": "Bu aramayla eşleşen GPU motor türü yok.", "de": "Keine GPU-Engine-Typen entsprechen dieser Suche.", "fr": "Aucun type de moteur GPU ne correspond à cette recherche.", "es": "Ningún tipo de motor GPU coincide con esta búsqueda." },
-  "Latest sample unavailable": { "tr": "Son ölçüm kullanılamıyor", "de": "Letzter Messwert nicht verfügbar", "fr": "Dernière mesure indisponible", "es": "Última muestra no disponible" },
-  "Recorded event during a sampling gap.": { "tr": "Ölçüm boşluğu sırasında kaydedilen olay.", "de": "Aufgezeichnetes Ereignis während einer Messlücke.", "fr": "Événement enregistré pendant une interruption des mesures.", "es": "Evento registrado durante una interrupción del muestreo." },
-  "Click a chart to inspect. Double-click to follow live.": { "tr": "İncelemek için grafiğe tıklayın. Canlı görünüm için çift tıklayın.", "de": "Zum Untersuchen auf ein Diagramm klicken. Doppelklicken für die Live-Ansicht.", "fr": "Cliquez sur un graphique pour l'examiner. Double-cliquez pour suivre le direct.", "es": "Haga clic en un gráfico para inspeccionarlo. Haga doble clic para seguir el directo." },
-  "Latest sample: {0}": { "tr": "Son ölçüm: {0}", "de": "Letzter Messwert: {0}", "fr": "Dernière mesure : {0}", "es": "Última muestra: {0}" },
-  "Recent events in view ({0})": { "tr": "Görünümdeki son olaylar ({0})", "de": "Letzte Ereignisse im Zeitbereich ({0})", "fr": "Événements récents affichés ({0})", "es": "Eventos recientes en vista ({0})" },
-  "{0} history graph": { "tr": "{0} geçmiş grafiği", "de": "{0}-Verlaufsdiagramm", "fr": "Graphique historique {0}", "es": "Gráfico histórico de {0}" },
-  "Timeline": { "tr": "Zaman çizelgesi", "de": "Zeitachse", "fr": "Chronologie", "es": "Cronología" },
-  "1 min": { "tr": "1 dk", "de": "1 Min.", "fr": "1 min", "es": "1 min" },
-  "2 min": { "tr": "2 dk", "de": "2 Min.", "fr": "2 min", "es": "2 min" },
-  "5 min": { "tr": "5 dk", "de": "5 Min.", "fr": "5 min", "es": "5 min" },
-  "Only recorded ranges are available.": { "tr": "Yalnızca kaydedilmiş aralıklar kullanılabilir.", "de": "Nur aufgezeichnete Zeitbereiche sind verfügbar.", "fr": "Seules les périodes enregistrées sont disponibles.", "es": "Solo están disponibles los intervalos registrados." },
-  "Inspect timeline": { "tr": "Zaman çizelgesini incele", "de": "Zeitachse untersuchen", "fr": "Examiner la chronologie", "es": "Inspeccionar cronología" },
-  "Back to live": { "tr": "Canlı görünüme dön", "de": "Zur Live-Ansicht", "fr": "Revenir au direct", "es": "Volver al directo" },
-  "Zoom in": { "tr": "Yakınlaştır", "de": "Vergrößern", "fr": "Agrandir", "es": "Acercar" },
-  "Zoom out": { "tr": "Uzaklaştır", "de": "Verkleinern", "fr": "Réduire", "es": "Alejar" },
-  "Reset zoom": { "tr": "Yakınlaştırmayı sıfırla", "de": "Zoom zurücksetzen", "fr": "Réinitialiser le zoom", "es": "Restablecer zoom" },
-  "Recorded: {0}s · {1} samples": { "tr": "Kayıt: {0} sn · {1} örnek", "de": "Aufgezeichnet: {0}s · {1} Messwerte", "fr": "Enregistré : {0}s · {1} mesures", "es": "Registrado: {0}s · {1} muestras" },
-  "Inspecting": { "tr": "İnceleniyor", "de": "Untersuchung", "fr": "Inspection", "es": "Inspección" },
-  "Previous sample": { "tr": "Önceki örnek", "de": "Vorheriger Messwert", "fr": "Mesure précédente", "es": "Muestra anterior" },
-  "Next sample": { "tr": "Sonraki örnek", "de": "Nächster Messwert", "fr": "Mesure suivante", "es": "Muestra siguiente" },
-  "No recorded sample at this time.": { "tr": "Bu anda kayıtlı ölçüm yok.", "de": "Für diesen Zeitpunkt liegt kein Messwert vor.", "fr": "Aucune mesure enregistrée à cet instant.", "es": "No hay ninguna muestra registrada en este instante." },
-  "Headers and device details show current readings. Values below charts follow the selected sample.": { "tr": "Başlıklar ve cihaz ayrıntıları güncel değerleri gösterir. Grafiklerin altındaki değerler seçilen örneğe aittir.", "de": "Überschriften und Gerätedetails zeigen aktuelle Werte. Die Werte unter den Diagrammen gehören zum ausgewählten Messwert.", "fr": "Les titres et les détails des appareils affichent les valeurs actuelles. Les valeurs sous les graphiques correspondent à la mesure sélectionnée.", "es": "Los encabezados y detalles de dispositivos muestran valores actuales. Los valores bajo los gráficos corresponden a la muestra seleccionada." },
-  "Only the latest increasing timestamp sequence is shown.": { "tr": "Yalnızca zaman damgaları artan son ölçüm dizisi gösterilir.", "de": "Nur die letzte Folge mit steigenden Zeitstempeln wird angezeigt.", "fr": "Seule la dernière série d'horodatages croissants est affichée.", "es": "Solo se muestra la última secuencia de marcas de tiempo crecientes." },
-  "Events in view ({0})": { "tr": "Görünümdeki olaylar ({0})", "de": "Ereignisse im Zeitbereich ({0})", "fr": "Événements affichés ({0})", "es": "Eventos en vista ({0})" },
-  "No recorded samples yet.": { "tr": "Henüz kayıtlı ölçüm yok.", "de": "Noch keine Messwerte aufgezeichnet.", "fr": "Aucune mesure enregistrée pour le moment.", "es": "Todavía no hay muestras registradas." },
-  "Column profiles": { "tr": "Sütun profilleri", "de": "Spaltenprofile", "fr": "Profils de colonnes", "es": "Perfiles de columnas" },
-  "Basic profile": { "tr": "Temel profil", "de": "Basisprofil", "fr": "Profil de base", "es": "Perfil básico" },
-  "CPU profile": { "tr": "CPU profili", "de": "CPU-Profil", "fr": "Profil processeur", "es": "Perfil de CPU" },
-  "Memory profile": { "tr": "Bellek profili", "de": "Speicherprofil", "fr": "Profil mémoire", "es": "Perfil de memoria" },
-  "I/O profile": { "tr": "G/Ç profili", "de": "E/A-Profil", "fr": "Profil E/S", "es": "Perfil de E/S" },
-  "Network profile": { "tr": "Ağ profili", "de": "Netzwerkprofil", "fr": "Profil réseau", "es": "Perfil de red" },
-  "Diagnostics profile": { "tr": "Tanılama profili", "de": "Diagnoseprofil", "fr": "Profil de diagnostic", "es": "Perfil de diagnóstico" },
-  "Arrange columns…": { "tr": "Sütunları düzenle…", "de": "Spalten anordnen…", "fr": "Organiser les colonnes…", "es": "Organizar columnas…" },
-  "Restore default columns": { "tr": "Varsayılan sütunları geri yükle", "de": "Standardspalten wiederherstellen", "fr": "Rétablir les colonnes par défaut", "es": "Restablecer columnas predeterminadas" },
-  "Column order is shared by List, Tree and Apps.": { "tr": "Sütun sırası Liste, Ağaç ve Uygulamalar görünümlerinde ortaktır.", "de": "Die Spaltenreihenfolge gilt für Liste, Struktur und Apps.", "fr": "L'ordre des colonnes est partagé entre Liste, Arborescence et Applications.", "es": "El orden de columnas se comparte entre Lista, Árbol y Aplicaciones." },
-  "Available columns": { "tr": "Kullanılabilir sütunlar", "de": "Verfügbare Spalten", "fr": "Colonnes disponibles", "es": "Columnas disponibles" },
-  "Find a column": { "tr": "Sütun ara", "de": "Spalte suchen", "fr": "Rechercher une colonne", "es": "Buscar una columna" },
-  "Visible order": { "tr": "Görünüm sırası", "de": "Anzeigereihenfolge", "fr": "Ordre d'affichage", "es": "Orden visible" },
-  "Name stays first.": { "tr": "Ad sütunu ilk sırada kalır.", "de": "Name bleibt an erster Stelle.", "fr": "Le nom reste en premier.", "es": "El nombre permanece primero." },
-  "Move {0} up": { "tr": "{0} sütununu yukarı taşı", "de": "{0} nach oben", "fr": "Monter {0}", "es": "Subir {0}" },
-  "Move {0} down": { "tr": "{0} sütununu aşağı taşı", "de": "{0} nach unten", "fr": "Descendre {0}", "es": "Bajar {0}" },
-  "Apply": { "tr": "Uygula", "de": "Übernehmen", "fr": "Appliquer", "es": "Aplicar" },
+  "Appearance": {
+    "tr": "Görünüm",
+    "de": "Darstellung",
+    "fr": "Apparence",
+    "es": "Apariencia"
+  },
+  "Process workspace": {
+    "tr": "Süreç çalışma alanı",
+    "de": "Prozessarbeitsbereich",
+    "fr": "Espace des processus",
+    "es": "Área de procesos"
+  },
+  "Charts and history": {
+    "tr": "Grafikler ve geçmiş",
+    "de": "Diagramme und Verlauf",
+    "fr": "Graphiques et historique",
+    "es": "Gráficos e historial"
+  },
+  "Language and theme": {
+    "tr": "Dil ve tema",
+    "de": "Sprache und Design",
+    "fr": "Langue et thème",
+    "es": "Idioma y tema"
+  },
+  "Display and accessibility": {
+    "tr": "Ekran ve erişilebilirlik",
+    "de": "Anzeige und Barrierefreiheit",
+    "fr": "Affichage et accessibilité",
+    "es": "Pantalla y accesibilidad"
+  },
+  "Changes apply immediately and are remembered for this window.": {
+    "tr": "Değişiklikler hemen uygulanır ve bu pencere için hatırlanır.",
+    "de": "Änderungen gelten sofort und werden für dieses Fenster gespeichert.",
+    "fr": "Les changements sont immédiats et mémorisés pour cette fenêtre.",
+    "es": "Los cambios se aplican al instante y se guardan para esta ventana."
+  },
+  "Interface scale": {
+    "tr": "Arayüz ölçeği",
+    "de": "Oberflächenskalierung",
+    "fr": "Échelle de l’interface",
+    "es": "Escala de la interfaz"
+  },
+  "Control and row height": {
+    "tr": "Kontrol ve satır yüksekliği",
+    "de": "Bedienelement- und Zeilenhöhe",
+    "fr": "Hauteur des contrôles et des lignes",
+    "es": "Altura de controles y filas"
+  },
+  "Compact": {
+    "tr": "Kompakt",
+    "de": "Kompakt",
+    "fr": "Compact",
+    "es": "Compacto"
+  },
+  "Standard": {
+    "tr": "Standart",
+    "de": "Standard",
+    "fr": "Standard",
+    "es": "Estándar"
+  },
+  "Comfortable": {
+    "tr": "Rahat",
+    "de": "Großzügig",
+    "fr": "Confortable",
+    "es": "Cómodo"
+  },
+  "All modes keep square edges, padded contents and separator lines.": {
+    "tr": "Tüm modlarda keskin köşeler, içeride yeterli boşluk ve ayırıcı çizgiler korunur.",
+    "de": "Alle Modi behalten eckige Kanten, Innenabstände und Trennlinien.",
+    "fr": "Tous les modes gardent des angles droits, des marges internes et des séparateurs.",
+    "es": "Todos los modos mantienen esquinas rectas, relleno interior y separadores."
+  },
+  "Reduce interface animation": {
+    "tr": "Arayüz animasyonunu azalt",
+    "de": "Oberflächenanimation reduzieren",
+    "fr": "Réduire les animations",
+    "es": "Reducir las animaciones"
+  },
+  "Sidebar layout": {
+    "tr": "Kenar çubuğu düzeni",
+    "de": "Seitenleistenlayout",
+    "fr": "Disposition de la barre latérale",
+    "es": "Diseño de la barra lateral"
+  },
+  "Expanded": {
+    "tr": "Genişletilmiş",
+    "de": "Ausgeklappt",
+    "fr": "Déployée",
+    "es": "Expandida"
+  },
+  "Collapsed": {
+    "tr": "Daraltılmış",
+    "de": "Eingeklappt",
+    "fr": "Réduite",
+    "es": "Contraída"
+  },
+  "Reset display preferences": {
+    "tr": "Ekran tercihlerini sıfırla",
+    "de": "Anzeigeeinstellungen zurücksetzen",
+    "fr": "Réinitialiser l’affichage",
+    "es": "Restablecer la pantalla"
+  },
+  "Resource cards and inspector": {
+    "tr": "Kaynak kartları ve denetçi",
+    "de": "Ressourcenkarten und Inspektor",
+    "fr": "Cartes de ressources et inspecteur",
+    "es": "Tarjetas de recursos e inspector"
+  },
+  "Resource card height": {
+    "tr": "Kaynak kartı yüksekliği",
+    "de": "Höhe der Ressourcenkarten",
+    "fr": "Hauteur des cartes de ressources",
+    "es": "Altura de tarjetas de recursos"
+  },
+  "Adaptive": {
+    "tr": "Uyarlanır",
+    "de": "Adaptiv",
+    "fr": "Adaptative",
+    "es": "Adaptable"
+  },
+  "Full height": {
+    "tr": "Tam yükseklik",
+    "de": "Volle Höhe",
+    "fr": "Pleine hauteur",
+    "es": "Altura completa"
+  },
+  "Process table behavior": {
+    "tr": "Süreç tablosu davranışı",
+    "de": "Verhalten der Prozesstabelle",
+    "fr": "Comportement du tableau des processus",
+    "es": "Comportamiento de la tabla de procesos"
+  },
+  "Alternating row backgrounds": {
+    "tr": "Dönüşümlü satır arka planları",
+    "de": "Abwechselnde Zeilenhintergründe",
+    "fr": "Arrière-plans de lignes alternés",
+    "es": "Fondos de fila alternos"
+  },
+  "Hold live row order during inspection": {
+    "tr": "İnceleme sırasında canlı satır sırasını sabitle",
+    "de": "Live-Zeilenreihenfolge bei Inspektion halten",
+    "fr": "Conserver l’ordre des lignes pendant l’inspection",
+    "es": "Mantener el orden de filas durante la inspección"
+  },
+  "Values stay live. F6 remains a separate frozen snapshot.": {
+    "tr": "Değerler canlı kalır. F6 ayrı bir donmuş görüntü alır.",
+    "de": "Werte bleiben live. F6 friert separat eine Momentaufnahme ein.",
+    "fr": "Les valeurs restent en direct. F6 fige une capture distincte.",
+    "es": "Los valores siguen en vivo. F6 congela una captura independiente."
+  },
+  "Column layouts": {
+    "tr": "Sütun düzenleri",
+    "de": "Spaltenlayouts",
+    "fr": "Dispositions des colonnes",
+    "es": "Diseños de columnas"
+  },
+  "Open process column editor": {
+    "tr": "Süreç sütun düzenleyicisini aç",
+    "de": "Prozessspalten-Editor öffnen",
+    "fr": "Ouvrir l’éditeur de colonnes",
+    "es": "Abrir el editor de columnas"
+  },
+  "Timeline preferences": {
+    "tr": "Zaman çizelgesi tercihleri",
+    "de": "Zeitleisteneinstellungen",
+    "fr": "Préférences de chronologie",
+    "es": "Preferencias de cronología"
+  },
+  "Remembered time range": {
+    "tr": "Hatırlanan zaman aralığı",
+    "de": "Gespeicherter Zeitraum",
+    "fr": "Plage de temps mémorisée",
+    "es": "Intervalo de tiempo guardado"
+  },
+  "Uses recorded samples only; selecting a range returns charts to live.": {
+    "tr": "Yalnızca kaydedilmiş örnekler kullanılır; aralık seçimi grafikleri canlıya döndürür.",
+    "de": "Nur erfasste Messwerte; eine Zeitraumwahl setzt Diagramme auf live zurück.",
+    "fr": "Utilise les mesures enregistrées ; choisir une plage rétablit le direct.",
+    "es": "Solo usa muestras registradas; elegir un intervalo vuelve al modo en vivo."
+  },
+  "Show chart grid": {
+    "tr": "Grafik ızgarasını göster",
+    "de": "Diagrammraster anzeigen",
+    "fr": "Afficher la grille",
+    "es": "Mostrar la cuadrícula"
+  },
+  "Fill area below chart lines": {
+    "tr": "Grafik çizgilerinin altını doldur",
+    "de": "Fläche unter Diagrammlinien füllen",
+    "fr": "Remplir sous les courbes",
+    "es": "Rellenar el área bajo las curvas"
+  },
+  "Show recent event markers": {
+    "tr": "Son olay işaretlerini göster",
+    "de": "Aktuelle Ereignismarkierungen anzeigen",
+    "fr": "Afficher les marqueurs d’événements récents",
+    "es": "Mostrar marcadores de eventos recientes"
+  },
+  "Synchronize hover cursors": {
+    "tr": "İmleç kılavuzlarını eşzamanla",
+    "de": "Hover-Cursor synchronisieren",
+    "fr": "Synchroniser les curseurs au survol",
+    "es": "Sincronizar cursores al pasar el puntero"
+  },
+  "Reset chart preferences": {
+    "tr": "Grafik tercihlerini sıfırla",
+    "de": "Diagrammeinstellungen zurücksetzen",
+    "fr": "Réinitialiser les graphiques",
+    "es": "Restablecer los gráficos"
+  },
+  "How inspection works": {
+    "tr": "İnceleme nasıl çalışır",
+    "de": "So funktioniert die Inspektion",
+    "fr": "Comment fonctionne l’inspection",
+    "es": "Cómo funciona la inspección"
+  },
+  "CPU counters are unavailable.": {
+    "tr": "CPU sayaçları kullanılamıyor.",
+    "de": "CPU-Zähler sind nicht verfügbar.",
+    "fr": "Les compteurs CPU sont indisponibles.",
+    "es": "Los contadores de CPU no están disponibles."
+  },
+  "Memory counters are unavailable.": {
+    "tr": "Bellek sayaçları kullanılamıyor.",
+    "de": "Speicherzähler sind nicht verfügbar.",
+    "fr": "Les compteurs mémoire sont indisponibles.",
+    "es": "Los contadores de memoria no están disponibles."
+  },
+  "Close system overview": {
+    "tr": "Sistem özetini kapat",
+    "de": "Systemübersicht schließen",
+    "fr": "Fermer la vue du système",
+    "es": "Cerrar el resumen del sistema"
+  },
+  "Inspector": {
+    "tr": "Denetçi",
+    "de": "Inspektor",
+    "fr": "Inspecteur",
+    "es": "Inspector"
+  },
+  "Adaptive inspector": {
+    "tr": "Uyarlanabilir denetçi",
+    "de": "Adaptiver Inspektor",
+    "fr": "Inspecteur adaptatif",
+    "es": "Inspector adaptable"
+  },
+  "Always show inspector": {
+    "tr": "Denetçiyi her zaman göster",
+    "de": "Inspektor immer anzeigen",
+    "fr": "Toujours afficher l’inspecteur",
+    "es": "Mostrar siempre el inspector"
+  },
+  "Hide inspector": {
+    "tr": "Denetçiyi gizle",
+    "de": "Inspektor ausblenden",
+    "fr": "Masquer l’inspecteur",
+    "es": "Ocultar el inspector"
+  },
+  "Adaptive mode shows system facts in wide windows and process details on selection.": {
+    "tr": "Uyarlanabilir mod geniş pencerelerde sistem özetini, seçim yapıldığında işlem ayrıntılarını gösterir.",
+    "de": "Der adaptive Modus zeigt Systemdaten in breiten Fenstern und Prozessdetails bei Auswahl.",
+    "fr": "Le mode adaptatif affiche le système dans les fenêtres larges et les détails du processus sélectionné.",
+    "es": "El modo adaptable muestra el sistema en ventanas amplias y los detalles del proceso seleccionado."
+  },
+  "System overview": {
+    "tr": "Sistem özeti",
+    "de": "Systemübersicht",
+    "fr": "Vue du système",
+    "es": "Resumen del sistema"
+  },
+  "Last received system facts": {
+    "tr": "Son alınan sistem bilgileri",
+    "de": "Zuletzt empfangene Systemdaten",
+    "fr": "Dernières données système reçues",
+    "es": "Últimos datos del sistema recibidos"
+  },
+  "Copy system summary": {
+    "tr": "Sistem özetini kopyala",
+    "de": "Systemübersicht kopieren",
+    "fr": "Copier le résumé système",
+    "es": "Copiar el resumen del sistema"
+  },
+  "Select a process to inspect its identity, activity and actions. Clear the selection to return here.": {
+    "tr": "Kimlik, etkinlik ve eylemlerini incelemek için bir işlem seçin. Buraya dönmek için seçimi kaldırın.",
+    "de": "Wählen Sie einen Prozess für Identität, Aktivität und Aktionen. Auswahl aufheben, um zurückzukehren.",
+    "fr": "Sélectionnez un processus pour examiner son identité, son activité et ses actions. Effacez la sélection pour revenir ici.",
+    "es": "Seleccione un proceso para inspeccionar su identidad, actividad y acciones. Borre la selección para volver aquí."
+  },
+  "{0} available of {1}": {
+    "tr": "{1} toplamın {0} kadarı kullanılabilir",
+    "de": "{0} von {1} verfügbar",
+    "fr": "{0} disponibles sur {1}",
+    "es": "{0} disponibles de {1}"
+  },
+  "Disk counters are unavailable.": {
+    "tr": "Disk sayaçları kullanılamıyor.",
+    "de": "Datenträgerzähler sind nicht verfügbar.",
+    "fr": "Les compteurs de disque sont indisponibles.",
+    "es": "Los contadores de disco no están disponibles."
+  },
+  "Busiest engine across all GPUs": {
+    "tr": "Tüm GPU’lar içindeki en yoğun motor",
+    "de": "Aktivste Engine aller GPUs",
+    "fr": "Moteur le plus actif de tous les GPU",
+    "es": "Motor más activo de todas las GPU"
+  },
+  "Combined receive and send across adapters": {
+    "tr": "Bağdaştırıcıların toplam alma ve gönderme hızı",
+    "de": "Empfang und Versand aller Adapter zusammen",
+    "fr": "Réception et envoi cumulés des adaptateurs",
+    "es": "Recepción y envío combinados de los adaptadores"
+  },
+  "{0} processes · {1} threads · {2} handles": {
+    "tr": "{0} işlem · {1} iş parçacığı · {2} tanıtıcı",
+    "de": "{0} Prozesse · {1} Threads · {2} Handles",
+    "fr": "{0} processus · {1} threads · {2} handles",
+    "es": "{0} procesos · {1} hilos · {2} identificadores"
+  },
+  "System-wide total; filters only change the rows. Memory is physical use; disk is process I/O; network includes all adapters.": {
+    "tr": "Sistem toplamı; filtreler yalnızca satırları değiştirir. Bellek fiziksel kullanım, disk işlem G/Ç verisi, ağ tüm bağdaştırıcıların toplamıdır.",
+    "de": "Systemweiter Gesamtwert; Filter ändern nur die Zeilen. Speicher ist physische Nutzung, Datenträger ist Prozess-E/A und Netzwerk umfasst alle Adapter.",
+    "fr": "Total système ; les filtres ne changent que les lignes. La mémoire est physique, le disque représente les E/S des processus et le réseau inclut tous les adaptateurs.",
+    "es": "Total del sistema; los filtros solo cambian las filas. La memoria es física, el disco es E/S de procesos y la red incluye todos los adaptadores."
+  },
+  "{0} performance view": {
+    "tr": "{0} performans görünümü",
+    "de": "Leistungsansicht {0}",
+    "fr": "Vue des performances {0}",
+    "es": "Vista de rendimiento de {0}"
+  },
+  "All resources": {
+    "tr": "Tüm kaynaklar",
+    "de": "Alle Ressourcen",
+    "fr": "Toutes les ressources",
+    "es": "Todos los recursos"
+  },
+  "All CPU tiers": {
+    "tr": "Tüm CPU sınıfları",
+    "de": "Alle CPU-Klassen",
+    "fr": "Toutes les classes CPU",
+    "es": "Todas las clases de CPU"
+  },
+  "{0} tier ({1})": {
+    "tr": "{0} sınıfı ({1})",
+    "de": "Klasse {0} ({1})",
+    "fr": "Classe {0} ({1})",
+    "es": "Clase {0} ({1})"
+  },
+  "CPU tier filtering requires matching single-group hybrid topology.": {
+    "tr": "CPU sınıf filtresi için tek işlemci grubuyla eşleşen hibrit topoloji gerekir.",
+    "de": "CPU-Klassenfilter erfordern eine passende Hybridtopologie mit einer Prozessorgruppe.",
+    "fr": "Le filtrage des classes CPU nécessite une topologie hybride correspondante à un seul groupe.",
+    "es": "El filtro de clases CPU requiere una topología híbrida coincidente de un solo grupo."
+  },
+  "The tier filter affects logical-processor tiles; the main chart remains total CPU usage.": {
+    "tr": "Sınıf filtresi mantıksal işlemci kutularını etkiler; ana grafik toplam CPU kullanımını gösterir.",
+    "de": "Der Klassenfilter wirkt auf die Prozessorkacheln; das Hauptdiagramm zeigt die gesamte CPU-Auslastung.",
+    "fr": "Le filtre agit sur les tuiles des processeurs logiques ; le graphique principal affiche la charge CPU totale.",
+    "es": "El filtro afecta a los mosaicos de procesadores lógicos; el gráfico principal muestra el uso total de CPU."
+  },
+  "Combined adapter traffic; individual adapter history is not recorded.": {
+    "tr": "Birleşik bağdaştırıcı trafiği; ayrı bağdaştırıcı geçmişi kaydedilmez.",
+    "de": "Zusammengefasster Adapterverkehr; einzelne Adapterverläufe werden nicht aufgezeichnet.",
+    "fr": "Trafic cumulé des adaptateurs ; aucun historique individuel n’est enregistré.",
+    "es": "Tráfico combinado de adaptadores; no se registra el historial individual."
+  },
+  "The chart shows total process I/O. Physical disk counters below are current readings.": {
+    "tr": "Grafik toplam işlem G/Ç verisini gösterir. Aşağıdaki fiziksel disk sayaçları güncel ölçümlerdir.",
+    "de": "Das Diagramm zeigt die gesamte Prozess-E/A. Die physischen Datenträgerzähler darunter sind aktuelle Werte.",
+    "fr": "Le graphique montre les E/S totales des processus. Les compteurs des disques physiques ci-dessous sont actuels.",
+    "es": "El gráfico muestra la E/S total de procesos. Los contadores de discos físicos de abajo son actuales."
+  },
+  "Current engine-type totals across GPUs; the chart follows the busiest engine. Per-device history and VRAM are not recorded here.": {
+    "tr": "GPU’lar genelinde güncel motor türü toplamları; grafik en yoğun motoru izler. Burada cihaz başına geçmiş ve VRAM kaydedilmez.",
+    "de": "Aktuelle Summen je Engine-Typ über alle GPUs; das Diagramm folgt der aktivsten Engine. Gerätespezifischer Verlauf und VRAM werden hier nicht aufgezeichnet.",
+    "fr": "Totaux actuels par type de moteur sur tous les GPU ; le graphique suit le moteur le plus actif. Aucun historique par appareil ni VRAM n’est enregistré ici.",
+    "es": "Totales actuales por tipo de motor de todas las GPU; el gráfico sigue al motor más activo. Aquí no se registran historial por dispositivo ni VRAM."
+  },
+  "Find GPU engine types": {
+    "tr": "GPU motor türlerinde ara",
+    "de": "GPU-Engine-Typen suchen",
+    "fr": "Rechercher des types de moteurs GPU",
+    "es": "Buscar tipos de motores GPU"
+  },
+  "GPU engine counters are unavailable.": {
+    "tr": "GPU motor sayaçları kullanılamıyor.",
+    "de": "GPU-Engine-Zähler sind nicht verfügbar.",
+    "fr": "Les compteurs des moteurs GPU sont indisponibles.",
+    "es": "Los contadores de motores GPU no están disponibles."
+  },
+  "No GPU engine types match this search.": {
+    "tr": "Bu aramayla eşleşen GPU motor türü yok.",
+    "de": "Keine GPU-Engine-Typen entsprechen dieser Suche.",
+    "fr": "Aucun type de moteur GPU ne correspond à cette recherche.",
+    "es": "Ningún tipo de motor GPU coincide con esta búsqueda."
+  },
+  "Latest sample unavailable": {
+    "tr": "Son ölçüm kullanılamıyor",
+    "de": "Letzter Messwert nicht verfügbar",
+    "fr": "Dernière mesure indisponible",
+    "es": "Última muestra no disponible"
+  },
+  "Recorded event during a sampling gap.": {
+    "tr": "Ölçüm boşluğu sırasında kaydedilen olay.",
+    "de": "Aufgezeichnetes Ereignis während einer Messlücke.",
+    "fr": "Événement enregistré pendant une interruption des mesures.",
+    "es": "Evento registrado durante una interrupción del muestreo."
+  },
+  "Click a chart to inspect. Double-click to follow live.": {
+    "tr": "İncelemek için grafiğe tıklayın. Canlı görünüm için çift tıklayın.",
+    "de": "Zum Untersuchen auf ein Diagramm klicken. Doppelklicken für die Live-Ansicht.",
+    "fr": "Cliquez sur un graphique pour l'examiner. Double-cliquez pour suivre le direct.",
+    "es": "Haga clic en un gráfico para inspeccionarlo. Haga doble clic para seguir el directo."
+  },
+  "Latest sample: {0}": {
+    "tr": "Son ölçüm: {0}",
+    "de": "Letzter Messwert: {0}",
+    "fr": "Dernière mesure : {0}",
+    "es": "Última muestra: {0}"
+  },
+  "Recent events in view ({0})": {
+    "tr": "Görünümdeki son olaylar ({0})",
+    "de": "Letzte Ereignisse im Zeitbereich ({0})",
+    "fr": "Événements récents affichés ({0})",
+    "es": "Eventos recientes en vista ({0})"
+  },
+  "{0} history graph": {
+    "tr": "{0} geçmiş grafiği",
+    "de": "{0}-Verlaufsdiagramm",
+    "fr": "Graphique historique {0}",
+    "es": "Gráfico histórico de {0}"
+  },
+  "Timeline": {
+    "tr": "Zaman çizelgesi",
+    "de": "Zeitachse",
+    "fr": "Chronologie",
+    "es": "Cronología"
+  },
+  "1 min": {
+    "tr": "1 dk",
+    "de": "1 Min.",
+    "fr": "1 min",
+    "es": "1 min"
+  },
+  "2 min": {
+    "tr": "2 dk",
+    "de": "2 Min.",
+    "fr": "2 min",
+    "es": "2 min"
+  },
+  "5 min": {
+    "tr": "5 dk",
+    "de": "5 Min.",
+    "fr": "5 min",
+    "es": "5 min"
+  },
+  "Only recorded ranges are available.": {
+    "tr": "Yalnızca kaydedilmiş aralıklar kullanılabilir.",
+    "de": "Nur aufgezeichnete Zeitbereiche sind verfügbar.",
+    "fr": "Seules les périodes enregistrées sont disponibles.",
+    "es": "Solo están disponibles los intervalos registrados."
+  },
+  "Inspect timeline": {
+    "tr": "Zaman çizelgesini incele",
+    "de": "Zeitachse untersuchen",
+    "fr": "Examiner la chronologie",
+    "es": "Inspeccionar cronología"
+  },
+  "Back to live": {
+    "tr": "Canlı görünüme dön",
+    "de": "Zur Live-Ansicht",
+    "fr": "Revenir au direct",
+    "es": "Volver al directo"
+  },
+  "Zoom in": {
+    "tr": "Yakınlaştır",
+    "de": "Vergrößern",
+    "fr": "Agrandir",
+    "es": "Acercar"
+  },
+  "Zoom out": {
+    "tr": "Uzaklaştır",
+    "de": "Verkleinern",
+    "fr": "Réduire",
+    "es": "Alejar"
+  },
+  "Reset zoom": {
+    "tr": "Yakınlaştırmayı sıfırla",
+    "de": "Zoom zurücksetzen",
+    "fr": "Réinitialiser le zoom",
+    "es": "Restablecer zoom"
+  },
+  "Recorded: {0}s · {1} samples": {
+    "tr": "Kayıt: {0} sn · {1} örnek",
+    "de": "Aufgezeichnet: {0}s · {1} Messwerte",
+    "fr": "Enregistré : {0}s · {1} mesures",
+    "es": "Registrado: {0}s · {1} muestras"
+  },
+  "Inspecting": {
+    "tr": "İnceleniyor",
+    "de": "Untersuchung",
+    "fr": "Inspection",
+    "es": "Inspección"
+  },
+  "Previous sample": {
+    "tr": "Önceki örnek",
+    "de": "Vorheriger Messwert",
+    "fr": "Mesure précédente",
+    "es": "Muestra anterior"
+  },
+  "Next sample": {
+    "tr": "Sonraki örnek",
+    "de": "Nächster Messwert",
+    "fr": "Mesure suivante",
+    "es": "Muestra siguiente"
+  },
+  "No recorded sample at this time.": {
+    "tr": "Bu anda kayıtlı ölçüm yok.",
+    "de": "Für diesen Zeitpunkt liegt kein Messwert vor.",
+    "fr": "Aucune mesure enregistrée à cet instant.",
+    "es": "No hay ninguna muestra registrada en este instante."
+  },
+  "Headers and device details show current readings. Values below charts follow the selected sample.": {
+    "tr": "Başlıklar ve cihaz ayrıntıları güncel değerleri gösterir. Grafiklerin altındaki değerler seçilen örneğe aittir.",
+    "de": "Überschriften und Gerätedetails zeigen aktuelle Werte. Die Werte unter den Diagrammen gehören zum ausgewählten Messwert.",
+    "fr": "Les titres et les détails des appareils affichent les valeurs actuelles. Les valeurs sous les graphiques correspondent à la mesure sélectionnée.",
+    "es": "Los encabezados y detalles de dispositivos muestran valores actuales. Los valores bajo los gráficos corresponden a la muestra seleccionada."
+  },
+  "Only the latest increasing timestamp sequence is shown.": {
+    "tr": "Yalnızca zaman damgaları artan son ölçüm dizisi gösterilir.",
+    "de": "Nur die letzte Folge mit steigenden Zeitstempeln wird angezeigt.",
+    "fr": "Seule la dernière série d'horodatages croissants est affichée.",
+    "es": "Solo se muestra la última secuencia de marcas de tiempo crecientes."
+  },
+  "Events in view ({0})": {
+    "tr": "Görünümdeki olaylar ({0})",
+    "de": "Ereignisse im Zeitbereich ({0})",
+    "fr": "Événements affichés ({0})",
+    "es": "Eventos en vista ({0})"
+  },
+  "No recorded samples yet.": {
+    "tr": "Henüz kayıtlı ölçüm yok.",
+    "de": "Noch keine Messwerte aufgezeichnet.",
+    "fr": "Aucune mesure enregistrée pour le moment.",
+    "es": "Todavía no hay muestras registradas."
+  },
+  "Column profiles": {
+    "tr": "Sütun profilleri",
+    "de": "Spaltenprofile",
+    "fr": "Profils de colonnes",
+    "es": "Perfiles de columnas"
+  },
+  "Basic profile": {
+    "tr": "Temel profil",
+    "de": "Basisprofil",
+    "fr": "Profil de base",
+    "es": "Perfil básico"
+  },
+  "CPU profile": {
+    "tr": "CPU profili",
+    "de": "CPU-Profil",
+    "fr": "Profil processeur",
+    "es": "Perfil de CPU"
+  },
+  "Memory profile": {
+    "tr": "Bellek profili",
+    "de": "Speicherprofil",
+    "fr": "Profil mémoire",
+    "es": "Perfil de memoria"
+  },
+  "I/O profile": {
+    "tr": "G/Ç profili",
+    "de": "E/A-Profil",
+    "fr": "Profil E/S",
+    "es": "Perfil de E/S"
+  },
+  "Network profile": {
+    "tr": "Ağ profili",
+    "de": "Netzwerkprofil",
+    "fr": "Profil réseau",
+    "es": "Perfil de red"
+  },
+  "Diagnostics profile": {
+    "tr": "Tanılama profili",
+    "de": "Diagnoseprofil",
+    "fr": "Profil de diagnostic",
+    "es": "Perfil de diagnóstico"
+  },
+  "Arrange columns…": {
+    "tr": "Sütunları düzenle…",
+    "de": "Spalten anordnen…",
+    "fr": "Organiser les colonnes…",
+    "es": "Organizar columnas…"
+  },
+  "Restore default columns": {
+    "tr": "Varsayılan sütunları geri yükle",
+    "de": "Standardspalten wiederherstellen",
+    "fr": "Rétablir les colonnes par défaut",
+    "es": "Restablecer columnas predeterminadas"
+  },
+  "Column order is shared by List, Tree and Apps.": {
+    "tr": "Sütun sırası Liste, Ağaç ve Uygulamalar görünümlerinde ortaktır.",
+    "de": "Die Spaltenreihenfolge gilt für Liste, Struktur und Apps.",
+    "fr": "L'ordre des colonnes est partagé entre Liste, Arborescence et Applications.",
+    "es": "El orden de columnas se comparte entre Lista, Árbol y Aplicaciones."
+  },
+  "Available columns": {
+    "tr": "Kullanılabilir sütunlar",
+    "de": "Verfügbare Spalten",
+    "fr": "Colonnes disponibles",
+    "es": "Columnas disponibles"
+  },
+  "Find a column": {
+    "tr": "Sütun ara",
+    "de": "Spalte suchen",
+    "fr": "Rechercher une colonne",
+    "es": "Buscar una columna"
+  },
+  "Visible order": {
+    "tr": "Görünüm sırası",
+    "de": "Anzeigereihenfolge",
+    "fr": "Ordre d'affichage",
+    "es": "Orden visible"
+  },
+  "Name stays first.": {
+    "tr": "Ad sütunu ilk sırada kalır.",
+    "de": "Name bleibt an erster Stelle.",
+    "fr": "Le nom reste en premier.",
+    "es": "El nombre permanece primero."
+  },
+  "Move {0} up": {
+    "tr": "{0} sütununu yukarı taşı",
+    "de": "{0} nach oben",
+    "fr": "Monter {0}",
+    "es": "Subir {0}"
+  },
+  "Move {0} down": {
+    "tr": "{0} sütununu aşağı taşı",
+    "de": "{0} nach unten",
+    "fr": "Descendre {0}",
+    "es": "Bajar {0}"
+  },
+  "Apply": {
+    "tr": "Uygula",
+    "de": "Übernehmen",
+    "fr": "Appliquer",
+    "es": "Aplicar"
+  },
   "Automatic sorting resumes after the pointer leaves the table and open menus or dialogs close.": {
     "tr": "İmleç tablodan çıktığında ve açık menü veya iletişim kutuları kapandığında otomatik sıralama sürer.",
     "de": "Die automatische Sortierung wird fortgesetzt, sobald der Zeiger die Tabelle verlässt und offene Menüs oder Dialoge geschlossen sind.",
@@ -6610,5 +7204,89 @@
     "de": "Der Task-Manager-Ersatz erfordert eine administratorgeschützte RustWTM-Installation",
     "fr": "Le remplacement du Gestionnaire des tâches nécessite une installation de RustWTM protégée par l’administrateur",
     "es": "El reemplazo del Administrador de tareas requiere una instalación de RustWTM protegida por el administrador"
+  },
+  "All services": {
+    "tr": "Tüm servisler",
+    "de": "Alle Dienste",
+    "fr": "Tous les services",
+    "es": "Todos los servicios"
+  },
+  "Hardware details": {
+    "tr": "Donanım ayrıntıları",
+    "de": "Hardwaredetails",
+    "fr": "Détails matériels",
+    "es": "Detalles del hardware"
+  },
+  "Reading hardware details…": {
+    "tr": "Donanım bilgileri okunuyor…",
+    "de": "Hardwaredaten werden gelesen…",
+    "fr": "Lecture du matériel…",
+    "es": "Leyendo hardware…"
+  },
+  "Hardware details unavailable": {
+    "tr": "Donanım bilgisi alınamadı",
+    "de": "Hardwaredaten nicht verfügbar",
+    "fr": "Détails matériels indisponibles",
+    "es": "Detalles no disponibles"
+  },
+  "Motherboard": {
+    "tr": "Anakart",
+    "de": "Mainboard",
+    "fr": "Carte mère",
+    "es": "Placa base"
+  },
+  "RAM": {
+    "tr": "RAM",
+    "de": "RAM",
+    "fr": "RAM",
+    "es": "RAM"
+  },
+  "Manufacturer": {
+    "tr": "Üretici",
+    "de": "Hersteller",
+    "fr": "Fabricant",
+    "es": "Fabricante"
+  },
+  "Model": {
+    "tr": "Model",
+    "de": "Modell",
+    "fr": "Modèle",
+    "es": "Modelo"
+  },
+  "Capacity": {
+    "tr": "Kapasite",
+    "de": "Kapazität",
+    "fr": "Capacité",
+    "es": "Capacidad"
+  },
+  "Memory speed": {
+    "tr": "Bellek hızı",
+    "de": "Speichergeschwindigkeit",
+    "fr": "Vitesse mémoire",
+    "es": "Velocidad de memoria"
+  },
+  "Slot": {
+    "tr": "Yuva",
+    "de": "Steckplatz",
+    "fr": "Emplacement",
+    "es": "Ranura"
+  },
+  "Driver version": {
+    "tr": "Sürücü sürümü",
+    "de": "Treiberversion",
+    "fr": "Version du pilote",
+    "es": "Versión del controlador"
+  },
+  "Interface": {
+    "tr": "Arayüz",
+    "de": "Schnittstelle",
+    "fr": "Interface",
+    "es": "Interfaz"
+  },
+  "Version": {
+    "tr": "Sürüm",
+    "de": "Version",
+    "fr": "Version",
+    "es": "Versión"
   }
 }

@@ -151,24 +151,24 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
             crate::i18n::tr("Readings are stale. Software fan control cannot be applied."),
         );
     }
-    ui.add_space(8.0);
+    ui.add_space(0.0);
     ui.horizontal_wrapped(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut view.search)
                 .hint_text(crate::i18n::tr("Find a device or sensor"))
                 .desired_width(220.0),
         );
-        ui.selectable_value(&mut view.filter, None, crate::i18n::tr("All sensors"));
+        crate::theme::choice(ui, &mut view.filter, None, crate::i18n::tr("All sensors"));
         for (kind, label) in [
             (SensorKind::Temperature, crate::i18n::tr("Temperatures")),
             (SensorKind::Fan, crate::i18n::tr("Fan RPM")),
             (SensorKind::Power, crate::i18n::tr("Power")),
             (SensorKind::Clock, crate::i18n::tr("Clocks")),
         ] {
-            ui.selectable_value(&mut view.filter, Some(kind), label);
+            crate::theme::choice(ui, &mut view.filter, Some(kind), label);
         }
     });
-    ui.add_space(8.0);
+    ui.add_space(0.0);
     let query = view.search.trim().to_lowercase();
     let mut devices: BTreeMap<&str, Vec<_>> = BTreeMap::new();
     for sensor in &report.sensors {
@@ -205,7 +205,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
             let name_width = (ui.available_width() - 440.0).clamp(170.0, 380.0);
             egui::Grid::new(("sensors", device))
                 .num_columns(4)
-                .spacing([16.0, 8.0])
+                .spacing([8.0, 4.0])
                 .striped(true)
                 .show(ui, |ui| {
                     for title in [
@@ -216,7 +216,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     ] {
                         ui.strong(title);
                     }
-                    ui.end_row();
+                    crate::theme::end_row(ui);
                     for sensor in readings {
                         ui.allocate_ui_with_layout(
                             egui::vec2(name_width, 22.0),
@@ -259,13 +259,13 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                             }
                             crate::theme::fill_row(ui);
                         });
-                        ui.end_row();
+                        crate::theme::end_row(ui);
                     }
                 });
         });
-        ui.add_space(8.0);
+        ui.add_space(0.0);
     }
-    ui.add_space(8.0);
+    ui.add_space(0.0);
     crate::theme::section(ui, crate::i18n::tr("Cooling"));
     ui.weak(crate::i18n::tr("Profiles run in the service. Applying one needs a current temperature, an elevated window and enforcing mode. Startup keeps hardware automatic control."));
     if report.channels.is_empty() {
@@ -333,7 +333,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                     }
                     egui::Grid::new(("cooling_source", &channel.id))
                         .num_columns(2)
-                        .spacing([12.0, 6.0])
+                        .spacing([8.0, 4.0])
                         .show(ui, |ui| {
                             let label = ui.label(crate::i18n::tr("Temperature source"));
                             egui::ComboBox::from_id_salt(("cooling_sensor", &channel.id))
@@ -347,7 +347,8 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                                 )
                                 .show_ui(ui, |ui| {
                                     for s in &temps {
-                                        ui.selectable_value(
+                                        crate::theme::choice(
+                                            ui,
                                             &mut profile.sensor_id,
                                             s.id.clone(),
                                             format!("{} · {}", s.device, s.name),
@@ -356,7 +357,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                                 })
                                 .response
                                 .labelled_by(label.id);
-                            ui.end_row();
+                            crate::theme::end_row(ui);
                             let label = ui.label(crate::i18n::tr("Full speed at"));
                             ui.add(
                                 egui::DragValue::new(&mut profile.critical_celsius)
@@ -364,7 +365,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                                     .suffix(" °C"),
                             )
                             .labelled_by(label.id);
-                            ui.end_row();
+                            crate::theme::end_row(ui);
                         });
                 }
                 match &mut profile.mode {
@@ -477,7 +478,7 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                 }
             },
         );
-        ui.add_space(8.0);
+        ui.add_space(0.0);
     }
     commands.extend(crate::power_controls::power_controls(
         ui,

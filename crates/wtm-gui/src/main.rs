@@ -12,6 +12,7 @@ mod disks_tab;
 mod docker_worker;
 mod frames;
 mod i18n;
+mod inventory;
 mod kill_tab;
 mod limits_tab;
 mod logo;
@@ -20,6 +21,7 @@ mod overview;
 mod performance_view;
 mod ports_tab;
 mod power_controls;
+mod preferences;
 mod process_columns;
 mod processes;
 mod resource_strip;
@@ -32,6 +34,7 @@ mod tray;
 #[cfg(test)]
 mod ui_tests;
 mod views;
+mod workspace_inspector;
 
 use eframe::egui;
 

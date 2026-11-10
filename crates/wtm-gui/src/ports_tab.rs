@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::{self, Align, Layout, RichText, Ui};
-use egui_extras::{Column, TableBuilder};
+use egui_extras::Column;
 use wtm_core::control::ProcessRef;
 use wtm_core::ports::{self, Exposure, KNOWN_PORTS, KnownPort, PortUse};
 use wtm_core::{ProcessInfo, Protocol, format_bytes};
@@ -206,14 +206,14 @@ pub fn ports_tab(ui: &mut Ui, data: &Data, view: &mut PortsView, intents: &mut V
             })
             .strong(),
         );
-        ui.separator();
+        crate::theme::divider(ui);
         ui.label({
             crate::i18n::format(
                 "{0} well-known tools and servers running",
                 &[format!("{}", tools)],
             )
         });
-        ui.separator();
+        crate::theme::divider(ui);
         ui.label(crate::i18n::format(
             "{0} open to all networks",
             &[format!("{}", open)],
@@ -222,11 +222,11 @@ pub fn ports_tab(ui: &mut Ui, data: &Data, view: &mut PortsView, intents: &mut V
             "Listening on 0.0.0.0 or ::, so other computers may reach them",
         ));
     });
-    ui.add_space(4.0);
+    ui.add_space(0.0);
     free_port_bar(ui, &all, view, intents);
-    ui.add_space(6.0);
+    ui.add_space(0.0);
     known_ports(ui, &all, view, intents);
-    ui.add_space(6.0);
+    ui.add_space(0.0);
     listening_table(ui, &uses, &procs, view, intents);
 }
 
@@ -297,7 +297,7 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                 &mut view.show_catalog,
                 crate::i18n::tr("Show free ports too"),
             );
-            ui.separator();
+            crate::theme::divider(ui);
             ui.label(crate::i18n::tr("Watch a port:"));
             let edit = ui.add(
                 egui::TextEdit::singleline(&mut view.watch_input)
@@ -347,14 +347,16 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
         let mut unwatch = None;
         // Sideways too: on narrow windows the columns go on to the right
         // instead of widening the page.
+        ui.spacing_mut().scroll = crate::theme::solid_scroll();
         egui::ScrollArea::both()
+            .auto_shrink([false, true])
             .id_salt("known_ports")
             .max_height(240.0)
             .show(ui, |ui| {
                 egui::Grid::new("known_ports_grid")
                     .num_columns(8)
                     .striped(true)
-                    .spacing([14.0, 4.0])
+                    .spacing([8.0, 4.0])
                     .show(ui, |ui| {
                         for (i, h) in [
                             "",
@@ -375,7 +377,7 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                                 ui.strong(h);
                             }
                         }
-                        ui.end_row();
+                        crate::theme::end_row(ui);
                         for (port, known, watched, row) in shown {
                             match row {
                                 Some(_) => crate::theme::colored(ui, GOOD, "●")
@@ -454,7 +456,7 @@ fn known_ports(ui: &mut Ui, all: &[PortRow<'_>], view: &mut PortsView, intents: 
                                     unwatch = Some(port);
                                 }
                             });
-                            ui.end_row();
+                            crate::theme::end_row(ui);
                         }
                     });
             });
@@ -473,7 +475,7 @@ fn listening_table(
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.strong(crate::i18n::tr("All listening ports"));
-        ui.separator();
+        crate::theme::divider(ui);
         crate::theme::search_bar(
             ui,
             egui::Id::unique("ports_search"),
@@ -554,7 +556,7 @@ fn listening_table(
     let min_width = widths.iter().sum::<f32>() + 120.0;
     let menu_id = ui.scope_id().with("port_context_menu");
     crate::theme::table_panel(ui, "ports", min_width, |ui| {
-        TableBuilder::new(ui)
+        crate::theme::table(ui)
             .id_salt("ports_table")
             .striped(true)
             .resizable(true)
@@ -586,50 +588,78 @@ fn listening_table(
                 .into_iter()
                 .enumerate()
                 {
-                    h.col(|ui| header(ui, label, col, numeric, &mut sort));
+                    h.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            header(ui, label, col, numeric, &mut sort);
+                        })
+                    });
                 }
             })
             .body(|body| {
                 body.rows(row_height, rows.len(), |mut row| {
                     let (u, p) = rows[row.index()];
                     row.col(|ui| {
-                        crate::theme::right(ui, RichText::new(u.port.to_string()).monospace());
+                        crate::theme::table_cell(ui, |ui| {
+                            crate::theme::right(ui, RichText::new(u.port.to_string()).monospace());
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(format!("{:?}", u.protocol).to_uppercase());
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(format!("{:?}", u.protocol).to_uppercase());
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(u.known().map_or("", |k| k.service));
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(u.known().map_or("", |k| k.service));
+                        })
                     });
                     row.col(|ui| {
-                        let label = ui.label(p.map_or("?", |p| p.name.as_str()));
-                        if let Some(hint) = p.and_then(|p| ports::relay_hint(&p.name)) {
-                            label.on_hover_text(hint);
-                        }
-                    });
-                    row.col(|ui| crate::theme::right(ui, u.pid.to_string()));
-                    row.col(|ui| exposure_label(ui, u.exposure()));
-                    row.col(|ui| {
-                        if u.protocol == Protocol::Tcp {
-                            crate::theme::right(ui, u.connections.to_string());
-                        }
+                        crate::theme::table_cell(ui, |ui| {
+                            let label = ui.label(p.map_or("?", |p| p.name.as_str()));
+                            if let Some(hint) = p.and_then(|p| ports::relay_hint(&p.name)) {
+                                label.on_hover_text(hint);
+                            }
+                        })
                     });
                     row.col(|ui| {
-                        crate::theme::right(
-                            ui,
-                            p.map_or(String::new(), |p| format!("{:.1}%", p.cpu_percent)),
-                        );
+                        crate::theme::table_cell(ui, |ui| {
+                            crate::theme::right(ui, u.pid.to_string());
+                        })
                     });
                     row.col(|ui| {
-                        crate::theme::right(
-                            ui,
-                            p.map_or(String::new(), |p| {
-                                format_bytes(p.private_working_set as f64)
-                            }),
-                        );
+                        crate::theme::table_cell(ui, |ui| {
+                            exposure_label(ui, u.exposure());
+                        })
                     });
                     row.col(|ui| {
-                        ui.weak(u.address_text());
+                        crate::theme::table_cell(ui, |ui| {
+                            if u.protocol == Protocol::Tcp {
+                                crate::theme::right(ui, u.connections.to_string());
+                            }
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            crate::theme::right(
+                                ui,
+                                p.map_or(String::new(), |p| format!("{:.1}%", p.cpu_percent)),
+                            );
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            crate::theme::right(
+                                ui,
+                                p.map_or(String::new(), |p| {
+                                    format_bytes(p.private_working_set as f64)
+                                }),
+                            );
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.weak(u.address_text());
+                        })
                     });
                     let response = row.response();
                     if response.clicked()
@@ -703,7 +733,7 @@ fn port_menu(
             intents.push(Intent::AddToKillList(p.name.clone()));
             ui.close();
         }
-        ui.separator();
+        crate::theme::divider(ui);
     }
     if u.protocol == Protocol::Tcp
         && ui

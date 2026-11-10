@@ -41,7 +41,7 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
              and services; end, suspend and resume processes; get alerts when the CPU is \
              overloaded or a program runs hundreds of copies.",
         ));
-        ui.add_space(4.0);
+        ui.add_space(0.0);
         match data.mode {
             Mode::Service { admin: true, .. } => {}
             Mode::Service { admin: false, .. } => {
@@ -111,9 +111,10 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
             return;
         };
         ui.checkbox(&mut form.enabled, crate::i18n::tr("Enabled"));
+        let field_width = (ui.available_width() - 200.0).clamp(120.0, 340.0);
         egui::Grid::new("telegram_form")
             .num_columns(2)
-            .spacing([8.0, 6.0])
+            .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 ui.label(crate::i18n::tr("Bot token"));
                 ui.horizontal(|ui| {
@@ -121,7 +122,7 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
                         egui::TextEdit::singleline(&mut form.token)
                             .password(!view.show_token)
                             .hint_text(crate::i18n::tr("123456789:ABC… from @BotFather"))
-                            .desired_width(340.0),
+                            .desired_width(field_width),
                     );
                     let eye = if view.show_token {
                         crate::i18n::tr("Hide")
@@ -136,17 +137,17 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
                         view.show_token = !view.show_token;
                     }
                 });
-                ui.end_row();
+                crate::theme::end_row(ui);
                 ui.label(crate::i18n::tr("Allowed chat IDs"));
                 ui.add(
                     egui::TextEdit::singleline(&mut view.chats)
                         .hint_text(crate::i18n::tr("e.g. 123456789, 987654321"))
-                        .desired_width(340.0),
+                        .desired_width(field_width),
                 )
                 .on_hover_text(crate::i18n::tr(
                     "Only these chats may use the bot; separate several with commas",
                 ));
-                ui.end_row();
+                crate::theme::end_row(ui);
             });
         ui.checkbox(
             &mut form.notify,
@@ -171,7 +172,7 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
             Some(Ok(cfg)) => view.original.as_ref() != Some(cfg),
             _ => true,
         };
-        ui.add_space(4.0);
+        ui.add_space(0.0);
         ui.horizontal(|ui| {
             let valid = matches!(edited, Some(Ok(_)));
             if ui

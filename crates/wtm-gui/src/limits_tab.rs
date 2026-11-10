@@ -180,7 +180,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
             "Run RustWTM as administrator to change limits.",
         ));
     }
-    ui.add_space(6.0);
+    ui.add_space(0.0);
 
     struct Row<'a> {
         limit: &'a AppLimit,
@@ -238,7 +238,13 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
     });
     if !config.limits.is_empty() {
         crate::theme::panel(ui, |ui| {
-            egui::Grid::new("app_limits_grid")
+            ui.spacing_mut().scroll = crate::theme::solid_scroll();
+            egui::ScrollArea::horizontal()
+                .id_salt("app_limits_grid_columns")
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.set_min_width(1020.0);
+egui::Grid::new("app_limits_grid")
         .num_columns(7)
         .striped(true)
         .show(ui, |ui| {
@@ -256,7 +262,7 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 header(ui, h, col, numeric, &mut sort);
             }
             ui.label("");
-            ui.end_row();
+            crate::theme::end_row(ui);
             for r in &rows {
                 let l = r.limit;
                 ui.label(&l.name);
@@ -324,9 +330,10 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                         }
                         crate::theme::fill_row(ui);
                     });
-                    ui.end_row();
+                    crate::theme::end_row(ui);
                 }
             });
+                });
         });
     }
     sort.store(ui, "app_limits");
@@ -334,81 +341,82 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
         ui.weak(crate::i18n::tr("No app limits yet. Add one below, or right-click a process and choose \"Limit this app…\"."));
     }
 
-    ui.add_space(12.0);
-    crate::theme::section(
+    ui.add_space(0.0);
+    crate::theme::card(
         ui,
         if view.editing.is_some() {
             crate::i18n::tr("Change limit")
         } else {
             crate::i18n::tr("Add limit")
         },
-    );
-    egui::Grid::new("app_limit_form")
-        .num_columns(2)
-        .show(ui, |ui| {
-            ui.label(crate::i18n::tr("Program"));
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut view.name)
-                        .hint_text(crate::i18n::tr("e.g. node.exe or chrome*.exe")),
-                );
-                egui::ComboBox::from_label(crate::i18n::tr("or a running app"))
-                    .selected_text(crate::i18n::tr("Pick…"))
-                    .height(400.0)
-                    .show_ui(ui, |ui| {
-                        for (name, cpu, mem) in running_apps(data) {
-                            let label = {
-                                let __wtm_i18n_0 = &(format_bytes(mem as f64));
-                                crate::i18n::format(
-                                    "{0}  ({1}% CPU, {2})",
-                                    &[
-                                        name.to_string(),
-                                        format!("{:.1}", cpu),
-                                        __wtm_i18n_0.to_string(),
-                                    ],
-                                )
-                            };
-                            if ui.selectable_label(view.name == name, label).clicked() {
-                                view.name = name;
-                            }
-                        }
+        |ui| {
+            egui::Grid::new("app_limit_form")
+                .num_columns(2)
+                .spacing([12.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label(crate::i18n::tr("Program"));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut view.name)
+                                .hint_text(crate::i18n::tr("e.g. node.exe or chrome*.exe")),
+                        );
+                        egui::ComboBox::from_label(crate::i18n::tr("or a running app"))
+                            .selected_text(crate::i18n::tr("Pick…"))
+                            .height(400.0)
+                            .show_ui(ui, |ui| {
+                                for (name, cpu, mem) in running_apps(data) {
+                                    let label = {
+                                        let __wtm_i18n_0 = &(format_bytes(mem as f64));
+                                        crate::i18n::format(
+                                            "{0}  ({1}% CPU, {2})",
+                                            &[
+                                                name.to_string(),
+                                                format!("{:.1}", cpu),
+                                                __wtm_i18n_0.to_string(),
+                                            ],
+                                        )
+                                    };
+                                    if ui.selectable_label(view.name == name, label).clicked() {
+                                        view.name = name;
+                                    }
+                                }
+                            });
                     });
-            });
-            ui.end_row();
+                    crate::theme::end_row(ui);
 
-            ui.checkbox(&mut view.cpu, "CPU");
-            ui.add_enabled(
-                view.cpu,
-                egui::DragValue::new(&mut view.cores)
-                    .range(0.1..=cpus as f32)
-                    .speed(0.05)
-                    .max_decimals(2)
-                    .suffix(crate::i18n::tr(" cores")),
-            );
-            ui.end_row();
+                    ui.checkbox(&mut view.cpu, "CPU");
+                    ui.add_enabled(
+                        view.cpu,
+                        egui::DragValue::new(&mut view.cores)
+                            .range(0.1..=cpus as f32)
+                            .speed(0.05)
+                            .max_decimals(2)
+                            .suffix(crate::i18n::tr(" cores")),
+                    );
+                    crate::theme::end_row(ui);
 
-            ui.checkbox(&mut view.memory, crate::i18n::tr("Memory"));
-            ui.add_enabled(
-                view.memory,
-                egui::DragValue::new(&mut view.gb)
-                    .range(0.1..=4096.0)
-                    .speed(0.1)
-                    .max_decimals(2)
-                    .suffix(crate::i18n::tr(" GB")),
-            );
-            ui.end_row();
+                    ui.checkbox(&mut view.memory, crate::i18n::tr("Memory"));
+                    ui.add_enabled(
+                        view.memory,
+                        egui::DragValue::new(&mut view.gb)
+                            .range(0.1..=4096.0)
+                            .speed(0.1)
+                            .max_decimals(2)
+                            .suffix(crate::i18n::tr(" GB")),
+                    );
+                    crate::theme::end_row(ui);
 
-            ui.label(crate::i18n::tr("Applies to"));
-            ui.horizontal(|ui| {
-                ui.radio_value(
-                    &mut view.scope,
-                    LimitScope::Group,
-                    crate::i18n::tr("All processes together"),
-                )
-                .on_hover_text(crate::i18n::tr(
-                    "One shared budget for every process of the app and their children.",
-                ));
-                ui.radio_value(
+                    ui.label(crate::i18n::tr("Applies to"));
+                    ui.horizontal_wrapped(|ui| {
+                        ui.radio_value(
+                            &mut view.scope,
+                            LimitScope::Group,
+                            crate::i18n::tr("All processes together"),
+                        )
+                        .on_hover_text(crate::i18n::tr(
+                            "One shared budget for every process of the app and their children.",
+                        ));
+                        ui.radio_value(
                     &mut view.scope,
                     LimitScope::Each,
                     crate::i18n::tr("Each instance separately"),
@@ -416,36 +424,38 @@ pub fn limits_tab(ui: &mut Ui, data: &Data, view: &mut LimitsView) -> Vec<UiComm
                 .on_hover_text(crate::i18n::tr(
                     "Every top-level instance gets its own budget, shared with its children.",
                 ));
-            });
-            ui.end_row();
-        });
-    let candidate = view.limit();
-    let valid = !candidate.name.is_empty()
-        && (candidate.cpu_cores.is_some() || candidate.memory_gb.is_some());
-    ui.horizontal(|ui| {
-        if ui
-            .add_enabled(
-                admin && valid,
-                egui::Button::new(crate::i18n::tr("Save limit")),
-            )
-            .clicked()
-        {
-            match view.apply(text) {
-                Ok(new) => {
-                    commands.push(UiCommand::SaveConfig(new));
-                    view.saving = Some(candidate);
-                    view.error = None;
+                    });
+                    crate::theme::end_row(ui);
+                });
+            let candidate = view.limit();
+            let valid = !candidate.name.is_empty()
+                && (candidate.cpu_cores.is_some() || candidate.memory_gb.is_some());
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(
+                        admin && valid,
+                        egui::Button::new(crate::i18n::tr("Save limit")),
+                    )
+                    .clicked()
+                {
+                    match view.apply(text) {
+                        Ok(new) => {
+                            commands.push(UiCommand::SaveConfig(new));
+                            view.saving = Some(candidate);
+                            view.error = None;
+                        }
+                        Err(e) => view.error = Some(e),
+                    }
                 }
-                Err(e) => view.error = Some(e),
+                if view.editing.is_some() && ui.button(crate::i18n::tr("Cancel")).clicked() {
+                    *view = LimitsView::default();
+                }
+            });
+            if let Some(e) = &view.error {
+                crate::theme::colored(ui, BAD, e);
             }
-        }
-        if view.editing.is_some() && ui.button(crate::i18n::tr("Cancel")).clicked() {
-            *view = LimitsView::default();
-        }
-    });
-    if let Some(e) = &view.error {
-        crate::theme::colored(ui, BAD, e);
-    }
+        },
+    );
     commands
 }
 
@@ -465,6 +475,7 @@ fn usage_cell(ui: &mut Ui, text: String, fill: Option<f32>) {
     };
     ui.add(
         egui::ProgressBar::new(fill.clamp(0.0, 1.0))
+            .corner_radius(0.0)
             .desired_width(150.0)
             .fill(color.gamma_multiply(0.8))
             .text(RichText::new(format!("{text} ({:.0}%)", fill * 100.0))),

@@ -3,6 +3,9 @@
 Status: roadmap with an initial visual subset implemented in source; see below.
 Reviewed: 2026-11-09 against workspace version 0.26.2.
 
+The [2026-11-10 capability review](desktop-gap-review-2026-11-10.md) updates
+the feature-by-feature gaps and implementation order against 0.27.0.
+
 ## First visual implementation
 
 The first implementation adds the shared system resource strip to Processes,
@@ -24,6 +27,9 @@ covered ranges, pinning, zoom/reset, keyboard stepping and event markers with
 explicit sampling gaps; see the [timeline guide](performance-timeline.md).
 Focused resource views, CPU tier filtering and GPU engine-type search are also
 implemented; see the [resource guide](performance-resources.md).
+The process workspace now also has a saved adaptive/pinned/hidden inspector,
+system facts without selection, two-level total/sort headers and calmer row
+styling; see [workspace behavior](process-workspace.md).
 M1's density/motion controls, M2b's pinned-name/group inspector, M3's physical
 device selection/history and later feature milestones remain pending. The original HTML
 concept remains a design proposal; generated egui previews are separate.
@@ -51,6 +57,15 @@ signing, upgrade durability and physical cooling certification retain their
 existing gates. UI work can proceed independently; it does not complete those
 gates. The baseline below is a source and existing-preview review, not a live
 certification of the installed application or hosted CI.
+
+## Current geometry and settings
+
+The source now follows the requested square layout: zero corner radius,
+outer margins between adjoining surfaces, readable internal padding and small
+control gaps, with explicit border and separator lines in both themes. Content
+padding is separate from the spacing between panels.
+Appearance, Process workspace and Charts and history settings expose persisted
+window preferences; see [the settings guide](display-preferences.md).
 
 ## Verified baseline and remaining gaps
 

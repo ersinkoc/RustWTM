@@ -1,7 +1,7 @@
 //! Container monitoring: bounded lists, per-container graphs and read-only logs.
 use crate::theme;
 use eframe::egui::{self, RichText, Ui};
-use egui_extras::{Column, TableBuilder};
+use egui_extras::Column;
 use std::time::Instant;
 use wtm_core::docker::{Container, State};
 
@@ -148,7 +148,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
                 (1, crate::i18n::tr("Running")),
                 (2, crate::i18n::tr("Stopped")),
             ] {
-                ui.selectable_value(&mut view.filter, filter, label);
+                crate::theme::choice(ui, &mut view.filter, filter, label);
             }
         });
         ui.horizontal_wrapped(|ui| {
@@ -166,7 +166,8 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
                     &view.project
                 })
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(
+                    crate::theme::choice(
+                        ui,
                         &mut view.project,
                         String::new(),
                         crate::i18n::tr("All projects"),
@@ -178,7 +179,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
                         .map(|c| c.project.as_str())
                         .collect();
                     for project in projects {
-                        ui.selectable_value(&mut view.project, project.into(), project);
+                        crate::theme::choice(ui, &mut view.project, project.into(), project);
                     }
                 });
         });
@@ -197,6 +198,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
         })
         .collect();
     ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
         ui.weak(crate::i18n::format(
             "{0} of {1} containers",
             &[rows.len().to_string(), report.containers.len().to_string()],
@@ -231,7 +233,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
         (ui.available_height() - 20.0).max(90.0)
     };
     theme::table_panel(ui, "docker_table", 740.0, |ui| {
-        TableBuilder::new(ui)
+        crate::theme::table(ui)
             .striped(true)
             .resizable(true)
             .min_scrolled_height(60.0)
@@ -255,7 +257,9 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
                 .enumerate()
                 {
                     header.col(|ui| {
-                        crate::sort::header(ui, label, index, matches!(index, 3 | 4), &mut sort)
+                        crate::theme::table_cell(ui, |ui| {
+                            crate::sort::header(ui, label, index, matches!(index, 3 | 4), &mut sort)
+                        })
                     });
                 }
             })
@@ -264,56 +268,68 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
                     let c = rows[row.index()];
                     let current = fresh(c, state, now);
                     row.col(|ui| {
-                        if ui
-                            .add(
-                                egui::Button::selectable(
-                                    view.selected.as_deref() == Some(&c.id),
-                                    &c.name,
+                        crate::theme::table_cell(ui, |ui| {
+                            if ui
+                                .add(
+                                    egui::Button::selectable(
+                                        view.selected.as_deref() == Some(&c.id),
+                                        &c.name,
+                                    )
+                                    .truncate(),
                                 )
-                                .truncate(),
+                                .on_hover_text(&c.name)
+                                .clicked()
+                            {
+                                view.selected = Some(c.id.clone());
+                            }
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.add(egui::Label::new(&c.project).truncate())
+                                .on_hover_text(&c.project);
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            theme::colored(
+                                ui,
+                                if c.state == "running" {
+                                    theme::GOOD
+                                } else {
+                                    theme::WARN
+                                },
+                                state_label(&c.state),
                             )
-                            .on_hover_text(&c.name)
-                            .clicked()
-                        {
-                            view.selected = Some(c.id.clone());
-                        }
+                            .on_hover_text(&c.status);
+                        })
                     });
                     row.col(|ui| {
-                        ui.add(egui::Label::new(&c.project).truncate())
-                            .on_hover_text(&c.project);
-                    });
-                    row.col(|ui| {
-                        theme::colored(
-                            ui,
-                            if c.state == "running" {
-                                theme::GOOD
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(if current {
+                                c.metrics
+                                    .cpu
+                                    .map(|n| format!("{n:.1}%"))
+                                    .unwrap_or("—".into())
                             } else {
-                                theme::WARN
-                            },
-                            state_label(&c.state),
-                        )
-                        .on_hover_text(&c.status);
+                                "—".into()
+                            });
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(if current {
-                            c.metrics
-                                .cpu
-                                .map(|n| format!("{n:.1}%"))
-                                .unwrap_or("—".into())
-                        } else {
-                            "—".into()
-                        });
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(if current {
+                                value(c.metrics.memory.map(|n| n as f64))
+                            } else {
+                                "—".into()
+                            });
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(if current {
-                            value(c.metrics.memory.map(|n| n as f64))
-                        } else {
-                            "—".into()
-                        });
-                    });
-                    row.col(|ui| {
-                        ui.add(egui::Label::new(&c.image).truncate())
-                            .on_hover_text(&c.image);
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.add(egui::Label::new(&c.image).truncate())
+                                .on_hover_text(&c.image);
+                        })
                     });
                 });
             });

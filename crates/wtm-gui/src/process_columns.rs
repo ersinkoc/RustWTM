@@ -163,12 +163,12 @@ pub fn show_editor(ctx: &egui::Context, editor: &mut Option<Editor>) -> Option<S
         .show(ctx, |ui| {
             ui.set_width(width);
             ui.set_height(content_height);
-            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+            ui.spacing_mut().scroll = crate::theme::solid_scroll();
             ui.heading(crate::i18n::tr("Arrange columns…"));
             ui.weak(crate::i18n::tr(
                 "Column order is shared by List, Tree and Apps.",
             ));
-            ui.add_space(6.0);
+            ui.add_space(0.0);
             ui.columns(2, |cols| {
                 cols[0].strong(crate::i18n::tr("Available columns"));
                 let search = cols[0].add(
@@ -275,7 +275,7 @@ pub fn show_editor(ctx: &egui::Context, editor: &mut Option<Editor>) -> Option<S
                     active.move_visible(col, up);
                 }
             });
-            ui.separator();
+            crate::theme::divider(ui);
             ui.horizontal(|ui| {
                 if ui
                     .button(crate::i18n::tr("Restore default columns"))

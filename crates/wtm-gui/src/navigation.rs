@@ -4,6 +4,9 @@ use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Ui};
 
 #[derive(Clone, Copy)]
 pub enum Icon {
+    Cpu,
+    Memory,
+    Gpu,
     Overview,
     Containers,
     Processes,
@@ -40,12 +43,36 @@ fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
     let box_at = |x, y, w, h| {
         p.rect_stroke(
             Rect::from_min_size(at(x, y), egui::vec2(w, h)),
-            2.0,
+            0.0,
             stroke,
             egui::StrokeKind::Inside,
         );
     };
     match icon {
+        Icon::Cpu => {
+            box_at(4.0, 4.0, 11.0, 11.0);
+            box_at(7.0, 7.0, 5.0, 5.0);
+            for x in [6.0, 10.0, 14.0] {
+                line(&[(x, 1.0), (x, 4.0)]);
+                line(&[(x, 15.0), (x, 18.0)]);
+                line(&[(1.0, x), (4.0, x)]);
+                line(&[(15.0, x), (18.0, x)]);
+            }
+        }
+        Icon::Memory => {
+            box_at(1.5, 5.0, 16.0, 9.0);
+            for x in [4.0, 8.0, 12.0] {
+                box_at(x, 7.0, 2.0, 4.0);
+                line(&[(x, 14.0), (x, 17.0)]);
+            }
+            line(&[(16.0, 14.0), (16.0, 17.0)]);
+        }
+        Icon::Gpu => {
+            box_at(1.0, 4.0, 16.0, 11.0);
+            circle(8.0, 9.5, 3.0);
+            line(&[(17.0, 6.0), (19.0, 6.0), (19.0, 15.0)]);
+            line(&[(4.0, 15.0), (4.0, 18.0), (13.0, 18.0)]);
+        }
         Icon::Containers => {
             for (x, y) in [(2.0, 3.0), (10.0, 3.0), (2.0, 11.0), (10.0, 11.0)] {
                 box_at(x, y, 6.0, 6.0);
@@ -202,8 +229,16 @@ fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
 }
 
 /// Where a row's label starts, and the space kept free after it.
-pub const LABEL_LEFT: f32 = 42.0;
-pub const LABEL_RIGHT_GAP: f32 = 14.0;
+pub const LABEL_LEFT: f32 = 38.0;
+pub const LABEL_RIGHT_GAP: f32 = 10.0;
+
+/// Decorative vector badge; the adjacent text carries its accessible name.
+pub fn badge(ui: &mut Ui, icon: Icon, color: Color32) {
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::hover());
+    ui.painter()
+        .rect_filled(rect, 0.0, color.gamma_multiply(0.13));
+    paint(ui, rect, icon, color);
+}
 
 pub fn row(
     ui: &mut Ui,
@@ -223,18 +258,29 @@ pub fn row(
         )
     });
     let v = ui.visuals();
+    ui.painter().line_segment(
+        [rect.left_bottom(), rect.right_bottom()],
+        Stroke::new(
+            1.0,
+            v.widgets
+                .noninteractive
+                .bg_stroke
+                .color
+                .gamma_multiply(0.25),
+        ),
+    );
     if selected || response.hovered() || response.has_focus() {
         let fill = if selected {
             v.selection.bg_fill
         } else {
             v.widgets.hovered.bg_fill
         };
-        ui.painter().rect_filled(rect, 5.0, fill);
+        ui.painter().rect_filled(rect, 0.0, fill);
     }
     if response.has_focus() {
         ui.painter().rect_stroke(
             rect.shrink(1.0),
-            5.0,
+            0.0,
             Stroke::new(1.5, crate::theme::text_color(ui, crate::theme::ACCENT)),
             egui::StrokeKind::Inside,
         );
@@ -245,7 +291,7 @@ pub fn row(
                 rect.left_top() + egui::vec2(0.0, 7.0),
                 egui::vec2(3.0, 18.0),
             ),
-            2.0,
+            0.0,
             crate::theme::ACCENT,
         );
     }
@@ -257,7 +303,7 @@ pub fn row(
     let left = if collapsed {
         rect.center().x - 9.5
     } else {
-        rect.left() + 12.0
+        rect.left() + 10.0
     };
     paint(
         ui,

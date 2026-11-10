@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align, Color32, Layout, RichText, Ui};
-use egui_extras::{Column, TableBuilder};
+use egui_extras::Column;
 use wtm_core::diskscan::{self, DirNode, Progress, ScanResult};
 use wtm_core::{DriveKind, Volume, format_bytes};
 
@@ -208,12 +208,13 @@ impl DisksView {
 pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) {
     if view.analysis_open {
         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
             if ui.button(crate::i18n::tr("Back to disks")).clicked() {
                 view.analysis_open = false;
             }
             ui.heading(crate::i18n::tr("Disk space analysis"));
         });
-        ui.add_space(6.0);
+        ui.add_space(0.0);
         ui.push_id(("analysis_workspace", view.scan_generation), |ui| {
             card(ui, crate::i18n::tr("What takes up the space"), |ui| {
                 analysis(ui, view)
@@ -226,14 +227,14 @@ pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) {
         if ui.button(crate::i18n::tr("Open disk analysis")).clicked() {
             view.analysis_open = true;
         }
-        ui.add_space(6.0);
+        ui.add_space(0.0);
     }
     drives(ui, view);
-    ui.add_space(6.0);
+    ui.add_space(0.0);
     activity(ui, data);
-    ui.add_space(6.0);
+    ui.add_space(0.0);
     file_activity(ui, data);
-    ui.add_space(6.0);
+    ui.add_space(0.0);
     if view.scan.is_none() {
         card(ui, crate::i18n::tr("What takes up the space"), |ui| {
             analysis(ui, view);
@@ -266,10 +267,10 @@ fn kind_label(kind: DriveKind) -> &'static str {
 fn bar(ui: &mut Ui, fraction: f32, width: f32, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 10.0), egui::Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, 3.0, crate::theme::track_color(ui));
+    painter.rect_filled(rect, 0.0, crate::theme::track_color(ui));
     let mut fill = rect;
     fill.set_width(rect.width() * fraction.clamp(0.0, 1.0));
-    painter.rect_filled(fill, 3.0, color);
+    painter.rect_filled(fill, 0.0, color);
 }
 
 fn drives(ui: &mut Ui, view: &mut DisksView) {
@@ -293,8 +294,8 @@ fn drives(ui: &mut Ui, view: &mut DisksView) {
                 egui::Frame::new()
                     .fill(crate::theme::tile_fill(ui))
                     .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
-                    .corner_radius(8)
-                    .inner_margin(10)
+                    .corner_radius(0.0)
+                    .inner_margin(egui::Margin::symmetric(8, 6))
                     .show(ui, |ui| {
                         ui.set_width(270.0);
                         ui.vertical(|ui| {
@@ -360,7 +361,7 @@ fn activity(ui: &mut Ui, data: &Data) {
                 }
                 egui::Grid::new("disk_activity")
                     .num_columns(3)
-                    .spacing([12.0, 6.0])
+                    .spacing([8.0, 4.0])
                     .show(ui, |ui| {
                         for d in &snap.system.disks {
                             ui.label(crate::i18n::format(
@@ -383,7 +384,7 @@ fn activity(ui: &mut Ui, data: &Data) {
                                 "read {0}/s · write {1}/s",
                                 &[format_bytes(d.read_rate), format_bytes(d.write_rate)],
                             ));
-                            ui.end_row();
+                            crate::theme::end_row(ui);
                         }
                     });
             },
@@ -402,7 +403,7 @@ fn activity(ui: &mut Ui, data: &Data) {
                 }
                 egui::Grid::new("disk_processes")
                     .num_columns(3)
-                    .spacing([12.0, 6.0])
+                    .spacing([8.0, 4.0])
                     .show(ui, |ui| {
                         for p in busy.into_iter().take(TOP_PROCESSES) {
                             ui.label(&p.name);
@@ -414,7 +415,7 @@ fn activity(ui: &mut Ui, data: &Data) {
                                 "write {0}/s",
                                 &[format_bytes(p.io_write_rate)],
                             ));
-                            ui.end_row();
+                            crate::theme::end_row(ui);
                         }
                     });
                 ui.weak(crate::i18n::tr(
@@ -434,7 +435,7 @@ fn two_up(ui: &mut Ui, left: impl FnOnce(&mut Ui), right: impl FnOnce(&mut Ui)) 
         });
     } else {
         left(ui);
-        ui.add_space(8.0);
+        ui.add_space(0.0);
         right(ui);
     }
 }
@@ -473,7 +474,7 @@ fn file_activity(ui: &mut Ui, data: &Data) {
         egui::Grid::new("file_activity")
             .num_columns(4)
             .striped(true)
-            .spacing([16.0, 4.0])
+            .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 for label in [
                     crate::i18n::tr("Program"),
@@ -483,7 +484,7 @@ fn file_activity(ui: &mut Ui, data: &Data) {
                 ] {
                     ui.strong(label);
                 }
-                ui.end_row();
+                crate::theme::end_row(ui);
                 for f in files.iter().take(20) {
                     ui.label(names.get(&f.pid).copied().unwrap_or("?"))
                         .on_hover_text(format!("PID {}", f.pid));
@@ -493,7 +494,7 @@ fn file_activity(ui: &mut Ui, data: &Data) {
                         Some(p) => ui.add(egui::Label::new(p).truncate()),
                         None => ui.weak(crate::i18n::tr("(name not known yet)")),
                     };
-                    ui.end_row();
+                    crate::theme::end_row(ui);
                 }
             });
     });
@@ -567,10 +568,10 @@ fn analysis(ui: &mut Ui, view: &mut DisksView) {
             (ResultView::Largest, crate::i18n::tr("Largest files")),
             (ResultView::Types, crate::i18n::tr("File types")),
         ] {
-            ui.selectable_value(&mut view.view, v, label);
+            crate::theme::choice(ui, &mut view.view, v, label);
         }
     });
-    ui.separator();
+    crate::theme::divider(ui);
     let mut reveal = None;
     match view.view {
         ResultView::Folders => folders(ui, result, &mut view.expanded, &mut reveal),
@@ -699,19 +700,25 @@ fn share(size: u64, of: u64) -> f32 {
 
 fn size_cells(row: &mut egui_extras::TableRow<'_, '_>, size: u64, files: u64, parent: u64) {
     row.col(|ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(format_bytes(size as f64));
-        });
+        crate::theme::table_cell(ui, |ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(format_bytes(size as f64));
+            });
+        })
     });
     row.col(|ui| {
-        let s = share(size, parent);
-        bar(ui, s, 90.0, ACCENT);
-        ui.label(format!("{:.1}%", s * 100.0));
+        crate::theme::table_cell(ui, |ui| {
+            let s = share(size, parent);
+            bar(ui, s, 90.0, ACCENT);
+            ui.label(format!("{:.1}%", s * 100.0));
+        })
     });
     row.col(|ui| {
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(files.to_string());
-        });
+        crate::theme::table_cell(ui, |ui| {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(files.to_string());
+            });
+        })
     });
 }
 
@@ -736,7 +743,7 @@ fn folders(
     let row_height = ui.spacing().interact_size.y;
     let mut toggle = None;
     let scroll = crate::theme::take_scroll(ui, "disk_folders");
-    let table = TableBuilder::new(ui).id_salt("disk_folders");
+    let table = crate::theme::table(ui).id_salt("disk_folders");
     let table = match scroll {
         Some(y) => table.vertical_scroll_offset(y),
         None => table,
@@ -761,7 +768,9 @@ fn folders(
                 "",
             ] {
                 h.col(|ui| {
-                    ui.strong(label);
+                    crate::theme::table_cell(ui, |ui| {
+                        ui.strong(label);
+                    })
                 });
             }
         })
@@ -776,40 +785,45 @@ fn folders(
                         parent_size,
                     } => {
                         row.col(|ui| {
-                            ui.add_space(*depth as f32 * 16.0);
-                            let open = index.is_empty() || expanded.contains(index);
-                            if node.children.is_empty() || index.is_empty() {
-                                ui.add_space(22.0);
-                            } else if ui.small_button(if open { "⏷" } else { "⏵" }).clicked() {
-                                toggle = Some(index.clone());
-                            }
-                            let mut name = RichText::new(&node.name);
-                            if node.denied {
-                                name = name.color(crate::theme::text_color(ui, WARN));
-                            }
-                            let label = ui.add(
-                                egui::Label::new(name)
-                                    .truncate()
-                                    .sense(egui::Sense::click()),
-                            );
-                            if node.denied {
-                                label.on_hover_text(crate::i18n::tr("Could not be read"));
-                            } else if label.double_clicked()
-                                && !node.children.is_empty()
-                                && !index.is_empty()
-                            {
-                                toggle = Some(index.clone());
-                            }
+                            crate::theme::table_cell(ui, |ui| {
+                                ui.add_space(*depth as f32 * 16.0);
+                                let open = index.is_empty() || expanded.contains(index);
+                                if node.children.is_empty() || index.is_empty() {
+                                    ui.add_space(22.0);
+                                } else if ui.small_button(if open { "⏷" } else { "⏵" }).clicked()
+                                {
+                                    toggle = Some(index.clone());
+                                }
+                                let mut name = RichText::new(&node.name);
+                                if node.denied {
+                                    name = name.color(crate::theme::text_color(ui, WARN));
+                                }
+                                let label = ui.add(
+                                    egui::Label::new(name)
+                                        .truncate()
+                                        .sense(egui::Sense::click()),
+                                );
+                                if node.denied {
+                                    label.on_hover_text(crate::i18n::tr("Could not be read"));
+                                } else if label.double_clicked()
+                                    && !node.children.is_empty()
+                                    && !index.is_empty()
+                                {
+                                    toggle = Some(index.clone());
+                                }
+                            })
                         });
                         size_cells(&mut row, node.size, node.files, *parent_size);
                         row.col(|ui| {
-                            if ui
-                                .small_button(crate::i18n::tr("Show"))
-                                .on_hover_text(crate::i18n::tr("Show in Explorer"))
-                                .clicked()
-                            {
-                                *reveal = Some(path.clone());
-                            }
+                            crate::theme::table_cell(ui, |ui| {
+                                if ui
+                                    .small_button(crate::i18n::tr("Show"))
+                                    .on_hover_text(crate::i18n::tr("Show in Explorer"))
+                                    .clicked()
+                                {
+                                    *reveal = Some(path.clone());
+                                }
+                            })
                         });
                     }
                     Line::Files {
@@ -818,12 +832,14 @@ fn folders(
                         parent_size,
                     } => {
                         row.col(|ui| {
-                            ui.add_space(*depth as f32 * 16.0 + 22.0);
-                            ui.label(
-                                RichText::new(crate::i18n::tr("(files in this folder)"))
-                                    .italics()
-                                    .weak(),
-                            );
+                            crate::theme::table_cell(ui, |ui| {
+                                ui.add_space(*depth as f32 * 16.0 + 22.0);
+                                ui.label(
+                                    RichText::new(crate::i18n::tr("(files in this folder)"))
+                                        .italics()
+                                        .weak(),
+                                );
+                            })
                         });
                         size_cells(&mut row, node.own_size, node.own_files, *parent_size);
                         row.col(|_| {});
@@ -835,15 +851,17 @@ fn folders(
                         parent_size,
                     } => {
                         row.col(|ui| {
-                            ui.add_space(*depth as f32 * 16.0 + 22.0);
-                            ui.label(
-                                RichText::new(crate::i18n::format(
-                                    "{0} smaller folders",
-                                    &[count.to_string()],
-                                ))
-                                .italics()
-                                .weak(),
-                            );
+                            crate::theme::table_cell(ui, |ui| {
+                                ui.add_space(*depth as f32 * 16.0 + 22.0);
+                                ui.label(
+                                    RichText::new(crate::i18n::format(
+                                        "{0} smaller folders",
+                                        &[count.to_string()],
+                                    ))
+                                    .italics()
+                                    .weak(),
+                                );
+                            })
                         });
                         size_cells(&mut row, *size, 0, *parent_size);
                         row.col(|_| {});
@@ -867,7 +885,7 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
     let height = (ui.available_height() - 32.0).max(60.0);
     let row_height = ui.spacing().interact_size.y;
     let scroll = crate::theme::take_scroll(ui, "disk_largest");
-    let table = TableBuilder::new(ui).id_salt("disk_largest");
+    let table = crate::theme::table(ui).id_salt("disk_largest");
     let table = match scroll {
         Some(y) => table.vertical_scroll_offset(y),
         None => table,
@@ -890,7 +908,9 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
                 crate::i18n::tr("File"),
             ] {
                 h.col(|ui| {
-                    ui.strong(label);
+                    crate::theme::table_cell(ui, |ui| {
+                        ui.strong(label);
+                    })
                 });
             }
         })
@@ -898,28 +918,36 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
             body.rows(row_height, r.largest.len(), |mut row| {
                 let f = &r.largest[row.index()];
                 row.col(|ui| {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(format_bytes(f.size as f64)).strong());
-                    });
+                    crate::theme::table_cell(ui, |ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.label(RichText::new(format_bytes(f.size as f64)).strong());
+                        });
+                    })
                 });
                 row.col(|ui| {
-                    ui.label(f.modified.map_or_else(String::new, |m| {
-                        chrono::DateTime::<chrono::Local>::from(m)
-                            .format("%Y-%m-%d %H:%M")
-                            .to_string()
-                    }));
+                    crate::theme::table_cell(ui, |ui| {
+                        ui.label(f.modified.map_or_else(String::new, |m| {
+                            chrono::DateTime::<chrono::Local>::from(m)
+                                .format("%Y-%m-%d %H:%M")
+                                .to_string()
+                        }));
+                    })
                 });
                 row.col(|ui| {
-                    if ui
-                        .small_button(crate::i18n::tr("Show"))
-                        .on_hover_text(crate::i18n::tr("Show in Explorer"))
-                        .clicked()
-                    {
-                        *reveal = Some(f.path.clone());
-                    }
+                    crate::theme::table_cell(ui, |ui| {
+                        if ui
+                            .small_button(crate::i18n::tr("Show"))
+                            .on_hover_text(crate::i18n::tr("Show in Explorer"))
+                            .clicked()
+                        {
+                            *reveal = Some(f.path.clone());
+                        }
+                    })
                 });
                 row.col(|ui| {
-                    ui.add(egui::Label::new(f.path.display().to_string()).truncate());
+                    crate::theme::table_cell(ui, |ui| {
+                        ui.add(egui::Label::new(f.path.display().to_string()).truncate());
+                    })
                 });
             });
         });
@@ -933,6 +961,7 @@ fn types(ui: &mut Ui, r: &ScanResult) {
     }
     let mut area = egui::ScrollArea::vertical()
         .id_salt("disk_types")
+        .auto_shrink([false, false])
         .max_height((ui.available_height() - 32.0).max(60.0));
     if let Some(y) = crate::theme::take_scroll(ui, "disk_types") {
         area = area.vertical_scroll_offset(y);
@@ -941,7 +970,7 @@ fn types(ui: &mut Ui, r: &ScanResult) {
         egui::Grid::new("disk_types_grid")
             .num_columns(4)
             .striped(true)
-            .spacing([16.0, 6.0])
+            .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 for label in [
                     crate::i18n::tr("Type"),
@@ -951,7 +980,7 @@ fn types(ui: &mut Ui, r: &ScanResult) {
                 ] {
                     ui.strong(label);
                 }
-                ui.end_row();
+                crate::theme::end_row(ui);
                 for t in &r.types {
                     ui.label(match t.extension.as_str() {
                         "" => crate::i18n::tr("(no extension)").to_owned(),
@@ -965,7 +994,7 @@ fn types(ui: &mut Ui, r: &ScanResult) {
                         ui.label(format!("{:.1}%", s * 100.0));
                     });
                     ui.label(t.files.to_string());
-                    ui.end_row();
+                    crate::theme::end_row(ui);
                 }
             });
     });

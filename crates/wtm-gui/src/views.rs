@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::{self, Align, Color32, Layout, Ui};
-use egui_extras::{Column, TableBuilder};
+use egui_extras::Column;
 use std::net::SocketAddr;
 
 use wtm_core::format_bytes;
@@ -83,7 +83,7 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
                         {
                             header(ui, h, col, numeric, &mut sort);
                         }
-                        ui.end_row();
+                        crate::theme::end_row(ui);
                         for (s, (count, cpu, mem)) in rows {
                             ui.label(account(s));
                             right(ui, s.id.to_string());
@@ -112,7 +112,7 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
                                 }
                                 crate::theme::fill_row(ui);
                             });
-                            ui.end_row();
+                            crate::theme::end_row(ui);
                         }
                     });
             });
@@ -238,7 +238,7 @@ pub fn network(
     });
     top_talkers(ui, data);
     blocked_programs(ui, data, &mut close);
-    ui.separator();
+    crate::theme::divider(ui);
     let conns = match &data.connections {
         None => {
             crate::theme::loading(ui, crate::i18n::tr("Loading connections…"));
@@ -316,7 +316,7 @@ pub fn network(
     .collect();
     let min_width = widths.iter().sum::<f32>() + 80.0;
     crate::theme::table_panel(ui, "network", min_width, |ui| {
-        TableBuilder::new(ui)
+        crate::theme::table(ui)
         .id_salt("network_table")
         .striped(true)
         .resizable(true)
@@ -340,29 +340,29 @@ pub fn network(
             .into_iter()
             .enumerate()
             {
-                h.col(|ui| header(ui, label, col, numeric, &mut sort));
+                h.col(|ui| crate::theme::table_cell(ui, |ui| {header(ui, label, col, numeric, &mut sort); }));
             }
         })
         .body(|body| {
             body.rows(row_height, rows.len(), |mut row| {
                 let (c, name, remote) = &rows[row.index()];
-                row.col(|ui| {
+                row.col(|ui| crate::theme::table_cell(ui, |ui| {
                     ui.label(*name);
-                });
-                row.col(|ui| right(ui, c.pid.to_string()));
-                row.col(|ui| {
+                }));
+                row.col(|ui| crate::theme::table_cell(ui, |ui| {right(ui, c.pid.to_string()); }));
+                row.col(|ui| crate::theme::table_cell(ui, |ui| {
                     ui.label(format!("{:?}", c.protocol));
-                });
-                row.col(|ui| {
+                }));
+                row.col(|ui| crate::theme::table_cell(ui, |ui| {
                     ui.label(c.local.to_string());
-                });
-                row.col(|ui| {
+                }));
+                row.col(|ui| crate::theme::table_cell(ui, |ui| {
                     ui.label(remote.as_str());
-                });
-                row.col(|ui| {
+                }));
+                row.col(|ui| crate::theme::table_cell(ui, |ui| {
                     ui.label(c.state.map(crate::i18n::debug).unwrap_or_default());
-                });
-                row.col(|ui| {
+                }));
+                row.col(|ui| crate::theme::table_cell(ui, |ui| {
                     if let Some(pair) = closable(c)
                         && ui
                             .small_button(crate::i18n::tr("Close"))
@@ -373,7 +373,7 @@ pub fn network(
                     {
                         close = Some(NetworkAction::Close(pair.0, pair.1));
                     }
-                });
+                }));
             });
         });
     });
@@ -393,6 +393,8 @@ fn state_color(ui: &Ui, state: wtm_core::ServiceState) -> Color32 {
 
 /// Returns the service the user right-clicked or clicked, if any.
 pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_core::ServiceEntry> {
+    let group_id = egui::Id::unique("service-state-filter");
+    let mut group = ui.data(|d| d.get_temp::<u8>(group_id)).unwrap_or(0);
     ui.horizontal_wrapped(|ui| {
         crate::theme::search_bar(
             ui,
@@ -401,8 +403,12 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
             crate::i18n::tr("name or description"),
             240.0,
         );
+        for (value, label) in [(0, "All services"), (1, "Running"), (2, "Stopped")] {
+            crate::theme::choice(ui, &mut group, value, crate::i18n::tr(label));
+        }
+        ui.data_mut(|d| d.insert_temp(group_id, group));
     });
-    ui.separator();
+    crate::theme::divider(ui);
     let list = match &data.services {
         None => {
             crate::theme::loading(ui, crate::i18n::tr("Loading services…"));
@@ -423,6 +429,11 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
                 || s.display_name.to_lowercase().contains(&f)
         })
         .collect();
+    rows.retain(|s| match group {
+        1 => s.state == wtm_core::ServiceState::Running,
+        2 => s.state == wtm_core::ServiceState::Stopped,
+        _ => true,
+    });
     let mut sort = Sort::load(ui, "services", Sort::new(0, false));
     match sort.col {
         3 => sort.apply_text(&mut rows, |s| format!("{:?}", s.state)),
@@ -469,7 +480,7 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
     .collect();
     let min_width = widths.iter().sum::<f32>() + 120.0;
     crate::theme::table_panel(ui, "services", min_width, |ui| {
-        TableBuilder::new(ui)
+        crate::theme::table(ui)
             .id_salt("services_table")
             .striped(true)
             .resizable(true)
@@ -493,36 +504,52 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
                 .into_iter()
                 .enumerate()
                 {
-                    h.col(|ui| header(ui, label, col, numeric, &mut sort));
+                    h.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            header(ui, label, col, numeric, &mut sort);
+                        })
+                    });
                 }
             })
             .body(|body| {
                 body.rows(row_height, rows.len(), |mut row| {
                     let s = rows[row.index()];
                     row.col(|ui| {
-                        ui.label(&s.name);
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(&s.name);
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(&s.display_name);
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(&s.display_name);
+                        })
                     });
                     row.col(|ui| {
-                        right(
-                            ui,
-                            if s.pid == 0 {
-                                String::new()
-                            } else {
-                                s.pid.to_string()
-                            },
-                        )
+                        crate::theme::table_cell(ui, |ui| {
+                            right(
+                                ui,
+                                if s.pid == 0 {
+                                    String::new()
+                                } else {
+                                    s.pid.to_string()
+                                },
+                            )
+                        })
                     });
                     row.col(|ui| {
-                        ui.colored_label(state_color(ui, s.state), crate::i18n::debug(s.state));
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.colored_label(state_color(ui, s.state), crate::i18n::debug(s.state));
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(s.start_type.map(crate::i18n::debug).unwrap_or_default());
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(s.start_type.map(crate::i18n::debug).unwrap_or_default());
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(s.account.as_deref().unwrap_or(""));
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(s.account.as_deref().unwrap_or(""));
+                        })
                     });
                     if row.response().secondary_clicked() || row.response().clicked() {
                         clicked = Some(s.clone());
@@ -574,14 +601,14 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
             (crate::i18n::tr("7 days"), 168),
             (crate::i18n::tr("30 days"), 720),
         ] {
-            if ui.selectable_value(&mut view.hours, hours, label).changed() {
+            if crate::theme::choice(ui, &mut view.hours, hours, label).changed() {
                 changed = true;
             }
         }
-        ui.separator();
+        crate::theme::divider(ui);
         ui.weak(crate::i18n::tr("Click a column header to sort."));
     });
-    ui.separator();
+    crate::theme::divider(ui);
 
     let (stats, findings) = match &data.app_history {
         None => {
@@ -617,7 +644,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
             );
         }
     }
-    ui.add_space(6.0);
+    ui.add_space(0.0);
 
     let flagged: HashMap<String, String> = findings
         .iter()
@@ -645,8 +672,12 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         _ => text(&finding(a), &finding(b)),
     });
 
-    let chart_height = if view.selected.is_some() { 230.0 } else { 0.0 };
-    let table_height = (ui.available_height() - chart_height).max(120.0);
+    let chart_height = if view.selected.is_some() {
+        (ui.available_height() * 0.5).clamp(110.0, 230.0)
+    } else {
+        0.0
+    };
+    let table_height = (ui.available_height() - chart_height - 48.0).max(60.0);
     let row_height = ui.spacing().interact_size.y;
     let selected = view.selected.clone();
     // Every numeric header fits at first.
@@ -657,93 +688,141 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
     .iter()
     .map(|label| crate::sort::width(ui, label, 80.0))
     .collect();
-    egui::ScrollArea::vertical()
-        .id_salt("history_table")
-        .max_height(table_height)
-        .show(ui, |ui| {
-            ui.style_mut().interaction.selectable_labels = false;
-            let mut table = TableBuilder::new(ui)
-                .id_salt("history_table_rows")
-                .striped(true)
-                .resizable(true)
-                .sense(egui::Sense::click())
-                .cell_layout(Layout::left_to_right(Align::Center))
-                .column(Column::initial(200.0).clip(true));
-            for width in &widths {
-                table = table.column(Column::initial(*width));
-            }
-            table
-                .column(Column::remainder())
-                .header(row_height, |mut h| {
-                    for (col, label) in [
-                        crate::i18n::tr("App"),
-                        crate::i18n::tr("Seen"),
-                        crate::i18n::tr("Avg CPU"),
-                        crate::i18n::tr("p95 CPU"),
-                        crate::i18n::tr("Peak CPU"),
-                        crate::i18n::tr("Avg GPU"),
-                        crate::i18n::tr("CPU time"),
-                        crate::i18n::tr("Avg mem"),
-                        crate::i18n::tr("Peak mem"),
-                        crate::i18n::tr("Growth/h"),
-                        crate::i18n::tr("Finding"),
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
-                        let numeric = !matches!(col, 0 | 10);
-                        h.col(|ui| header(ui, label, col, numeric, &mut sort));
-                    }
-                })
-                .body(|body| {
-                    body.rows(row_height, rows.len(), |mut row| {
-                        let s = rows[row.index()];
-                        row.set_selected(selected.as_deref() == Some(s.app.as_str()));
-                        row.col(|ui| {
-                            ui.label(&s.app);
-                        });
-                        row.col(|ui| right(ui, duration_label(s.minutes)));
-                        row.col(|ui| right(ui, format!("{:.2}%", s.cpu_avg)));
-                        row.col(|ui| right(ui, format!("{:.2}%", s.cpu_p95)));
-                        row.col(|ui| right(ui, format!("{:.1}%", s.cpu_peak)));
-                        row.col(|ui| right(ui, format!("{:.1}%", s.gpu_avg)));
-                        row.col(|ui| {
-                            right(ui, {
-                                let __wtm_i18n_0 = &(s.cpu_core_seconds / 3600.0);
-                                crate::i18n::format("{0} core-h", &[format!("{:.2}", __wtm_i18n_0)])
-                            })
-                        });
-                        row.col(|ui| right(ui, format_bytes(s.mem_avg as f64)));
-                        row.col(|ui| right(ui, format_bytes(s.mem_peak as f64)));
-                        row.col(|ui| {
-                            right(ui, {
-                                let __wtm_i18n_0 = &(mib(s.mem_growth_per_hour));
-                                let __wtm_i18n_1 = &(s.mem_growth_fit);
-                                crate::i18n::format(
-                                    "{0} MiB (R² {1})",
-                                    &[
-                                        format!("{:+.0}", __wtm_i18n_0),
-                                        format!("{:.2}", __wtm_i18n_1),
-                                    ],
-                                )
-                            })
-                        });
-                        row.col(|ui| {
-                            if let Some(kind) = flagged.get(&s.app.to_lowercase()) {
-                                crate::theme::colored(ui, WARN, kind);
+    let min_width = 200.0 + widths.iter().sum::<f32>() + 180.0;
+    crate::theme::table_panel(ui, "history_columns", min_width, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("history_table")
+            .max_height(table_height)
+            .show(ui, |ui| {
+                ui.style_mut().interaction.selectable_labels = false;
+                let mut table = crate::theme::table(ui)
+                    .id_salt("history_table_rows")
+                    .striped(true)
+                    .resizable(true)
+                    .min_scrolled_height(0.0)
+                    .max_scroll_height(table_height)
+                    .sense(egui::Sense::click())
+                    .cell_layout(Layout::left_to_right(Align::Center))
+                    .column(Column::initial(200.0).clip(true));
+                for width in &widths {
+                    table = table.column(Column::initial(*width));
+                }
+                table
+                    .column(Column::remainder())
+                    .header(row_height, |mut h| {
+                        for (col, label) in [
+                            crate::i18n::tr("App"),
+                            crate::i18n::tr("Seen"),
+                            crate::i18n::tr("Avg CPU"),
+                            crate::i18n::tr("p95 CPU"),
+                            crate::i18n::tr("Peak CPU"),
+                            crate::i18n::tr("Avg GPU"),
+                            crate::i18n::tr("CPU time"),
+                            crate::i18n::tr("Avg mem"),
+                            crate::i18n::tr("Peak mem"),
+                            crate::i18n::tr("Growth/h"),
+                            crate::i18n::tr("Finding"),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            let numeric = !matches!(col, 0 | 10);
+                            h.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    header(ui, label, col, numeric, &mut sort);
+                                })
+                            });
+                        }
+                    })
+                    .body(|body| {
+                        body.rows(row_height, rows.len(), |mut row| {
+                            let s = rows[row.index()];
+                            row.set_selected(selected.as_deref() == Some(s.app.as_str()));
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    ui.label(&s.app);
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, duration_label(s.minutes));
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, format!("{:.2}%", s.cpu_avg));
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, format!("{:.2}%", s.cpu_p95));
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, format!("{:.1}%", s.cpu_peak));
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, format!("{:.1}%", s.gpu_avg));
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, {
+                                        let __wtm_i18n_0 = &(s.cpu_core_seconds / 3600.0);
+                                        crate::i18n::format(
+                                            "{0} core-h",
+                                            &[format!("{:.2}", __wtm_i18n_0)],
+                                        )
+                                    })
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, format_bytes(s.mem_avg as f64));
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, format_bytes(s.mem_peak as f64));
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    right(ui, {
+                                        let __wtm_i18n_0 = &(mib(s.mem_growth_per_hour));
+                                        let __wtm_i18n_1 = &(s.mem_growth_fit);
+                                        crate::i18n::format(
+                                            "{0} MiB (R² {1})",
+                                            &[
+                                                format!("{:+.0}", __wtm_i18n_0),
+                                                format!("{:.2}", __wtm_i18n_1),
+                                            ],
+                                        )
+                                    })
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    if let Some(kind) = flagged.get(&s.app.to_lowercase()) {
+                                        crate::theme::colored(ui, WARN, kind);
+                                    }
+                                })
+                            });
+                            if row.response().clicked() {
+                                view.selected = Some(s.app.clone());
+                                changed = true;
                             }
                         });
-                        if row.response().clicked() {
-                            view.selected = Some(s.app.clone());
-                            changed = true;
-                        }
                     });
-                });
-        });
+            });
+    });
     sort.store(ui, "history");
 
     if let Some(app) = view.selected.clone() {
-        ui.separator();
+        crate::theme::divider(ui);
         if let Some(s) = stats.iter().find(|s| s.app == app) {
             let cpus = data.snapshot.as_ref().map_or(1, |s| s.system.logical_cpus);
             let cores = suggested_cores(s.cpu_p95, cpus);
@@ -767,7 +846,9 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         }
         let app = &app;
         match &data.series {
-            Some((name, rows)) if name == app && !rows.is_empty() => series_charts(ui, app, rows),
+            Some((name, rows)) if name == app && !rows.is_empty() => {
+                series_charts(ui, app, rows, (chart_height - 44.0).clamp(66.0, 190.0))
+            }
             _ => crate::theme::loading(ui, crate::i18n::tr("Loading the usage of this app…")),
         }
     }
@@ -803,7 +884,7 @@ pub fn suggested_cores(p95_percent: f32, logical_cpus: u32) -> f32 {
     ((cores * 2.0).ceil() / 2.0).clamp(0.5, logical_cpus.max(1) as f32)
 }
 
-fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {
+fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow], height: f32) {
     use egui_plot::{Line, Plot, PlotPoints};
     let last = rows.last().map_or(0, |r| r.minute);
     let hours_ago = |m: i64| (m - last) as f64 / 60.0;
@@ -828,7 +909,7 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {
     });
     ui.columns(2, |cols| {
         Plot::new("hist_cpu")
-            .height(190.0)
+            .height(height)
             .include_y(0.0)
             .y_axis_label("%")
             .allow_drag(false)
@@ -840,7 +921,7 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow]) {
                 }
             });
         Plot::new("hist_mem")
-            .height(190.0)
+            .height(height)
             .include_y(0.0)
             .y_axis_label(crate::i18n::tr("MiB"))
             .allow_drag(false)
@@ -891,7 +972,7 @@ pub fn startup(
             }
         }
     });
-    ui.separator();
+    crate::theme::divider(ui);
 
     let mut rows: Vec<_> = entries.iter().collect();
     let mut sort = Sort::load(ui, "startup", Sort::new(0, false));
@@ -922,7 +1003,7 @@ pub fn startup(
     // Every header fits at first; narrow windows scroll sideways.
     let widths: Vec<f32> = [
         ("Name", 220.0),
-        ("Status", 80.0),
+        ("Status", 140.0),
         ("Scope", 100.0),
         ("Source", 80.0),
     ]
@@ -931,7 +1012,7 @@ pub fn startup(
     .collect();
     let min_width = widths.iter().sum::<f32>() + 200.0;
     crate::theme::table_panel(ui, "startup", min_width, |ui| {
-        TableBuilder::new(ui)
+        crate::theme::table(ui)
             .id_salt("startup_table")
             .striped(true)
             .resizable(true)
@@ -953,7 +1034,11 @@ pub fn startup(
                 .into_iter()
                 .enumerate()
                 {
-                    h.col(|ui| header(ui, label, col, false, &mut sort));
+                    h.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            header(ui, label, col, false, &mut sort);
+                        })
+                    });
                 }
             })
             .body(|body| {
@@ -963,23 +1048,47 @@ pub fn startup(
                         s.name == e.name && s.scope == e.scope && s.source == e.source
                     }));
                     row.col(|ui| {
-                        ui.label(&e.name);
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(&e.name);
+                        })
                     });
                     row.col(|ui| {
-                        if e.enabled {
-                            crate::theme::colored(ui, GOOD, crate::i18n::tr("Enabled"));
-                        } else {
-                            ui.weak(crate::i18n::tr("Disabled"));
-                        }
+                        crate::theme::table_cell(ui, |ui| {
+                            let mut enabled = e.enabled;
+                            let label = format!(
+                                "{}: {}",
+                                e.name,
+                                crate::i18n::tr(if enabled { "Enabled" } else { "Disabled" })
+                            );
+                            ui.horizontal(|ui| {
+                                if crate::theme::switch(ui, &mut enabled, &label).changed() {
+                                    command = Some(crate::backend::UiCommand::SetStartup {
+                                        entry: e.clone(),
+                                        enabled,
+                                    });
+                                }
+                                ui.weak(crate::i18n::tr(if e.enabled {
+                                    "Enabled"
+                                } else {
+                                    "Disabled"
+                                }));
+                            });
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(crate::i18n::debug(e.scope));
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(crate::i18n::debug(e.scope));
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(source_label(e.source));
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(source_label(e.source));
+                        })
                     });
                     row.col(|ui| {
-                        ui.label(&e.command);
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(&e.command);
+                        })
                     });
                     if row.response().clicked() {
                         *selected = Some(e.clone());

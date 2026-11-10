@@ -6,6 +6,50 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-11-10
+
+### Improved
+
+- Refine both desktop themes with explicit neutral control states, quieter
+  navigation and card boundaries, more legible secondary text, lighter heat maps
+  and a consistent footer scale. Align settings controls in wide windows and
+  stack them in compact windows; simplify chart legend typography and keep
+  resource colours focused on the readings.
+
+- Give desktop cards small gutters while preserving square corners and joined
+  table cells. Sortable table headers now paint and respond across the full cell.
+- Toggle startup apps directly from their status switch; filter services by
+  running/stopped state; adjust service percentage thresholds with sliders.
+- Place the navigation toggle in the brand header and separate footer connection,
+  resource and action information into compact rows with inline notifications.
+- Show CPU, motherboard, RAM module, disk and GPU identities from a bounded,
+  read-only Windows inventory, loaded off the UI thread once per window.
+  Embed identities in the system inspector resource cards and group identical
+  RAM modules; match disk models by physical disk index.
+
+- Align page-level toolbars and gutters across all desktop views; group limit,
+  kill-list and service editors into readable sections; use adaptive About cards.
+  Restore missing header/numeric-cell padding and horizontal scrolling for
+  history and configured rule lists so compact-window actions remain reachable.
+
+- Use square, adjoining charts, tables, cards, toolbars and dialogs, separated
+  by fine boundary lines. Restore measured content padding and control spacing
+  while keeping neighbouring panels and table cells joined.
+- Add Appearance, Process workspace and Charts and history settings, with
+  remembered scale, row heights, reduced animation, sidebar layout, resource-card
+  height, table behavior, column profiles, chart range/grid/fill/events/cursors,
+  reset actions and independent settings-page scrolling in all five languages.
+
+- Add an adaptive system/process inspector with saved visibility modes, a
+  read-only system overview and explicit summary copying.
+- Show complete system totals above sortable process columns, independent of
+  row filters; clarify physical-memory, process-I/O and adapter-total scopes.
+- Group the process-view selector, calm table row backgrounds and enlarge
+  resource-strip values while retaining compact layouts.
+- Refine the system pane with compact vector-icon facts, utilization tracks,
+  visible system counts and explicit unavailable readings; distinguish reading
+  values from units typographically and retain accessible close controls.
+
 ## [0.27.0] - 2026-11-09
 
 ### Added

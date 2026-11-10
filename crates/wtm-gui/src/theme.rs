@@ -81,7 +81,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
-/// Rounder, airier widgets with the accent colour, for both themes.
+/// Square, adjoining surfaces with explicit separator lines, for both themes.
 pub fn apply(ctx: &egui::Context) {
     for theme in [Theme::Light, Theme::Dark] {
         ctx.style_mut_of(theme, |style| {
@@ -97,12 +97,21 @@ pub fn apply(ctx: &egui::Context) {
                 .insert(egui::TextStyle::Button, egui::FontId::proportional(13.0));
             style
                 .text_styles
-                .insert(egui::TextStyle::Small, egui::FontId::proportional(11.0));
-            style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-            style.spacing.button_padding = egui::vec2(8.0, 4.0);
+                .insert(egui::TextStyle::Small, egui::FontId::proportional(12.0));
+            style.spacing.item_spacing = CONTENT_SPACING;
+            style.spacing.button_padding = CONTROL_PADDING;
+            style.spacing.window_margin = CONTENT_PADDING;
+            style.spacing.menu_margin = Margin::same(6);
+            style.spacing.icon_spacing = 6.0;
+            style.visuals.window_shadow = epaint::Shadow::NONE;
+            style.visuals.popup_shadow = epaint::Shadow::NONE;
+            style.visuals.widgets.inactive.bg_stroke =
+                Stroke::new(1.0, style.visuals.widgets.noninteractive.bg_stroke.color);
+            style.spacing.scroll.bar_inner_margin = 0.0;
+            style.spacing.scroll.bar_outer_margin = 0.0;
             style.spacing.interact_size.y = 28.0;
             let v = &mut style.visuals;
-            let radius = CornerRadius::same(6);
+            let radius = CornerRadius::ZERO;
             for w in [
                 &mut v.widgets.noninteractive,
                 &mut v.widgets.inactive,
@@ -112,12 +121,12 @@ pub fn apply(ctx: &egui::Context) {
             ] {
                 w.corner_radius = radius;
             }
-            v.window_corner_radius = CornerRadius::same(10);
-            v.menu_corner_radius = CornerRadius::same(8);
+            v.window_corner_radius = CornerRadius::ZERO;
+            v.menu_corner_radius = CornerRadius::ZERO;
             v.selection.bg_fill = if dark {
-                Color32::from_rgb(65, 44, 32)
+                Color32::from_rgb(47, 40, 35)
             } else {
-                Color32::from_rgb(255, 232, 213)
+                Color32::from_rgb(255, 241, 228)
             };
             // Text on selected items and inside progress bars.
             v.selection.stroke = Stroke::new(
@@ -135,10 +144,10 @@ pub fn apply(ctx: &egui::Context) {
             };
             v.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT.gamma_multiply(0.7));
             if dark {
-                v.panel_fill = Color32::from_rgb(14, 20, 27);
-                v.window_fill = Color32::from_rgb(23, 30, 39);
-                v.extreme_bg_color = Color32::from_rgb(10, 16, 22);
-                v.faint_bg_color = Color32::from_rgb(24, 32, 41);
+                v.panel_fill = Color32::from_rgb(18, 22, 28);
+                v.window_fill = Color32::from_rgb(25, 30, 37);
+                v.extreme_bg_color = Color32::from_rgb(15, 19, 25);
+                v.faint_bg_color = Color32::from_rgb(28, 33, 40);
                 v.widgets.noninteractive.fg_stroke.color = Color32::from_rgb(211, 220, 230);
                 v.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(47, 56, 66);
                 v.weak_text_color = Some(Color32::from_rgb(155, 166, 180));
@@ -154,8 +163,64 @@ pub fn apply(ctx: &egui::Context) {
                 v.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(218, 224, 231);
                 v.weak_text_color = Some(Color32::from_rgb(99, 112, 130));
             }
+            // Explicit widget colours prevent egui's default grey blocks from
+            // breaking the surface hierarchy. Hover/focus remain distinct.
+            let ink = if dark {
+                Color32::from_rgb(218, 224, 232)
+            } else {
+                Color32::from_rgb(43, 51, 63)
+            };
+            let border = if dark {
+                Color32::from_rgb(52, 60, 71)
+            } else {
+                Color32::from_rgb(215, 221, 229)
+            };
+            let resting = if dark {
+                Color32::from_rgb(29, 35, 43)
+            } else {
+                Color32::WHITE
+            };
+            let hover = if dark {
+                Color32::from_rgb(39, 46, 56)
+            } else {
+                Color32::from_rgb(237, 240, 245)
+            };
+            let active = if dark {
+                Color32::from_rgb(48, 55, 66)
+            } else {
+                Color32::from_rgb(227, 232, 240)
+            };
+            for (widget, fill) in [
+                (&mut v.widgets.inactive, resting),
+                (&mut v.widgets.hovered, hover),
+                (&mut v.widgets.active, active),
+                (&mut v.widgets.open, hover),
+            ] {
+                widget.bg_fill = fill;
+                widget.weak_bg_fill = fill;
+                widget.bg_stroke = Stroke::new(1.0, border);
+                widget.fg_stroke = Stroke::new(1.0, ink);
+                widget.expansion = 0.0;
+            }
+            // Rails and checkbox wells use the stronger fill; buttons use
+            // weak_bg_fill, so they stay quiet without making sliders vanish.
+            v.widgets.inactive.bg_fill = if dark {
+                Color32::from_rgb(48, 56, 68)
+            } else {
+                Color32::from_rgb(218, 225, 235)
+            };
+            v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
+            v.widgets.noninteractive.bg_fill = v.window_fill;
+            v.widgets.noninteractive.weak_bg_fill = v.window_fill;
+            v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, border);
+            v.text_edit_bg_color = Some(if dark {
+                v.extreme_bg_color
+            } else {
+                FIELD_LIGHT
+            });
         });
     }
+    sharp_geometry(ctx);
 }
 
 /// Background of text fields on light surfaces.
@@ -164,7 +229,146 @@ const FIELD_LIGHT: Color32 = Color32::from_rgb(241, 243, 247);
 /// Size of card titles and section labels.
 const TITLE_SIZE: f32 = 16.0;
 
-/// A rounded panel with a title, for one section of a tab.
+/// Outer surfaces join at their borders; contents have their own breathing room.
+pub const CONTENT_PADDING: Margin = Margin::symmetric(10, 8);
+pub const CONTROL_PADDING: Vec2 = egui::vec2(8.0, 4.0);
+pub const CONTENT_SPACING: Vec2 = egui::vec2(6.0, 4.0);
+
+pub fn surface(ui: &Ui) -> egui::Frame {
+    egui::Frame::new()
+        .fill(ui.visuals().panel_fill)
+        .inner_margin(0.0)
+        .outer_margin(0.0)
+        .corner_radius(0.0)
+}
+
+pub fn solid_scroll() -> egui::style::ScrollStyle {
+    egui::style::ScrollStyle {
+        bar_inner_margin: 0.0,
+        bar_outer_margin: 0.0,
+        ..egui::style::ScrollStyle::solid()
+    }
+}
+
+pub fn divider(ui: &mut Ui) -> egui::Response {
+    ui.add(egui::Separator::default().spacing(1.0))
+}
+
+/// Shared table boundaries. No inset is added to the cell or its contents.
+pub fn cell_lines(ui: &Ui) {
+    // Place strokes inside the cell clip rect so shared edges stay visible.
+    let rect = ui.max_rect().shrink(0.5);
+    let stroke = Stroke::new(
+        1.0,
+        ui.visuals()
+            .widgets
+            .noninteractive
+            .bg_stroke
+            .color
+            .gamma_multiply(0.45),
+    );
+    ui.painter()
+        .line_segment([rect.right_top(), rect.right_bottom()], stroke);
+    ui.painter()
+        .line_segment([rect.left_bottom(), rect.right_bottom()], stroke);
+}
+
+/// Table cells touch at their boundaries, independently of form/control spacing.
+pub fn table(ui: &mut Ui) -> egui_extras::TableBuilder<'_> {
+    ui.spacing_mut().item_spacing = Vec2::ZERO;
+    egui_extras::TableBuilder::new(ui)
+}
+
+pub fn table_cell(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    cell_lines(ui);
+    let header_background = ui.painter().add(egui::Shape::Noop);
+    let key = egui::Id::unique("table-cell-context");
+    let previous = ui.data_mut(|d| d.get_temp::<(egui::Rect, egui::layers::ShapeIdx)>(key));
+    ui.data_mut(|d| d.insert_temp(key, (ui.max_rect(), header_background)));
+    let size = ui.available_size();
+    egui::Frame::new()
+        .inner_margin(Margin::symmetric(6, 0))
+        .show(ui, |ui| {
+            ui.set_width((size.x - 12.0).max(0.0));
+            ui.set_min_height(size.y);
+            ui.spacing_mut().item_spacing = CONTENT_SPACING;
+            add(ui);
+        });
+    ui.data_mut(|d| {
+        d.remove::<(egui::Rect, egui::layers::ShapeIdx)>(key);
+        if let Some(previous) = previous {
+            d.insert_temp(key, previous);
+        }
+    });
+}
+
+/// Forms use their grid alignment; do not draw a box around every field row.
+pub fn end_row(ui: &mut Ui) {
+    ui.end_row();
+}
+
+pub fn workspace<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::new()
+        .inner_margin(CONTENT_PADDING)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing = CONTENT_SPACING;
+            add(ui)
+        })
+        .inner
+}
+
+pub fn choice<T: PartialEq>(
+    ui: &mut Ui,
+    current: &mut T,
+    value: T,
+    label: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    let selected = *current == value;
+    let mut response = ui.add(
+        egui::Button::new(label)
+            .selected(selected)
+            .stroke(Stroke::new(
+                1.0,
+                ui.visuals().widgets.noninteractive.bg_stroke.color,
+            )),
+    );
+    if response.clicked() && !selected {
+        *current = value;
+        response.mark_changed();
+    }
+    response
+}
+
+/// Apply the shared geometry even in embedded/headless application hosts.
+pub fn sharp_geometry(ctx: &egui::Context) {
+    ctx.all_styles_mut(|style| {
+        style.spacing.item_spacing = CONTENT_SPACING;
+        style.spacing.button_padding = CONTROL_PADDING;
+        style.spacing.window_margin = CONTENT_PADDING;
+        style.spacing.menu_margin = Margin::same(6);
+        style.spacing.icon_spacing = 6.0;
+        style.spacing.scroll.bar_inner_margin = 0.0;
+        style.spacing.scroll.bar_outer_margin = 0.0;
+        style.visuals.window_shadow = epaint::Shadow::NONE;
+        style.visuals.popup_shadow = epaint::Shadow::NONE;
+        style.visuals.widgets.inactive.bg_stroke =
+            Stroke::new(1.0, style.visuals.widgets.noninteractive.bg_stroke.color);
+        for widget in [
+            &mut style.visuals.widgets.noninteractive,
+            &mut style.visuals.widgets.inactive,
+            &mut style.visuals.widgets.hovered,
+            &mut style.visuals.widgets.active,
+            &mut style.visuals.widgets.open,
+        ] {
+            widget.corner_radius = CornerRadius::ZERO;
+        }
+        style.visuals.window_corner_radius = CornerRadius::ZERO;
+        style.visuals.menu_corner_radius = CornerRadius::ZERO;
+    });
+}
+
+/// A square panel with a title, for one section of a tab.
 pub fn card<R>(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
     card_with(ui, title, &[], add)
 }
@@ -187,13 +391,13 @@ pub fn card_with<R>(
         if !title.is_empty() {
             job.append(title, 0.0, format(ui.visuals().strong_text_color()));
         }
-        for (i, (text, color)) in parts.iter().enumerate() {
-            let gap = if i == 0 && title.is_empty() {
-                0.0
-            } else {
-                12.0
-            };
-            job.append(text, gap, format(text_color(ui, *color)));
+        for (text, color) in parts {
+            if !job.text.is_empty() {
+                job.append("   ·   ", 0.0, format(ui.visuals().weak_text_color()));
+            }
+            let mut legend = format(text_color(ui, *color));
+            legend.font_id.size = 14.0;
+            job.append(text, 0.0, legend);
         }
         job.wrap.max_width = ui.available_width();
         ui.label(job);
@@ -214,7 +418,7 @@ pub fn colored(ui: &mut Ui, color: Color32, text: impl Into<String>) -> egui::Re
 
 /// A spinner and what is being loaded, centred below the controls.
 pub fn loading(ui: &mut Ui, text: &str) {
-    ui.add_space(24.0);
+    ui.add_space(0.0);
     ui.vertical_centered(|ui| {
         ui.spinner();
         ui.weak(text);
@@ -224,7 +428,7 @@ pub fn loading(ui: &mut Ui, text: &str) {
 /// [`loading`] without the spinner, for data that may take long to come:
 /// a spinner repaints the window all the while.
 pub fn loading_still(ui: &mut Ui, text: &str) {
-    ui.add_space(12.0);
+    ui.add_space(0.0);
     ui.vertical_centered(|ui| {
         ui.weak(text);
     });
@@ -232,7 +436,7 @@ pub fn loading_still(ui: &mut Ui, text: &str) {
 
 /// Nothing to show: a title and a hint how to get something.
 pub fn empty_state(ui: &mut Ui, title: &str, hint: &str) {
-    ui.add_space(16.0);
+    ui.add_space(0.0);
     ui.label(RichText::new(title).size(TITLE_SIZE + 2.0).strong());
     ui.weak(hint);
 }
@@ -242,8 +446,8 @@ pub fn strip<R>(ui: &mut Ui, color: Color32, add: impl FnOnce(&mut Ui) -> R) -> 
     egui::Frame::new()
         .fill(color.gamma_multiply(0.14))
         .stroke(Stroke::new(1.0, color.gamma_multiply(0.5)))
-        .corner_radius(8)
-        .inner_margin(Margin::symmetric(12, 8))
+        .corner_radius(0.0)
+        .inner_margin(CONTENT_PADDING)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)
@@ -256,7 +460,7 @@ pub fn strip<R>(ui: &mut Ui, color: Color32, add: impl FnOnce(&mut Ui) -> R) -> 
 pub fn table_panel<R>(ui: &mut Ui, id: &str, min_width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
     panel(ui, |ui| {
         let scroll = ui.spacing().scroll;
-        ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+        ui.spacing_mut().scroll = solid_scroll();
         egui::ScrollArea::horizontal()
             .id_salt(("table_panel", id))
             .auto_shrink([false, true])
@@ -341,20 +545,22 @@ pub fn tile_fill(ui: &Ui) -> Color32 {
 
 /// A [`card`] without a title, for a page that is one section.
 pub fn panel<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let dark = ui.visuals().dark_mode;
     egui::Frame::new()
         .fill(card_fill(ui))
         .stroke(Stroke::new(
             1.0,
-            if dark {
-                Color32::from_rgb(48, 52, 61)
-            } else {
-                Color32::from_rgb(222, 226, 232)
-            },
+            ui.visuals()
+                .widgets
+                .noninteractive
+                .bg_stroke
+                .color
+                .gamma_multiply(0.75),
         ))
-        .corner_radius(CornerRadius::same(8))
-        .inner_margin(Margin::same(12))
+        .corner_radius(0.0)
+        .inner_margin(CONTENT_PADDING)
+        .outer_margin(2)
         .show(ui, |ui| {
+            ui.spacing_mut().item_spacing = CONTENT_SPACING;
             ui.set_width(ui.available_width());
             add(ui)
         })
@@ -376,7 +582,7 @@ pub fn sparkline(
     }
     let painter = painter.with_clip_rect(rect);
     // Reserve the stroke/endpoint footprint, including antialiasing, at 0/100%.
-    let rect = rect.shrink(2.5);
+    let rect = rect.shrink(0.75);
     let slots = slots.max(values.len()).max(2);
     let step = rect.width() / (slots - 1) as f32;
     let start = slots - values.len();
@@ -552,9 +758,9 @@ pub fn more_below<R>(
         egui::FontId::proportional(13.0),
         Color32::WHITE,
     );
-    let size = galley.size() + egui::vec2(38.0, 10.0);
+    let size = galley.size() + egui::vec2(10.0, 0.0);
     let rect = Rect::from_center_size(
-        egui::pos2(view.center().x, view.bottom() - 6.0 - size.y / 2.0),
+        egui::pos2(view.center().x, view.bottom() - size.y / 2.0),
         size,
     );
     let response = ui
@@ -566,9 +772,9 @@ pub fn more_below<R>(
     } else {
         ACCENT
     };
-    painter.rect_filled(rect, CornerRadius::same(255), color);
+    painter.rect_filled(rect, 0.0, color);
     // A chevron pointing down, then the text.
-    let c = egui::pos2(rect.left() + 15.0, rect.center().y);
+    let c = egui::pos2(rect.left() + 5.0, rect.center().y);
     painter.add(Shape::line(
         vec![
             c + egui::vec2(-4.0, -2.0),
@@ -578,7 +784,7 @@ pub fn more_below<R>(
         Stroke::new(1.6, Color32::WHITE),
     ));
     painter.galley(
-        egui::pos2(rect.left() + 26.0, rect.center().y - galley.size().y / 2.0),
+        egui::pos2(rect.left() + 10.0, rect.center().y - galley.size().y / 2.0),
         galley,
         Color32::WHITE,
     );
@@ -592,9 +798,81 @@ pub fn more_below<R>(
 /// Background of a [`card`].
 pub fn card_fill(ui: &Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(23, 30, 39)
+        Color32::from_rgb(25, 30, 37)
     } else {
         Color32::WHITE
+    }
+}
+
+/// A square, directly operable on/off control with an accessible state.
+pub fn switch(ui: &mut Ui, value: &mut bool, label: &str) -> egui::Response {
+    let (rect, mut response) = ui.allocate_exact_size(egui::vec2(40.0, 22.0), egui::Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::Role::CheckBox, ui.is_enabled(), *value, label)
+    });
+    let visuals = ui.style().interact_selectable(&response, *value);
+    ui.painter().rect(
+        rect.shrink(1.0),
+        0.0,
+        if *value { ACCENT } else { visuals.bg_fill },
+        visuals.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
+    let x = if *value {
+        rect.right() - 18.0
+    } else {
+        rect.left() + 3.0
+    };
+    ui.painter().rect_filled(
+        egui::Rect::from_min_size(egui::pos2(x, rect.top() + 4.0), egui::vec2(15.0, 14.0)),
+        0.0,
+        if *value {
+            Color32::WHITE
+        } else {
+            visuals.fg_stroke.color
+        },
+    );
+    response.on_hover_text(label)
+}
+
+/// Keep long settings readable on wide displays without shrinking compact ones.
+pub fn reading_column<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let available = ui.available_width();
+    let width = available.min(980.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space((available - width) * 0.5);
+        ui.vertical(|ui| {
+            ui.set_width(width);
+            add(ui)
+        })
+        .inner
+    })
+    .inner
+}
+
+/// A readable settings row: aligned controls on wide screens, stacked on narrow ones.
+pub fn setting_row(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui, egui::Id)) {
+    let width = ui.available_width();
+    if width >= 620.0 {
+        let controls = (width * 0.45).clamp(220.0, 360.0);
+        ui.horizontal_top(|ui| {
+            let label = ui
+                .allocate_ui(egui::vec2((width - controls - 16.0).max(0.0), 28.0), |ui| {
+                    ui.set_width((width - controls - 16.0).max(0.0));
+                    ui.label(title)
+                })
+                .inner;
+            ui.add_space(4.0);
+            ui.allocate_ui(egui::vec2(controls, 28.0), |ui| add(ui, label.id));
+        });
+    } else {
+        let label = ui.label(title);
+        add(ui, label.id);
     }
 }
 
@@ -602,6 +880,70 @@ pub fn card_fill(ui: &Ui) -> Color32 {
 mod tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
+
+    #[test]
+    fn settings_controls_align_and_stack_without_overflow() {
+        for width in [960.0, 420.0] {
+            let mut h = egui_kittest::Harness::builder()
+                .with_size([width, 500.0])
+                .build_ui(|ui| {
+                    setting_row(ui, "Short title", |ui, _| {
+                        let _ = ui.button("First control");
+                    });
+                    setting_row(ui, "A considerably longer setting title", |ui, _| {
+                        let _ = ui.button("Second control");
+                    });
+                });
+            h.run();
+            let first = h.get_by_label("First control").rect();
+            let second = h.get_by_label("Second control").rect();
+            assert!(first.max.x <= width && second.max.x <= width);
+            if width > 620.0 {
+                assert!(
+                    (first.min.x - second.min.x).abs() < 1.0,
+                    "controls share a column: {first:?}, {second:?}"
+                );
+            } else {
+                assert!(first.min.y >= h.get_by_label("Short title").rect().max.y);
+                assert!(
+                    second.min.y
+                        >= h.get_by_label("A considerably longer setting title")
+                            .rect()
+                            .max
+                            .y
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn both_themes_keep_surfaces_square_and_adjoining() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        for theme in [Theme::Light, Theme::Dark] {
+            let s = ctx.style_of(theme);
+            assert_eq!(s.spacing.item_spacing, CONTENT_SPACING);
+            assert_eq!(s.spacing.button_padding, CONTROL_PADDING);
+            assert_eq!(s.spacing.window_margin, CONTENT_PADDING);
+            assert_eq!(s.spacing.menu_margin, Margin::same(6));
+            assert_eq!(s.spacing.scroll.bar_inner_margin, 0.0);
+            assert_eq!(s.spacing.scroll.bar_outer_margin, 0.0);
+            assert_eq!(s.visuals.window_corner_radius, CornerRadius::ZERO);
+            assert_eq!(s.visuals.menu_corner_radius, CornerRadius::ZERO);
+            assert_eq!(s.visuals.window_shadow, epaint::Shadow::NONE);
+            assert_eq!(s.visuals.popup_shadow, epaint::Shadow::NONE);
+            for w in [
+                &s.visuals.widgets.noninteractive,
+                &s.visuals.widgets.inactive,
+                &s.visuals.widgets.hovered,
+                &s.visuals.widgets.active,
+                &s.visuals.widgets.open,
+            ] {
+                assert_eq!(w.corner_radius, CornerRadius::ZERO);
+            }
+            assert_eq!(s.visuals.widgets.inactive.bg_stroke.width, 1.0);
+        }
+    }
 
     #[test]
     fn gauges_keep_all_painted_geometry_inside_their_allocation() {
@@ -672,7 +1014,7 @@ mod tests {
                         ui.ctx().set_theme(theme);
                         ui.heading("Resource gauges");
                         ui.label("Native vector rendering · 0–100% · DPI scaling");
-                        ui.add_space(16.0);
+                        ui.add_space(0.0);
                         for diameter in [48.0, 72.0, 100.0] {
                             ui.horizontal(|ui| {
                                 ui.set_height(diameter + 12.0);
@@ -693,7 +1035,7 @@ mod tests {
                                         accent,
                                         &format!("{percent:.0}%"),
                                     );
-                                    ui.add_space(7.0);
+                                    ui.add_space(0.0);
                                 }
                             });
                         }

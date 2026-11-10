@@ -76,6 +76,15 @@ usage history.
   a searchable column editor with keyboard-operable ordering, Apply/Cancel and
   reset. Name stays first. The active layout is shared by List/Tree/Apps and
   survives restart. [Usage and compatibility](docs/process-columns.md).
+- **Display preferences**: square, adjoining panels and line-separated tables;
+  remembered interface scale, row heights, reduced animation, sidebar layout,
+  process-table behavior and chart options. [Settings guide](docs/display-preferences.md).
+  [Screen-by-screen visual review](docs/ui-screen-review.md).
+- [Desktop controls and hardware identity](docs/desktop-controls.md)
+- [Desktop visual language](docs/visual-design.md)
+- **Workspace inspector**: saved adaptive/always/hidden modes, system facts
+  without a selected process and explicit summary copy. Two-level table headers
+  retain system totals under process filters. [Behavior and scope](docs/process-workspace.md).
 - Events: search by process, PID or message alongside severity filters; open a
   message to read and copy the full diagnostic, even in compact windows.
   [Event diagnostics preview](screenshots/events.png).
@@ -255,8 +264,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.27.0-x64.msi            # interactive
-msiexec /i RustWTM-0.27.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.27.1-x64.msi            # interactive
+msiexec /i RustWTM-0.27.1-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc

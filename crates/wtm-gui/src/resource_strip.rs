@@ -21,7 +21,7 @@ struct Metric<'a> {
 }
 
 /// Returns navigation only. Each card is also a keyboard-accessible button.
-pub fn show(ui: &mut Ui, data: &Data) -> Option<Resource> {
+pub fn show(ui: &mut Ui, data: &Data, band: crate::preferences::Band) -> Option<Resource> {
     let snap = data.snapshot.as_ref()?;
     let s = &snap.system;
     let h = &data.history;
@@ -80,10 +80,14 @@ pub fn show(ui: &mut Ui, data: &Data) -> Option<Resource> {
             ceiling: Some(100.0),
         },
     ];
-    let short = ui.ctx().content_rect().height() < 640.0;
+    let short = match band {
+        crate::preferences::Band::Compact => true,
+        crate::preferences::Band::Full => false,
+        crate::preferences::Band::Adaptive => ui.ctx().content_rect().height() < 640.0,
+    };
     let width = ui.available_width();
     let columns = if width >= 650.0 { 5 } else { 3 };
-    let gap = 8.0;
+    let gap = 4.0;
     let mut clicked = None;
     for chunk in metrics.chunks(columns) {
         ui.horizontal_top(|ui| {
@@ -110,30 +114,31 @@ pub fn show(ui: &mut Ui, data: &Data) -> Option<Resource> {
                         )
                     });
                     let painter = ui.painter().with_clip_rect(rect);
-                    let fill = if m.resource == Resource::Cpu {
-                        if ui.visuals().dark_mode {
-                            Color32::from_rgb(24, 39, 55)
-                        } else {
-                            Color32::from_rgb(236, 245, 255)
-                        }
+                    let fill = if response.hovered() {
+                        ui.visuals().widgets.hovered.bg_fill
                     } else {
                         theme::card_fill(ui)
                     };
-                    painter.rect_filled(rect, 8.0, fill);
+                    painter.rect_filled(rect, 0.0, fill);
                     painter.rect_stroke(
                         rect,
-                        8.0,
+                        0.0,
                         egui::Stroke::new(
                             1.0,
                             if response.hovered() || response.has_focus() {
                                 m.color
                             } else {
-                                m.color.gamma_multiply(0.30)
+                                ui.visuals()
+                                    .widgets
+                                    .noninteractive
+                                    .bg_stroke
+                                    .color
+                                    .gamma_multiply(0.75)
                             },
                         ),
                         egui::StrokeKind::Inside,
                     );
-                    let inner = rect.shrink2(egui::vec2(12.0, 8.0));
+                    let inner = rect.shrink2(egui::vec2(10.0, 6.0));
                     let color = theme::text_color(ui, m.color);
                     painter.circle_filled(inner.left_top() + egui::vec2(3.0, 7.0), 2.5, color);
                     painter.text(
@@ -145,11 +150,16 @@ pub fn show(ui: &mut Ui, data: &Data) -> Option<Resource> {
                     );
                     // Labels are clipped to each card, so large translations
                     // cannot overlap their neighbours or expand the workspace.
-                    painter.text(
-                        inner.left_top() + egui::vec2(0.0, 18.0),
-                        egui::Align2::LEFT_TOP,
+                    let mut value = value_job(
                         &m.value,
-                        egui::FontId::proportional(if short { 23.0 } else { 29.0 }),
+                        if short { 23.0 } else { 36.0 },
+                        ui.visuals().strong_text_color(),
+                        ui.visuals().weak_text_color(),
+                    );
+                    value.wrap = egui::text::TextWrapping::truncate_at_width(inner.width());
+                    painter.galley(
+                        inner.left_top() + egui::vec2(0.0, 18.0),
+                        painter.layout_job(value),
                         ui.visuals().strong_text_color(),
                     );
                     if !short {
@@ -160,17 +170,14 @@ pub fn show(ui: &mut Ui, data: &Data) -> Option<Resource> {
                         );
                         job.wrap = egui::text::TextWrapping::truncate_at_width(inner.width());
                         painter.galley(
-                            inner.left_top() + egui::vec2(0.0, 53.0),
+                            inner.left_top() + egui::vec2(0.0, 65.0),
                             painter.layout_job(job),
                             ui.visuals().weak_text_color(),
                         );
                     }
                     let chart = egui::Rect::from_min_max(
-                        egui::pos2(
-                            rect.left() + 4.0,
-                            rect.bottom() - if short { 18.0 } else { 34.0 },
-                        ),
-                        rect.right_bottom() - egui::vec2(4.0, 3.0),
+                        egui::pos2(rect.left(), rect.bottom() - if short { 18.0 } else { 34.0 }),
+                        rect.right_bottom(),
                     );
                     let max = m.ceiling.unwrap_or_else(|| {
                         m.series
@@ -197,8 +204,37 @@ pub fn show(ui: &mut Ui, data: &Data) -> Option<Resource> {
             }
         });
     }
-    ui.add_space(4.0);
+    ui.add_space(0.0);
     clicked
+}
+
+/// Numeric readings lead; smaller units stay on the same baseline.
+fn value_job(value: &str, size: f32, ink: Color32, muted: Color32) -> egui::text::LayoutJob {
+    let split = value
+        .find(|c: char| c.is_whitespace() || c == '%')
+        .unwrap_or(value.len());
+    let (number, unit) = value.split_at(split);
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        number,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(size),
+            color: ink,
+            ..Default::default()
+        },
+    );
+    job.append(
+        unit,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(size * 0.55),
+            color: muted,
+            valign: egui::Align::Max,
+            ..Default::default()
+        },
+    );
+    job
 }
 
 /// A real 60-second viewport. Disconnected/invalid samples break the line.

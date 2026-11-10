@@ -37,7 +37,7 @@ fn plan_name(guid: &str) -> Option<&'static str> {
 
 pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiCommand> {
     let mut commands = Vec::new();
-    ui.add_space(12.0);
+    ui.add_space(0.0);
     crate::theme::card(ui, crate::i18n::tr("CPU frequency policy"), |ui| {
         ui.label(crate::i18n::tr("A shared Windows power-plan limit affects every app using that policy class. For one app, use Efficiency mode or CPU core type in Processes."));
         ui.weak(crate::i18n::tr(
@@ -67,12 +67,12 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
         ui.weak(crate::i18n::format("Active plan: {0}", &[plan.to_owned()]))
             .on_hover_text(&report.plan);
         egui::Grid::new("frequency_values")
-            .spacing([18.0, 6.0])
+            .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 ui.strong(crate::i18n::tr("Windows policy"));
                 ui.strong(crate::i18n::tr("Plugged in"));
                 ui.strong(crate::i18n::tr("Battery"));
-                ui.end_row();
+                crate::theme::end_row(ui);
                 for class in [0, 1] {
                     ui.label(crate::i18n::format("Class {0}", &[format!("{}", class)]));
                     for source in [PowerSource::Ac, PowerSource::Dc] {
@@ -92,30 +92,31 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
                             },
                         ));
                     }
-                    ui.end_row();
+                    crate::theme::end_row(ui);
                 }
             });
-        ui.add_space(8.0);
+        ui.add_space(0.0);
         egui::Grid::new("frequency_request")
             .num_columns(2)
-            .spacing([12.0, 6.0])
+            .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 let label = ui.label(crate::i18n::tr("Policy class"));
                 egui::ComboBox::from_id_salt("power_class")
                     .selected_text(crate::i18n::format("Class {0}", &[view.class.to_string()]))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut view.class, 0, crate::i18n::tr("Class 0"));
-                        ui.selectable_value(&mut view.class, 1, crate::i18n::tr("Class 1"));
+                        crate::theme::choice(ui, &mut view.class, 0, crate::i18n::tr("Class 0"));
+                        crate::theme::choice(ui, &mut view.class, 1, crate::i18n::tr("Class 1"));
                     })
                     .response
                     .labelled_by(label.id);
-                ui.end_row();
+                crate::theme::end_row(ui);
                 let label = ui.label(crate::i18n::tr("Power source"));
                 egui::ComboBox::from_id_salt("power_source")
                     .selected_text(crate::i18n::tr(view.source.label()))
                     .show_ui(ui, |ui| {
                         for source in [PowerSupply::Ac, PowerSupply::Dc, PowerSupply::Both] {
-                            ui.selectable_value(
+                            crate::theme::choice(
+                                ui,
                                 &mut view.source,
                                 source,
                                 crate::i18n::tr(source.label()),
@@ -124,7 +125,7 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
                     })
                     .response
                     .labelled_by(label.id);
-                ui.end_row();
+                crate::theme::end_row(ui);
                 let label = ui.label(crate::i18n::tr("Max frequency"));
                 ui.add(
                     egui::DragValue::new(&mut view.mhz)
@@ -132,7 +133,7 @@ pub fn power_controls(ui: &mut Ui, data: &Data, view: &mut PowerView) -> Vec<UiC
                         .suffix(crate::i18n::tr(" MHz")),
                 )
                 .labelled_by(label.id);
-                ui.end_row();
+                crate::theme::end_row(ui);
             });
         let request = FrequencyRequest {
             plan: report.plan.clone(),

@@ -71,10 +71,60 @@ pub fn cell(ui: &mut Ui, label: &str, numeric: bool, current: Option<bool>) -> b
     };
     let text = RichText::new(format!("{label}{arrow}")).strong();
     let hint = crate::i18n::format("Sort by {0}", &[label.to_owned()]);
+    if let Some((rect, background)) = ui.data(|d| {
+        d.get_temp::<(egui::Rect, egui::layers::ShapeIdx)>(Id::unique("table-cell-context"))
+    }) {
+        let galley = egui::WidgetText::from(text).into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            ui.available_width(),
+            egui::TextStyle::Body,
+        );
+        let (_, content) = ui.allocate_space(egui::vec2(
+            ui.available_width(),
+            ui.spacing().interact_size.y,
+        ));
+        let response = ui.interact(
+            rect,
+            ui.scope_id().with("sort-header"),
+            egui::Sense::click(),
+        );
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::Role::Button,
+                ui.is_enabled(),
+                format!("{label}{arrow}"),
+            )
+        });
+        let visuals = ui.style().interact_selectable(&response, current.is_some());
+        if current.is_some() || response.hovered() {
+            ui.painter().set(
+                background,
+                egui::Shape::rect_filled(rect.shrink(1.0), 0.0, visuals.bg_fill),
+            );
+        }
+        let x = if numeric {
+            content.right() - galley.size().x
+        } else {
+            content.left()
+        };
+        ui.painter().galley(
+            egui::pos2(x, content.center().y - galley.size().y * 0.5),
+            galley,
+            visuals.fg_stroke.color,
+        );
+        return response.on_hover_text(hint).clicked();
+    }
     let add = |ui: &mut Ui| {
-        ui.add(egui::Button::selectable(current.is_some(), text))
-            .on_hover_text(hint)
-            .clicked()
+        ui.scope(|ui| {
+            // The table cell already provides horizontal padding. Do not
+            // charge for it twice and truncate short headers such as CPU.
+            ui.spacing_mut().button_padding.x = 0.0;
+            ui.add(egui::Button::selectable(current.is_some(), text))
+                .on_hover_text(hint)
+                .clicked()
+        })
+        .inner
     };
     if numeric {
         ui.with_layout(Layout::right_to_left(Align::Center), add)
@@ -114,6 +164,39 @@ pub fn num(a: f64, b: f64) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sortable_header_uses_the_entire_cell() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder()
+            .allow_missing_glyphs()
+            .build_ui_state(
+                |ui, sort: &mut Sort| {
+                    ui.allocate_ui(egui::vec2(220.0, 32.0), |ui| {
+                        crate::theme::table_cell(ui, |ui| header(ui, "Name", 0, false, sort));
+                    });
+                },
+                Sort::new(0, false),
+            );
+        h.run();
+        let rect = h.get_by_label("Name ↑").rect();
+        assert!(
+            rect.width() >= 220.0 && rect.height() >= 32.0,
+            "whole cell is operable: {rect:?}"
+        );
+        let pos = rect.right_top() + egui::vec2(-3.0, 3.0);
+        h.event(egui::Event::PointerMoved(pos));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run();
+        assert_eq!(*h.state(), Sort::new(0, true));
+    }
 
     #[test]
     fn sorts_rows_and_toggles_direction() {

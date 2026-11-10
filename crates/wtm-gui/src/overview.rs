@@ -63,9 +63,17 @@ const STAT_SECONDS: usize = 60;
 fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
     let frame = egui::Frame::new()
         .fill(crate::theme::card_fill(ui))
-        .stroke(egui::Stroke::new(1.0, s.accent.gamma_multiply(0.45)))
-        .corner_radius(10)
-        .inner_margin(12)
+        .stroke(egui::Stroke::new(
+            1.0,
+            ui.visuals()
+                .widgets
+                .noninteractive
+                .bg_stroke
+                .color
+                .gamma_multiply(0.75),
+        ))
+        .corner_radius(0.0)
+        .inner_margin(egui::Margin::symmetric(8, 6))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.set_height(STAT_HEIGHT - 24.0);
@@ -78,10 +86,10 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                     if let Some(p) = s.ring {
                         let color = if p >= 70.0 { load_color(p) } else { s.accent };
                         crate::theme::ring_gauge(ui, 72.0, p, color, &format!("{p:.0}%"));
-                        ui.add_space(6.0);
+                        ui.add_space(0.0);
                     }
                     ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.spacing_mut().item_spacing.y = 0.0;
                         ui.label(
                             RichText::new(s.title)
                                 .size(15.0)
@@ -95,7 +103,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                     });
                 },
             );
-            ui.add_space(4.0);
+            ui.add_space(0.0);
             let height = ui.available_height().max(20.0);
             let (rect, _) = ui.allocate_exact_size(
                 egui::vec2(ui.available_width(), height),
@@ -147,7 +155,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
     let color = if response.hovered() || response.has_focus() {
         ui.painter().rect_stroke(
             response.rect,
-            10,
+            0.0,
             egui::Stroke::new(1.5, s.accent),
             egui::StrokeKind::Inside,
         );
@@ -178,12 +186,15 @@ fn stat_row(ui: &mut Ui, stats: &[Stat<'_>], intents: &mut Vec<Intent>) {
         2
     };
     for chunk in stats.chunks(per_row.max(1)) {
-        ui.columns(chunk.len(), |cols| {
-            for (col, s) in cols.iter_mut().zip(chunk) {
-                if stat_card(col, s).clicked() {
-                    intents.push(Intent::ShowResource(s.resource));
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.columns(chunk.len(), |cols| {
+                for (col, s) in cols.iter_mut().zip(chunk) {
+                    if stat_card(col, s).clicked() {
+                        intents.push(Intent::ShowResource(s.resource));
+                    }
                 }
-            }
+            });
         });
         ui.add_space(4.0);
     }
@@ -381,7 +392,7 @@ fn not_responding(ui: &mut Ui, data: &Data, procs: &[ProcessInfo], intents: &mut
         let Some(p) = procs.iter().find(|p| p.pid == *pid) else {
             continue;
         };
-        ui.add_space(4.0);
+        ui.add_space(0.0);
         crate::theme::strip(ui, BAD, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
@@ -418,7 +429,7 @@ fn swarms(
     }
     let by_pid: HashMap<u32, &ProcessInfo> = procs.iter().map(|p| (p.pid, p)).collect();
     for s in swarms {
-        ui.add_space(6.0);
+        ui.add_space(0.0);
         let title = crate::i18n::format(
             "⚠ {0} copies of {1} are running",
             &[s.members.len().to_string(), s.name.to_string()],
@@ -593,15 +604,15 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         ];
         stat_row(ui, &stats, &mut intents);
         if let Some((color, text)) = verdict_of(data, &apps, &swarm_list) {
-            ui.add_space(4.0);
+            ui.add_space(0.0);
             banner(ui, color, &text);
         }
         if let Some(rescue) = data.status.as_ref().and_then(|s| s.rescue_core.as_ref()) {
-            ui.add_space(4.0);
+            ui.add_space(0.0);
             strip(ui, crate::theme::CPU, "⛨", &rescue_text(rescue));
         }
         if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
-            ui.add_space(4.0);
+            ui.add_space(0.0);
             strip(ui, crate::theme::GPU, "▶", &game_text(game));
         }
         not_responding(ui, data, &snap.processes, &mut intents);
@@ -609,14 +620,14 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
     } else {
         crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
     }
-    ui.add_space(6.0);
+    ui.add_space(0.0);
     if crate::containers::overview(ui, &data.docker) {
         intents.push(Intent::ShowContainers);
     }
     crate::theme::card(ui, crate::i18n::tr("Automatic protection"), |ui| {
         protection(ui, data, &mut commands);
     });
-    ui.add_space(6.0);
+    ui.add_space(0.0);
 
     let busiest = |ui: &mut Ui, intents: &mut Vec<Intent>| {
         crate::theme::card(ui, crate::i18n::tr("Busiest apps right now"), |ui| {
@@ -635,9 +646,10 @@ pub fn overview(ui: &mut Ui, data: &Data) -> (Vec<UiCommand>, Vec<Intent>) {
         });
     } else {
         busiest(ui, &mut intents);
-        ui.add_space(6.0);
+        ui.add_space(0.0);
         recent(ui);
     }
+    ui.collapsing(crate::i18n::tr("Hardware details"), crate::inventory::show);
     (commands, intents)
 }
 
@@ -651,13 +663,13 @@ fn busiest_table(
     egui::Grid::new("overview_apps")
         .num_columns(5)
         .striped(true)
-        .spacing([16.0, 6.0])
+        .spacing([8.0, 4.0])
         .show(ui, |ui| {
             ui.strong(crate::i18n::tr("App"));
             for h in ["CPU", crate::i18n::tr("Memory"), crate::i18n::tr("Processes")] {
                 crate::theme::right(ui, RichText::new(h).strong());
             }
-            ui.end_row();
+            crate::theme::end_row(ui);
             for a in &apps {
                 ui.horizontal(|ui| {
                     let first = &a.instances[0];
@@ -718,7 +730,7 @@ fn busiest_table(
                     .on_hover_text(crate::i18n::tr("More actions"));
                     crate::theme::fill_row(ui);
                 });
-                ui.end_row();
+                crate::theme::end_row(ui);
             }
         });
 }

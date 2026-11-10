@@ -163,7 +163,7 @@ pub fn dialog(
                 "These apps use the most CPU. One click brings them down; nothing is lost.",
             ));
         }
-        ui.add_space(8.0);
+        ui.add_space(0.0);
 
         if !apps.is_empty() {
             let background: Vec<&ProcessRef> = apps
@@ -187,13 +187,13 @@ pub fn dialog(
                     intents.extend(calm(t));
                 }
             }
-            ui.add_space(6.0);
+            ui.add_space(0.0);
         }
 
         egui::Grid::new("alert_apps")
             .num_columns(3)
             .striped(true)
-            .spacing([12.0, 6.0])
+            .spacing([8.0, 4.0])
             .show(ui, |ui| {
                 for a in &apps {
                     let using = in_use(a);
@@ -255,7 +255,7 @@ pub fn dialog(
                             intents.push(Intent::ConfirmMany(a.instances.clone(), Command::Kill));
                         }
                     });
-                    ui.end_row();
+                    crate::theme::end_row(ui);
                 }
             });
         if apps.is_empty() {
@@ -265,7 +265,7 @@ pub fn dialog(
         }
         let doomed = crate::kill_tab::targets(data).len();
         if doomed > 0 {
-            ui.add_space(6.0);
+            ui.add_space(0.0);
             if ui
                 .button(
                     RichText::new({
@@ -284,7 +284,7 @@ pub fn dialog(
             }
         }
 
-        ui.add_space(8.0);
+        ui.add_space(0.0);
         match &data.config {
             Some(Ok((_, text))) if data.status.as_ref().is_some_and(|s| s.dry_run) => {
                 ui.horizontal(|ui| {
@@ -308,7 +308,7 @@ pub fn dialog(
             _ => {}
         }
 
-        ui.add_space(8.0);
+        ui.add_space(0.0);
         ui.horizontal(|ui| {
             if ui.button(crate::i18n::tr("Close")).clicked() {
                 close = Some(QUIET_AFTER_CLOSE);

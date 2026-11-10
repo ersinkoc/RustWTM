@@ -19,6 +19,7 @@ visual-tests = ["egui_kittest/wgpu"]
 
 [dependencies]
 wtm-core.workspace = true
+wtm-sys.workspace = true
 wtm-ipc.workspace = true
 wtm-policy.workspace = true
 chrono.workspace = true
@@ -49,5 +50,4 @@ winresource.workspace = true
 workspace = true
 
 [dev-dependencies]
-wtm-sys.workspace = true
 egui_kittest = { version = "0.37.0", features = ["eframe"] }

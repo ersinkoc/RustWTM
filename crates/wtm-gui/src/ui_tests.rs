@@ -1088,12 +1088,15 @@ fn performance_shows_cores_network_and_io() {
     assert!(h.query_by_label("CPU 0: 95.0%").is_some());
     // The card titles carry the current rates as the graphs' legends.
     let net = format!(
-        "Network● Receive {}/s● Send {}/s",
+        "Network   ·   ● Receive {}/s   ·   ● Send {}/s",
         wtm_core::format_bytes(2048.0),
         wtm_core::format_bytes(512.0)
     );
     assert!(h.query_by_label(&net).is_some(), "{net}");
-    assert!(h.query_by_label_contains("Disk & I/O● Read").is_some());
+    assert!(
+        h.query_by_label_contains("Disk & I/O   ·   ● Read")
+            .is_some()
+    );
     assert!(h.query_by_label("Disk 0 C:").is_some());
     assert!(h.query_by_label_contains("37% active").is_some());
     // The four busiest engines; the idle rest on one line.
@@ -1185,10 +1188,66 @@ fn services_and_startup_views_select_and_toggle() {
     h.get_by_label("Disable").click();
     h.run();
     assert_eq!(h.state().commands, ["Updater false"]);
+    h.get_by_label("Updater: Enabled").click();
+    h.run();
+    assert_eq!(h.state().commands, ["Updater false", "Updater false"]);
+    // Commands wait for a fresh backend snapshot; the view never lies about success.
+    h.state_mut().data.startup.as_mut().unwrap()[0].enabled = false;
+    h.run();
+    h.get_by_label("Updater: Disabled").click();
+    h.run();
+    assert_eq!(
+        h.state().commands,
+        ["Updater false", "Updater false", "Updater true"]
+    );
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Stopped")
+        .click();
+    h.run();
+    assert!(h.query_by_label("Print Spooler").is_none());
+    h.get_by_label("All services").click();
+    h.run();
+    assert!(h.query_by_label("Print Spooler").is_some());
 
     h.state_mut().filter = "fax".into();
     h.run();
     assert!(h.query_by_label("Print Spooler").is_none());
+}
+
+#[test]
+fn compact_history_scrolls_to_its_last_column_without_losing_the_toolbar() {
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([820.0, 500.0])
+        .build_ui_state(
+            |ui, st: &mut (Data, views::HistoryView)| {
+                views::app_history(ui, &st.0, &mut st.1);
+            },
+            (data(), views::HistoryView::default()),
+        );
+    h.run();
+    let header = h.get_by_label("Finding").rect();
+    h.event(egui::Event::PointerMoved(egui::pos2(
+        400.0,
+        header.center().y,
+    )));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(-5000.0, 0.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Unknown,
+    });
+    h.run_steps(20);
+    let last = h.get_by_label("Finding").rect();
+    assert!(
+        last.min.x >= 0.0 && last.max.x <= 820.0,
+        "last column must be reachable: {last:?}"
+    );
+    let toolbar = h.get_by_label("24 h").rect();
+    assert!(
+        toolbar.min.x >= 0.0 && toolbar.max.x < 820.0,
+        "toolbar stays fixed"
+    );
 }
 
 #[test]
@@ -1530,6 +1589,29 @@ fn process_column_profiles_select_the_relevant_metrics() {
         assert_eq!(h.state().view.descending, sort != Col::Name);
         assert!(!egui::Popup::is_any_open(&h.ctx));
     }
+}
+
+#[test]
+fn process_header_totals_follow_the_system_while_rows_are_filtered() {
+    let mut h = process_harness();
+    h.run_steps(3);
+    assert!(h.query_by_label("42%").is_some());
+    assert!(h.query_by_label("50%").is_some());
+    let name = h.get_by_label("Name").rect();
+    let cpu = h.get_by_label("CPU ↓").rect();
+    let total = h.get_by_label("42%").rect();
+    let first = h.get_by_label("alpha.exe").rect();
+    assert!(cpu.contains_rect(total) && cpu.max.y <= first.min.y);
+    assert!(name.max.y <= first.min.y);
+    h.get_by_label("High CPU").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("alpha.exe").is_some());
+    assert!(h.query_by_label("beta.exe").is_none());
+    assert!(h.query_by_label("42%").is_some());
+    assert!(h.query_by_label("50%").is_some());
+    h.state_mut().snap.system.cpu_percent = 13.0;
+    h.run_steps(2);
+    assert!(h.query_by_label("13%").is_some());
 }
 
 #[test]

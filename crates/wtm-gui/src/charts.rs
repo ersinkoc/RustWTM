@@ -98,7 +98,28 @@ impl Unit {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Options {
+    pub grid: bool,
+    pub fill: bool,
+    pub events: bool,
+    pub link_hover: bool,
+}
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            grid: true,
+            fill: true,
+            events: true,
+            link_hover: true,
+        }
+    }
+}
+
 pub struct State {
+    pub plot_height: f32,
+    pub options: Options,
     range_secs: u32,
     pub window: Option<Window>,
     pub cursor: Option<u64>,
@@ -109,6 +130,8 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            plot_height: 128.0,
+            options: Options::default(),
             range_secs: 300,
             window: None,
             cursor: None,
@@ -144,6 +167,17 @@ fn short_time(seconds: f64) -> String {
 }
 
 impl State {
+    pub fn range_seconds(&self) -> u32 {
+        self.range_secs
+    }
+    pub fn set_range(&mut self, seconds: u32) {
+        self.range_secs = if matches!(seconds, 60 | 120 | 300) {
+            seconds
+        } else {
+            300
+        };
+        self.live();
+    }
     fn live_window(&self) -> Option<Window> {
         let extent = self.timeline.extent()?;
         Some(Window {
@@ -450,7 +484,7 @@ impl State {
                 );
             });
         }
-        ui.add_space(6.0);
+        ui.add_space(0.0);
     }
 
     fn value(&self, times: &VecDeque<u64>, values: &VecDeque<f32>, unit: Unit) -> Option<f32> {
@@ -483,16 +517,19 @@ impl State {
         let start = window.start as f64 / 1000.0;
         let end = (window.end as f64 / 1000.0).max(start + 0.001);
         let mut plot = Plot::new(id)
-            .height(128.0)
+            .height(self.plot_height)
             .show_background(false)
+            .show_grid([self.options.grid, self.options.grid])
             .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.35))
             .y_axis_min_width(64.0)
             .allow_drag(false)
             .allow_zoom(false)
             .allow_scroll(false)
             .allow_boxed_zoom(false)
-            .link_cursor(egui::Id::unique("performance-time-cursor"), [true, false])
             .x_axis_formatter(|mark, _| short_time(mark.value));
+        if self.options.link_hover {
+            plot = plot.link_cursor(egui::Id::unique("performance-time-cursor"), [true, false]);
+        }
         plot = match unit {
             Unit::Percent => plot
                 .include_y(0.0)
@@ -531,12 +568,12 @@ impl State {
                                 .color(color)
                                 .width(2.0)
                                 .fill(0.0)
-                                .fill_alpha(0.15),
+                                .fill_alpha(if self.options.fill { 0.15 } else { 0.0 }),
                         );
                     }
                 }
             }
-            for &(at, color) in &self.markers {
+            for &(at, color) in self.markers.iter().filter(|_| self.options.events) {
                 plot.vline(
                     VLine::new("", at as f64 / 1000.0)
                         .color(color.gamma_multiply(0.5))

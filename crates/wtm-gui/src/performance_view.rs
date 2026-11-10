@@ -70,7 +70,7 @@ impl State {
                 }
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(0.0);
         self.page != before
     }
 }

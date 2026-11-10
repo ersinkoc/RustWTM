@@ -51,8 +51,10 @@ pub fn about(
         area = area.vertical_scroll_offset(y);
     }
     let out = area.show(ui, |ui| {
-            ui.add_space(12.0);
+            ui.add_space(0.0);
+            crate::theme::panel(ui, |ui| {
             ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
                 // Drawn and uploaded once, not on every frame.
                 let id = egui::Id::unique("about-logo-texture");
                 let logo = ui
@@ -69,14 +71,15 @@ pub fn about(
                         ui.data_mut(|d| d.insert_temp(id, texture.clone()));
                         texture
                     });
-                ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(128.0, 128.0)));
-                ui.label(RichText::new("RustWTM").size(44.0).strong().color(ACCENT));
+                let size = if ui.available_width() < 760.0 { 64.0 } else { 88.0 };
+                ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(size, size)));
+                ui.label(RichText::new("RustWTM").size(34.0).strong().color(ACCENT));
                 ui.label(
                     RichText::new(crate::i18n::tr("The Windows task manager that keeps your PC responsive"))
                         .size(18.0),
                 );
                 ui.weak({ let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("Version {0}  ·  MIT license  ·  written in Rust", &[__wtm_i18n_0.to_string()]) });
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let status = match update {
                         UpdateState::Unknown => String::new(),
                         UpdateState::Checking => crate::i18n::tr("Checking for updates…").into(),
@@ -101,7 +104,7 @@ pub fn about(
                     }
                     ui.weak(status);
                 });
-                ui.add_space(14.0);
+                ui.add_space(0.0);
 
                 ui.label(
                     RichText::new(crate::i18n::format("Crafted by {0}", &[AUTHOR.to_string()]))
@@ -113,38 +116,40 @@ pub fn about(
                      Windows never had: one that does not just show you what is slowing the \
                      machine down, but quietly fixes it — fast, safe and free for everyone."),
                 );
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     // Centre the two links.
-                    let width = 360.0;
-                    ui.add_space((ui.available_width() - width).max(0.0) / 2.0);
                     ui.hyperlink_to(RichText::new(crate::i18n::tr("★ Star RustWTM on GitHub")).size(16.0), REPO);
-                    ui.label("  ");
+                    ui.label("·");
                     ui.hyperlink_to(
                         RichText::new(crate::i18n::format("{0} on GitHub", &[AUTHOR.to_string()])).size(16.0),
                         AUTHOR_URL,
                     );
                 });
             });
-            ui.add_space(18.0);
-            ui.separator();
+            });
+            ui.add_space(0.0);
+            crate::theme::divider(ui);
 
-            egui::Grid::new("about_highlights")
-                .num_columns(2)
-                .spacing([24.0, 12.0])
-                .show(ui, |ui| {
-                    for (i, (title, text)) in HIGHLIGHTS.iter().enumerate() {
-                        ui.vertical(|ui| {
-                            ui.set_max_width(420.0);
-                            ui.label(RichText::new(crate::i18n::tr(title)).strong().color(ACCENT));
-                            ui.label(crate::i18n::tr(text));
-                        });
-                        if i % 2 == 1 {
-                            ui.end_row();
-                        }
-                    }
+            let feature = |ui: &mut Ui, title: &str, text: &str| {
+                crate::theme::panel(ui, |ui| {
+                    ui.set_min_height(82.0);
+                    ui.label(RichText::new(crate::i18n::tr(title)).strong().color(ACCENT));
+                    ui.add(egui::Label::new(crate::i18n::tr(text)).wrap());
                 });
-            ui.add_space(18.0);
-            ui.separator();
+            };
+            if ui.available_width() >= 760.0 {
+                for pair in HIGHLIGHTS.chunks(2) {
+                    ui.columns(2, |columns| {
+                        for (column, (title, text)) in columns.iter_mut().zip(pair) {
+                            feature(column, title, text);
+                        }
+                    });
+                }
+            } else {
+                for (title, text) in HIGHLIGHTS { feature(ui, title, text); }
+            }
+            ui.add_space(0.0);
+            crate::theme::divider(ui);
 
             ui.horizontal_wrapped(|ui| {
                 ui.hyperlink_to(crate::i18n::tr("Releases"), format!("{REPO}/releases"));
@@ -161,10 +166,10 @@ pub fn about(
                 ui.label("·");
                 ui.hyperlink_to(crate::i18n::tr("License (MIT)"), format!("{REPO}/blob/main/LICENSE"));
             });
-            ui.add_space(6.0);
+            ui.add_space(0.0);
             ui.weak(crate::i18n::format("© {0}. Free and open source software. If RustWTM saves your day, a star on GitHub is the best way to say thanks.", &[AUTHOR.to_string()]));
             if let Some(f) = frames {
-                ui.add_space(6.0);
+                ui.add_space(0.0);
                 ui.weak(frame_timing(f));
             }
         });
