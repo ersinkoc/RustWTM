@@ -7330,5 +7330,269 @@
     "de": "Dienst",
     "fr": "Service",
     "es": "Servicio"
+  },
+  "Quick navigation": {
+    "tr": "Hızlı gezinme",
+    "de": "Schnellnavigation",
+    "fr": "Navigation rapide",
+    "es": "Navegación rápida"
+  },
+  "Find a page": {
+    "tr": "Bir sayfa bul",
+    "de": "Seite finden",
+    "fr": "Trouver une page",
+    "es": "Buscar una página"
+  },
+  "No matching pages": {
+    "tr": "Eşleşen sayfa yok",
+    "de": "Keine passenden Seiten",
+    "fr": "Aucune page correspondante",
+    "es": "No hay páginas coincidentes"
+  },
+  "Try a page name or a task description.": {
+    "tr": "Sayfa adı veya yapmak istediğin işi yaz.",
+    "de": "Nach einem Seitennamen oder einer Aufgabe suchen.",
+    "fr": "Essayez un nom de page ou une description de tâche.",
+    "es": "Prueba un nombre de página o una descripción de tarea."
+  },
+  "↑ ↓ Choose · Enter Open · Esc Close": {
+    "tr": "↑ ↓ Seç · Enter Aç · Esc Kapat",
+    "de": "↑ ↓ Wählen · Enter Öffnen · Esc Schließen",
+    "fr": "↑ ↓ Choisir · Entrée Ouvrir · Échap Fermer",
+    "es": "↑ ↓ Elegir · Intro Abrir · Esc Cerrar"
+  },
+  "Memory type": {
+    "tr": "Bellek türü",
+    "de": "Speichertyp",
+    "fr": "Type de mémoire",
+    "es": "Tipo de memoria"
+  },
+  "Form factor": {
+    "tr": "Fiziksel biçim",
+    "de": "Bauform",
+    "fr": "Format physique",
+    "es": "Formato físico"
+  },
+  "Hardware specifications": {
+    "tr": "Donanım özellikleri",
+    "de": "Hardware-Spezifikationen",
+    "fr": "Caractéristiques matérielles",
+    "es": "Especificaciones de hardware"
+  },
+  "Installed apps": {
+    "tr": "Kurulu uygulamalar",
+    "de": "Installierte Apps",
+    "fr": "Applications installées",
+    "es": "Aplicaciones instaladas"
+  },
+  "Device models, specifications and firmware details": {
+    "tr": "Cihaz modelleri, özellikler ve donanım yazılımı bilgileri",
+    "de": "Gerätemodelle, Spezifikationen und Firmware",
+    "fr": "Modèles, caractéristiques et micrologiciels",
+    "es": "Modelos, especificaciones y firmware"
+  },
+  "Find registered desktop apps and open their uninstallers": {
+    "tr": "Kayıtlı masaüstü uygulamalarını bul ve kaldırıcılarını aç",
+    "de": "Desktop-Apps finden und Deinstallation öffnen",
+    "fr": "Trouver les applications de bureau et leur désinstalleur",
+    "es": "Buscar aplicaciones de escritorio y abrir su desinstalador"
+  },
+  "Name, publisher or version": {
+    "tr": "Ad, yayıncı veya sürüm",
+    "de": "Name, Herausgeber oder Version",
+    "fr": "Nom, éditeur ou version",
+    "es": "Nombre, editor o versión"
+  },
+  "Windows Apps settings": {
+    "tr": "Windows uygulama ayarları",
+    "de": "Windows-App-Einstellungen",
+    "fr": "Paramètres des applications Windows",
+    "es": "Configuración de aplicaciones de Windows"
+  },
+  "All apps": {
+    "tr": "Tüm uygulamalar",
+    "de": "Alle Apps",
+    "fr": "Toutes les applications",
+    "es": "Todas las aplicaciones"
+  },
+  "Current user": {
+    "tr": "Geçerli kullanıcı",
+    "de": "Aktueller Benutzer",
+    "fr": "Utilisateur actuel",
+    "es": "Usuario actual"
+  },
+  "All users": {
+    "tr": "Tüm kullanıcılar",
+    "de": "Alle Benutzer",
+    "fr": "Tous les utilisateurs",
+    "es": "Todos los usuarios"
+  },
+  "Reading or updating application information…": {
+    "tr": "Uygulama bilgileri okunuyor veya güncelleniyor…",
+    "de": "App-Informationen werden gelesen oder aktualisiert…",
+    "fr": "Lecture ou mise à jour des informations…",
+    "es": "Leyendo o actualizando información…"
+  },
+  "Registered desktop apps only. Store and portable apps are not included yet. Sizes are publisher estimates.": {
+    "tr": "Yalnızca kayıtlı masaüstü uygulamaları. Mağaza ve taşınabilir uygulamalar henüz dahil değil. Boyutlar yayıncı tahminidir.",
+    "de": "Nur registrierte Desktop-Apps. Store- und portable Apps sind noch nicht enthalten. Größen sind Herausgeberschätzungen.",
+    "fr": "Applications de bureau enregistrées uniquement. Les applications Store et portables ne sont pas encore incluses. Tailles estimées par les éditeurs.",
+    "es": "Solo aplicaciones de escritorio registradas. Las aplicaciones de Store y portátiles aún no están incluidas. Tamaños estimados por el editor."
+  },
+  "Partial inventory: some entries could not be read or a scan limit was reached.": {
+    "tr": "Kısmi envanter: bazı kayıtlar okunamadı veya tarama sınırına ulaşıldı.",
+    "de": "Teilweise Inventur: Einträge nicht lesbar oder Scanlimit erreicht.",
+    "fr": "Inventaire partiel : entrées illisibles ou limite atteinte.",
+    "es": "Inventario parcial: entradas ilegibles o límite alcanzado."
+  },
+  "{0} of {1} apps": {
+    "tr": "{1} uygulamadan {0} tanesi",
+    "de": "{0} von {1} Apps",
+    "fr": "{0} applications sur {1}",
+    "es": "{0} de {1} aplicaciones"
+  },
+  "Uninstall…": {
+    "tr": "Kaldır…",
+    "de": "Deinstallieren…",
+    "fr": "Désinstaller…",
+    "es": "Desinstalar…"
+  },
+  "No matching applications": {
+    "tr": "Eşleşen uygulama yok",
+    "de": "Keine passenden Anwendungen",
+    "fr": "Aucune application correspondante",
+    "es": "No hay aplicaciones coincidentes"
+  },
+  "Publisher": {
+    "tr": "Yayıncı",
+    "de": "Herausgeber",
+    "fr": "Éditeur",
+    "es": "Editor"
+  },
+  "Estimated size": {
+    "tr": "Tahmini boyut",
+    "de": "Geschätzte Größe",
+    "fr": "Taille estimée",
+    "es": "Tamaño estimado"
+  },
+  "Uninstall application?": {
+    "tr": "Uygulama kaldırılsın mı?",
+    "de": "Anwendung deinstallieren?",
+    "fr": "Désinstaller l’application ?",
+    "es": "¿Desinstalar la aplicación?"
+  },
+  "This opens the registered uninstaller. It may ask for administrator rights. Review its prompts before continuing.": {
+    "tr": "Kayıtlı kaldırıcı açılacak. Yönetici izni isteyebilir. Devam etmeden önce kendi onaylarını incele.",
+    "de": "Öffnet den registrierten Deinstaller. Er kann Administratorrechte anfordern. Prüfen Sie seine Hinweise.",
+    "fr": "Ouvre le désinstalleur enregistré. Des droits administrateur peuvent être demandés. Vérifiez ses invites.",
+    "es": "Abre el desinstalador registrado. Puede pedir permisos de administrador. Revisa sus indicaciones."
+  },
+  "Start uninstaller": {
+    "tr": "Kaldırıcıyı başlat",
+    "de": "Deinstaller starten",
+    "fr": "Lancer le désinstalleur",
+    "es": "Iniciar desinstalador"
+  },
+  "Uninstaller started. Refresh after it finishes; removal is not yet confirmed.": {
+    "tr": "Kaldırıcı başlatıldı. Bitince yenile; kaldırma henüz doğrulanmadı.",
+    "de": "Deinstaller gestartet. Nach Abschluss aktualisieren; Entfernung noch nicht bestätigt.",
+    "fr": "Désinstalleur lancé. Actualisez après sa fin ; suppression non confirmée.",
+    "es": "Desinstalador iniciado. Actualiza cuando termine; eliminación aún no confirmada."
+  },
+  "Cannot start uninstaller: {0}": {
+    "tr": "Kaldırıcı başlatılamadı: {0}",
+    "de": "Deinstaller kann nicht gestartet werden: {0}",
+    "fr": "Impossible de lancer le désinstalleur : {0}",
+    "es": "No se puede iniciar el desinstalador: {0}"
+  },
+  "Application inventory worker stopped.": {
+    "tr": "Uygulama envanteri işlemi durdu.",
+    "de": "App-Inventur wurde beendet.",
+    "fr": "Le processus d’inventaire s’est arrêté.",
+    "es": "El proceso de inventario se detuvo."
+  },
+  "Removal is disabled by this application.": {
+    "tr": "Bu uygulama kaldırmayı devre dışı bırakmış.",
+    "de": "Diese Anwendung hat die Entfernung deaktiviert.",
+    "fr": "La suppression est désactivée par cette application.",
+    "es": "Esta aplicación ha deshabilitado la eliminación."
+  },
+  "Windows system directory is unavailable.": {
+    "tr": "Windows sistem dizini kullanılamıyor.",
+    "de": "Windows-Systemverzeichnis nicht verfügbar.",
+    "fr": "Répertoire système Windows indisponible.",
+    "es": "Directorio del sistema Windows no disponible."
+  },
+  "No supported interactive uninstaller is registered.": {
+    "tr": "Desteklenen etkileşimli kaldırıcı kayıtlı değil.",
+    "de": "Kein unterstützter interaktiver Deinstaller registriert.",
+    "fr": "Aucun désinstalleur interactif pris en charge enregistré.",
+    "es": "No hay un desinstalador interactivo compatible registrado."
+  },
+  "The registered uninstaller path is ambiguous.": {
+    "tr": "Kayıtlı kaldırıcının yolu belirsiz.",
+    "de": "Pfad des registrierten Deinstallers ist mehrdeutig.",
+    "fr": "Le chemin du désinstalleur est ambigu.",
+    "es": "La ruta del desinstalador es ambigua."
+  },
+  "The registered uninstaller needs Windows Apps settings.": {
+    "tr": "Bu kaldırıcı için Windows uygulama ayarlarını kullan.",
+    "de": "Für diesen Deinstaller die Windows-App-Einstellungen verwenden.",
+    "fr": "Utilisez les paramètres des applications Windows pour ce désinstalleur.",
+    "es": "Usa la configuración de aplicaciones de Windows para este desinstalador."
+  },
+  "Refresh hardware details": {
+    "tr": "Donanım bilgilerini yenile",
+    "de": "Hardwaredetails aktualisieren",
+    "fr": "Actualiser les détails matériels",
+    "es": "Actualizar detalles de hardware"
+  },
+  "Read-only specifications reported by Windows. This is an inventory snapshot, not live sensor data.": {
+    "tr": "Windows tarafından bildirilen salt okunur özellikler. Bunlar envanter anlık görüntüsüdür, canlı sensör verisi değildir.",
+    "de": "Von Windows gemeldete schreibgeschützte Spezifikationen. Inventur-Snapshot, keine Live-Sensordaten.",
+    "fr": "Caractéristiques en lecture seule signalées par Windows. Instantané d’inventaire, pas de données de capteurs en direct.",
+    "es": "Especificaciones de solo lectura de Windows. Instantánea de inventario, no datos de sensores en directo."
+  },
+  "Firmware version": {
+    "tr": "Donanım yazılımı sürümü",
+    "de": "Firmwareversion",
+    "fr": "Version du micrologiciel",
+    "es": "Versión del firmware"
+  },
+  "Firmware date": {
+    "tr": "Donanım yazılımı tarihi",
+    "de": "Firmwaredatum",
+    "fr": "Date du micrologiciel",
+    "es": "Fecha del firmware"
+  },
+  "System type": {
+    "tr": "Sistem türü",
+    "de": "Systemtyp",
+    "fr": "Type de système",
+    "es": "Tipo de sistema"
+  },
+  "Maximum reported clock": {
+    "tr": "Bildirilen en yüksek saat hızı",
+    "de": "Gemeldeter Maximaltakt",
+    "fr": "Fréquence maximale signalée",
+    "es": "Frecuencia máxima indicada"
+  },
+  "L2 cache": {
+    "tr": "L2 önbellek",
+    "de": "L2-Cache",
+    "fr": "Cache L2",
+    "es": "Caché L2"
+  },
+  "L3 cache": {
+    "tr": "L3 önbellek",
+    "de": "L3-Cache",
+    "fr": "Cache L3",
+    "es": "Caché L3"
+  },
+  "Application registration changed. Refresh the list.": {
+    "tr": "Uygulama kaydı değişti. Listeyi yenile.",
+    "de": "App-Registrierung geändert. Liste aktualisieren.",
+    "fr": "L’enregistrement de l’application a changé. Actualisez la liste.",
+    "es": "El registro de la aplicación cambió. Actualiza la lista."
   }
 }

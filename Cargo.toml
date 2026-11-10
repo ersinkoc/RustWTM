@@ -3,14 +3,14 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.27.2"
+version = "0.28.0"
 edition = "2024"
 rust-version = "1.99"
 publish = false
 license = "MIT"
 authors = ["Ersin KOÇ <ersinkoc@gmail.com>"]
-repository = "https://github.com/ersinkoc/RustWTM"
-homepage = "https://github.com/ersinkoc/RustWTM"
+repository = "https://github.com/rustwtm/rustwtm"
+homepage = "https://rustwtm.com"
 
 [workspace.dependencies]
 wtm-sys = { path = "crates/wtm-sys" }

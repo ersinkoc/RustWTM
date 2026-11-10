@@ -4,6 +4,7 @@ use eframe::egui::{self, Color32, FontId, Pos2, Rect, Sense, Stroke, Ui};
 
 #[derive(Clone, Copy)]
 pub enum Icon {
+    Search,
     Cpu,
     Memory,
     Gpu,
@@ -49,6 +50,10 @@ fn paint(ui: &Ui, rect: Rect, icon: Icon, color: Color32) {
         );
     };
     match icon {
+        Icon::Search => {
+            circle(8.0, 8.0, 5.5);
+            line(&[(12.0, 12.0), (18.0, 18.0)]);
+        }
         Icon::Cpu => {
             box_at(4.0, 4.0, 11.0, 11.0);
             box_at(7.0, 7.0, 5.0, 5.0);

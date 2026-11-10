@@ -27,7 +27,7 @@
     Does not need administrator rights.
 
 .EXAMPLE
-    irm https://raw.githubusercontent.com/ersinkoc/RustWTM/main/scripts/install.ps1 | iex
+    irm https://raw.githubusercontent.com/rustwtm/rustwtm/main/scripts/install.ps1 | iex
 #>
 [CmdletBinding()]
 param(
@@ -41,7 +41,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$Repo = 'ersinkoc/RustWTM'
+# Stable repository identity: follows the existing project through transfers.
+$RepositoryId = 1425760656
 $Asset = 'rustwtm-x86_64-pc-windows-msvc.zip'
 $Binaries = 'rustwtm.exe', 'wtm.exe', 'wtm-service.exe'
 $ServiceName = 'RustWTM'
@@ -83,9 +84,9 @@ function Test-Admin {
 
 function Get-ReleaseFiles([string]$Tag, [string]$Destination) {
     $api = if ($Tag -eq 'latest') {
-        "https://api.github.com/repos/$Repo/releases/latest"
+        "https://api.github.com/repositories/$RepositoryId/releases/latest"
     } else {
-        "https://api.github.com/repos/$Repo/releases/tags/$Tag"
+        "https://api.github.com/repositories/$RepositoryId/releases/tags/$Tag"
     }
     $release = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'RustWTM-installer' }
     $zip = $release.assets | Where-Object name -EQ $Asset

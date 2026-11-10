@@ -50,12 +50,12 @@ navigation and localization. Resource and secondary text contrast checks cover
 both themes. A layout regression exercises different title lengths at 960- and
 420-point widths, checking common alignment and narrow-screen containment.
 
-Visual review covers all 18 main views and all seven settings pages at 1440×1000
+The 0.27.2 visual review covered all 18 main views and all seven settings pages at 1440×1000
 and 820×500 in light and dark themes, plus focused performance, dialogs and
 inspection states. Synthetic fixtures do not modify services, startup entries,
 hardware configuration or host resource limits.
 
-The final GUI suite passes 238 tests, with three explicit opt-outs (benchmark,
+That release's GUI suite passed 238 tests, with three explicit opt-outs (benchmark,
 asset regeneration and the opt-in hardware smoke). Clippy covers all GUI targets
 and features with warnings denied. Evidence is retained locally under
 `.temp_files/hardware-copy-layout/`: alignment and hardware-copy red/green results, contrast and interaction
@@ -67,3 +67,10 @@ sizes and themes; PNG headers, chunk checksums and bounded pixel streams passed
 validation. An earlier 204-state pass also covered the focused resource pages and
 inspection/dialog fixtures. Repository preview images were refreshed from these
 captures. The final native development build succeeded at `target/debug/rustwtm.exe`.
+
+The later inventory/application work adds two main pages. Its 36 dedicated
+captures cover hardware specifications and installed application selection,
+confirmation and compact scrolling in English/Turkish, both themes and sizes.
+The GUI suite also exercises navigation through all 20 pages in five languages.
+This local development pass is recorded in
+[inventory and application management](inventory-app-management.md).

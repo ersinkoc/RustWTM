@@ -6,6 +6,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-10
+
+### Changed
+
+- Discover updates and installer releases by the existing GitHub repository ID,
+  preserving the source across owner/name transfers without a manual cutover.
+  Keep discovered recovery links and asset/checksum pairs together, bound release
+  metadata reads and exercise transfer scenarios in CI.
+- Prepare canonical project links, installer metadata and update endpoints for
+  github.com/rustwtm/rustwtm, with rustwtm.com as the project website. Upgrade CI
+  follows the repository identity supplied by GitHub Actions.
+
+### Added
+
+- Add dedicated hardware specifications and installed desktop application pages.
+  Show system/BIOS, processor cache/clock and disk firmware details; provide
+  application search, scope filters, sorting and registered uninstall handoff
+  with confirmation and registration revalidation. Package updates remain pending.
+- Search all desktop pages by name or description with Quick navigation
+  (Ctrl+K). Open a result with the mouse or arrow keys and Enter; Escape closes
+  the dialog. Existing filters, drafts and confirmation shortcuts are preserved.
+- Show reported RAM generation and module form factor in system identity cards,
+  hardware details and the copied hardware summary; unsupported codes remain
+  unknown instead of being inferred from a product name.
+
 ## [0.27.2] - 2026-11-10
 
 ### Fixed
@@ -1147,7 +1172,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.27.2...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/ersinkoc/RustWTM/compare/v0.27.2...v0.28.0
 [0.27.2]: https://github.com/ersinkoc/RustWTM/compare/v0.27.1...v0.27.2
 [0.27.1]: https://github.com/ersinkoc/RustWTM/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/ersinkoc/RustWTM/compare/v0.26.2...v0.27.0

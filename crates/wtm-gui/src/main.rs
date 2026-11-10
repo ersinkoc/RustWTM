@@ -12,6 +12,7 @@ mod disks_tab;
 mod docker_worker;
 mod frames;
 mod i18n;
+mod installed_apps;
 mod inventory;
 mod kill_tab;
 mod limits_tab;

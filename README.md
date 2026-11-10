@@ -15,6 +15,8 @@ that overload the CPU, gives apps CPU and memory budgets, frees RAM under
 pressure, never slows down the app you are using, and learns from long-term
 usage history.
 
+[Website](https://rustwtm.com) · [Downloads](https://github.com/ersinkoc/RustWTM/releases/latest) · [Issues](https://github.com/ersinkoc/RustWTM/issues)
+
 [![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/ersinkoc/RustWTM)](https://github.com/ersinkoc/RustWTM/releases/latest)
@@ -41,6 +43,37 @@ usage history.
 [Compact GPU search](screenshots/performance-gpu-compact.png)
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
+
+## New in 0.28.0
+
+[Release scope and validation](docs/0.28.0-review.md)
+
+- **Hardware specifications:** system and BIOS information, CPU topology/cache/
+  reported maximum clock, motherboard, RAM modules, disk firmware and graphics
+  identities, with refresh and formatted copy. [Details](docs/inventory-app-management.md).
+- **Installed desktop apps:** search, publisher/version/size/scope sorting,
+  application details and confirmed registered-uninstaller handoff. A successful
+  handoff means started, not removed; refresh after the vendor uninstaller ends.
+  Store and portable apps are not included yet. Package-manager updates remain
+  planned.
+- **Quick navigation (Ctrl+K):** find pages by name/description, choose with arrows
+  and Enter or click, and dismiss with Escape without losing filters or drafts.
+- **Transfer-safe updates:** desktop/CLI discovery and the bundled installer use
+  the original GitHub repository ID. Release-page, installer and checksum URLs
+  follow the repository through a real transfer; no manual endpoint switch.
+
+[Hardware specifications](screenshots/hardware-specifications.png) ·
+[Installed applications](screenshots/installed-apps.png) ·
+[Compact applications](screenshots/installed-apps-compact.png) ·
+[Uninstall confirmation](screenshots/installed-apps-confirmation.png) ·
+[Quick navigation](screenshots/quick-navigation.png)
+
+The canonical destination is [rustwtm/rustwtm](https://github.com/rustwtm/rustwtm)
+and the website is [rustwtm.com](https://rustwtm.com). The GitHub transfer is still
+pending in this bridge release; working badges, bootstrap and download links
+retain the current location. Use a transfer preserving the repository ID and
+releases, and keep the original redirect for previously installed clients.
+[Migration and verification](docs/repository-migration.md).
 
 ## Features
 
@@ -147,6 +180,8 @@ usage history.
   *Files being read and written* lists, per program, the files moving the most
   disk bytes right now (a kernel trace that runs only while the tab is open,
   through the service or as administrator).
+- Update checks discover releases by stable GitHub repository identity across
+  owner/name transfers. Installer and checksum URLs come from the same release.
 - Update notice with one-click update: the new installer is downloaded,
   checked against its published SHA-256 and installed; RustWTM restarts
   by itself.

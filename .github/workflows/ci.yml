@@ -64,6 +64,10 @@ jobs:
         shell: pwsh
         run: scripts/ci/test-signatures.ps1
 
+      - name: Transfer-safe release discovery controls
+        shell: pwsh
+        run: scripts/ci/test-release-discovery.ps1
+
   coverage:
     runs-on: windows-latest
     steps:
@@ -160,6 +164,8 @@ jobs:
             sha256: '6612ebe0b5912a8d04aaca50effdf77b3f62c7f2a7ca4b8aaed324cc875f8629'
           - baseline: '0.26.1'
             sha256: '3b606894528a0eb1628205e012757dd6e748169b7aafd9ac865f1193d0f41cba'
+          - baseline: '0.27.2'
+            sha256: 'e9910d9a9320b2ff2b5f10d44d52d62ca5074ccd091941b3139ef0bae7a8de9e'
     env:
       BASELINE_VERSION: ${{ matrix.baseline }}
       BASELINE_SHA256: ${{ matrix.sha256 }}
@@ -177,7 +183,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $asset = "RustWTM-${env:BASELINE_VERSION}-x64.msi"
-          gh release download "v${env:BASELINE_VERSION}" --repo ersinkoc/RustWTM --pattern $asset --dir dist/baseline
+          gh release download "v${env:BASELINE_VERSION}" --repo "$env:GITHUB_REPOSITORY" --pattern $asset --dir dist/baseline
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $actual = (Get-FileHash (Join-Path dist/baseline $asset) -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($actual -cne $env:BASELINE_SHA256) { throw 'Upgrade baseline digest mismatch' }
@@ -241,7 +247,7 @@ jobs:
     env:
       WGPU_BACKEND: dx12
       WTM_REVIEW_LANGS: en,tr,de,fr,es
-      WTM_REVIEW_TABS: Overview,Processes,Performance,Containers,Disks,Settings
+      WTM_REVIEW_TABS: Overview,Processes,Performance,Containers,Disks,Settings,Hardware,InstalledApps
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:

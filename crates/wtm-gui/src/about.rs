@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, Color32, RichText, Ui};
 
-pub const REPO: &str = "https://github.com/ersinkoc/RustWTM";
+pub const REPO: &str = wtm_core::project::PUBLIC_REPOSITORY;
 const AUTHOR: &str = "Ersin KOÇ";
 const AUTHOR_URL: &str = "https://github.com/ersinkoc";
 const ACCENT: Color32 = Color32::from_rgb(222, 120, 60);
@@ -117,7 +117,8 @@ pub fn about(
                      machine down, but quietly fixes it — fast, safe and free for everyone."),
                 );
                 ui.horizontal_wrapped(|ui| {
-                    // Centre the two links.
+                    ui.hyperlink_to(RichText::new("rustwtm.com").size(16.0), wtm_core::project::HOMEPAGE);
+                    ui.label("·");
                     ui.hyperlink_to(RichText::new(crate::i18n::tr("★ Star RustWTM on GitHub")).size(16.0), REPO);
                     ui.label("·");
                     ui.hyperlink_to(

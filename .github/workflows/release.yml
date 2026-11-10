@@ -51,6 +51,10 @@ jobs:
       - name: Test
         run: cargo test --locked --workspace
 
+      - name: Transfer-safe release discovery controls
+        shell: pwsh
+        run: scripts/ci/test-release-discovery.ps1
+
       - name: Build
         run: cargo build --locked --release --workspace
 

@@ -1,5 +1,23 @@
 # Desktop controls and hardware identity
 
+## Quick navigation
+
+Use the search entry beneath the sidebar brand, or Ctrl+K, to find a page by
+its translated name, English name or translated description. The dialog shows
+descriptive results; arrows select, Enter opens and Escape dismisses. Input is
+limited to 128 characters and searches only the fixed page catalog. It does not
+execute actions or discard page drafts. Existing confirmations block it;
+Ctrl+Shift+K retains the panic confirmation.
+
+RAM identities also include the reported SMBIOS memory generation and WMI module
+form factor. The two code namespaces are decoded separately. Unknown codes do
+not imply a memory generation or physical form. These details share the existing
+bounded, once-per-window inventory, including its unavailable states.
+
+![Quick navigation](../screenshots/quick-navigation.png)
+
+## Shared layout
+
 Every page has a single 12-pixel horizontal / 8-pixel vertical gutter.
 Sections are separated by 8 pixels; cards use 10-pixel horizontal / 8-pixel
 vertical internal padding, without an additional outer margin. Resource grids
@@ -61,7 +79,7 @@ raw configuration editor retains the window width. Focused performance pages
 allocate more height to charts; processor tiles use adaptive columns and small
 gutters. Compact windows retain scrolling and a wrapping footer.
 
-Verification: 238 GUI tests passed with three explicit opt-outs (benchmark,
+Verification before the 0.28.0 version bump: 246 GUI tests passed with three explicit opt-outs (benchmark,
 asset regeneration and hardware smoke). The read-only hardware smoke was run
 separately and passed on the local machine. Clippy covers all targets/features
 with warnings denied. Updated visual previews cover both themes and both widths.

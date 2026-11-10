@@ -63,6 +63,22 @@ pub fn get(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
     request("GET", url, None, user_agent, 30_000, limit)
 }
 
+/// Bounded update metadata: one MiB, with a 15-second overall deadline and
+/// five-second per-operation timeouts. Installer downloads use [`get`] instead.
+pub fn get_metadata(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
+    request(
+        "GET",
+        url,
+        None,
+        user_agent,
+        5_000,
+        Limit {
+            bytes: 1 << 20,
+            time: std::time::Duration::from_secs(15),
+        },
+    )
+}
+
 /// Sends `body` (of `content_type`) to `url`, waiting up to `timeout_ms`
 /// for the answer; returns the HTTP status and the body.
 pub fn post(

@@ -16,6 +16,8 @@ use crate::views;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Tab {
+    Hardware,
+    InstalledApps,
     Overview,
     Containers,
     Processes,
@@ -37,7 +39,7 @@ enum Tab {
 }
 
 /// Navigation follows the task: observe, protect, inspect the system, configure.
-const NAV: [(Tab, crate::navigation::Icon, &str); 18] = {
+const NAV: [(Tab, crate::navigation::Icon, &str); 20] = {
     use crate::navigation::Icon as I;
     [
         (Tab::Overview, I::Overview, "Overview"),
@@ -45,12 +47,14 @@ const NAV: [(Tab, crate::navigation::Icon, &str); 18] = {
         (Tab::Performance, I::Performance, "Performance"),
         (Tab::Disks, I::Disk, "Disks"),
         (Tab::Sensors, I::Sensors, "Sensors & cooling"),
+        (Tab::Hardware, I::Cpu, "Hardware specifications"),
         (Tab::History, I::History, "App history"),
         (Tab::Containers, I::Containers, "Containers"),
         (Tab::Governor, I::Shield, "Governor"),
         (Tab::Limits, I::Limits, "Limits"),
         (Tab::KillList, I::Stop, "Kill list"),
         (Tab::Events, I::Events, "Events"),
+        (Tab::InstalledApps, I::Containers, "Installed apps"),
         (Tab::Startup, I::Startup, "Startup apps"),
         (Tab::Services, I::Services, "Services"),
         (Tab::Users, I::Users, "Users"),
@@ -61,6 +65,146 @@ const NAV: [(Tab, crate::navigation::Icon, &str); 18] = {
     ]
 };
 const NAV_AUTO_COLLAPSE: f32 = 1000.0;
+
+#[derive(Default)]
+struct QuickNavigation {
+    open: bool,
+    query: String,
+    selected: usize,
+    focus: bool,
+}
+
+impl QuickNavigation {
+    fn show(&mut self) {
+        *self = Self {
+            open: true,
+            focus: true,
+            ..Self::default()
+        };
+    }
+}
+
+/// Navigation only: opening a page never executes its controls or discards edits.
+fn quick_navigation(ctx: &egui::Context, state: &mut UiState) {
+    if !state.quick_navigation.open {
+        return;
+    }
+    let nav = &mut state.quick_navigation;
+    let mut destination = None;
+    let width = (ctx.content_rect().width() - 48.0).clamp(160.0, 580.0);
+    let modal = egui::Modal::new(egui::Id::unique("quick_navigation")).show(ctx, |ui| {
+        ui.set_width(width);
+        ui.spacing_mut().item_spacing = crate::theme::SECTION_SPACING;
+        ui.horizontal(|ui| {
+            ui.heading(crate::i18n::tr("Quick navigation"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.weak("Ctrl+K");
+            });
+        });
+        let down = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
+        let up = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp));
+        let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        let label = crate::i18n::tr("Find a page");
+        let edit = ui.add(
+            egui::TextEdit::singleline(&mut nav.query)
+                .char_limit(128)
+                .desired_width(ui.available_width())
+                .hint_text(label),
+        );
+        edit.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, label));
+        if nav.focus {
+            edit.request_focus();
+            nav.focus = false;
+        }
+        if edit.changed() {
+            nav.selected = 0;
+        }
+        let query = nav.query.to_lowercase();
+        let terms: Vec<_> = query.split_whitespace().collect();
+        let matches: Vec<_> = NAV
+            .iter()
+            .filter(|(tab, _, key)| {
+                let text = format!("{} {} {}", tab.label(), tab.subtitle(), key).to_lowercase();
+                terms.iter().all(|term| text.contains(term))
+            })
+            .collect();
+        if matches.is_empty() {
+            nav.selected = 0;
+        } else {
+            nav.selected = nav.selected.min(matches.len() - 1);
+            if down {
+                nav.selected = (nav.selected + 1) % matches.len();
+            }
+            if up {
+                nav.selected = (nav.selected + matches.len() - 1) % matches.len();
+            }
+        }
+        crate::theme::divider(ui);
+        let height = (ctx.content_rect().height() * 0.46).clamp(80.0, 360.0);
+        egui::ScrollArea::vertical()
+            .id_salt("quick_navigation_results")
+            .max_height(height)
+            .show(ui, |ui| {
+                if matches.is_empty() {
+                    ui.strong(crate::i18n::tr("No matching pages"));
+                    ui.weak(crate::i18n::tr("Try a page name or a task description."));
+                }
+                for (index, (tab, _, _)) in matches.iter().enumerate() {
+                    let selected = nav.selected == index;
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        tab.label(),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(15.0),
+                            color: ui.visuals().strong_text_color(),
+                            ..Default::default()
+                        },
+                    );
+                    job.append(
+                        &format!("\n{}", tab.subtitle()),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::proportional(12.0),
+                            color: ui.visuals().weak_text_color(),
+                            ..Default::default()
+                        },
+                    );
+                    let response = ui.add_sized(
+                        [ui.available_width(), 58.0],
+                        egui::Button::new("")
+                            .left_text(job)
+                            .selected(selected)
+                            .frame(selected)
+                            .wrap(),
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(egui::Role::Button, true, selected, tab.label())
+                    });
+                    if selected {
+                        ui.painter().line_segment(
+                            [response.rect.left_top(), response.rect.left_bottom()],
+                            egui::Stroke::new(2.0, crate::theme::ACCENT),
+                        );
+                        if up || down || edit.changed() {
+                            response.scroll_to_me(Some(egui::Align::Center));
+                        }
+                    }
+                    if response.clicked() || selected && enter {
+                        destination = Some(*tab);
+                    }
+                }
+            });
+        crate::theme::divider(ui);
+        ui.weak(crate::i18n::tr("↑ ↓ Choose · Enter Open · Esc Close"));
+    });
+    if let Some(tab) = destination {
+        state.tab = tab;
+    }
+    if destination.is_some() || modal.should_close() {
+        state.quick_navigation.open = false;
+    }
+}
 
 fn nav_width(ctx: &egui::Context) -> f32 {
     ctx.fonts_mut(|fonts| {
@@ -91,6 +235,10 @@ impl Tab {
 
     fn subtitle(self) -> &'static str {
         match self {
+            Self::Hardware => crate::i18n::tr("Device models, specifications and firmware details"),
+            Self::InstalledApps => {
+                crate::i18n::tr("Find registered desktop apps and open their uninstallers")
+            }
             Self::Containers => {
                 crate::i18n::tr("Docker containers, resource usage and recent logs")
             }
@@ -168,12 +316,24 @@ fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
                 nav_toggle(ui, state, collapsed);
             }
         });
-    for (i, (tab, icon, label)) in NAV.iter().enumerate() {
-        let group = match i {
-            0 => Some(crate::i18n::tr("MONITOR")),
-            7 => Some(crate::i18n::tr("PROTECT")),
-            11 => Some(crate::i18n::tr("SYSTEM")),
-            16 => Some("RUSTWTM"),
+    if crate::navigation::row(
+        ui,
+        crate::navigation::Icon::Search,
+        crate::i18n::tr("Quick navigation"),
+        false,
+        collapsed,
+    )
+    .on_hover_text("Ctrl+K")
+    .clicked()
+    {
+        state.quick_navigation.show();
+    }
+    for (tab, icon, label) in &NAV {
+        let group = match tab {
+            Tab::Overview => Some(crate::i18n::tr("MONITOR")),
+            Tab::Governor => Some(crate::i18n::tr("PROTECT")),
+            Tab::InstalledApps => Some(crate::i18n::tr("SYSTEM")),
+            Tab::Settings => Some("RUSTWTM"),
             _ => None,
         };
         if let Some(group) = group {
@@ -214,6 +374,8 @@ pub struct App {
 }
 
 struct UiState {
+    installed_apps: crate::installed_apps::View,
+    quick_navigation: QuickNavigation,
     charts: crate::charts::State,
     performance: crate::performance_view::State,
     resource_strip: bool,
@@ -274,6 +436,8 @@ struct UiState {
     update_later: bool,
     /// "Update now" was clicked (its failure is shown).
     update_started: bool,
+    /// Preserve the discovered location for manual recovery after an install error.
+    update_release_page: Option<String>,
     last_update_check: Option<Instant>,
     last_load: HashMap<Panel, Instant>,
     /// The Limits column of the process table, for this data revision and
@@ -449,6 +613,8 @@ impl UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            installed_apps: crate::installed_apps::View::default(),
+            quick_navigation: QuickNavigation::default(),
             charts: crate::charts::State::default(),
             performance: crate::performance_view::State::default(),
             resource_strip: true,
@@ -494,6 +660,7 @@ impl Default for UiState {
             skip_version: None,
             update_later: false,
             update_started: false,
+            update_release_page: None,
             last_update_check: None,
             last_load: HashMap::new(),
             limit_labels: None,
@@ -834,7 +1001,9 @@ impl eframe::App for App {
                     ui.add_space(0.0);
                 }
                 // Values that stopped updating must not pass for live ones.
-                if stale_age(&data, now).is_some() {
+                if !matches!(state.tab, Tab::Hardware | Tab::InstalledApps)
+                    && stale_age(&data, now).is_some()
+                {
                     ui.multiply_opacity(STALE_OPACITY);
                 }
                 if state.tab == Tab::Settings {
@@ -847,7 +1016,13 @@ impl eframe::App for App {
                     Tab::Disks => !state.disks.analysis_open(),
                     _ => matches!(
                         state.tab,
-                        Tab::Overview | Tab::Sensors | Tab::Governor | Tab::Limits | Tab::KillList
+                        Tab::Overview
+                            | Tab::Sensors
+                            | Tab::Governor
+                            | Tab::Limits
+                            | Tab::KillList
+                            | Tab::Hardware
+                            | Tab::InstalledApps
                     ),
                 };
                 let page_id = state.tab.label();
@@ -855,6 +1030,15 @@ impl eframe::App for App {
                 let settings_layout =
                     state.tab == Tab::Settings && state.config.page != crate::settings::Page::File;
                 let mut content = |ui: &mut Ui| match state.tab {
+                    Tab::Hardware => crate::inventory::specifications(ui),
+                    Tab::InstalledApps => {
+                        if state.installed_apps.show(ui) {
+                            service_cmds.push(UiCommand::Run {
+                                line: "ms-settings:appsfeatures".into(),
+                                elevated: false,
+                            });
+                        }
+                    }
                     Tab::Processes => match &data.snapshot {
                         Some(snap) => {
                             let extra = crate::processes::Extra {
@@ -1053,6 +1237,8 @@ impl eframe::App for App {
             state.limit_labels = Some((labels_key, managed));
         }
 
+        quick_navigation(&ctx, state);
+        state.installed_apps.dialog(&ctx);
         if let Some((target, command)) = state.confirm.clone() {
             let modal = egui::Modal::new(egui::Id::unique("confirm")).show(&ctx, |ui| {
                 ui.heading(describe(command));
@@ -1390,6 +1576,9 @@ const UPDATE_CHECK_EVERY: Duration = Duration::from_secs(12 * 3600);
 /// A bar above everything when a newer release is out (or being installed).
 fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<UiCommand>) {
     use crate::backend::UpdateState;
+    if let UpdateState::Available(release) | UpdateState::Installing(release) = &data.update {
+        state.update_release_page = Some(release.page.clone());
+    }
     let release = match &data.update {
         UpdateState::Available(r)
             if !state.update_later && state.skip_version.as_deref() != Some(&r.tag) =>
@@ -1408,7 +1597,10 @@ fn update_bar(ui: &mut Ui, data: &Data, state: &mut UiState, commands: &mut Vec<
                         });
                         ui.hyperlink_to(
                             crate::i18n::tr("Release page"),
-                            wtm_core::update::RELEASES_PAGE,
+                            state
+                                .update_release_page
+                                .as_deref()
+                                .unwrap_or(wtm_core::update::RELEASES_PAGE),
                         );
                         if ui.button(crate::i18n::tr("Dismiss")).clicked() {
                             state.update_started = false;
@@ -1712,6 +1904,17 @@ fn stale_age(data: &Data, now: Instant) -> Option<Option<Duration>> {
 /// a warning below them while the data is out of date. Short windows leave
 /// out the subtitle and show the age next to the title.
 fn page_header(ui: &mut Ui, tab: Tab, data: &Data, now: Instant) {
+    if matches!(tab, Tab::Hardware | Tab::InstalledApps) {
+        egui::Frame::new()
+            .inner_margin(crate::theme::PAGE_PADDING)
+            .show(ui, |ui| {
+                ui.heading(RichText::new(tab.label()).size(25.0));
+                if ui.ctx().content_rect().height() >= COMPACT_HEIGHT {
+                    ui.weak(tab.subtitle());
+                }
+            });
+        return;
+    }
     page_header_with_inspector(ui, tab, data, now, None);
 }
 
@@ -1805,6 +2008,16 @@ fn stale_banner(ui: &mut Ui, data: &Data, now: Instant) {
 fn shortcuts(ctx: &egui::Context, state: &mut UiState) {
     let blocked = egui::Popup::is_any_open(ctx) || ctx.memory(|m| m.top_modal_layer().is_some());
     if blocked {
+        return;
+    }
+    // egui's shortcut matching tolerates extra modifiers: preserve Ctrl+Shift+K
+    // for the existing panic confirmation instead of consuming it here.
+    if ctx.input_mut(|i| {
+        !i.modifiers.shift
+            && !i.modifiers.alt
+            && i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)
+    }) {
+        state.quick_navigation.show();
         return;
     }
     let step = ctx.input_mut(|i| {
@@ -3711,6 +3924,168 @@ fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCom
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn failed_update_keeps_the_release_page_from_discovery_across_transfer() {
+        for repository in ["ersinkoc/RustWTM", "rustwtm/rustwtm"] {
+            let page = format!("https://github.com/{repository}/releases/tag/v0.28.0");
+            let mut d = data();
+            d.update = crate::backend::UpdateState::Available(wtm_core::update::Release {
+                version: (0, 28, 0),
+                tag: "v0.28.0".into(),
+                page: page.clone(),
+                msi: None,
+            });
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([1000.0, 500.0])
+                .build_ui_state(
+                    |ui, s: &mut (Data, UiState)| {
+                        update_bar(ui, &s.0, &mut s.1, &mut Vec::new());
+                    },
+                    (d, UiState::default()),
+                );
+            h.run_steps(2);
+            h.state_mut().1.update_started = true;
+            h.state_mut().0.update = crate::backend::UpdateState::Failed("injected failure".into());
+            h.run_steps(2);
+            h.get_by_label("Release page").click();
+            h.step();
+            assert!(
+                h.output()
+                    .platform_output
+                    .commands
+                    .iter()
+                    .any(|command| matches!(command,
+                egui::OutputCommand::OpenUrl(url) if url.url == page)),
+                "manual recovery must keep the resolved release source"
+            );
+        }
+    }
+    #[test]
+    fn quick_navigation_localized_results_fit_and_open_by_click() {
+        for language in [
+            crate::i18n::Language::English,
+            crate::i18n::Language::Turkish,
+            crate::i18n::Language::German,
+            crate::i18n::Language::French,
+            crate::i18n::Language::Spanish,
+        ] {
+            let _language = crate::i18n::scope(language);
+            for theme in [egui::Theme::Dark, egui::Theme::Light] {
+                let mut h = Harness::builder()
+                    .allow_missing_glyphs()
+                    .with_size([420.0, 500.0])
+                    .build_ui_state(
+                        |ui, state| quick_navigation(ui.ctx(), state),
+                        UiState::default(),
+                    );
+                h.ctx.set_theme(theme);
+                h.state_mut().quick_navigation.show();
+                h.run_steps(3);
+                let search = h.get_by_label(crate::i18n::tr("Find a page"));
+                assert!(search.rect().left() >= 0.0 && search.rect().right() <= 420.0);
+                search.type_text(crate::i18n::tr("Settings"));
+                h.run_steps(2);
+                let result = h.get_by_label(crate::i18n::tr("Settings"));
+                assert!(result.rect().left() >= 0.0 && result.rect().right() <= 420.0);
+                result.click();
+                h.run_steps(2);
+                assert_eq!(h.state().tab, Tab::Settings);
+                assert!(!h.state().quick_navigation.open);
+            }
+        }
+    }
+
+    #[test]
+    fn quick_navigation_does_not_replace_an_existing_confirmation() {
+        let (mut h, _rx) = kill_app(Tab::Processes);
+        h.state_mut().state.run_task = Some(("draft command".into(), false));
+        h.run_steps(3);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+        h.run_steps(2);
+        assert!(!h.state().state.quick_navigation.open);
+        assert_eq!(
+            h.state().state.run_task.as_ref().unwrap().0,
+            "draft command"
+        );
+    }
+
+    #[cfg(feature = "visual-tests")]
+    #[test]
+    fn render_quick_navigation_review() {
+        let root = std::env::var_os("WTM_REVIEW_OUTPUT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../target/visual-review/quick-navigation")
+            });
+        std::fs::create_dir_all(&root).unwrap();
+        for (code, language) in [
+            ("en", crate::i18n::Language::English),
+            ("tr", crate::i18n::Language::Turkish),
+        ] {
+            let _language = crate::i18n::scope(language);
+            for (name, theme) in [("dark", egui::Theme::Dark), ("light", egui::Theme::Light)] {
+                for (size, dimensions) in [("compact", [420.0, 500.0]), ("wide", [1440.0, 1000.0])]
+                {
+                    let (mut h, _rx) = kill_app(Tab::Processes);
+                    h.set_size(egui::vec2(dimensions[0], dimensions[1]));
+                    crate::theme::install_fonts(&h.ctx);
+                    crate::theme::apply(&h.ctx);
+                    h.ctx.set_theme(theme);
+                    h.state_mut().state.language = language;
+                    h.state_mut().state.quick_navigation.show();
+                    for (status, query) in [
+                        ("open", ""),
+                        ("filtered", "disk"),
+                        ("empty", "no-such-page"),
+                    ] {
+                        h.state_mut().state.quick_navigation.query = query.into();
+                        h.state_mut().state.quick_navigation.selected = 0;
+                        h.state().backend.data().sample_received_at = Some(Instant::now());
+                        h.run_steps(3);
+                        h.render()
+                            .unwrap()
+                            .save(root.join(format!("{code}-{name}-{size}-{status}.png")))
+                            .unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn quick_navigation_search_keyboard_and_cancel_preserve_page_state() {
+        let (mut h, _rx) = kill_app(Tab::Processes);
+        h.state_mut().state.processes.search = "keep this filter".into();
+        h.run_steps(2);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+        h.run_steps(2);
+        h.get_by_label("Find a page").type_text("startup");
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Startup);
+        assert_eq!(h.state().state.processes.search, "keep this filter");
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+        h.run_steps(2);
+        h.get_by_label("Find a page").type_text("no-such-page");
+        h.run_steps(2);
+        assert!(h.query_by_label("No matching pages").is_some());
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Startup);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.query_by_label("Find a page").is_none());
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::K);
+        h.run_steps(2);
+        h.key_press(egui::Key::ArrowDown);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(h.state().state.tab, Tab::Processes);
+    }
+
     use super::*;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
@@ -7138,9 +7513,10 @@ mod tests {
                     "{language:?} {tab:?}"
                 );
                 let received = crate::i18n::tr("Data measured {0}s ago");
-                assert!(
+                assert_eq!(
                     h.query_by_label_contains(received.split("{0}").next().unwrap())
-                        .is_some()
+                        .is_some(),
+                    !matches!(tab, Tab::Hardware | Tab::InstalledApps)
                 );
             }
             h.state_mut().backend.data().sample_error =
@@ -7209,6 +7585,8 @@ mod tests {
                         Tab::Performance,
                         Tab::Disks,
                         Tab::Sensors,
+                        Tab::Hardware,
+                        Tab::InstalledApps,
                         Tab::Settings,
                         Tab::Governor,
                         Tab::Limits,
@@ -7365,6 +7743,7 @@ mod tests {
                                         tab,
                                         language,
                                         sensors,
+                                        installed_apps: crate::installed_apps::fixture(),
                                         autostart: Some(false),
                                         prefer_administrator: Some(false),
                                         check_updates: false,
@@ -7375,6 +7754,17 @@ mod tests {
                                     frames: Default::default(),
                                 }
                             });
+                        if tab == Tab::Hardware {
+                            crate::inventory::set_test_inventory(&h.ctx, Some(Ok(br#"[
+                                {"kind":"System","fields":["Manufacturer: Example Systems","Model: Workstation","SystemType: x64-based PC"]},
+                                {"kind":"BIOS","fields":["Manufacturer: Example Firmware","SMBIOSBIOSVersion: 3.10","ReleaseDate: 2026-08-01"]},
+                                {"kind":"CPU","fields":["Name: Example 16-core processor","Manufacturer: Example CPU","NumberOfCores: 16","NumberOfLogicalProcessors: 32","MaxClockSpeed: 5200","L2CacheSize: 16384","L3CacheSize: 131072"]},
+                                {"kind":"Motherboard","fields":["Manufacturer: Example Boards","Product: Pro Mainboard","Version: Rev 2"]},
+                                {"kind":"RAM","fields":["Manufacturer: Example Memory","PartNumber: DDR5-32","Capacity: 34359738368","SMBIOSMemoryType: 34","FormFactor: 8","ConfiguredClockSpeed: 5600","DeviceLocator: DIMM A1"]},
+                                {"kind":"Disk","fields":["Index: 0","Model: Example NVMe SSD","Size: 2199023255552","InterfaceType: SCSI","FirmwareRevision: 2.0"]},
+                                {"kind":"GPU","fields":["Name: Example graphics adapter","AdapterCompatibility: Example GPU","DriverVersion: 32.1"]}
+                            ]"#)));
+                        }
                         h.run_steps(3);
                         assert_eq!(
                             h.ctx.global_style().visuals.dark_mode,
@@ -7388,6 +7778,26 @@ mod tests {
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         capture(&mut h, &path);
                         println!("Rendered {}", path.display());
+                        if tab == Tab::InstalledApps {
+                            h.get_by_label("Example Editor").click();
+                            h.run_steps(3);
+                            capture(
+                                &mut h,
+                                &out.join(format!(
+                                    "{theme_name}-{size_name}-InstalledAppsSelected.png"
+                                )),
+                            );
+                            h.get_by_label(crate::i18n::tr("Uninstall…")).click();
+                            h.run_steps(3);
+                            capture(
+                                &mut h,
+                                &out.join(format!(
+                                    "{theme_name}-{size_name}-InstalledAppsConfirmation.png"
+                                )),
+                            );
+                            h.get_by_label(crate::i18n::tr("Cancel")).click();
+                            h.run_steps(2);
+                        }
                         if std::env::var_os("WTM_REVIEW_BOTTOMS").is_some()
                             && h.query_by_label(crate::i18n::tr("More below")).is_some()
                         {

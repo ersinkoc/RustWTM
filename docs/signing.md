@@ -66,7 +66,7 @@ with Microsoft before step 1.
    GitHub OIDC federated credential with issuer
    `https://token.actions.githubusercontent.com`, audience
    `api://AzureADTokenExchange` and subject
-   `repo:ersinkoc/RustWTM:environment:windows-signing`.
+   `repo:rustwtm/rustwtm:environment:windows-signing`.
 5. Assign that principal **Artifact Signing Certificate Profile Signer** at
    the specific certificate-profile scope. Do not use a client secret or export
    a certificate/private key for this workflow.
@@ -118,7 +118,7 @@ To verify a future release after downloading it:
 ```powershell
 scripts/ci/verify-signatures.ps1 -Path .\rustwtm.exe,.\wtm.exe,.\wtm-service.exe,.\hardware\wtm-hardware.exe -ExpectedPublisher 'EXACT VALIDATED COMPANY NAME' -RequireTimestamp
 scripts/ci/verify-signatures.ps1 -Path .\RustWTM-VERSION-x64.msi -ExpectedPublisher 'EXACT VALIDATED COMPANY NAME' -RequireTimestamp
-gh attestation verify .\RustWTM-VERSION-x64.msi --repo ersinkoc/RustWTM --signer-workflow ersinkoc/RustWTM/.github/workflows/release.yml --deny-self-hosted-runners
+gh attestation verify .\RustWTM-VERSION-x64.msi --repo rustwtm/rustwtm --signer-workflow rustwtm/rustwtm/.github/workflows/release.yml --deny-self-hosted-runners
 ```
 
 No real Azure signing can be certified until the owner completes validation,

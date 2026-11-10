@@ -27,6 +27,7 @@ pub mod pipe_http;
 pub mod power;
 pub mod privilege;
 pub mod process;
+pub mod registry;
 pub mod security;
 pub mod services;
 pub mod sessions;

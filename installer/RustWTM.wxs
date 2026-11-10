@@ -22,7 +22,7 @@
 
     <Icon Id="RustWTM.ico" SourceFile="assets\rustwtm.ico" />
     <Property Id="ARPPRODUCTICON" Value="RustWTM.ico" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/ersinkoc/RustWTM" />
+    <Property Id="ARPURLINFOABOUT" Value="https://rustwtm.com" />
     <Property Id="ARPHELPLINK" Value="https://github.com/ersinkoc/RustWTM/issues" />
 
     <StandardDirectory Id="ProgramFiles64Folder">

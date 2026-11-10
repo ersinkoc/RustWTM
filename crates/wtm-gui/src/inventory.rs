@@ -10,10 +10,12 @@ const SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $items = @()
 foreach ($spec in @(
- @('CPU','Win32_Processor',@('Name','Manufacturer','NumberOfCores','NumberOfLogicalProcessors')),
+ @('System','Win32_ComputerSystem',@('Manufacturer','Model','SystemType')),
+ @('BIOS','Win32_BIOS',@('Manufacturer','SMBIOSBIOSVersion','ReleaseDate')),
+ @('CPU','Win32_Processor',@('Name','Manufacturer','NumberOfCores','NumberOfLogicalProcessors','MaxClockSpeed','L2CacheSize','L3CacheSize')),
  @('Motherboard','Win32_BaseBoard',@('Manufacturer','Product','Version')),
- @('RAM','Win32_PhysicalMemory',@('Manufacturer','PartNumber','Capacity','ConfiguredClockSpeed','DeviceLocator')),
- @('Disk','Win32_DiskDrive',@('Index','Manufacturer','Model','Size','InterfaceType')),
+ @('RAM','Win32_PhysicalMemory',@('Manufacturer','PartNumber','Capacity','ConfiguredClockSpeed','DeviceLocator','SMBIOSMemoryType','FormFactor')),
+ @('Disk','Win32_DiskDrive',@('Index','Manufacturer','Model','Size','InterfaceType','FirmwareRevision')),
  @('GPU','Win32_VideoController',@('Name','AdapterCompatibility','DriverVersion'))
 )) {
  try {
@@ -22,6 +24,9 @@ foreach ($spec in @(
    $parts = @()
    foreach ($prop in $spec[2]) {
     $v = [string]$row.$prop
+    if ($prop -eq 'ReleaseDate' -and ($row.$prop -is [datetime])) {
+     $v = ($row.$prop).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+    }
     if ($v.Trim()) { $parts += ($prop + ': ' + $v.Trim()) }
    }
    if ($parts.Count) { $items += @{kind=$spec[0]; fields=$parts} }
@@ -44,7 +49,7 @@ fn parse(bytes: &[u8]) -> Result<Vec<Item>, String> {
         return Err("Inventory response exceeds its limit".into());
     }
     let items: Vec<Item> = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    if items.len() > 320
+    if items.len() > 448
         || items
             .iter()
             .any(|i| i.fields.len() > 8 || i.fields.iter().any(|s| s.len() > 1024))
@@ -214,6 +219,16 @@ fn identities(items: &[Item]) -> Identities {
             }
             "RAM" => {
                 let mut name = model(item, "PartNumber");
+                for key in ["SMBIOSMemoryType", "FormFactor"] {
+                    if let Some(value) =
+                        field(item, key).and_then(|value| memory_metadata(key, value))
+                    {
+                        if !name.is_empty() {
+                            name.push_str(" · ");
+                        }
+                        name.push_str(value);
+                    }
+                }
                 if let Some(bytes) = field(item, "Capacity")
                     .and_then(|s| s.parse::<u64>().ok())
                     .filter(|v| *v > 0)
@@ -278,6 +293,27 @@ pub fn resource_identities(ui: &Ui) -> Identities {
     }
 }
 
+/// SMBIOSMemoryType uses raw SMBIOS codes; FormFactor uses WMI's CIM enum.
+/// These are distinct namespaces, even for the same DIMM.
+fn memory_metadata(key: &str, value: &str) -> Option<&'static str> {
+    let code = value.parse::<u16>().ok()?;
+    match (key, code) {
+        ("SMBIOSMemoryType", 18) => Some("DDR"),
+        ("SMBIOSMemoryType", 19) => Some("DDR2"),
+        ("SMBIOSMemoryType", 24) => Some("DDR3"),
+        ("SMBIOSMemoryType", 26) => Some("DDR4"),
+        ("SMBIOSMemoryType", 27) => Some("LPDDR"),
+        ("SMBIOSMemoryType", 28) => Some("LPDDR2"),
+        ("SMBIOSMemoryType", 29) => Some("LPDDR3"),
+        ("SMBIOSMemoryType", 30) => Some("LPDDR4"),
+        ("SMBIOSMemoryType", 34) => Some("DDR5"),
+        ("SMBIOSMemoryType", 35) => Some("LPDDR5"),
+        ("FormFactor", 8) => Some("DIMM"),
+        ("FormFactor", 12) => Some("SODIMM"),
+        _ => None,
+    }
+}
+
 fn formatted_fields(item: &Item) -> Vec<(&'static str, String)> {
     item.fields
         .iter()
@@ -290,15 +326,38 @@ fn formatted_fields(item: &Item) -> Vec<(&'static str, String)> {
                 "Manufacturer" | "AdapterCompatibility" => "Manufacturer",
                 "Capacity" | "Size" => "Capacity",
                 "ConfiguredClockSpeed" => "Memory speed",
+                "SMBIOSMemoryType" => "Memory type",
+                "FormFactor" => "Form factor",
                 "DeviceLocator" => "Slot",
                 "NumberOfCores" => "Physical cores",
                 "NumberOfLogicalProcessors" => "Logical processors",
                 "DriverVersion" => "Driver version",
                 "InterfaceType" => "Interface",
                 "Version" => "Version",
+                "SMBIOSBIOSVersion" | "FirmwareRevision" => "Firmware version",
+                "ReleaseDate" => "Firmware date",
+                "SystemType" => "System type",
+                "MaxClockSpeed" => "Maximum reported clock",
+                "L2CacheSize" => "L2 cache",
+                "L3CacheSize" => "L3 cache",
                 _ => return None,
             };
             let display = match key {
+                "L2CacheSize" | "L3CacheSize" => value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|v| *v > 0)
+                    .map(|v| wtm_core::format_bytes(v.saturating_mul(1024) as f64))
+                    .unwrap_or_else(|| "—".into()),
+                "MaxClockSpeed" => value
+                    .parse::<u32>()
+                    .ok()
+                    .filter(|v| *v > 0)
+                    .map(|v| format!("{v} MHz"))
+                    .unwrap_or_else(|| "—".into()),
+                "SMBIOSMemoryType" | "FormFactor" => memory_metadata(key, value)
+                    .unwrap_or(crate::i18n::tr("Unknown"))
+                    .to_owned(),
                 "Capacity" | "Size" => value
                     .parse::<u64>()
                     .ok()
@@ -381,9 +440,70 @@ pub fn set_test_inventory(ctx: &egui::Context, result: Option<Result<&[u8], &str
     ctx.data_mut(|d| d.insert_temp(egui::Id::unique("hardware-inventory"), shared));
 }
 
+pub fn specifications(ui: &mut Ui) {
+    let shared = state(ui);
+    let ready = shared
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .is_some();
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .add_enabled(
+                ready,
+                egui::Button::new(crate::i18n::tr("Refresh hardware details")),
+            )
+            .clicked()
+        {
+            ui.ctx()
+                .data_mut(|d| d.remove::<Shared>(egui::Id::unique("hardware-inventory")));
+        }
+        let summary = clipboard_summary(ui);
+        if ui
+            .add_enabled(
+                matches!(summary, ClipboardSummary::Ready(_)),
+                egui::Button::new(crate::i18n::tr("Copy system summary")),
+            )
+            .clicked()
+            && let ClipboardSummary::Ready(text) = summary
+        {
+            ui.ctx().copy_text(text);
+        }
+    });
+    ui.weak(crate::i18n::tr("Read-only specifications reported by Windows. This is an inventory snapshot, not live sensor data."));
+    show_cards(ui, true);
+}
+
 pub fn show(ui: &mut Ui) {
-    ui.add_space(4.0);
-    ui.strong(crate::i18n::tr("Hardware details"));
+    show_cards(ui, false);
+}
+
+fn item_card(ui: &mut Ui, item: &Item) {
+    crate::theme::panel(ui, |ui| {
+        let mut title = crate::i18n::tr(&item.kind).to_owned();
+        if let Some(slot) = field(item, "DeviceLocator").or_else(|| field(item, "Index")) {
+            title.push_str(" · ");
+            title.push_str(slot);
+        }
+        ui.strong(title);
+        let fields = formatted_fields(item);
+        if fields.is_empty() {
+            ui.weak(crate::i18n::tr("Hardware details unavailable"));
+        }
+        let label_width = (ui.available_width() * 0.4).clamp(90.0, 180.0);
+        for (label, display) in fields {
+            ui.horizontal_wrapped(|ui| {
+                ui.add_sized(
+                    [label_width, 18.0],
+                    egui::Label::new(egui::RichText::new(crate::i18n::tr(label)).weak()).wrap(),
+                );
+                ui.add(egui::Label::new(&display).wrap())
+                    .on_hover_text(display);
+            });
+        }
+    });
+}
+
+fn show_cards(ui: &mut Ui, adaptive: bool) {
     let state = state(ui);
     let inventory = state
         .lock()
@@ -397,18 +517,18 @@ pub fn show(ui: &mut Ui) {
                 .on_hover_text(error);
         }
         Some(Ok(items)) => {
-            for item in items {
-                ui.add_space(5.0);
-                ui.vertical(|ui| {
-                    ui.strong(crate::i18n::tr(&item.kind));
-                    if item.fields.is_empty() {
-                        ui.weak(crate::i18n::tr("Hardware details unavailable"));
-                    }
-                    for (label, display) in formatted_fields(item) {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.weak(crate::i18n::tr(label));
-                            ui.label(display);
-                        });
+            if items.is_empty() {
+                ui.weak(crate::i18n::tr("Hardware details unavailable"));
+            }
+            let columns = if adaptive && ui.available_width() >= 900.0 {
+                2
+            } else {
+                1
+            };
+            for row in items.chunks(columns) {
+                ui.columns(columns, |cols| {
+                    for (col, item) in cols.iter_mut().zip(row) {
+                        item_card(col, item);
                     }
                 });
             }
@@ -419,6 +539,52 @@ pub fn show(ui: &mut Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn specification_snapshot_formats_firmware_and_cpu_units_without_live_claims() {
+        let _language = crate::i18n::scope(crate::i18n::Language::English);
+        let items=parse(br#"[
+            {"kind":"BIOS","fields":["SMBIOSBIOSVersion: Rev 3","ReleaseDate: 2026-01-02"]},
+            {"kind":"CPU","fields":["Name: Example CPU","MaxClockSpeed: 4300","L2CacheSize: 16384","L3CacheSize: 0"]},
+            {"kind":"Disk","fields":["Index: 0","Model: SSD","FirmwareRevision: v2"]}
+        ]"#).unwrap();
+        let s = summary_text(&items).unwrap();
+        assert!(s.contains("Firmware version: Rev 3"));
+        assert!(s.contains("Firmware date: 2026-01-02"));
+        assert!(s.contains("Maximum reported clock: 4300 MHz"));
+        assert!(s.contains("L2 cache: 16.0 MiB"));
+        assert!(s.contains("L3 cache: —"));
+        assert!(s.contains("Firmware version: v2"));
+        assert!(!s.contains("Current clock"));
+    }
+    #[test]
+    fn memory_type_and_form_factor_reach_cards_and_copy_without_guessing() {
+        let _language = crate::i18n::scope(crate::i18n::Language::English);
+        let items = parse(br#"[
+            {"kind":"RAM","fields":["Manufacturer: Maker","PartNumber: DIMM-A","Capacity: 34359738368","SMBIOSMemoryType: 34","FormFactor: 8"]},
+            {"kind":"RAM","fields":["Manufacturer: Maker","PartNumber: Mobile","SMBIOSMemoryType: 35","FormFactor: 12"]},
+            {"kind":"RAM","fields":["PartNumber: Unknown module","SMBIOSMemoryType: 999","FormFactor: 0"]}
+        ]"#).unwrap();
+        let summary = summary_text(&items).unwrap();
+        assert!(summary.contains("Memory type: DDR5"));
+        assert!(summary.contains("Memory type: LPDDR5"));
+        assert!(summary.contains("Form factor: DIMM"));
+        assert!(summary.contains("Form factor: SODIMM"));
+        assert!(summary.contains("Memory type: Unknown"));
+        assert!(
+            identities(&items)
+                .memory
+                .contains("Maker DIMM-A · DDR5 · DIMM · 32.0 GiB")
+        );
+        assert!(
+            identities(&items)
+                .memory
+                .contains("Maker Mobile · LPDDR5 · SODIMM")
+        );
+        assert!(!identities(&items).memory.contains("999"));
+        assert_eq!(memory_metadata("SMBIOSMemoryType", "20"), None);
+        assert_eq!(memory_metadata("SMBIOSMemoryType", "18"), Some("DDR"));
+        assert_eq!(memory_metadata("FormFactor", "9"), None);
+    }
     const SUMMARY_FIXTURE: &[u8] = br#"[
         {"kind":"CPU","fields":["Name: Example CPU","Manufacturer: Example CPU maker","NumberOfCores: 16","NumberOfLogicalProcessors: 32"]},
         {"kind":"Motherboard","fields":["Manufacturer: Board maker","Product: Mainboard model","Version: Rev 1"]},

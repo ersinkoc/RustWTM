@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 /// The latest release, as the GitHub API describes it.
-pub const LATEST_URL: &str = "https://api.github.com/repos/ersinkoc/RustWTM/releases/latest";
+pub const LATEST_URL: &str = crate::project::UPDATE_API;
 /// The release page for people without an installer (zip, developer builds).
-pub const RELEASES_PAGE: &str = "https://github.com/ersinkoc/RustWTM/releases/latest";
+pub const RELEASES_PAGE: &str = crate::project::UPDATE_PAGE;
 
 pub type Version = (u32, u32, u32);
 
@@ -115,11 +115,24 @@ fn fetch(url: &str) -> Result<Vec<u8>, String> {
 
 /// The latest published release.
 pub fn latest() -> Result<Release, String> {
-    latest_from(LATEST_URL)
+    latest_with(fetch_metadata)
 }
 
+fn fetch_metadata(url: &str) -> Result<Vec<u8>, String> {
+    match wtm_sys::http::get_metadata(url, USER_AGENT) {
+        Ok((200, body)) => Ok(body),
+        Ok((status, _)) => Err(format!("{url} answered HTTP {status}")),
+        Err(e) => Err(format!("cannot reach {url}: {e}")),
+    }
+}
+
+fn latest_with(get: impl FnOnce(&str) -> Result<Vec<u8>, String>) -> Result<Release, String> {
+    parse_release(&get(LATEST_URL)?)
+}
+
+#[cfg(test)]
 fn latest_from(url: &str) -> Result<Release, String> {
-    parse_release(&fetch(url)?)
+    parse_release(&fetch_metadata(url)?)
 }
 
 /// The hash in a `sha256sum`-style line: `<64 hex digits>  <file name>`.
@@ -280,6 +293,56 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    #[test]
+    fn repository_transfer_keeps_discovery_and_asset_pairs_on_the_same_identity() {
+        for repository in ["ersinkoc/RustWTM", "rustwtm/rustwtm"] {
+            let base = format!("https://github.com/{repository}/releases");
+            let installer = format!("{base}/download/v0.28.0/RustWTM-0.28.0-x64.msi");
+            let json = serde_json::json!({
+                "tag_name": "v0.28.0", "html_url": format!("{base}/tag/v0.28.0"),
+                "assets": [
+                    {"name":"RustWTM-0.28.0-x64.msi","browser_download_url":installer},
+                    {"name":"RustWTM-0.28.0-x64.msi.sha256","browser_download_url":format!("{installer}.sha256")}
+                ]
+            });
+            let release = latest_with(|url| {
+                assert_eq!(
+                    url, "https://api.github.com/repositories/1425760656/releases/latest",
+                    "discovery must survive an owner/name change without trusting a reused old name"
+                );
+                Ok(serde_json::to_vec(&json).unwrap())
+            })
+            .unwrap();
+            assert_eq!(release.version, (0, 28, 0));
+            assert_eq!(release.page, format!("{base}/tag/v0.28.0"));
+            assert_eq!(
+                release.msi,
+                Some((installer.clone(), format!("{installer}.sha256")))
+            );
+        }
+        assert_eq!(
+            latest_with(|_| Err("repository unavailable".into())).unwrap_err(),
+            "repository unavailable"
+        );
+        assert!(latest_with(|_| Ok(b"not JSON".to_vec())).is_err());
+    }
+
+    #[test]
+    #[ignore = "read-only unauthenticated GitHub metadata probe; no download or install"]
+    fn identity_release_metadata_smoke() {
+        let release = latest().expect("identity-bound public release API");
+        assert!(
+            release.msi.is_some(),
+            "published installer and checksum pair"
+        );
+        println!(
+            "Repository {}: {} ({})",
+            crate::project::REPOSITORY_ID,
+            release.tag,
+            release.page
+        );
+    }
 
     const JSON: &str = r#"{
         "tag_name": "v0.8.1", "html_url": "https://github.com/x/releases/tag/v0.8.1",

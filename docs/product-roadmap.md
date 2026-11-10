@@ -1,8 +1,17 @@
 # Product completion roadmap
 
+0.28.0 adds [hardware specifications and installed applications](inventory-app-management.md),
+including confirmed uninstaller handoff and the [repository-transfer bridge](repository-migration.md).
+Package-manager discovery and updates are next; see the [release scope](0.28.0-review.md).
+
 Baseline: 0.25.0, reviewed on 2026-11-04. An implementation or a CI definition
 is not equivalent to hosted validation or a published feature. Record those
 outcomes separately.
+
+The [hardware product plan](hardware-product-plan.md), reviewed after 0.27.2,
+sets the next delivery priority: device identity, disk health, battery and
+device-specific graphs, paired with consistent interaction and visual review.
+Its stage 0 is local work; the major hardware stages remain proposed.
 
 The [desktop experience plan](desktop-experience-plan.md), reviewed against
 0.26.2 on 2026-11-09, expands the UI and diagnosis backlog into implementation
