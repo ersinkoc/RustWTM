@@ -58,7 +58,7 @@ usage history.
   planned.
 - **Quick navigation (Ctrl+K):** find pages by name/description, choose with arrows
   and Enter or click, and dismiss with Escape without losing filters or drafts.
-- **Transfer-safe updates:** desktop/CLI discovery and the bundled installer use
+- **Transfer-safe updates:** desktop updater discovery and the bundled installer use
   the original GitHub repository ID. Release-page, installer and checksum URLs
   follow the repository through a real transfer; no manual endpoint switch.
 
