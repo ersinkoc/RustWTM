@@ -1130,7 +1130,9 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.20.2...HEAD
+[Unreleased]: https://github.com/ersinkoc/RustWTM/compare/v0.27.1...HEAD
+[0.27.1]: https://github.com/ersinkoc/RustWTM/compare/v0.27.0...v0.27.1
+[0.27.0]: https://github.com/ersinkoc/RustWTM/compare/v0.26.2...v0.27.0
 [0.20.2]: https://github.com/ersinkoc/RustWTM/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/ersinkoc/RustWTM/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/ersinkoc/RustWTM/compare/v0.19.0...v0.20.0
