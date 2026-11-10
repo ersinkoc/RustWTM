@@ -66,7 +66,7 @@ with Microsoft before step 1.
    GitHub OIDC federated credential with issuer
    `https://token.actions.githubusercontent.com`, audience
    `api://AzureADTokenExchange` and subject
-   `repo:rustwtm/rustwtm:environment:windows-signing`.
+   `repo:RustWTM/RustWTM:environment:windows-signing`.
 5. Assign that principal **Artifact Signing Certificate Profile Signer** at
    the specific certificate-profile scope. Do not use a client secret or export
    a certificate/private key for this workflow.
@@ -74,6 +74,14 @@ with Microsoft before step 1.
 [Setup](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart),
 [signer role and profile scope](https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles),
 [signing integration](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations).
+
+## Corporate metadata
+
+RustWTM is maintained by OXOGNET OÜ, Estonia, as an oxog.net project. Windows
+CompanyName and MSI Manufacturer identify that maintainer. Authenticode publisher
+verification still uses the exact subject of the configured signing certificate;
+metadata alone does not issue or change a certificate. Use the actual-case
+GitHub repository name in the external OIDC subject after transfer.
 
 ## Repository configuration
 

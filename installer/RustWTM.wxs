@@ -11,7 +11,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="RustWTM"
-           Manufacturer="Ersin KOÇ"
+           Manufacturer="OXOGNET OÜ"
            Version="$(Version)"
            UpgradeCode="31A0E74F-195E-4454-8EFF-60024395D197"
            Scope="perMachine"
@@ -23,7 +23,7 @@
     <Icon Id="RustWTM.ico" SourceFile="assets\rustwtm.ico" />
     <Property Id="ARPPRODUCTICON" Value="RustWTM.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://rustwtm.com" />
-    <Property Id="ARPHELPLINK" Value="https://github.com/ersinkoc/RustWTM/issues" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/rustwtm/rustwtm/issues" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="RustWTM">

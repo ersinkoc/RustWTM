@@ -8,7 +8,7 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 license = "MIT"
-authors = ["Ersin KOÇ <ersinkoc@gmail.com>"]
+authors = ["OXOGNET OÜ <info@oxog.net>"]
 repository = "https://github.com/rustwtm/rustwtm"
 homepage = "https://rustwtm.com"
 

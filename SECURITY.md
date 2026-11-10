@@ -1,14 +1,16 @@
 # Security policy
 
+RustWTM is an MIT-licensed oxog.net project maintained by **OXOGNET OÜ, Estonia**.
+
 RustWTM's service runs as LocalSystem and can change or terminate processes,
 so security issues are taken seriously.
 
 ## Reporting a vulnerability
 
 Please **do not** open a public issue. Report privately through
-[GitHub security advisories](https://github.com/ersinkoc/RustWTM/security/advisories/new)
-or by email to ersinkoc@gmail.com. Include steps to reproduce and the
-affected version. You should get a reply within a few days.
+[GitHub security advisories](https://github.com/rustwtm/rustwtm/security/advisories/new)
+or by email to info@oxog.net. Include steps to reproduce and the
+affected version.
 
 ## Supported versions
 

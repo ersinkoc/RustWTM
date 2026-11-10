@@ -1,10 +1,8 @@
-//! About tab: what RustWTM is, who made it, and where to find it.
+//! About tab: product, project maintainer and official links.
 
 use eframe::egui::{self, Color32, RichText, Ui};
 
 pub const REPO: &str = wtm_core::project::PUBLIC_REPOSITORY;
-const AUTHOR: &str = "Ersin KOÇ";
-const AUTHOR_URL: &str = "https://github.com/ersinkoc";
 const ACCENT: Color32 = Color32::from_rgb(222, 120, 60);
 
 const HIGHLIGHTS: [(&str, &str); 6] = [
@@ -51,8 +49,8 @@ pub fn about(
         area = area.vertical_scroll_offset(y);
     }
     let out = area.show(ui, |ui| {
-            ui.add_space(0.0);
-            crate::theme::panel(ui, |ui| {
+        ui.add_space(0.0);
+        crate::theme::panel(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
                 // Drawn and uploaded once, not on every frame.
@@ -71,24 +69,50 @@ pub fn about(
                         ui.data_mut(|d| d.insert_temp(id, texture.clone()));
                         texture
                     });
-                let size = if ui.available_width() < 760.0 { 64.0 } else { 88.0 };
+                let size = if ui.available_width() < 760.0 {
+                    64.0
+                } else {
+                    88.0
+                };
                 ui.add(egui::Image::new(&logo).fit_to_exact_size(egui::vec2(size, size)));
                 ui.label(RichText::new("RustWTM").size(34.0).strong().color(ACCENT));
                 ui.label(
-                    RichText::new(crate::i18n::tr("The Windows task manager that keeps your PC responsive"))
-                        .size(18.0),
+                    RichText::new(crate::i18n::tr(
+                        "The Windows task manager that keeps your PC responsive",
+                    ))
+                    .size(18.0),
                 );
-                ui.weak({ let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION")); crate::i18n::format("Version {0}  ·  MIT license  ·  written in Rust", &[__wtm_i18n_0.to_string()]) });
+                ui.weak({
+                    let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION"));
+                    crate::i18n::format(
+                        "Version {0}  ·  MIT license  ·  written in Rust",
+                        &[__wtm_i18n_0.to_string()],
+                    )
+                });
                 ui.horizontal_wrapped(|ui| {
                     let status = match update {
                         UpdateState::Unknown => String::new(),
                         UpdateState::Checking => crate::i18n::tr("Checking for updates…").into(),
-                        UpdateState::UpToDate => crate::i18n::tr("You have the latest version.").into(),
-                        UpdateState::Available(r) => {
-                            { let __wtm_i18n_0 = &(r.version_text()); crate::i18n::format("Version {0} is available (see the bar at the top).", std::slice::from_ref(__wtm_i18n_0)) }
+                        UpdateState::UpToDate => {
+                            crate::i18n::tr("You have the latest version.").into()
                         }
-                        UpdateState::Installing(r) => { let __wtm_i18n_0 = &(r.version_text()); crate::i18n::format("Installing {0}…", std::slice::from_ref(__wtm_i18n_0)) },
-                        UpdateState::Failed(e) => {  crate::i18n::format("Update check failed: {0}", std::slice::from_ref(e)) },
+                        UpdateState::Available(r) => {
+                            let __wtm_i18n_0 = &(r.version_text());
+                            crate::i18n::format(
+                                "Version {0} is available (see the bar at the top).",
+                                std::slice::from_ref(__wtm_i18n_0),
+                            )
+                        }
+                        UpdateState::Installing(r) => {
+                            let __wtm_i18n_0 = &(r.version_text());
+                            crate::i18n::format(
+                                "Installing {0}…",
+                                std::slice::from_ref(__wtm_i18n_0),
+                            )
+                        }
+                        UpdateState::Failed(e) => {
+                            crate::i18n::format("Update check failed: {0}", std::slice::from_ref(e))
+                        }
                     };
                     // Centre the button and the status.
                     let width = 360.0_f32.min(ui.available_width());
@@ -107,73 +131,83 @@ pub fn about(
                 ui.add_space(0.0);
 
                 ui.label(
-                    RichText::new(crate::i18n::format("Crafted by {0}", &[AUTHOR.to_string()]))
-                        .size(22.0)
+                    RichText::new(crate::i18n::tr("An oxog.net project."))
+                        .size(18.0)
                         .strong(),
                 );
-                ui.label(
-                    crate::i18n::tr("RustWTM is the work of Ersin KOÇ, who set out to build the task manager \
-                     Windows never had: one that does not just show you what is slowing the \
-                     machine down, but quietly fixes it — fast, safe and free for everyone."),
-                );
+                ui.label(crate::i18n::format(
+                    "Maintained by {0}, {1}.",
+                    &[
+                        wtm_core::project::MAINTAINER.to_owned(),
+                        wtm_core::project::LOCATION.to_owned(),
+                    ],
+                ));
                 ui.horizontal_wrapped(|ui| {
-                    ui.hyperlink_to(RichText::new("rustwtm.com").size(16.0), wtm_core::project::HOMEPAGE);
+                    ui.hyperlink_to(
+                        RichText::new("rustwtm.com").size(16.0),
+                        wtm_core::project::HOMEPAGE,
+                    );
                     ui.label("·");
-                    ui.hyperlink_to(RichText::new(crate::i18n::tr("★ Star RustWTM on GitHub")).size(16.0), REPO);
+                    ui.hyperlink_to(RichText::new("github.com/rustwtm/rustwtm").size(16.0), REPO);
                     ui.label("·");
                     ui.hyperlink_to(
-                        RichText::new(crate::i18n::format("{0} on GitHub", &[AUTHOR.to_string()])).size(16.0),
-                        AUTHOR_URL,
+                        RichText::new("oxog.net").size(16.0),
+                        wtm_core::project::ORGANIZATION_URL,
                     );
                 });
             });
-            });
-            ui.add_space(0.0);
-            crate::theme::divider(ui);
-
-            let feature = |ui: &mut Ui, title: &str, text: &str| {
-                crate::theme::panel(ui, |ui| {
-                    ui.set_min_height(82.0);
-                    ui.label(RichText::new(crate::i18n::tr(title)).strong().color(ACCENT));
-                    ui.add(egui::Label::new(crate::i18n::tr(text)).wrap());
-                });
-            };
-            if ui.available_width() >= 760.0 {
-                for pair in HIGHLIGHTS.chunks(2) {
-                    ui.columns(2, |columns| {
-                        for (column, (title, text)) in columns.iter_mut().zip(pair) {
-                            feature(column, title, text);
-                        }
-                    });
-                }
-            } else {
-                for (title, text) in HIGHLIGHTS { feature(ui, title, text); }
-            }
-            ui.add_space(0.0);
-            crate::theme::divider(ui);
-
-            ui.horizontal_wrapped(|ui| {
-                ui.hyperlink_to(crate::i18n::tr("Releases"), format!("{REPO}/releases"));
-                ui.label("·");
-                ui.hyperlink_to(
-                    crate::i18n::tr("Report a problem or request a feature"),
-                    format!("{REPO}/issues"),
-                );
-                ui.label("·");
-                ui.hyperlink_to(
-                    crate::i18n::tr("Configuration reference"),
-                    format!("{REPO}/blob/main/docs/configuration.md"),
-                );
-                ui.label("·");
-                ui.hyperlink_to(crate::i18n::tr("License (MIT)"), format!("{REPO}/blob/main/LICENSE"));
-            });
-            ui.add_space(0.0);
-            ui.weak(crate::i18n::format("© {0}. Free and open source software. If RustWTM saves your day, a star on GitHub is the best way to say thanks.", &[AUTHOR.to_string()]));
-            if let Some(f) = frames {
-                ui.add_space(0.0);
-                ui.weak(frame_timing(f));
-            }
         });
+        ui.add_space(0.0);
+        crate::theme::divider(ui);
+
+        let feature = |ui: &mut Ui, title: &str, text: &str| {
+            crate::theme::panel(ui, |ui| {
+                ui.set_min_height(82.0);
+                ui.label(RichText::new(crate::i18n::tr(title)).strong().color(ACCENT));
+                ui.add(egui::Label::new(crate::i18n::tr(text)).wrap());
+            });
+        };
+        if ui.available_width() >= 760.0 {
+            for pair in HIGHLIGHTS.chunks(2) {
+                ui.columns(2, |columns| {
+                    for (column, (title, text)) in columns.iter_mut().zip(pair) {
+                        feature(column, title, text);
+                    }
+                });
+            }
+        } else {
+            for (title, text) in HIGHLIGHTS {
+                feature(ui, title, text);
+            }
+        }
+        ui.add_space(0.0);
+        crate::theme::divider(ui);
+
+        ui.horizontal_wrapped(|ui| {
+            ui.hyperlink_to(crate::i18n::tr("Releases"), format!("{REPO}/releases"));
+            ui.label("·");
+            ui.hyperlink_to(
+                crate::i18n::tr("Report a problem or request a feature"),
+                format!("{REPO}/issues"),
+            );
+            ui.label("·");
+            ui.hyperlink_to(
+                crate::i18n::tr("Configuration reference"),
+                format!("{REPO}/blob/main/docs/configuration.md"),
+            );
+            ui.label("·");
+            ui.hyperlink_to(
+                crate::i18n::tr("License (MIT)"),
+                format!("{REPO}/blob/main/LICENSE"),
+            );
+        });
+        ui.add_space(0.0);
+        ui.weak(crate::i18n::tr("MIT-licensed open source software."));
+        if let Some(f) = frames {
+            ui.add_space(0.0);
+            ui.weak(frame_timing(f));
+        }
+    });
     crate::theme::more_below(ui, "about", &out, ui.visuals().panel_fill);
     check
 }
@@ -193,7 +227,7 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     #[test]
-    fn about_credits_the_author_and_links_the_repository() {
+    fn about_identifies_the_project_company_and_official_links() {
         let mut h = egui_kittest::Harness::builder()
             .allow_missing_glyphs()
             .with_size([1100.0, 900.0])
@@ -201,8 +235,15 @@ mod tests {
                 about(ui, &crate::backend::UpdateState::UpToDate, None);
             });
         h.run();
-        assert!(h.query_by_label("Crafted by Ersin KOÇ").is_some());
-        assert!(h.query_by_label("★ Star RustWTM on GitHub").is_some());
+        assert!(h.query_by_label("An oxog.net project.").is_some());
+        assert!(
+            h.query_by_label("Maintained by OXOGNET OÜ, Estonia.")
+                .is_some()
+        );
+        assert!(h.query_by_label("rustwtm.com").is_some());
+        assert!(h.query_by_label("github.com/rustwtm/rustwtm").is_some());
+        assert!(h.query_by_label("oxog.net").is_some());
+        assert!(h.query_by_label_contains("Ersin").is_none());
         assert!(
             h.query_by_label_contains(env!("CARGO_PKG_VERSION"))
                 .is_some()

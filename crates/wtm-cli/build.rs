@@ -9,7 +9,10 @@ fn main() {
     res.set_icon("../../assets/rustwtm.ico")
         .set("ProductName", "RustWTM")
         .set("FileDescription", "RustWTM command-line task manager")
-        .set("CompanyName", "Ersin KOÇ")
-        .set("LegalCopyright", "© Ersin KOÇ. MIT license.");
+        .set("CompanyName", "OXOGNET OÜ")
+        .set(
+            "LegalCopyright",
+            "MIT licensed. See LICENSE for copyright notices. Maintained by OXOGNET OÜ, Estonia.",
+        );
     res.compile().expect("embedding the Windows resources");
 }

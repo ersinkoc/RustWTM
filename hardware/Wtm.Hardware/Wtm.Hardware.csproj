@@ -8,6 +8,13 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <Version>0.28.0</Version>
+    <Company>OXOGNET OÜ</Company>
+    <Authors>OXOGNET OÜ</Authors>
+    <Product>RustWTM hardware provider</Product>
+    <Description>An oxog.net project, maintained by OXOGNET OÜ, Estonia.</Description>
+    <Copyright>MIT licensed. See LICENSE for copyright notices.</Copyright>
+    <RepositoryUrl>https://github.com/rustwtm/rustwtm</RepositoryUrl>
+    <PackageProjectUrl>https://rustwtm.com</PackageProjectUrl>
     <RuntimeFrameworkVersion>8.0.31</RuntimeFrameworkVersion>
     <PublishSingleFile>true</PublishSingleFile>
     <!-- Native libraries stay next to the program, in the install folder only

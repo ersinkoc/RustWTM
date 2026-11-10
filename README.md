@@ -6,7 +6,8 @@
 
 <p align="center">
   <b>The Windows task manager that keeps your PC responsive.</b><br>
-  Built in Rust by <a href="https://github.com/ersinkoc">Ersin KOÇ</a>.
+  An <a href="https://oxog.net">oxog.net</a> project.<br>
+  Maintained by <b>OXOGNET OÜ</b>, Estonia. · MIT licensed.
 </p>
 
 A Windows task manager written in Rust, with a background governor that keeps
@@ -15,11 +16,11 @@ that overload the CPU, gives apps CPU and memory budgets, frees RAM under
 pressure, never slows down the app you are using, and learns from long-term
 usage history.
 
-[Website](https://rustwtm.com) · [Downloads](https://github.com/ersinkoc/RustWTM/releases/latest) · [Issues](https://github.com/ersinkoc/RustWTM/issues)
+[Website](https://rustwtm.com) · [Downloads](https://github.com/rustwtm/rustwtm/releases/latest) · [Issues](https://github.com/rustwtm/rustwtm/issues)
 
-[![CI](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml/badge.svg)](https://github.com/ersinkoc/RustWTM/actions/workflows/ci.yml)
+[![CI](https://github.com/rustwtm/rustwtm/actions/workflows/ci.yml/badge.svg)](https://github.com/rustwtm/rustwtm/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/ersinkoc/RustWTM)](https://github.com/ersinkoc/RustWTM/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/rustwtm/rustwtm)](https://github.com/rustwtm/rustwtm/releases/latest)
 
 > **Status:** early release. Sensors and cooling controls are available
 > through the optional hardware provider. Device support varies; physical fan
@@ -68,12 +69,12 @@ usage history.
 [Uninstall confirmation](screenshots/installed-apps-confirmation.png) ·
 [Quick navigation](screenshots/quick-navigation.png)
 
-The canonical destination is [rustwtm/rustwtm](https://github.com/rustwtm/rustwtm)
-and the website is [rustwtm.com](https://rustwtm.com). The GitHub transfer is still
-pending in this bridge release; working badges, bootstrap and download links
-retain the current location. Use a transfer preserving the repository ID and
-releases, and keep the original redirect for previously installed clients.
-[Migration and verification](docs/repository-migration.md).
+RustWTM is an MIT-licensed [oxog.net](https://oxog.net) project maintained by
+**OXOGNET OÜ, Estonia**. The official website is [rustwtm.com](https://rustwtm.com)
+and the source is [rustwtm/rustwtm](https://github.com/rustwtm/rustwtm).
+The repository transfer retained ID 1425760656 and the 0.28.0 release. Existing
+clients can still discover it through the original redirect; new clients use the
+stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/repository-migration.md).
 
 ## Features
 
@@ -274,7 +275,7 @@ Shared power-plan limits persist until you restore the saved settings.
 From an **elevated** PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/ersinkoc/RustWTM/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/rustwtm/rustwtm/main/scripts/install.ps1 | iex
 ```
 
 This downloads the latest release, verifies its SHA-256 checksum, installs to
@@ -334,8 +335,8 @@ boundaries. Uninstall removes only RustWTM's own registration.
 ### From source
 
 ```powershell
-git clone https://github.com/ersinkoc/RustWTM
-cd RustWTM
+git clone https://github.com/rustwtm/rustwtm
+cd rustwtm
 cargo build --release      # the toolchain is pinned in rust-toolchain.toml
 ./scripts/build-hardware.ps1 -OutputDir target/release/hardware
 ```
@@ -494,4 +495,5 @@ workspace, column layouts, timeline interactions and focused resource views.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). An [oxog.net](https://oxog.net) project maintained by **OXOGNET OÜ, Estonia**.
+See [MAINTAINERS.md](MAINTAINERS.md) for project identity and contact details.

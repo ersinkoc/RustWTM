@@ -7065,7 +7065,10 @@ mod tests {
         let (mut h, _rx) = overview_app(data());
         nav_to(&mut h, "About");
         h.run_steps(2);
-        assert!(h.query_by_label("Crafted by Ersin KOÇ").is_some());
+        assert!(
+            h.query_by_label("Maintained by OXOGNET OÜ, Estonia.")
+                .is_some()
+        );
     }
 
     #[test]

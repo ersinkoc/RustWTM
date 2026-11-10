@@ -3173,12 +3173,6 @@
     "fr": "Rechercher des mises à jour",
     "es": "Buscar actualizaciones"
   },
-  "RustWTM is the work of Ersin KOÇ, who set out to build the task manager Windows never had: one that does not just show you what is slowing the machine down, but quietly fixes it — fast, safe and free for everyone.": {
-    "tr": "RustWTM, bilgisayarı yavaşlatan sorunları yalnızca göstermek yerine sessizce çözen; hızlı, güvenli ve herkes için ücretsiz bir görev yöneticisi geliştirmek isteyen Ersin KOÇ'un eseridir.",
-    "de": "Ersin KOÇ entwickelte RustWTM als schnellen, sicheren und kostenlosen Taskmanager, der Bremsen nicht nur anzeigt, sondern leise behebt.",
-    "fr": "Ersin KOÇ a créé RustWTM : un gestionnaire rapide, sûr et gratuit qui ne montre pas seulement les ralentissements, mais les corrige discrètement.",
-    "es": "Ersin KOÇ creó RustWTM: un administrador rápido, seguro y gratuito que no solo muestra lo que ralentiza el equipo, sino que lo corrige discretamente."
-  },
   "★ Star RustWTM on GitHub": {
     "tr": "★ GitHub'da RustWTM'ye yıldız verin",
     "de": "★ RustWTM auf GitHub markieren",
@@ -4216,24 +4210,6 @@
     "de": "Updatesuche fehlgeschlagen: {0}",
     "fr": "Échec de la recherche : {0}",
     "es": "Error al buscar actualizaciones: {0}"
-  },
-  "Crafted by {0}": {
-    "tr": "Geliştirici: {0}",
-    "de": "Entwickelt von {0}",
-    "fr": "Créé par {0}",
-    "es": "Creado por {0}"
-  },
-  "{0} on GitHub": {
-    "tr": "GitHub'da {0}",
-    "de": "{0} auf GitHub",
-    "fr": "{0} sur GitHub",
-    "es": "{0} en GitHub"
-  },
-  "© {0}. Free and open source software. If RustWTM saves your day, a star on GitHub is the best way to say thanks.": {
-    "tr": "© {0}. Ücretsiz ve açık kaynaklı yazılım. RustWTM işinize yarıyorsa GitHub'da yıldız vererek destek olabilirsiniz.",
-    "de": "© {0}. Freie und quelloffene Software. Hilft Ihnen RustWTM, freuen wir uns über einen Stern auf GitHub.",
-    "fr": "© {0}. Logiciel libre et gratuit. Si RustWTM vous aide, une étoile sur GitHub est le meilleur remerciement.",
-    "es": "© {0}. Software libre y gratuito. Si RustWTM le ayuda, una estrella en GitHub es la mejor forma de agradecerlo."
   },
   "⚠ Your PC is overloaded: CPU {0}%": {
     "tr": "⚠ Bilgisayarınız aşırı yüklü: CPU %{0}",
@@ -7594,5 +7570,23 @@
     "de": "App-Registrierung geändert. Liste aktualisieren.",
     "fr": "L’enregistrement de l’application a changé. Actualisez la liste.",
     "es": "El registro de la aplicación cambió. Actualiza la lista."
+  },
+  "An oxog.net project.": {
+    "tr": "Bir oxog.net projesi.",
+    "de": "Ein oxog.net-Projekt.",
+    "fr": "Un projet oxog.net.",
+    "es": "Un proyecto de oxog.net."
+  },
+  "Maintained by {0}, {1}.": {
+    "tr": "Bakımı {0}, {1} tarafından sürdürülmektedir.",
+    "de": "Betreut von {0}, {1}.",
+    "fr": "Maintenu par {0}, {1}.",
+    "es": "Mantenido por {0}, {1}."
+  },
+  "MIT-licensed open source software.": {
+    "tr": "MIT lisanslı açık kaynak yazılım.",
+    "de": "Open-Source-Software unter der MIT-Lizenz.",
+    "fr": "Logiciel libre sous licence MIT.",
+    "es": "Software de código abierto con licencia MIT."
   }
 }

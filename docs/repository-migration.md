@@ -5,15 +5,24 @@
 - Downloads: **https://github.com/rustwtm/rustwtm/releases/latest**
 - Support: **https://github.com/rustwtm/rustwtm/issues**
 
-These addresses are prepared in the current development source. This document
-does not establish that the GitHub transfer, website hosting, DNS or TLS setup
-has been completed. At preparation time on 2026-11-10, the destination repository
-returned HTTP 404 to the authenticated repository lookup; the original public
-repository remained reachable. The updater and bundled installer now discover
-releases through the verified repository ID **1425760656**. The identity-based
-latest/tag API was probed successfully before transfer, including an
-unauthenticated native-client metadata check. It follows the existing repository
-rather than trusting an owner/name that could be reused.
+## Transfer verified on 2026-11-10
+
+The GitHub transfer completed. The repository now resolves as
+`RustWTM/RustWTM` (URLs are case-insensitive), retaining ID **1425760656**, main
+commit `621b8e10f227a7ab5dbbb9ebec9df3b51b9221a4`, and the original 0.28.0 tag.
+The original named API redirects to the new location. An unauthenticated native
+update check found 0.28.0 with the new release URL. The transferred checksum files
+still match the previously verified ZIP/MSI bytes. The local origin now uses
+`https://github.com/rustwtm/rustwtm.git`.
+
+The GitHub attestation API lookup for the pre-transfer release returned 404
+under the new name. Its retained original signed bundles verify against the
+original workflow identity and exact source commit; see
+[historical release provenance](release-provenance.md). The published binaries
+and signed statements were not rewritten.
+
+Website deployment/DNS/TLS is a separate operation and is not established by
+these repository checks.
 
 ## Prepared changes
 
@@ -23,8 +32,9 @@ release-check URLs. `UPDATE_API` uses
 uses the same repository ID for latest and explicit tags. Release pages,
 installer URLs and matching checksum URLs come from that response, so they follow
 the new location without a code switch. Failed-update recovery retains the
-last discovered release page. Public app/help/bootstrap links retain the current compatibility URL until transfer;
-GitHub redirects that URL afterwards, while canonical metadata names the destination.
+last discovered release page. Public app/help/bootstrap links now use
+`rustwtm/rustwtm` directly. Legacy names remain only where compatibility tests
+or historical signed evidence require the original identity.
 Metadata reads have a one-MiB response cap and
 short timeouts; installer download/checksum/install protections remain intact.
 Workspace metadata uses rustwtm.com as the homepage. README,
@@ -74,7 +84,7 @@ another repository or bypass verification to make an update appear available.
 5. Review organization Actions permissions, environments, variables, signing
    approvals, branch protections and any external integration policies.
    If Azure signing is enabled, its external OIDC subject must match
-   `repo:rustwtm/rustwtm:environment:windows-signing`. Do not assume an external
+   `repo:RustWTM/RustWTM:environment:windows-signing`. Do not assume an external
    identity provider is updated by a GitHub transfer.
 6. Retain pre-transfer artifact attestations and exact source/digest evidence.
    Check verification of old artifacts after transfer; historical signer/source

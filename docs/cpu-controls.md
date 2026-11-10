@@ -1,7 +1,7 @@
 # CPU topology, affinity and frequency policy
 
 Implemented in 0.13.1, addressing
-[issue #1](https://github.com/ersinkoc/RustWTM/issues/1). IPC protocol 11 adds
+[issue #1](https://github.com/rustwtm/rustwtm/issues/1). IPC protocol 11 adds
 core-tier control; upgrade GUI and service together. The CLI also works locally.
 
 ## Discover and select cores
