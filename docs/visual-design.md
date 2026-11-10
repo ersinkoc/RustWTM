@@ -74,3 +74,43 @@ confirmation and compact scrolling in English/Turkish, both themes and sizes.
 The GUI suite also exercises navigation through all 20 pages in five languages.
 This local development pass is recorded in
 [inventory and application management](inventory-app-management.md).
+
+## Desktop refinement, 2026-11-10
+
+The shared layout follows the component composition and explicit gap/padding
+approach described in the [GPUI layout examples](https://gpui.rs/examples/).
+These changes are original implementations in the existing egui desktop. No
+GPUI runtime dependency or renderer migration is included in this pass.
+
+- Page titles sit on a distinct raised header surface. Their text shares the
+  content gutter; decorative icons do not push the title off that alignment.
+- The graphite dark palette separates workspace, raised panels, inputs and
+  hover states. White panels on a soft neutral background provide the light
+  equivalent. Status and resource colours retain their semantic meaning.
+- Navigation has inset selection, an accent marker, quiet unselected rows and
+  a visible Ctrl K hint. All destinations remain reachable in shorter windows.
+- Overview resource cards share title, large reading, detail and graph bands.
+  The resource identity line and graph use colour; ordinary readings use ink.
+  High load retains warning/error colours. Cards still open resource details.
+- Cards have 12 x 10 internal padding and explicit section dividers. Page
+  gutters are 16 x 12; short windows use 12 x 8 and tighter status-strip padding to
+  preserve selected details and actions. Corners remain square.
+- Settings rows retain aligned control columns with separators. Service policy
+  cards form two columns at 860 points of content width and stack below that.
+  No configuration semantics or defaults change with the layout.
+- Compact container selection reserves more room for its details and actions.
+
+Validation uses the existing synthetic UI fixtures. Screenshots and interaction
+checks do not control processes, install applications, modify hardware or
+change the developer machine's services. Current local evidence is retained in
+`.temp_files/desktop-polish/`; this is independent of an installed app update or
+published release.
+
+The final local pass passed 246 GUI tests (three explicit opt-outs), GUI Clippy
+for all targets/features with warnings denied, formatting and a native GUI build.
+The screen matrix contains 334 validated PNGs: all 20 main pages and seven
+settings views in light/dark at wide/compact widths, focused process/performance
+states, English/Turkish quick navigation, and a targeted Turkish page/settings
+review. The full primary matrix was visually inspected through contact sheets,
+with individual checks for resource, inspector and translated settings layouts.
+The separate preview is `target/preview/rustwtm-desktop-polish.exe`.

@@ -223,7 +223,7 @@ fn nav_width(ctx: &egui::Context) -> f32 {
                     + crate::navigation::LABEL_RIGHT_GAP
                     + 20.0
             })
-            .fold(200.0, f32::max)
+            .fold(216.0, f32::max)
             .min(280.0)
     })
 }
@@ -279,6 +279,7 @@ fn nav_toggle(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
 }
 
 fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
+    ui.spacing_mut().item_spacing.y = 2.0;
     ui.add_space(0.0);
     egui::Frame::new()
         .inner_margin(egui::Margin::symmetric(10, 8))
@@ -345,8 +346,8 @@ fn nav(ui: &mut Ui, state: &mut UiState, collapsed: bool) {
                     .inner_margin(egui::Margin {
                         left: 12,
                         right: 8,
-                        top: 6,
-                        bottom: 3,
+                        top: 10,
+                        bottom: 4,
                     })
                     .show(ui, |ui| {
                         ui.label(RichText::new(group).size(10.0).weak());
@@ -1906,9 +1907,10 @@ fn stale_age(data: &Data, now: Instant) -> Option<Option<Duration>> {
 fn page_header(ui: &mut Ui, tab: Tab, data: &Data, now: Instant) {
     if matches!(tab, Tab::Hardware | Tab::InstalledApps) {
         egui::Frame::new()
-            .inner_margin(crate::theme::PAGE_PADDING)
+            .fill(crate::theme::card_fill(ui))
+            .inner_margin(crate::theme::page_padding(ui))
             .show(ui, |ui| {
-                ui.heading(RichText::new(tab.label()).size(25.0));
+                ui.heading(RichText::new(tab.label()).size(25.0).strong());
                 if ui.ctx().content_rect().height() >= COMPACT_HEIGHT {
                     ui.weak(tab.subtitle());
                 }
@@ -1926,13 +1928,22 @@ fn page_header_with_inspector(
     mut inspector: Option<&mut crate::workspace_inspector::Mode>,
 ) {
     egui::Frame::new()
-        .inner_margin(crate::theme::PAGE_PADDING)
+        .fill(crate::theme::card_fill(ui))
+        .inner_margin(crate::theme::page_padding(ui))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing = crate::theme::CONTENT_SPACING;
             let compact = ui.ctx().content_rect().height() < COMPACT_HEIGHT;
             ui.horizontal(|ui| {
-                let title = ui.heading(RichText::new(tab.label()).size(25.0));
+                let title = ui.heading(RichText::new(tab.label()).size(25.0).strong());
+                let icon = NAV.iter().find(|entry| entry.0 == tab).map(|entry| entry.1);
+                if let Some(icon) = icon {
+                    crate::navigation::badge(
+                        ui,
+                        icon,
+                        crate::theme::text_color(ui, crate::theme::ACCENT),
+                    );
+                }
                 if !compact && let Some(mode) = inspector.as_mut() {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         mode.menu(ui)

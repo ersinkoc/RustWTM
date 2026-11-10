@@ -228,7 +228,12 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
         _ => crate::sort::text(&a.image, &b.image),
     });
     let table_height = if view.selected.is_some() {
-        (ui.available_height() * 0.44).max(90.0)
+        let share = if ui.ctx().content_rect().height() < 640.0 {
+            0.40
+        } else {
+            0.44
+        };
+        (ui.available_height() * share).max(90.0)
     } else {
         (ui.available_height() - 20.0).max(90.0)
     };

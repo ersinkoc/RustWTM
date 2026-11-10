@@ -144,15 +144,15 @@ pub fn apply(ctx: &egui::Context) {
             };
             v.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT.gamma_multiply(0.7));
             if dark {
-                v.panel_fill = Color32::from_rgb(18, 22, 28);
-                v.window_fill = Color32::from_rgb(25, 30, 37);
-                v.extreme_bg_color = Color32::from_rgb(15, 19, 25);
-                v.faint_bg_color = Color32::from_rgb(28, 33, 40);
+                v.panel_fill = Color32::from_rgb(23, 25, 29);
+                v.window_fill = Color32::from_rgb(30, 32, 37);
+                v.extreme_bg_color = Color32::from_rgb(18, 20, 24);
+                v.faint_bg_color = Color32::from_rgb(36, 38, 44);
                 v.widgets.noninteractive.fg_stroke.color = Color32::from_rgb(211, 220, 230);
                 v.widgets.noninteractive.bg_stroke.color = Color32::from_rgb(47, 56, 66);
-                v.weak_text_color = Some(Color32::from_rgb(155, 166, 180));
+                v.weak_text_color = Some(Color32::from_rgb(166, 172, 183));
             } else {
-                v.panel_fill = Color32::from_rgb(246, 247, 249);
+                v.panel_fill = Color32::from_rgb(242, 243, 245);
                 v.window_fill = Color32::WHITE;
                 v.extreme_bg_color = Color32::WHITE;
                 // Text fields stand out from the white cards they sit on.
@@ -171,22 +171,22 @@ pub fn apply(ctx: &egui::Context) {
                 Color32::from_rgb(43, 51, 63)
             };
             let border = if dark {
-                Color32::from_rgb(52, 60, 71)
+                Color32::from_rgb(57, 60, 68)
             } else {
                 Color32::from_rgb(215, 221, 229)
             };
             let resting = if dark {
-                Color32::from_rgb(29, 35, 43)
+                Color32::from_rgb(37, 40, 46)
             } else {
                 Color32::WHITE
             };
             let hover = if dark {
-                Color32::from_rgb(39, 46, 56)
+                Color32::from_rgb(48, 51, 59)
             } else {
                 Color32::from_rgb(237, 240, 245)
             };
             let active = if dark {
-                Color32::from_rgb(48, 55, 66)
+                Color32::from_rgb(57, 60, 69)
             } else {
                 Color32::from_rgb(227, 232, 240)
             };
@@ -230,12 +230,21 @@ const FIELD_LIGHT: Color32 = Color32::from_rgb(241, 243, 247);
 const TITLE_SIZE: f32 = 16.0;
 
 /// Outer surfaces join at their borders; contents have their own breathing room.
-pub const CONTENT_PADDING: Margin = Margin::symmetric(10, 8);
+pub const CONTENT_PADDING: Margin = Margin::symmetric(12, 10);
 /// Page gutters and section gaps are separate from control/cell padding.
-pub const PAGE_PADDING: Margin = Margin::symmetric(12, 8);
-pub const SECTION_SPACING: Vec2 = egui::vec2(8.0, 8.0);
+pub const PAGE_PADDING: Margin = Margin::symmetric(16, 12);
+pub const SECTION_SPACING: Vec2 = egui::vec2(10.0, 10.0);
 pub const CONTROL_PADDING: Vec2 = egui::vec2(8.0, 4.0);
-pub const CONTENT_SPACING: Vec2 = egui::vec2(6.0, 4.0);
+pub const CONTENT_SPACING: Vec2 = egui::vec2(8.0, 6.0);
+
+/// Compact windows preserve room for controls and selected details.
+pub fn page_padding(ui: &Ui) -> Margin {
+    if ui.ctx().content_rect().height() < 640.0 {
+        Margin::symmetric(12, 8)
+    } else {
+        PAGE_PADDING
+    }
+}
 
 pub fn surface(ui: &Ui) -> egui::Frame {
     egui::Frame::new()
@@ -290,9 +299,9 @@ pub fn table_cell(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     ui.data_mut(|d| d.insert_temp(key, (ui.max_rect(), header_background)));
     let size = ui.available_size();
     egui::Frame::new()
-        .inner_margin(Margin::symmetric(6, 0))
+        .inner_margin(Margin::symmetric(8, 0))
         .show(ui, |ui| {
-            ui.set_width((size.x - 12.0).max(0.0));
+            ui.set_width((size.x - 16.0).max(0.0));
             ui.set_min_height(size.y);
             ui.spacing_mut().item_spacing = CONTENT_SPACING;
             add(ui);
@@ -312,7 +321,7 @@ pub fn end_row(ui: &mut Ui) {
 
 pub fn workspace<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     egui::Frame::new()
-        .inner_margin(PAGE_PADDING)
+        .inner_margin(page_padding(ui))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing = SECTION_SPACING;
@@ -442,8 +451,10 @@ pub fn card_with<R>(
             job.append(text, 0.0, legend);
         }
         job.wrap.max_width = ui.available_width();
-        ui.label(job);
-        ui.add_space(4.0);
+        if !job.text.is_empty() {
+            ui.label(job);
+            ui.add(egui::Separator::default().spacing(12.0));
+        }
         add(ui)
     })
 }
@@ -489,7 +500,11 @@ pub fn strip<R>(ui: &mut Ui, color: Color32, add: impl FnOnce(&mut Ui) -> R) -> 
         .fill(color.gamma_multiply(0.14))
         .stroke(Stroke::new(1.0, color.gamma_multiply(0.5)))
         .corner_radius(0.0)
-        .inner_margin(CONTENT_PADDING)
+        .inner_margin(if ui.ctx().content_rect().height() < 640.0 {
+            Margin::symmetric(10, 8)
+        } else {
+            CONTENT_PADDING
+        })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui)
@@ -840,7 +855,7 @@ pub fn more_below<R>(
 /// Background of a [`card`].
 pub fn card_fill(ui: &Ui) -> Color32 {
     if ui.visuals().dark_mode {
-        Color32::from_rgb(25, 30, 37)
+        Color32::from_rgb(30, 32, 37)
     } else {
         Color32::WHITE
     }
@@ -899,6 +914,7 @@ pub fn reading_column<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 
 /// A readable settings row: aligned controls on wide screens, stacked on narrow ones.
 pub fn setting_row(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui, egui::Id)) {
+    ui.add_space(3.0);
     let width = ui.available_width();
     if width >= 620.0 {
         let controls = (width * 0.45).clamp(220.0, 360.0);
@@ -916,6 +932,7 @@ pub fn setting_row(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui, egui::Id)
         let label = ui.label(title);
         add(ui, label.id);
     }
+    ui.add(egui::Separator::default().spacing(9.0));
 }
 
 #[cfg(test)]

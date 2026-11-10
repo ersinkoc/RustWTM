@@ -83,24 +83,43 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     ui.set_height(STAT_HEADER);
-                    if let Some(p) = s.ring {
-                        let color = if p >= 70.0 { load_color(p) } else { s.accent };
-                        crate::theme::ring_gauge(ui, 72.0, p, color, &format!("{p:.0}%"));
-                        ui.add_space(0.0);
+                    let meter_width = if s.ring.is_some() { 46.0 } else { 0.0 };
+                    ui.allocate_ui_with_layout(
+                        egui::vec2((header.x - meter_width - 8.0).max(0.0), STAT_HEADER),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.y = 3.0;
+                            ui.label(
+                                RichText::new(s.title)
+                                    .size(13.0)
+                                    .strong()
+                                    .color(crate::theme::text_color(ui, s.accent)),
+                            );
+                            let value = s
+                                .ring
+                                .map_or_else(|| s.value.clone(), |p| format!("{p:.0}%"));
+                            let color = s
+                                .ring
+                                .filter(|p| *p >= 70.0)
+                                .map_or(ui.visuals().strong_text_color(), |p| {
+                                    crate::theme::text_color(ui, load_color(p))
+                                });
+                            ui.label(RichText::new(value).size(30.0).color(color));
+                            ui.add(
+                                egui::Label::new(RichText::new(&s.detail).size(12.0).weak())
+                                    .truncate(),
+                            )
+                            .on_hover_text(&s.detail);
+                        },
+                    );
+                    if let Some(percent) = s.ring {
+                        let color = if percent >= 70.0 {
+                            load_color(percent)
+                        } else {
+                            s.accent
+                        };
+                        crate::theme::ring_gauge(ui, 38.0, percent, color, "");
                     }
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.label(
-                            RichText::new(s.title)
-                                .size(15.0)
-                                .strong()
-                                .color(crate::theme::text_color(ui, s.accent)),
-                        );
-                        if s.ring.is_none() {
-                            ui.label(RichText::new(&s.value).size(24.0).strong());
-                        }
-                        ui.add(egui::Label::new(RichText::new(&s.detail).weak()).truncate());
-                    });
                 },
             );
             ui.add_space(0.0);
@@ -135,6 +154,11 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                 crate::theme::sparkline(ui.painter(), rect, &tail, max, STAT_SECONDS, *color);
             }
         });
+    let top = frame.response.rect.shrink(1.0);
+    ui.painter().line_segment(
+        [top.left_top(), top.right_top()],
+        egui::Stroke::new(2.0, s.accent.gamma_multiply(0.65)),
+    );
     // A distinct id keeps the frame's hover-only response from relinquishing
     // the button's keyboard focus at the beginning of the next frame.
     let response = ui.interact(

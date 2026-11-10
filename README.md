@@ -492,6 +492,8 @@ The [0.26.2 release review](docs/0.26.2-review.md) records the latest reproduced
 defects, regression evidence, release checks and remaining hardware boundaries.
 The [0.27.0 desktop review](docs/0.27.0-review.md) describes the new process
 workspace, column layouts, timeline interactions and focused resource views.
+The [desktop visual language](docs/visual-design.md) records the current shared
+surfaces, responsive policy settings and screen review process.
 
 ## License
 

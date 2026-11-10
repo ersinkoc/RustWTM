@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Refine all desktop views through shared graphite/light surfaces, raised page
+  headers, quieter inset navigation, aligned resource readings and padded section
+  cards. Give service settings a responsive two-column layout while preserving
+  compact-window actions and square geometry.
+
 - Present RustWTM as an MIT-licensed oxog.net project maintained by OXOGNET OÜ,
   Estonia, across the desktop About page, documentation and executable/installer
   metadata. Use the active rustwtm.com and rustwtm/rustwtm project links.

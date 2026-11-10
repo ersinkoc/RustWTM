@@ -263,28 +263,18 @@ pub fn row(
         )
     });
     let v = ui.visuals();
-    ui.painter().line_segment(
-        [rect.left_bottom(), rect.right_bottom()],
-        Stroke::new(
-            1.0,
-            v.widgets
-                .noninteractive
-                .bg_stroke
-                .color
-                .gamma_multiply(0.25),
-        ),
-    );
+    let surface = rect.shrink2(egui::vec2(6.0, 1.0));
     if selected || response.hovered() || response.has_focus() {
         let fill = if selected {
             v.selection.bg_fill
         } else {
             v.widgets.hovered.bg_fill
         };
-        ui.painter().rect_filled(rect, 0.0, fill);
+        ui.painter().rect_filled(surface, 0.0, fill);
     }
     if response.has_focus() {
         ui.painter().rect_stroke(
-            rect.shrink(1.0),
+            surface,
             0.0,
             Stroke::new(1.5, crate::theme::text_color(ui, crate::theme::ACCENT)),
             egui::StrokeKind::Inside,
@@ -293,22 +283,22 @@ pub fn row(
     if selected {
         ui.painter().rect_filled(
             Rect::from_min_size(
-                rect.left_top() + egui::vec2(0.0, 7.0),
-                egui::vec2(3.0, 18.0),
+                rect.left_top() + egui::vec2(6.0, 7.0),
+                egui::vec2(2.0, 18.0),
             ),
             0.0,
             crate::theme::ACCENT,
         );
     }
     let color = if selected {
-        v.strong_text_color()
+        crate::theme::text_color(ui, crate::theme::ACCENT)
     } else {
         v.text_color()
     };
     let left = if collapsed {
         rect.center().x - 9.5
     } else {
-        rect.left() + 10.0
+        rect.left() + 14.0
     };
     paint(
         ui,
@@ -320,6 +310,7 @@ pub fn row(
         color,
     );
     if !collapsed {
+        let shortcut = matches!(icon, Icon::Search);
         // Long translations end in "…" before the right edge; the hover
         // text has them in full.
         let left = rect.left() + LABEL_LEFT;
@@ -329,7 +320,7 @@ pub fn row(
             color,
         );
         job.wrap = egui::text::TextWrapping::truncate_at_width(
-            (rect.right() - LABEL_RIGHT_GAP - left).max(0.0),
+            (rect.right() - LABEL_RIGHT_GAP - left - if shortcut { 46.0 } else { 0.0 }).max(0.0),
         );
         let galley = ui.painter().layout_job(job);
         ui.painter().galley(
@@ -337,6 +328,26 @@ pub fn row(
             galley,
             color,
         );
+        if shortcut {
+            let key = Rect::from_center_size(
+                Pos2::new(rect.right() - 30.0, rect.center().y),
+                egui::vec2(38.0, 20.0),
+            );
+            ui.painter().rect(
+                key,
+                0.0,
+                v.extreme_bg_color,
+                Stroke::new(1.0, v.widgets.noninteractive.bg_stroke.color),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter().text(
+                key.center(),
+                egui::Align2::CENTER_CENTER,
+                "Ctrl K",
+                FontId::proportional(10.0),
+                v.weak_text_color(),
+            );
+        }
     }
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
