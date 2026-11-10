@@ -51,24 +51,49 @@ pub fn load_color(percent: f32) -> Color32 {
     }
 }
 
+/// The Windows font (file and face index) for Han and Hangul text in the
+/// current language. Chinese, Japanese and Korean draw shared characters
+/// differently, so the on-demand system fallback (which follows the Windows
+/// locale) is not enough. The "UI" faces share Segoe UI's vertical metrics,
+/// so mixed Latin and East Asian text stays on one baseline. Only this one
+/// font is loaded; other scripts use the system fallback.
+fn east_asian_font() -> Option<(&'static str, u32)> {
+    use crate::i18n::Language;
+    match Language::current() {
+        Language::ChineseSimplified => Some(("msyh.ttc", 1)), // Microsoft YaHei UI
+        Language::ChineseTraditional => Some(("msjh.ttc", 1)), // Microsoft JhengHei UI
+        Language::Japanese => Some(("YuGothM.ttc", 1)),       // Yu Gothic UI
+        Language::Korean => Some(("malgun.ttf", 0)),          // Malgun Gothic
+        _ => None,
+    }
+}
+
 /// Use the installed Windows UI font, with Symbol as a fallback for arrows,
 /// status marks and controls. Fall back to egui's bundled fonts if unavailable.
 /// Fonts stay on the machine; none are copied into the distribution.
+/// Call again after the language changes.
 pub fn install_fonts(ctx: &egui::Context) {
     let Some(windows) = std::env::var_os("WINDIR") else {
         return;
     };
     let dir = std::path::Path::new(&windows).join("Fonts");
     let mut fonts = egui::FontDefinitions::default();
-    for (name, file, primary) in [
-        ("Windows UI", "segoeui.ttf", true),
-        ("Windows symbols", "seguisym.ttf", false),
-    ] {
+    let east_asian =
+        east_asian_font().map(|(file, index)| ("Windows East Asian", file, index, false));
+    for (name, file, index, primary) in [
+        Some(("Windows UI", "segoeui.ttf", 0, true)),
+        east_asian,
+        Some(("Windows symbols", "seguisym.ttf", 0, false)),
+    ]
+    .into_iter()
+    .flatten()
+    {
         if let Ok(bytes) = std::fs::read(dir.join(file)) {
-            fonts.font_data.insert(
-                name.into(),
-                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
-            );
+            let mut data = egui::FontData::from_owned(bytes);
+            data.index = index;
+            fonts
+                .font_data
+                .insert(name.into(), std::sync::Arc::new(data));
             for (family, names) in &mut fonts.families {
                 if primary && *family == egui::FontFamily::Proportional {
                     names.insert(0, name.into());

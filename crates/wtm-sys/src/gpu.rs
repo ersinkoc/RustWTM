@@ -553,3 +553,48 @@ mod tests {
         );
     }
 }
+/// A physical adapter's session LUID and DXGI identity. Re-enumerate after hotplug.
+#[derive(Debug, Clone)]
+pub struct Adapter {
+    pub luid: String,
+    pub name: String,
+    pub dedicated_bytes: u64,
+    pub shared_bytes: u64,
+}
+
+pub fn adapters() -> Result<Vec<Adapter>> {
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE, DXGI_ERROR_NOT_FOUND, IDXGIFactory1,
+    };
+    // SAFETY: the typed factory owns its COM reference; no pointers escape.
+    let factory: IDXGIFactory1 = unsafe { CreateDXGIFactory1()? };
+    let mut result = Vec::new();
+    for index in 0..32 {
+        // SAFETY: the factory is live; enumeration returns an owned interface.
+        let adapter = match unsafe { factory.EnumAdapters1(index) } {
+            Ok(a) => a,
+            Err(e) if e.code() == DXGI_ERROR_NOT_FOUND => break,
+            Err(e) => return Err(e.into()),
+        };
+        // SAFETY: GetDesc1 returns an initialized value for this live adapter.
+        let desc = unsafe { adapter.GetDesc1()? };
+        if desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32 != 0 {
+            continue;
+        }
+        let end = desc
+            .Description
+            .iter()
+            .position(|c| *c == 0)
+            .unwrap_or(desc.Description.len());
+        result.push(Adapter {
+            luid: format!(
+                "{:08x}_{:08x}",
+                desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart
+            ),
+            name: String::from_utf16_lossy(&desc.Description[..end]),
+            dedicated_bytes: desc.DedicatedVideoMemory as u64,
+            shared_bytes: desc.SharedSystemMemory as u64,
+        });
+    }
+    Ok(result)
+}

@@ -3,7 +3,10 @@
 Implemented in 0.28.0; delivery order revised 2026-11-10: hardware specifications, installed application
 inventory and interactive uninstall, then package-manager updates. This takes
 priority over the earlier disk-health-first order in the hardware product plan.
-Disk health, battery and device-specific telemetry remain later hardware work.
+Current unreleased source also implements disk health, battery, device-specific
+telemetry, Store registrations and reviewed package updates. The sections below
+describe the 0.28.0 baseline; see [current implementation and limits](product-expansion.md)
+for the newer work and its separate native/VM validation boundaries.
 
 ## Hardware specifications
 
@@ -67,7 +70,7 @@ smoke reads inventory only. Installer mutation proofs belong in disposable VMs.
 
 ![Uninstaller confirmation](../screenshots/installed-apps-confirmation.png)
 
-## Next: package updates
+## Package updates beyond 0.28.0
 
 Build package updates on explicit package-manager identities, not a name-only
 join to this registry list. Discovery must retain package ID, source, installed
@@ -78,7 +81,11 @@ per-package interactive updates, refresh/version verification and partial-batch
 reporting. Keep concurrency bounded, handle UAC/cancellation and installer exit
 codes, and never treat a launched updater as a completed update. Store-package
 enumeration and source/agreement handling need their own implementation and
-acceptance tests. No package-update execution is implemented by this change.
+acceptance tests. That follow-up is now implemented in unreleased source through
+the optional signed Microsoft.WinGet.Client binary, with exact source/ID/version
+plans and explicit review. Read-only discovery returned 322 package records and
+150 current-user Store registrations on the development PC. Installer execution
+remains a disposable-VM validation gate.
 
 ## Primary references
 

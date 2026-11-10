@@ -7588,5 +7588,929 @@
     "de": "Open-Source-Software unter der MIT-Lizenz.",
     "fr": "Logiciel libre sous licence MIT.",
     "es": "Software de código abierto con licencia MIT."
+  },
+  "Specifications": {
+    "tr": "Teknik özellikler",
+    "de": "Spezifikationen",
+    "fr": "Caractéristiques",
+    "es": "Especificaciones"
+  },
+  "Devices and health": {
+    "tr": "Cihazlar ve sağlık",
+    "de": "Geräte und Zustand",
+    "fr": "Appareils et santé",
+    "es": "Dispositivos y salud"
+  },
+  "Desktop apps": {
+    "tr": "Masaüstü uygulamaları",
+    "de": "Desktop-Apps",
+    "fr": "Applications de bureau",
+    "es": "Aplicaciones de escritorio"
+  },
+  "Store apps": {
+    "tr": "Store uygulamaları",
+    "de": "Store-Apps",
+    "fr": "Applications du Store",
+    "es": "Aplicaciones de Store"
+  },
+  "Package updates": {
+    "tr": "Paket güncellemeleri",
+    "de": "Paketupdates",
+    "fr": "Mises à jour des paquets",
+    "es": "Actualizaciones de paquetes"
+  },
+  "Disk usage": {
+    "tr": "Disk kullanımı",
+    "de": "Datenträgerbelegung",
+    "fr": "Utilisation des disques",
+    "es": "Uso del disco"
+  },
+  "File owners": {
+    "tr": "Dosyayı kullananlar",
+    "de": "Dateibenutzer",
+    "fr": "Utilisateurs du fichier",
+    "es": "Usuarios del archivo"
+  },
+  "Application trends": {
+    "tr": "Uygulama eğilimleri",
+    "de": "App-Verlauf",
+    "fr": "Tendances des applications",
+    "es": "Tendencias de aplicaciones"
+  },
+  "Recorded incidents": {
+    "tr": "Kayıtlı olaylar",
+    "de": "Aufgezeichnete Ereignisse",
+    "fr": "Incidents enregistrés",
+    "es": "Incidentes registrados"
+  },
+  "Protection status": {
+    "tr": "Koruma durumu",
+    "de": "Schutzstatus",
+    "fr": "État de la protection",
+    "es": "Estado de protección"
+  },
+  "Rules and profiles": {
+    "tr": "Kurallar ve profiller",
+    "de": "Regeln und Profile",
+    "fr": "Règles et profils",
+    "es": "Reglas y perfiles"
+  },
+  "Refresh devices": {
+    "tr": "Cihazları yenile",
+    "de": "Geräte aktualisieren",
+    "fr": "Actualiser les appareils",
+    "es": "Actualizar dispositivos"
+  },
+  "Refresh while this page is open": {
+    "tr": "Bu sayfa açıkken yenile",
+    "de": "Aktualisieren, solange diese Seite geöffnet ist",
+    "fr": "Actualiser tant que cette page est ouverte",
+    "es": "Actualizar mientras esta página esté abierta"
+  },
+  "Loading devices…": {
+    "tr": "Cihazlar yükleniyor…",
+    "de": "Geräte werden geladen…",
+    "fr": "Chargement des appareils…",
+    "es": "Cargando dispositivos…"
+  },
+  "No supported devices were reported.": {
+    "tr": "Desteklenen cihaz bulunamadı.",
+    "de": "Keine unterstützten Geräte gemeldet.",
+    "fr": "Aucun appareil pris en charge signalé.",
+    "es": "No se detectaron dispositivos compatibles."
+  },
+  "Windows device telemetry": {
+    "tr": "Windows cihaz ölçümleri",
+    "de": "Windows-Gerätemesswerte",
+    "fr": "Télémétrie des appareils Windows",
+    "es": "Telemetría de dispositivos Windows"
+  },
+  "Read-only Windows storage, network and battery telemetry. Missing readings stay unavailable.": {
+    "tr": "Windows depolama, ağ ve batarya verileri salt okunur. Eksik ölçümler kullanılamaz olarak kalır.",
+    "de": "Schreibgeschützte Windows-Speicher-, Netzwerk- und Akkudaten. Fehlende Werte bleiben nicht verfügbar.",
+    "fr": "Données Windows en lecture seule : stockage, réseau et batterie. Les mesures absentes restent indisponibles.",
+    "es": "Datos de almacenamiento, red y batería de Windows en modo de lectura. Las mediciones ausentes siguen sin estar disponibles."
+  },
+  "Recent samples while this window is open; gaps are not interpolated.": {
+    "tr": "Bu pencere açıkken alınan son ölçümler; boşluklar doldurulmaz.",
+    "de": "Letzte Messungen bei geöffnetem Fenster; Lücken werden nicht interpoliert.",
+    "fr": "Mesures récentes pendant l’ouverture de cette fenêtre ; les lacunes ne sont pas interpolées.",
+    "es": "Mediciones recientes mientras esta ventana está abierta; los intervalos sin datos no se interpolan."
+  },
+  "Check applications and updates": {
+    "tr": "Uygulama ve güncellemeleri denetle",
+    "de": "Apps und Updates prüfen",
+    "fr": "Vérifier les applications et mises à jour",
+    "es": "Comprobar aplicaciones y actualizaciones"
+  },
+  "Name, publisher or package ID": {
+    "tr": "Ad, yayıncı veya paket kimliği",
+    "de": "Name, Herausgeber oder Paket-ID",
+    "fr": "Nom, éditeur ou identifiant de paquet",
+    "es": "Nombre, editor o ID de paquete"
+  },
+  "Loading applications…": {
+    "tr": "Uygulamalar yükleniyor…",
+    "de": "Apps werden geladen…",
+    "fr": "Chargement des applications…",
+    "es": "Cargando aplicaciones…"
+  },
+  "Current-user Store registrations. Windows manages package removal.": {
+    "tr": "Geçerli kullanıcının Store kayıtları. Paket kaldırmayı Windows yönetir.",
+    "de": "Store-Registrierungen des aktuellen Benutzers. Windows verwaltet die Deinstallation.",
+    "fr": "Inscriptions Store de l’utilisateur actuel. Windows gère la désinstallation.",
+    "es": "Registros de Store del usuario actual. Windows administra la desinstalación."
+  },
+  "Packages are matched by exact source and ID. Registry app names are never guessed into updates.": {
+    "tr": "Paketler tam kaynak ve kimlikle eşleşir. Kayıt defterindeki adlardan güncelleme tahmini yapılmaz.",
+    "de": "Pakete werden anhand exakter Quelle und ID zugeordnet, nicht anhand vermuteter Registry-App-Namen.",
+    "fr": "Les paquets sont identifiés par leur source et identifiant exacts, sans déduction depuis les noms du registre.",
+    "es": "Los paquetes se identifican por fuente e ID exactos, sin deducirlos de nombres del registro."
+  },
+  "No Store packages were reported.": {
+    "tr": "Store paketi bulunamadı.",
+    "de": "Keine Store-Pakete gemeldet.",
+    "fr": "Aucun paquet Store signalé.",
+    "es": "No se detectaron paquetes de Store."
+  },
+  "Windows marks this package as non-removable.": {
+    "tr": "Windows bu paketi kaldırılamaz olarak işaretliyor.",
+    "de": "Windows kennzeichnet dieses Paket als nicht entfernbar.",
+    "fr": "Windows indique que ce paquet ne peut pas être supprimé.",
+    "es": "Windows indica que este paquete no se puede desinstalar."
+  },
+  "{0} updates available": {
+    "tr": "{0} güncelleme var",
+    "de": "{0} Updates verfügbar",
+    "fr": "{0} mises à jour disponibles",
+    "es": "{0} actualizaciones disponibles"
+  },
+  "Review selected updates": {
+    "tr": "Seçili güncellemeleri incele",
+    "de": "Ausgewählte Updates prüfen",
+    "fr": "Examiner les mises à jour sélectionnées",
+    "es": "Revisar actualizaciones seleccionadas"
+  },
+  "Review package updates": {
+    "tr": "Paket güncellemelerini incele",
+    "de": "Paketupdates prüfen",
+    "fr": "Examiner les mises à jour des paquets",
+    "es": "Revisar actualizaciones de paquetes"
+  },
+  "Only these package IDs and target versions will be requested. Each package is checked again before its installer starts.": {
+    "tr": "Yalnızca bu paket kimlikleri ve hedef sürümler istenecek. Her paket, yükleyici başlamadan önce yeniden denetlenir.",
+    "de": "Nur diese Paket-IDs und Zielversionen werden angefordert. Jedes Paket wird vor dem Installationsstart erneut geprüft.",
+    "fr": "Seuls ces identifiants et versions seront demandés. Chaque paquet est revérifié avant le lancement de son programme d’installation.",
+    "es": "Solo se solicitarán estos ID y versiones. Cada paquete se comprueba de nuevo antes de iniciar su instalador."
+  },
+  "Start selected updates": {
+    "tr": "Seçili güncellemeleri başlat",
+    "de": "Ausgewählte Updates starten",
+    "fr": "Démarrer les mises à jour sélectionnées",
+    "es": "Iniciar actualizaciones seleccionadas"
+  },
+  "Updating selected packages. Installer prompts remain visible.": {
+    "tr": "Seçili paketler güncelleniyor. Yükleyici istemleri görünür kalır.",
+    "de": "Ausgewählte Pakete werden aktualisiert. Installationsdialoge bleiben sichtbar.",
+    "fr": "Mise à jour des paquets sélectionnés. Les dialogues d’installation restent visibles.",
+    "es": "Actualizando los paquetes seleccionados. Los diálogos del instalador permanecen visibles."
+  },
+  "No package updates were reported. See provider availability above.": {
+    "tr": "Paket güncellemesi bulunamadı. Yukarıdaki sağlayıcı durumunu kontrol edin.",
+    "de": "Keine Paketupdates gemeldet. Prüfen Sie oben die Verfügbarkeit der Anbieter.",
+    "fr": "Aucune mise à jour signalée. Consultez la disponibilité des fournisseurs ci-dessus.",
+    "es": "No se detectaron actualizaciones. Consulte la disponibilidad de los proveedores arriba."
+  },
+  "An interrupted update may still have an installer running. Refresh before retrying.": {
+    "tr": "Kesilen güncellemenin yükleyicisi hâlâ çalışıyor olabilir. Tekrar denemeden önce yenileyin.",
+    "de": "Nach einem Abbruch kann das Installationsprogramm noch laufen. Vor dem Wiederholen aktualisieren.",
+    "fr": "Un programme d’installation interrompu peut encore fonctionner. Actualisez avant de réessayer.",
+    "es": "El instalador de una actualización interrumpida puede seguir activo. Actualice antes de reintentar."
+  },
+  "Refresh to confirm installed versions; an installer result alone is not inventory verification.": {
+    "tr": "Kurulu sürümleri doğrulamak için yenileyin; yükleyici sonucu tek başına yeterli değildir.",
+    "de": "Zur Bestätigung der installierten Versionen aktualisieren; das Installationsergebnis allein reicht nicht.",
+    "fr": "Actualisez pour confirmer les versions installées ; le résultat d’installation seul ne suffit pas.",
+    "es": "Actualice para confirmar las versiones instaladas; el resultado del instalador no basta."
+  },
+  "Find file owners": {
+    "tr": "Dosyayı kullananları bul",
+    "de": "Dateibenutzer suchen",
+    "fr": "Rechercher les utilisateurs du fichier",
+    "es": "Buscar usuarios del archivo"
+  },
+  "Full file or folder path": {
+    "tr": "Tam dosya veya klasör yolu",
+    "de": "Vollständiger Datei- oder Ordnerpfad",
+    "fr": "Chemin complet du fichier ou dossier",
+    "es": "Ruta completa del archivo o carpeta"
+  },
+  "Drop a local file or folder, or enter its full path. This query never closes handles.": {
+    "tr": "Yerel dosya veya klasör bırakın ya da tam yolunu yazın. Bu sorgu hiçbir tanıtıcıyı kapatmaz.",
+    "de": "Lokale Datei oder Ordner ablegen oder vollständigen Pfad eingeben. Diese Abfrage schließt keine Handles.",
+    "fr": "Déposez un fichier ou dossier local, ou saisissez son chemin complet. Cette recherche ne ferme aucun handle.",
+    "es": "Suelte un archivo o carpeta local, o escriba su ruta completa. Esta consulta no cierra identificadores."
+  },
+  "{0} files checked": {
+    "tr": "{0} dosya denetlendi",
+    "de": "{0} Dateien geprüft",
+    "fr": "{0} fichiers vérifiés",
+    "es": "{0} archivos comprobados"
+  },
+  "No owners were reported. Protected processes, directories and mappings may not be reported by Windows.": {
+    "tr": "Kullanan işlem bildirilmedi. Windows korumalı işlemleri, dizinleri ve eşlemeleri bildirmeyebilir.",
+    "de": "Keine Benutzer gemeldet. Windows meldet geschützte Prozesse, Verzeichnisse und Zuordnungen möglicherweise nicht.",
+    "fr": "Aucun utilisateur signalé. Windows peut omettre les processus protégés, dossiers et mappages.",
+    "es": "No se detectaron usuarios. Windows puede omitir procesos protegidos, directorios y asignaciones."
+  },
+  "Inspect process": {
+    "tr": "İşlemi incele",
+    "de": "Prozess untersuchen",
+    "fr": "Examiner le processus",
+    "es": "Inspeccionar proceso"
+  },
+  "Refresh recorded history": {
+    "tr": "Kayıtlı geçmişi yenile",
+    "de": "Aufgezeichneten Verlauf aktualisieren",
+    "fr": "Actualiser l’historique enregistré",
+    "es": "Actualizar historial registrado"
+  },
+  "Recorded by the service every five seconds. At most 21 contributors per moment; missing intervals are not activity.": {
+    "tr": "Hizmet her beş saniyede kaydeder. Her anda en fazla 21 işlem bulunur; eksik aralıklar etkinlik sayılmaz.",
+    "de": "Der Dienst zeichnet alle fünf Sekunden auf. Maximal 21 Prozesse je Zeitpunkt; fehlende Intervalle bedeuten keine Aktivität.",
+    "fr": "Le service enregistre toutes les cinq secondes. Au plus 21 processus par instant ; les intervalles manquants ne représentent pas d’activité.",
+    "es": "El servicio registra cada cinco segundos. Hasta 21 procesos por instante; los intervalos ausentes no representan actividad."
+  },
+  "No recorded moments in this range.": {
+    "tr": "Bu aralıkta kayıtlı an yok.",
+    "de": "Keine aufgezeichneten Zeitpunkte in diesem Bereich.",
+    "fr": "Aucun instant enregistré dans cette plage.",
+    "es": "No hay instantes registrados en este intervalo."
+  },
+  "Only the latest 512 action markers in this range are included.": {
+    "tr": "Bu aralıktaki yalnızca son 512 eylem işareti gösterilir.",
+    "de": "Nur die letzten 512 Aktionsmarkierungen dieses Bereichs sind enthalten.",
+    "fr": "Seuls les 512 derniers marqueurs d’action de cette plage sont inclus.",
+    "es": "Solo se incluyen los últimos 512 marcadores de acción del intervalo."
+  },
+  "Recorded moment": {
+    "tr": "Kayıtlı an",
+    "de": "Aufgezeichneter Zeitpunkt",
+    "fr": "Instant enregistré",
+    "es": "Instante registrado"
+  },
+  "Observed activity": {
+    "tr": "Gözlemlenen etkinlik",
+    "de": "Beobachtete Aktivität",
+    "fr": "Activité observée",
+    "es": "Actividad observada"
+  },
+  "Contributor sampling was limited.": {
+    "tr": "İşlem örneklemesi sınırlandırıldı.",
+    "de": "Die Prozessauswahl wurde begrenzt.",
+    "fr": "L’échantillonnage des processus a été limité.",
+    "es": "El muestreo de procesos se limitó."
+  },
+  "Nearby recorded actions": {
+    "tr": "Yakındaki kayıtlı eylemler",
+    "de": "Zeitnahe aufgezeichnete Aktionen",
+    "fr": "Actions enregistrées proches",
+    "es": "Acciones registradas cercanas"
+  },
+  "No matching recorded actions are available for this moment.": {
+    "tr": "Bu an için eşleşen kayıtlı eylem yok.",
+    "de": "Für diesen Zeitpunkt sind keine passenden aufgezeichneten Aktionen verfügbar.",
+    "fr": "Aucune action enregistrée correspondante pour cet instant.",
+    "es": "No hay acciones registradas coincidentes para este instante."
+  },
+  "Review diagnostic snapshot": {
+    "tr": "Tanılama kaydını incele",
+    "de": "Diagnoseaufnahme prüfen",
+    "fr": "Examiner l’instantané de diagnostic",
+    "es": "Revisar captura de diagnóstico"
+  },
+  "Diagnostic snapshot": {
+    "tr": "Tanılama kaydı",
+    "de": "Diagnoseaufnahme",
+    "fr": "Instantané de diagnostic",
+    "es": "Captura de diagnóstico"
+  },
+  "Review before sharing: process names, IDs, resource usage and available event messages are included.": {
+    "tr": "Paylaşmadan önce inceleyin: işlem adları, kimlikleri, kaynak kullanımı ve mevcut olay mesajları dahildir.",
+    "de": "Vor dem Teilen prüfen: Prozessnamen, IDs, Ressourcennutzung und verfügbare Ereignismeldungen sind enthalten.",
+    "fr": "Vérifiez avant de partager : noms et identifiants des processus, utilisation des ressources et messages d’événement sont inclus.",
+    "es": "Revise antes de compartir: se incluyen nombres e ID de procesos, uso de recursos y mensajes de eventos disponibles."
+  },
+  "Copy snapshot": {
+    "tr": "Kaydı kopyala",
+    "de": "Aufnahme kopieren",
+    "fr": "Copier l’instantané",
+    "es": "Copiar captura"
+  },
+  "Protection profiles": {
+    "tr": "Koruma profilleri",
+    "de": "Schutzprofile",
+    "fr": "Profils de protection",
+    "es": "Perfiles de protección"
+  },
+  "Profiles change RustWTM policy settings after review; they do not silently change Windows power plans.": {
+    "tr": "Profiller incelemeden sonra RustWTM ilke ayarlarını değiştirir; Windows güç planlarını sessizce değiştirmez.",
+    "de": "Profile ändern nach Prüfung die RustWTM-Regeln; Windows-Energiepläne werden nicht unbemerkt geändert.",
+    "fr": "Les profils modifient les règles RustWTM après examen, sans modifier discrètement les modes d’alimentation Windows.",
+    "es": "Los perfiles cambian las políticas de RustWTM tras revisarlas, sin modificar silenciosamente los planes de energía de Windows."
+  },
+  "Saved rules": {
+    "tr": "Kayıtlı kurallar",
+    "de": "Gespeicherte Regeln",
+    "fr": "Règles enregistrées",
+    "es": "Reglas guardadas"
+  },
+  "No saved process rules.": {
+    "tr": "Kayıtlı işlem kuralı yok.",
+    "de": "Keine gespeicherten Prozessregeln.",
+    "fr": "Aucune règle de processus enregistrée.",
+    "es": "No hay reglas de procesos guardadas."
+  },
+  "New rule": {
+    "tr": "Yeni kural",
+    "de": "Neue Regel",
+    "fr": "Nouvelle règle",
+    "es": "Nueva regla"
+  },
+  "Edit rule": {
+    "tr": "Kuralı düzenle",
+    "de": "Regel bearbeiten",
+    "fr": "Modifier la règle",
+    "es": "Editar regla"
+  },
+  "Remove rule": {
+    "tr": "Kuralı kaldır",
+    "de": "Regel entfernen",
+    "fr": "Supprimer la règle",
+    "es": "Eliminar regla"
+  },
+  "Rule editor": {
+    "tr": "Kural düzenleyicisi",
+    "de": "Regeleditor",
+    "fr": "Éditeur de règles",
+    "es": "Editor de reglas"
+  },
+  "Rule name": {
+    "tr": "Kural adı",
+    "de": "Regelname",
+    "fr": "Nom de la règle",
+    "es": "Nombre de regla"
+  },
+  "Executable pattern": {
+    "tr": "Çalıştırılabilir dosya deseni",
+    "de": "Programmnamensmuster",
+    "fr": "Motif du programme",
+    "es": "Patrón del ejecutable"
+  },
+  "Full path pattern": {
+    "tr": "Tam yol deseni",
+    "de": "Vollständiges Pfadmuster",
+    "fr": "Motif du chemin complet",
+    "es": "Patrón de ruta completa"
+  },
+  "Command line pattern": {
+    "tr": "Komut satırı deseni",
+    "de": "Befehlszeilenmuster",
+    "fr": "Motif de ligne de commande",
+    "es": "Patrón de línea de comandos"
+  },
+  "Wait for sustained resource usage": {
+    "tr": "Sürekli kaynak kullanımını bekle",
+    "de": "Anhaltende Ressourcennutzung abwarten",
+    "fr": "Attendre une utilisation prolongée des ressources",
+    "es": "Esperar uso sostenido de recursos"
+  },
+  "CPU above": {
+    "tr": "CPU eşiği",
+    "de": "CPU über",
+    "fr": "CPU au-dessus de",
+    "es": "CPU superior a"
+  },
+  "GPU above": {
+    "tr": "GPU eşiği",
+    "de": "GPU über",
+    "fr": "GPU au-dessus de",
+    "es": "GPU superior a"
+  },
+  "Memory above": {
+    "tr": "Bellek eşiği",
+    "de": "Speicher über",
+    "fr": "Mémoire au-dessus de",
+    "es": "Memoria superior a"
+  },
+  "Sustained for": {
+    "tr": "Devam süresi",
+    "de": "Anhaltend für",
+    "fr": "Durée minimale",
+    "es": "Duración mínima"
+  },
+  "Add action": {
+    "tr": "Eylem ekle",
+    "de": "Aktion hinzufügen",
+    "fr": "Ajouter une action",
+    "es": "Añadir acción"
+  },
+  "Remove action": {
+    "tr": "Eylemi kaldır",
+    "de": "Aktion entfernen",
+    "fr": "Supprimer l’action",
+    "es": "Eliminar acción"
+  },
+  "This rule can suspend or terminate matching programs. Review its scope carefully.": {
+    "tr": "Bu kural eşleşen programları askıya alabilir veya sonlandırabilir. Kapsamını dikkatle inceleyin.",
+    "de": "Diese Regel kann passende Programme anhalten oder beenden. Prüfen Sie ihren Geltungsbereich sorgfältig.",
+    "fr": "Cette règle peut suspendre ou terminer les programmes correspondants. Vérifiez soigneusement sa portée.",
+    "es": "Esta regla puede suspender o finalizar programas coincidentes. Revise su alcance con cuidado."
+  },
+  "Preview on current sample": {
+    "tr": "Geçerli örnekte önizle",
+    "de": "Mit aktueller Messung simulieren",
+    "fr": "Simuler avec la mesure actuelle",
+    "es": "Simular con la muestra actual"
+  },
+  "Review rule changes": {
+    "tr": "Kural değişikliklerini incele",
+    "de": "Regeländerungen prüfen",
+    "fr": "Examiner les modifications de règle",
+    "es": "Revisar cambios de regla"
+  },
+  "Save process rule": {
+    "tr": "İşlem kuralını kaydet",
+    "de": "Prozessregel speichern",
+    "fr": "Enregistrer la règle de processus",
+    "es": "Guardar regla de proceso"
+  },
+  "Preview executes no actions. It assumes this sample persists for the configured duration and uses only cached paths and command lines.": {
+    "tr": "Önizleme eylem çalıştırmaz. Örneğin ayarlanan süre boyunca sürdüğünü varsayar; yalnızca önbellekteki yol ve komut satırlarını kullanır.",
+    "de": "Die Vorschau führt keine Aktionen aus. Sie nimmt an, dass diese Messung über die eingestellte Dauer anhält, und nutzt nur zwischengespeicherte Pfade und Befehlszeilen.",
+    "fr": "La simulation n’exécute aucune action. Elle suppose cette mesure constante pendant la durée configurée et utilise uniquement les chemins et commandes en cache.",
+    "es": "La simulación no ejecuta acciones. Supone que esta muestra dura el tiempo configurado y solo usa rutas y comandos en caché."
+  },
+  "Review policy changes": {
+    "tr": "İlke değişikliklerini incele",
+    "de": "Richtlinienänderungen prüfen",
+    "fr": "Examiner les modifications de politique",
+    "es": "Revisar cambios de política"
+  },
+  "Save reviewed configuration": {
+    "tr": "İncelenen yapılandırmayı kaydet",
+    "de": "Geprüfte Konfiguration speichern",
+    "fr": "Enregistrer la configuration vérifiée",
+    "es": "Guardar configuración revisada"
+  },
+  "Existing safety checks and dry-run mode still apply. Matching rules may act on running programs immediately after saving.": {
+    "tr": "Mevcut güvenlik denetimleri ve deneme modu geçerlidir. Eşleşen kurallar kayıttan hemen sonra çalışan programlara uygulanabilir.",
+    "de": "Bestehende Sicherheitsprüfungen und der Testmodus gelten weiterhin. Passende Regeln können sofort nach dem Speichern auf laufende Programme wirken.",
+    "fr": "Les contrôles de sécurité et le mode simulation restent applicables. Les règles peuvent agir sur les programmes actifs dès l’enregistrement.",
+    "es": "Siguen vigentes las comprobaciones de seguridad y el modo de simulación. Las reglas pueden actuar sobre programas activos al guardarse."
+  },
+  "Configuration changed. Close this review and prepare it again.": {
+    "tr": "Yapılandırma değişti. Bu incelemeyi kapatıp yeniden hazırlayın.",
+    "de": "Die Konfiguration wurde geändert. Schließen Sie diese Prüfung und erstellen Sie sie erneut.",
+    "fr": "La configuration a changé. Fermez cet examen et recommencez.",
+    "es": "La configuración cambió. Cierre esta revisión y prepárela de nuevo."
+  },
+  "Load the service configuration to edit policies.": {
+    "tr": "İlkeleri düzenlemek için hizmet yapılandırmasını yükleyin.",
+    "de": "Laden Sie die Dienstkonfiguration, um Regeln zu bearbeiten.",
+    "fr": "Chargez la configuration du service pour modifier les règles.",
+    "es": "Cargue la configuración del servicio para editar políticas."
+  },
+  "Interface activity and shortcuts": {
+    "tr": "Arayüz etkinliği ve kısayollar",
+    "de": "Oberflächenaktivität und Tastenkürzel",
+    "fr": "Activité de l’interface et raccourcis",
+    "es": "Actividad de la interfaz y atajos"
+  },
+  "These intervals affect window refresh requests, not service protection or sampling.": {
+    "tr": "Bu süreler pencere yenilemesini etkiler; hizmet korumasını veya örneklemeyi etkilemez.",
+    "de": "Diese Intervalle betreffen Fensteraktualisierungen, nicht den Dienstschutz oder die Messung.",
+    "fr": "Ces intervalles concernent l’actualisation de la fenêtre, pas la protection ni les mesures du service.",
+    "es": "Estos intervalos afectan a la actualización de la ventana, no a la protección ni al muestreo del servicio."
+  },
+  "Visible window refresh": {
+    "tr": "Görünür pencere yenilemesi",
+    "de": "Aktualisierung des sichtbaren Fensters",
+    "fr": "Actualisation de la fenêtre visible",
+    "es": "Actualización de ventana visible"
+  },
+  "Minimized window refresh": {
+    "tr": "Küçültülmüş pencere yenilemesi",
+    "de": "Aktualisierung bei minimiertem Fenster",
+    "fr": "Actualisation de la fenêtre réduite",
+    "es": "Actualización de ventana minimizada"
+  },
+  "Tray window refresh": {
+    "tr": "Tepsideyken pencere yenilemesi",
+    "de": "Aktualisierung im Infobereich",
+    "fr": "Actualisation dans la zone de notification",
+    "es": "Actualización en la bandeja"
+  },
+  "Show Mbps in network device charts": {
+    "tr": "Ağ cihazı grafiklerinde Mbps göster",
+    "de": "Mbps in Netzwerkdiagrammen anzeigen",
+    "fr": "Afficher les Mbps dans les graphiques réseau",
+    "es": "Mostrar Mbps en gráficos de red"
+  },
+  "Global show / hide shortcut": {
+    "tr": "Genel göster / gizle kısayolu",
+    "de": "Globales Tastenkürzel zum Ein-/Ausblenden",
+    "fr": "Raccourci global afficher / masquer",
+    "es": "Atajo global mostrar / ocultar"
+  },
+  "Open welcome guide": {
+    "tr": "Karşılama rehberini aç",
+    "de": "Einführung öffnen",
+    "fr": "Ouvrir le guide de bienvenue",
+    "es": "Abrir guía de bienvenida"
+  },
+  "Keyboard shortcuts": {
+    "tr": "Klavye kısayolları",
+    "de": "Tastenkürzel",
+    "fr": "Raccourcis clavier",
+    "es": "Atajos de teclado"
+  },
+  "Welcome to RustWTM": {
+    "tr": "RustWTM'e hoş geldiniz",
+    "de": "Willkommen bei RustWTM",
+    "fr": "Bienvenue dans RustWTM",
+    "es": "Bienvenido a RustWTM"
+  },
+  "Understand your PC, inspect changes and keep important work responsive.": {
+    "tr": "Bilgisayarınızı tanıyın, değişiklikleri inceleyin, önemli işlerinizi akıcı tutun.",
+    "de": "Verstehen Sie Ihren PC, prüfen Sie Änderungen und halten Sie wichtige Arbeit reaktionsfähig.",
+    "fr": "Comprenez votre PC, examinez les changements et préservez la réactivité de vos tâches importantes.",
+    "es": "Conozca su PC, revise cambios y mantenga ágiles sus tareas importantes."
+  },
+  "Explore devices": {
+    "tr": "Cihazları keşfet",
+    "de": "Geräte erkunden",
+    "fr": "Explorer les appareils",
+    "es": "Explorar dispositivos"
+  },
+  "Inspect device identity, health and recent readings.": {
+    "tr": "Cihaz kimliğini, sağlığını ve son ölçümleri inceleyin.",
+    "de": "Geräteidentität, Zustand und letzte Messungen prüfen.",
+    "fr": "Examinez l’identité, la santé et les mesures récentes des appareils.",
+    "es": "Revise la identidad, salud y mediciones recientes de los dispositivos."
+  },
+  "Manage applications": {
+    "tr": "Uygulamaları yönet",
+    "de": "Apps verwalten",
+    "fr": "Gérer les applications",
+    "es": "Administrar aplicaciones"
+  },
+  "Review installed apps and choose package updates.": {
+    "tr": "Kurulu uygulamaları inceleyin ve paket güncellemelerini seçin.",
+    "de": "Installierte Apps prüfen und Paketupdates auswählen.",
+    "fr": "Examinez les applications installées et choisissez les mises à jour.",
+    "es": "Revise las aplicaciones instaladas y elija actualizaciones de paquetes."
+  },
+  "Build a protection rule": {
+    "tr": "Koruma kuralı oluştur",
+    "de": "Schutzregel erstellen",
+    "fr": "Créer une règle de protection",
+    "es": "Crear una regla de protección"
+  },
+  "Preview the matching programs before saving a policy.": {
+    "tr": "İlkeyi kaydetmeden önce eşleşen programları önizleyin.",
+    "de": "Passende Programme vor dem Speichern simulieren.",
+    "fr": "Prévisualisez les programmes correspondants avant d’enregistrer une règle.",
+    "es": "Previsualice programas coincidentes antes de guardar una política."
+  },
+  "Review recorded activity": {
+    "tr": "Kayıtlı etkinliği incele",
+    "de": "Aufgezeichnete Aktivität prüfen",
+    "fr": "Examiner l’activité enregistrée",
+    "es": "Revisar actividad registrada"
+  },
+  "Inspect resource history and recorded protection actions.": {
+    "tr": "Kaynak geçmişini ve kayıtlı koruma eylemlerini inceleyin.",
+    "de": "Ressourcenverlauf und aufgezeichnete Schutzaktionen prüfen.",
+    "fr": "Examinez l’historique des ressources et les actions de protection enregistrées.",
+    "es": "Revise el historial de recursos y las acciones de protección registradas."
+  },
+  "Start in monitoring mode. Changes and installers require your explicit review.": {
+    "tr": "İzleme modunda başlayın. Değişiklikler ve yükleyiciler açık incelemenizi gerektirir.",
+    "de": "Beginnen Sie im Überwachungsmodus. Änderungen und Installationen erfordern Ihre ausdrückliche Prüfung.",
+    "fr": "Commencez en mode surveillance. Les modifications et installations nécessitent votre examen explicite.",
+    "es": "Empiece en modo de supervisión. Los cambios e instaladores requieren su revisión explícita."
+  },
+  "Continue to overview": {
+    "tr": "Genel bakışa geç",
+    "de": "Zur Übersicht",
+    "fr": "Continuer vers la vue d’ensemble",
+    "es": "Continuar a la vista general"
+  },
+  "Next page": {
+    "tr": "Sonraki sayfa",
+    "de": "Nächste Seite",
+    "fr": "Page suivante",
+    "es": "Página siguiente"
+  },
+  "Previous page": {
+    "tr": "Önceki sayfa",
+    "de": "Vorherige Seite",
+    "fr": "Page précédente",
+    "es": "Página anterior"
+  },
+  "Pause process updates": {
+    "tr": "İşlem yenilemesini duraklat",
+    "de": "Prozessaktualisierung anhalten",
+    "fr": "Suspendre l’actualisation des processus",
+    "es": "Pausar actualizaciones de procesos"
+  },
+  "Power-on time": {
+    "tr": "Çalışma süresi",
+    "de": "Betriebszeit",
+    "fr": "Durée de fonctionnement",
+    "es": "Tiempo de funcionamiento"
+  },
+  "Wear used": {
+    "tr": "Kullanılan ömür",
+    "de": "Verbrauchte Lebensdauer",
+    "fr": "Usure consommée",
+    "es": "Desgaste utilizado"
+  },
+  "Uncorrected read errors": {
+    "tr": "Düzeltilemeyen okuma hataları",
+    "de": "Nicht korrigierte Lesefehler",
+    "fr": "Erreurs de lecture non corrigées",
+    "es": "Errores de lectura no corregidos"
+  },
+  "Uncorrected write errors": {
+    "tr": "Düzeltilemeyen yazma hataları",
+    "de": "Nicht korrigierte Schreibfehler",
+    "fr": "Erreurs d’écriture non corrigées",
+    "es": "Errores de escritura no corregidos"
+  },
+  "Capacity health": {
+    "tr": "Kapasite sağlığı",
+    "de": "Kapazitätszustand",
+    "fr": "Santé de la capacité",
+    "es": "Estado de capacidad"
+  },
+  "Charge / discharge": {
+    "tr": "Şarj / deşarj",
+    "de": "Laden / Entladen",
+    "fr": "Charge / décharge",
+    "es": "Carga / descarga"
+  },
+  "Charge": {
+    "tr": "Şarj",
+    "de": "Ladung",
+    "fr": "Charge",
+    "es": "Carga"
+  },
+  "Cycles": {
+    "tr": "Döngüler",
+    "de": "Zyklen",
+    "fr": "Cycles",
+    "es": "Ciclos"
+  },
+  "Design capacity (mWh)": {
+    "tr": "Tasarım kapasitesi (mWh)",
+    "de": "Auslegungskapazität (mWh)",
+    "fr": "Capacité nominale (mWh)",
+    "es": "Capacidad de diseño (mWh)"
+  },
+  "Full capacity (mWh)": {
+    "tr": "Tam kapasite (mWh)",
+    "de": "Volle Kapazität (mWh)",
+    "fr": "Capacité pleine (mWh)",
+    "es": "Capacidad completa (mWh)"
+  },
+  "AC connected": {
+    "tr": "Priz bağlantısı",
+    "de": "Netzteil angeschlossen",
+    "fr": "Alimentation secteur connectée",
+    "es": "Conectado a corriente"
+  },
+  "Charging": {
+    "tr": "Şarj oluyor",
+    "de": "Wird geladen",
+    "fr": "En charge",
+    "es": "Cargando"
+  },
+  "Dedicated memory capacity": {
+    "tr": "Ayrılmış bellek kapasitesi",
+    "de": "Dedizierte Speicherkapazität",
+    "fr": "Capacité mémoire dédiée",
+    "es": "Capacidad de memoria dedicada"
+  },
+  "Shared memory capacity": {
+    "tr": "Paylaşılan bellek kapasitesi",
+    "de": "Gemeinsam genutzte Speicherkapazität",
+    "fr": "Capacité mémoire partagée",
+    "es": "Capacidad de memoria compartida"
+  },
+  "Busiest engine": {
+    "tr": "En yoğun motor",
+    "de": "Stärkste Engine-Auslastung",
+    "fr": "Moteur le plus sollicité",
+    "es": "Motor más activo"
+  },
+  "History scope": {
+    "tr": "Geçmiş kapsamı",
+    "de": "Verlaufsbereich",
+    "fr": "Portée de l’historique",
+    "es": "Alcance del historial"
+  },
+  "Disk number": {
+    "tr": "Disk numarası",
+    "de": "Datenträgernummer",
+    "fr": "Numéro du disque",
+    "es": "Número de disco"
+  },
+  "Storage health": {
+    "tr": "Depolama sağlığı",
+    "de": "Speicherzustand",
+    "fr": "Santé du stockage",
+    "es": "Estado del almacenamiento"
+  },
+  "Partition style": {
+    "tr": "Bölümleme biçimi",
+    "de": "Partitionsstil",
+    "fr": "Style de partition",
+    "es": "Estilo de partición"
+  },
+  "Capacity (bytes)": {
+    "tr": "Kapasite (bayt)",
+    "de": "Kapazität (Bytes)",
+    "fr": "Capacité (octets)",
+    "es": "Capacidad (bytes)"
+  },
+  "NVMe health query": {
+    "tr": "NVMe sağlık sorgusu",
+    "de": "NVMe-Zustandsabfrage",
+    "fr": "Requête de santé NVMe",
+    "es": "Consulta de salud NVMe"
+  },
+  "NVMe remaining endurance": {
+    "tr": "NVMe kalan ömür",
+    "de": "Verbleibende NVMe-Lebensdauer",
+    "fr": "Endurance NVMe restante",
+    "es": "Resistencia NVMe restante"
+  },
+  "NVMe temperature": {
+    "tr": "NVMe sıcaklığı",
+    "de": "NVMe-Temperatur",
+    "fr": "Température NVMe",
+    "es": "Temperatura NVMe"
+  },
+  "Data read units (512000 bytes)": {
+    "tr": "Okunan veri birimleri (512000 bayt)",
+    "de": "Gelesene Dateneinheiten (512000 Bytes)",
+    "fr": "Unités de données lues (512000 octets)",
+    "es": "Unidades leídas (512000 bytes)"
+  },
+  "Data written units (512000 bytes)": {
+    "tr": "Yazılan veri birimleri (512000 bayt)",
+    "de": "Geschriebene Dateneinheiten (512000 Bytes)",
+    "fr": "Unités de données écrites (512000 octets)",
+    "es": "Unidades escritas (512000 bytes)"
+  },
+  "NVMe power cycles": {
+    "tr": "NVMe güç döngüleri",
+    "de": "NVMe-Einschaltzyklen",
+    "fr": "Cycles d’alimentation NVMe",
+    "es": "Ciclos de encendido NVMe"
+  },
+  "NVMe power-on hours": {
+    "tr": "NVMe çalışma saati",
+    "de": "NVMe-Betriebsstunden",
+    "fr": "Heures de fonctionnement NVMe",
+    "es": "Horas de funcionamiento NVMe"
+  },
+  "Unsafe shutdowns": {
+    "tr": "Güvensiz kapanışlar",
+    "de": "Unsichere Abschaltungen",
+    "fr": "Arrêts non sécurisés",
+    "es": "Apagados inseguros"
+  },
+  "Media errors": {
+    "tr": "Ortam hataları",
+    "de": "Medienfehler",
+    "fr": "Erreurs de support",
+    "es": "Errores del soporte"
+  },
+  "Models": {
+    "tr": "Modeller",
+    "de": "Modelle",
+    "fr": "Modèles",
+    "es": "Modelos"
+  },
+  "Current Windows session": {
+    "tr": "Geçerli Windows oturumu",
+    "de": "Aktuelle Windows-Sitzung",
+    "fr": "Session Windows actuelle",
+    "es": "Sesión actual de Windows"
+  },
+  "Whole system": {
+    "tr": "Tüm sistem",
+    "de": "Gesamtes System",
+    "fr": "Système entier",
+    "es": "Sistema completo"
+  },
+  "All processors": {
+    "tr": "Tüm işlemciler",
+    "de": "Alle Prozessoren",
+    "fr": "Tous les processeurs",
+    "es": "Todos los procesadores"
+  },
+  "System memory": {
+    "tr": "Sistem belleği",
+    "de": "Systemspeicher",
+    "fr": "Mémoire système",
+    "es": "Memoria del sistema"
+  },
+  "GPU engines": {
+    "tr": "GPU motorları",
+    "de": "GPU-Engines",
+    "fr": "Moteurs GPU",
+    "es": "Motores GPU"
+  },
+  "No matching programs in the cached sample.": {
+    "tr": "Önbellekteki örnekte eşleşen program yok.",
+    "de": "Keine passenden Programme in der zwischengespeicherten Messung.",
+    "fr": "Aucun programme correspondant dans la mesure en cache.",
+    "es": "No hay programas coincidentes en la muestra en caché."
+  },
+  "Numeric tray icons": {
+    "tr": "Sayısal tepsi simgeleri",
+    "de": "Numerische Infobereichsymbole",
+    "fr": "Icônes numériques de notification",
+    "es": "Iconos numéricos de la bandeja"
+  },
+  "CPU usage number": {
+    "tr": "CPU kullanım sayısı",
+    "de": "CPU-Auslastung als Zahl",
+    "fr": "Utilisation CPU en chiffres",
+    "es": "Uso de CPU en números"
+  },
+  "Memory usage number": {
+    "tr": "Bellek kullanım sayısı",
+    "de": "Speicherauslastung als Zahl",
+    "fr": "Utilisation mémoire en chiffres",
+    "es": "Uso de memoria en números"
+  },
+  "Temperature number": {
+    "tr": "Sıcaklık sayısı",
+    "de": "Temperatur als Zahl",
+    "fr": "Température en chiffres",
+    "es": "Temperatura en números"
+  },
+  "Show resource readings as separate number icons, including while the window is hidden.": {
+    "tr": "Pencere gizliyken de kaynak ölçümlerini ayrı sayı simgeleri olarak gösterin.",
+    "de": "Ressourcenwerte als eigene Zahlensymbole anzeigen, auch bei ausgeblendetem Fenster.",
+    "fr": "Afficher les mesures dans des icônes numériques distinctes, même quand la fenêtre est masquée.",
+    "es": "Mostrar las mediciones en iconos numéricos separados, incluso con la ventana oculta."
+  },
+  "Keep the RustWTM logo icon": {
+    "tr": "RustWTM logo simgesini koru",
+    "de": "RustWTM-Logo beibehalten",
+    "fr": "Conserver l’icône du logo RustWTM",
+    "es": "Mantener el icono del logotipo RustWTM"
+  },
+  "The logo stays available if no number icon is active. Windows controls which icons are pinned.": {
+    "tr": "Etkin sayı simgesi yoksa logo görünür kalır. Sabitlenen simgeleri Windows yönetir.",
+    "de": "Ohne aktives Zahlensymbol bleibt das Logo verfügbar. Windows verwaltet angeheftete Symbole.",
+    "fr": "Le logo reste disponible si aucune icône numérique n’est active. Windows gère les icônes épinglées.",
+    "es": "El logotipo sigue disponible si no hay iconos numéricos activos. Windows controla los iconos fijados."
+  },
+  "Tray numbers refresh": {
+    "tr": "Tepsi sayıları yenilemesi",
+    "de": "Aktualisierung der Tray-Zahlen",
+    "fr": "Actualisation des chiffres de notification",
+    "es": "Actualización de números en la bandeja"
+  },
+  "Automatic CPU temperature": {
+    "tr": "Otomatik CPU sıcaklığı",
+    "de": "Automatische CPU-Temperatur",
+    "fr": "Température CPU automatique",
+    "es": "Temperatura automática de CPU"
+  },
+  "Saved sensor unavailable": {
+    "tr": "Kayıtlı sensör kullanılamıyor",
+    "de": "Gespeicherter Sensor nicht verfügbar",
+    "fr": "Capteur enregistré indisponible",
+    "es": "Sensor guardado no disponible"
+  },
+  "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": {
+    "tr": "Sıcaklık için desteklenen sensör gerekir. Eksik veya eski ölçümler tahmini sayı yerine çizgi gösterir.",
+    "de": "Die Temperatur benötigt einen unterstützten Sensor. Fehlende oder veraltete Messungen zeigen Striche statt Schätzwerte.",
+    "fr": "La température nécessite un capteur pris en charge. Les mesures absentes ou anciennes affichent des tirets, sans estimation.",
+    "es": "La temperatura requiere un sensor compatible. Las mediciones ausentes o antiguas muestran guiones, nunca valores estimados."
+  },
+  "Open sensors": {
+    "tr": "Sensörleri aç",
+    "de": "Sensoren öffnen",
+    "fr": "Ouvrir les capteurs",
+    "es": "Abrir sensores"
   }
 }

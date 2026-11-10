@@ -3,16 +3,20 @@
 #![forbid(unsafe_code)]
 
 pub mod control;
+pub mod devices;
 pub mod diskscan;
 pub mod docker;
 pub use wtm_sys::cpu;
 pub mod gui_startup;
 pub mod hardware;
+pub mod incidents;
 pub mod installed;
 pub mod launch;
 mod model;
+pub mod packages;
 pub mod ports;
 pub mod power;
+mod probe;
 pub mod project;
 mod protection;
 mod sampler;

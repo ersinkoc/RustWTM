@@ -349,6 +349,15 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                     Err(e) => Response::Error(e),
                 }
             }
+            Request::Incidents { hours } => {
+                let hours = hours.clamp(1, 168);
+                match history_query(shared, hours, |conn, since, _| {
+                    crate::history::incidents(conn, since, hours)
+                }) {
+                    Ok(frames) => Response::Incidents(frames),
+                    Err(e) => Response::Error(e),
+                }
+            }
             Request::AppSeries { app, hours } => {
                 match history_query(shared, hours, |conn, since, _| {
                     crate::history::series(conn, &app, since)

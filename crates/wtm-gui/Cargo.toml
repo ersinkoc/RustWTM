@@ -51,3 +51,5 @@ workspace = true
 
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["eframe"] }
+# GPU reviews use the same on-demand Windows font fallback as the app.
+egui_system_font_provider = "0.37.0"

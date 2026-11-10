@@ -34,6 +34,9 @@ struct Sample {
 }
 
 pub struct History {
+    incident_slot: Option<i64>,
+    incident_event: u64,
+    incident_bytes: std::cell::Cell<i64>,
     conn: Connection,
     minute: Option<i64>,
     /// The current minute's aggregates; keys are lower-case app names, so
@@ -47,6 +50,15 @@ pub struct History {
 
 const SCHEMA: &str = "
     PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS incident_frame (
+        sequence INTEGER PRIMARY KEY, at INTEGER NOT NULL,
+        body TEXT NOT NULL CHECK(length(body) <= 16384)
+    );
+    CREATE INDEX IF NOT EXISTS incident_frame_time ON incident_frame(at);
+    CREATE TABLE IF NOT EXISTS incident_action (
+        sequence INTEGER PRIMARY KEY, at INTEGER NOT NULL, body TEXT NOT NULL CHECK(length(body)<=16384)
+    );
+    CREATE INDEX IF NOT EXISTS incident_action_time ON incident_action(at);
     CREATE TABLE IF NOT EXISTS app_minute (
         app TEXT NOT NULL,
         minute INTEGER NOT NULL,
@@ -91,13 +103,47 @@ impl History {
                 ))?;
             }
         }
+        let incident_bytes = conn.query_row(
+            "SELECT coalesce(sum(length(CAST(body AS BLOB))),0) FROM incident_frame",
+            [],
+            |r| r.get(0),
+        )?;
         Ok(Self {
+            incident_slot: None,
+            incident_event: 0,
+            incident_bytes: std::cell::Cell::new(incident_bytes),
             conn,
             minute: None,
             apps: HashMap::new(),
             lower: String::new(),
             minute_samples: 0,
         })
+    }
+
+    pub fn last_incident_event(&self) -> u64 {
+        self.incident_event
+    }
+    pub fn record_actions(&mut self, events: &[wtm_ipc::Event]) -> rusqlite::Result<()> {
+        for event in events.iter().take(2048) {
+            let action = wtm_core::incidents::RecordedAction {
+                at: event.unix_ms,
+                pid: event.pid,
+                name: event.name.as_ref().map(|n| n.chars().take(128).collect()),
+                level: format!("{:?}", event.level),
+                message: event.message.chars().take(2048).collect(),
+            };
+            if let Ok(body) = serde_json::to_string(&action)
+                && body.len() <= 16384
+            {
+                self.conn.execute(
+                    "INSERT INTO incident_action(at,body) VALUES(?1,?2)",
+                    params![action.at as i64, body],
+                )?;
+            }
+            self.incident_event = event.id;
+        }
+        self.conn.execute("DELETE FROM incident_action WHERE sequence NOT IN (SELECT sequence FROM incident_action ORDER BY sequence DESC LIMIT 16384)",[])?;
+        Ok(())
     }
 
     pub fn connection(&self) -> &Connection {
@@ -109,6 +155,32 @@ impl History {
     pub fn record(&mut self, snap: &Snapshot, unix_secs: i64) -> rusqlite::Result<()> {
         if snap.interval.is_none() {
             return Ok(());
+        }
+        let slot = unix_secs.div_euclid(5);
+        if self.incident_slot != Some(slot) {
+            let at = if snap.taken_at_ms > 0 {
+                snap.taken_at_ms
+            } else {
+                unix_secs.max(0) as u64 * 1000
+            };
+            let frame = wtm_core::incidents::Frame::of(snap, at);
+            if let Ok(body) = serde_json::to_string(&frame)
+                && body.len() <= 16384
+            {
+                self.conn.execute(
+                    "INSERT INTO incident_frame(at,body) VALUES(?1,?2)",
+                    params![at as i64, body],
+                )?;
+                self.incident_bytes
+                    .set(self.incident_bytes.get() + body.len() as i64);
+                if self.incident_bytes.get() > 256 * 1024 * 1024 {
+                    let removed:i64 = self.conn.query_row("SELECT coalesce(sum(length(CAST(body AS BLOB))),0) FROM (SELECT body FROM incident_frame ORDER BY sequence LIMIT 512)",[],|r|r.get(0))?;
+                    self.conn.execute("DELETE FROM incident_frame WHERE sequence IN (SELECT sequence FROM incident_frame ORDER BY sequence LIMIT 512)",[])?;
+                    self.incident_bytes
+                        .set(self.incident_bytes.get().saturating_sub(removed));
+                }
+            }
+            self.incident_slot = Some(slot);
         }
         let minute = unix_secs.div_euclid(60);
         if self.minute.is_some_and(|m| m != minute) {
@@ -214,6 +286,20 @@ impl History {
     }
 
     pub fn prune(&self, keep_days: u32, now_secs: i64) -> rusqlite::Result<usize> {
+        self.conn.execute(
+            "DELETE FROM incident_action WHERE at < ?1",
+            [now_secs.saturating_sub(7 * 86400).saturating_mul(1000)],
+        )?;
+        self.conn.execute(
+            "DELETE FROM incident_frame WHERE at < ?1",
+            [now_secs.saturating_sub(7 * 86400).saturating_mul(1000)],
+        )?;
+        self.incident_bytes.set(self.conn.query_row(
+            "SELECT coalesce(sum(length(CAST(body AS BLOB))),0) FROM incident_frame",
+            [],
+            |r| r.get(0),
+        )?);
+
         let cutoff = now_secs.div_euclid(60) - i64::from(keep_days) * 24 * 60;
         self.conn
             .execute("DELETE FROM app_minute WHERE minute < ?1", params![cutoff])
@@ -302,6 +388,56 @@ fn row(r: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<MinuteRow> {
     })
 }
 
+/// At most 600 representative moments and 512 available action markers.
+pub fn incidents(
+    conn: &Connection,
+    since_minutes: i64,
+    hours: u32,
+) -> rusqlite::Result<wtm_core::incidents::Replay> {
+    let bucket = i64::from(hours.clamp(1, 168)) * 3_600_000 / 600;
+    let mut query=conn.prepare("SELECT body FROM incident_frame WHERE sequence IN (SELECT max(sequence) FROM incident_frame WHERE at >= ?1 GROUP BY at / ?2) ORDER BY at LIMIT 600")?;
+    let frames = query
+        .query_map(
+            params![since_minutes.saturating_mul(60000), bucket.max(5000)],
+            |r| r.get::<_, String>(0),
+        )?
+        .map(|body| {
+            serde_json::from_str(&body?).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })
+        })
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut query = conn.prepare(
+        "SELECT body FROM incident_action WHERE at >= ?1 ORDER BY at DESC,sequence DESC LIMIT 513",
+    )?;
+    let mut actions = query
+        .query_map([since_minutes.saturating_mul(60000)], |r| {
+            r.get::<_, String>(0)
+        })?
+        .map(|body| {
+            serde_json::from_str(&body?).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })
+        })
+        .collect::<rusqlite::Result<Vec<wtm_core::incidents::RecordedAction>>>()?;
+    let actions_truncated = actions.len() > 512;
+    actions.truncate(512);
+    actions.reverse();
+    Ok(wtm_core::incidents::Replay {
+        frames,
+        actions,
+        actions_truncated,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,6 +484,76 @@ mod tests {
             net_traced: false,
             taken_at_ms: 0,
         }
+    }
+
+    #[test]
+    fn incident_replay_persists_identity_actions_and_five_second_cadence() {
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        for second in 60..71 {
+            h.record(&snap(vec![proc(7, "çalışma.exe", 33.0, 64)]), second)
+                .unwrap();
+        }
+        let event = wtm_ipc::Event {
+            id: 9,
+            unix_ms: 65_000,
+            level: wtm_ipc::EventLevel::Warn,
+            pid: Some(7),
+            name: Some("çalışma.exe".into()),
+            message: "Applied efficiency mode".into(),
+            notify: false,
+        };
+        h.record_actions(&[event]).unwrap();
+        assert_eq!(h.last_incident_event(), 9);
+        let replay = incidents(h.connection(), 1, 1).unwrap();
+        let recorded: i64 = h
+            .connection()
+            .query_row("SELECT count(*) FROM incident_frame", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(recorded, 3, "one persisted frame every five seconds");
+        // A one-hour replay uses six-second buckets and keeps each bucket's
+        // latest frame. 60s and 65s therefore share one representative moment.
+        assert_eq!(
+            replay.frames.iter().map(|f| f.at).collect::<Vec<_>>(),
+            [65_000, 70_000]
+        );
+        assert_eq!(replay.frames[0].processes[0].target.create_time, 7);
+        assert_eq!(replay.frames[0].processes[0].target.name, "çalışma.exe");
+        assert_eq!(replay.actions[0].message, "Applied efficiency mode");
+        assert!(!replay.actions_truncated);
+        assert!(incidents(h.connection(), 2, 1).unwrap().frames.is_empty());
+        // Reopening the same connection represents a service restart, without
+        // relying on a filesystem or allocating a large database.
+        let h = History::with(h.conn).unwrap();
+        let bytes: i64 = h
+            .connection()
+            .query_row(
+                "SELECT sum(length(CAST(body AS BLOB))) FROM incident_frame",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(h.incident_bytes.get(), bytes);
+        assert_eq!(incidents(h.connection(), 1, 1).unwrap().frames.len(), 2);
+        h.prune(7, 8 * 86400).unwrap();
+        let replay = incidents(h.connection(), 0, 168).unwrap();
+        assert!(replay.frames.is_empty() && replay.actions.is_empty());
+    }
+
+    #[test]
+    fn incident_recording_reports_storage_failure_without_advancing_its_cursor() {
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        h.connection().execute_batch("CREATE TRIGGER refuse_incident BEFORE INSERT ON incident_frame BEGIN SELECT RAISE(ABORT,'injected full disk'); END;").unwrap();
+        assert!(
+            h.record(&snap(vec![proc(1, "app.exe", 1.0, 1)]), 60)
+                .is_err()
+        );
+        assert_eq!(h.incident_slot, None);
+        h.connection()
+            .execute_batch("DROP TRIGGER refuse_incident;")
+            .unwrap();
+        h.record(&snap(vec![proc(1, "app.exe", 1.0, 1)]), 60)
+            .unwrap();
+        assert_eq!(incidents(h.connection(), 1, 1).unwrap().frames.len(), 1);
     }
 
     #[test]

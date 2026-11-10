@@ -1,5 +1,11 @@
 # Hardware experience and product direction
 
+Implementation update: unreleased source now includes device workspaces,
+Windows reliability/NVMe health queries, battery telemetry and package updates.
+See [current scope and evidence boundaries](product-expansion.md). The original
+stages below retain their acceptance criteria; additional hardware coverage and
+physical validation are still separate gates.
+
 The later [inventory and application-management sequence](inventory-app-management.md)
 updates the delivery order: specifications, installed apps and uninstall, then
 package updates. The disk-health/battery/device-graph stages below remain a

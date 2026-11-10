@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- 22 more interface languages, for 27 in total: Simplified and Traditional
+  Chinese, Hindi, Bengali, Brazilian Portuguese, Russian, Indonesian, Japanese,
+  Marathi, Vietnamese, Telugu, Swahili, Filipino, Tamil, Korean, Italian,
+  Gujarati, Kannada, Polish, Ukrainian, Dutch and Punjabi (Gurmukhi). The Windows
+  language option recognizes them, each loads only when shown, and Chinese,
+  Japanese and Korean use the matching Windows font. Right-to-left languages
+  remain unavailable until the GUI toolkit supports bidirectional text.
+- Optional numeric notification-area icons for CPU percentage, memory percentage
+  and a selected temperature sensor. Configure each icon, source, refresh interval
+  and logo visibility under Settings / This window. Hidden-window logic updates
+  the values; missing or stale samples render dashes. Icons share the existing
+  Show/Notifications/Exit menu and retain a recoverable logo fallback.
+- Device workspaces with bounded recent charts, exact identities, missing-data
+  states and read-only storage, GPU, network, CPU, memory and battery telemetry.
+  Query NVMe health through Windows storage properties; expose temperature,
+  endurance and lifetime counters when the controller permits it.
+- Current-user Store inventory and optional signed Microsoft WinGet discovery.
+  Review up to 16 selected source/ID/version updates and recheck each identity
+  before requesting its interactive installer. Installation VM validation pending.
+- Persistent five-second resource/contributor history with recorded protection
+  actions, representative replay moments and reviewed diagnostic JSON copy.
+- Local file/folder drop and Restart Manager owner investigation, with explicit
+  scan limits and identity-safe navigation to existing process controls.
+- Visual process rule editor, action/threshold controls, pure-engine simulation
+  and reviewed Work/Game/Battery policy profiles.
+- First-run guide, keyboard reference, opt-in global show/hide shortcut, window
+  repaint intervals and Mbps selection for device charts.
+
 ### Changed
 
 - Refine all desktop views through shared graphite/light surfaces, raised page

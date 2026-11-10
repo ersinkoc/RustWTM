@@ -375,6 +375,18 @@ pub struct App {
 }
 
 struct UiState {
+    numeric_tray: crate::numeric_tray::Preferences,
+    experience: crate::experience::View,
+    rules: crate::rules::View,
+    governor_rules: bool,
+    incidents: crate::incidents::View,
+    history_incidents: bool,
+    packages: crate::packages::View,
+    applications_page: u8,
+    file_locks: crate::file_locks::View,
+    disks_locks: bool,
+    devices: crate::devices::View,
+    hardware_devices: bool,
     installed_apps: crate::installed_apps::View,
     quick_navigation: QuickNavigation,
     charts: crate::charts::State,
@@ -479,6 +491,7 @@ impl App {
             ));
         }
         let mut state = UiState::restored(cc.storage);
+        state.experience.guide = first_run && !background;
         if let Some(error) = &startup_error {
             backend.data().message = Some((
                 EventLevel::Warn,
@@ -508,6 +521,8 @@ const PREFS_KEY: &str = "prefs";
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct Prefs {
+    numeric_tray: crate::numeric_tray::Preferences,
+    experience: crate::experience::Preferences,
     resource_strip: bool,
     display: crate::preferences::Display,
     inspector_mode: crate::workspace_inspector::Mode,
@@ -545,6 +560,8 @@ impl UiState {
     fn prefs(&self) -> Prefs {
         let p = &self.processes;
         Prefs {
+            numeric_tray: self.numeric_tray.clone(),
+            experience: self.experience.prefs,
             resource_strip: self.resource_strip,
             display: self.display,
             inspector_mode: self.inspector_mode,
@@ -582,6 +599,8 @@ impl UiState {
     }
 
     fn apply(&mut self, prefs: Prefs) {
+        self.numeric_tray = prefs.numeric_tray;
+        self.experience.prefs = prefs.experience;
         self.resource_strip = prefs.resource_strip;
         self.display = prefs.display;
         self.display.scale = self.display.scale.clamp(75, 150);
@@ -614,6 +633,18 @@ impl UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            numeric_tray: crate::numeric_tray::Preferences::default(),
+            experience: crate::experience::View::default(),
+            file_locks: crate::file_locks::View::default(),
+            rules: crate::rules::View::default(),
+            governor_rules: false,
+            incidents: crate::incidents::View::default(),
+            history_incidents: false,
+            packages: crate::packages::View::default(),
+            applications_page: 0,
+            disks_locks: false,
+            devices: crate::devices::View::default(),
+            hardware_devices: false,
             installed_apps: crate::installed_apps::View::default(),
             quick_navigation: QuickNavigation::default(),
             charts: crate::charts::State::default(),
@@ -682,6 +713,61 @@ fn level_color(ui: &Ui, level: EventLevel) -> Color32 {
 const COMPACT_HEIGHT: f32 = 640.0;
 
 impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // eframe calls logic while hidden, without drawing an egui pass. Tray
+        // updates and temperature refreshes must not depend on App::ui running.
+        let _language = crate::i18n::scope(self.state.language);
+        self.state
+            .experience
+            .apply(ctx, self.backend.window.clone());
+        let Some(tray) = self.tray.as_mut() else {
+            crate::numeric_tray::publish_interval(
+                ctx,
+                &crate::numeric_tray::Preferences::default(),
+            );
+            return;
+        };
+        crate::numeric_tray::publish_interval(ctx, &self.state.numeric_tray);
+        let interval = crate::numeric_tray::background_interval(ctx).unwrap_or_else(|| {
+            crate::experience::cadence(
+                ctx,
+                self.backend
+                    .window
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
+        });
+        ctx.request_repaint_after(Duration::from_secs(interval));
+        tray.localize();
+        let data = self.backend.data();
+        let readings = crate::numeric_tray::readings(
+            &data,
+            &self.state.numeric_tray,
+            Instant::now(),
+            wtm_core::hardware::unix_ms(),
+        );
+        if let (Some(cpu), Some(memory)) = (readings[0].value, readings[1].value) {
+            tray.set_tooltip(crate::i18n::format(
+                "RustWTM - CPU {0}%, memory {1}%",
+                &[cpu.to_string(), memory.to_string()],
+            ));
+            tray.set_load(f32::from(cpu));
+        } else {
+            tray.set_tooltip(format!("RustWTM · {}", crate::i18n::tr("Unavailable")));
+            tray.clear_load();
+        }
+        tray.set_numbers(ctx, &self.state.numeric_tray, readings);
+        drop(data);
+        if tray.temperature_active()
+            && self
+                .state
+                .last_load
+                .get(&Panel::Sensors)
+                .is_none_or(|at| at.elapsed() >= Duration::from_secs(2))
+        {
+            self.state.last_load.insert(Panel::Sensors, Instant::now());
+            self.backend.send(UiCommand::Load(Panel::Sensors));
+        }
+    }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, PREFS_KEY, &self.state.prefs());
     }
@@ -704,7 +790,10 @@ impl eframe::App for App {
             ctx.request_repaint();
         }
         // Freshness must age even if the worker is blocked or stops repainting.
-        ctx.request_repaint_after(Duration::from_secs(1));
+        ctx.request_repaint_after(Duration::from_secs(crate::experience::cadence(
+            &ctx,
+            backend.window.load(std::sync::atomic::Ordering::Relaxed),
+        )));
         if let Some(tray) = tray.as_mut() {
             tray.localize();
         }
@@ -732,20 +821,15 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
-        if let (Some(tray), Some(s)) = (tray.as_mut(), &data.snapshot) {
-            let s = &s.system;
-            let memory = s.memory_used() as f64 / s.memory_total.max(1) as f64 * 100.0;
-            tray.set_tooltip({
-                let __wtm_i18n_0 = &(s.cpu_percent);
-                crate::i18n::format(
-                    "RustWTM - CPU {0}%, memory {1}%",
-                    &[format!("{:.0}", __wtm_i18n_0), format!("{:.0}", memory)],
-                )
-            });
-            tray.set_load(s.cpu_percent);
-        }
         let mut intents = Vec::new();
         let mut service_cmds: Vec<UiCommand> = Vec::new();
+        if let Some(path) =
+            ctx.input(|i| i.raw.dropped_files.first().map(|f| f.path().to_path_buf()))
+        {
+            state.tab = Tab::Disks;
+            state.disks_locks = true;
+            state.file_locks.dropped(&path, &ctx);
+        }
 
         if state.check_updates
             && state
@@ -1014,7 +1098,7 @@ impl eframe::App for App {
                 }
                 let scroll_page = match state.tab {
                     Tab::Settings => state.config.page.scrolls(),
-                    Tab::Disks => !state.disks.analysis_open(),
+                    Tab::Disks => state.disks_locks || !state.disks.analysis_open(),
                     _ => matches!(
                         state.tab,
                         Tab::Overview
@@ -1031,9 +1115,54 @@ impl eframe::App for App {
                 let settings_layout =
                     state.tab == Tab::Settings && state.config.page != crate::settings::Page::File;
                 let mut content = |ui: &mut Ui| match state.tab {
-                    Tab::Hardware => crate::inventory::specifications(ui),
+                    Tab::Hardware => {
+                        ui.horizontal_wrapped(|ui| {
+                            crate::theme::choice(
+                                ui,
+                                &mut state.hardware_devices,
+                                false,
+                                crate::i18n::tr("Specifications"),
+                            );
+                            crate::theme::choice(
+                                ui,
+                                &mut state.hardware_devices,
+                                true,
+                                crate::i18n::tr("Devices and health"),
+                            );
+                        });
+                        if state.hardware_devices {
+                            state.devices.show(ui);
+                        } else {
+                            crate::inventory::specifications(ui);
+                        }
+                    }
                     Tab::InstalledApps => {
-                        if state.installed_apps.show(ui) {
+                        ui.horizontal_wrapped(|ui| {
+                            crate::theme::choice(
+                                ui,
+                                &mut state.applications_page,
+                                0,
+                                crate::i18n::tr("Desktop apps"),
+                            );
+                            crate::theme::choice(
+                                ui,
+                                &mut state.applications_page,
+                                1,
+                                crate::i18n::tr("Store apps"),
+                            );
+                            crate::theme::choice(
+                                ui,
+                                &mut state.applications_page,
+                                2,
+                                crate::i18n::tr("Package updates"),
+                            );
+                        });
+                        let settings = if state.applications_page == 0 {
+                            state.installed_apps.show(ui)
+                        } else {
+                            state.packages.show(ui, state.applications_page == 1)
+                        };
+                        if settings {
                             service_cmds.push(UiCommand::Run {
                                 line: "ms-settings:appsfeatures".into(),
                                 elevated: false,
@@ -1068,22 +1197,86 @@ impl eframe::App for App {
                         &mut state.charts,
                         &mut state.performance,
                     ),
-                    Tab::Disks => crate::disks_tab::disks_tab(ui, &data, &mut state.disks),
+                    Tab::Disks => {
+                        ui.horizontal_wrapped(|ui| {
+                            crate::theme::choice(
+                                ui,
+                                &mut state.disks_locks,
+                                false,
+                                crate::i18n::tr("Disk usage"),
+                            );
+                            crate::theme::choice(
+                                ui,
+                                &mut state.disks_locks,
+                                true,
+                                crate::i18n::tr("File owners"),
+                            );
+                        });
+                        if state.disks_locks {
+                            if let Some(process) = state.file_locks.show(ui) {
+                                intents.push(Intent::Reveal(process));
+                            }
+                        } else {
+                            crate::disks_tab::disks_tab(ui, &data, &mut state.disks);
+                        }
+                    }
                     Tab::Sensors => {
                         service_cmds.extend(crate::sensors::sensors(ui, &data, &mut state.sensors))
                     }
-                    Tab::Governor => governor(ui, &data),
+                    Tab::Governor => {
+                        ui.horizontal_wrapped(|ui| {
+                            crate::theme::choice(
+                                ui,
+                                &mut state.governor_rules,
+                                false,
+                                crate::i18n::tr("Protection status"),
+                            );
+                            crate::theme::choice(
+                                ui,
+                                &mut state.governor_rules,
+                                true,
+                                crate::i18n::tr("Rules and profiles"),
+                            );
+                        });
+                        if state.governor_rules {
+                            if let Some(cmd) = state.rules.show(ui, &data) {
+                                service_cmds.push(cmd);
+                            }
+                        } else {
+                            governor(ui, &data);
+                        }
+                    }
                     Tab::Containers => {
                         crate::containers::show(ui, &data.docker, &mut state.containers)
                     }
                     Tab::Events => events(ui, &data, &mut state.events),
                     Tab::History => {
-                        if views::app_history(ui, &data, &mut state.history) {
-                            state.history_dirty = true;
-                        }
-                        if let Some((app, cores)) = state.history.limit_request.take() {
-                            state.limits.prefill_cores(&app, cores);
-                            state.tab = Tab::Limits;
+                        ui.horizontal_wrapped(|ui| {
+                            crate::theme::choice(
+                                ui,
+                                &mut state.history_incidents,
+                                false,
+                                crate::i18n::tr("Application trends"),
+                            );
+                            crate::theme::choice(
+                                ui,
+                                &mut state.history_incidents,
+                                true,
+                                crate::i18n::tr("Recorded incidents"),
+                            );
+                        });
+                        if state.history_incidents {
+                            if let Some(process) = state.incidents.show(ui, &data) {
+                                intents.push(Intent::Reveal(process));
+                            }
+                        } else {
+                            if views::app_history(ui, &data, &mut state.history) {
+                                state.history_dirty = true;
+                            }
+                            if let Some((app, cores)) = state.history.limit_request.take() {
+                                state.limits.prefill_cores(&app, cores);
+                                state.tab = Tab::Limits;
+                            }
                         }
                     }
                     Tab::Startup => {
@@ -1152,6 +1345,9 @@ impl eframe::App for App {
                         crate::settings::Page::Window => {
                             if let Some(command) = window_settings(ui, state, &data) {
                                 backend.send(command);
+                            }
+                            if crate::numeric_tray::settings(ui, &mut state.numeric_tray, &data) {
+                                state.tab = Tab::Sensors;
                             }
                         }
                         crate::settings::Page::Telegram => {
@@ -1238,6 +1434,29 @@ impl eframe::App for App {
             state.limit_labels = Some((labels_key, managed));
         }
 
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F1)) {
+            state.experience.help = true;
+        }
+        if let Some(destination) = state.experience.overlays(&ctx) {
+            use crate::experience::Destination;
+            match destination {
+                Destination::Hardware => {
+                    state.tab = Tab::Hardware;
+                    state.hardware_devices = true;
+                }
+                Destination::Applications => {
+                    state.tab = Tab::InstalledApps;
+                }
+                Destination::Rules => {
+                    state.tab = Tab::Governor;
+                    state.governor_rules = true;
+                }
+                Destination::History => {
+                    state.tab = Tab::History;
+                    state.history_incidents = true;
+                }
+            }
+        }
         quick_navigation(&ctx, state);
         state.installed_apps.dialog(&ctx);
         if let Some((target, command)) = state.confirm.clone() {
@@ -1672,6 +1891,9 @@ fn language_settings(
             match save(state.language) {
                 Ok(()) => {
                     state.language_error = None;
+                    // The frame still runs in the old language's scope.
+                    let _language = crate::i18n::scope(state.language);
+                    crate::theme::install_fonts(ui.ctx());
                     ui.ctx().request_repaint();
                 }
                 Err(e) => {
@@ -1887,6 +2109,7 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
             crate::theme::colored(ui, BAD, crate::i18n::message(error));
         }
     });
+    state.experience.settings(ui);
     command
 }
 
@@ -1910,6 +2133,7 @@ fn page_header(ui: &mut Ui, tab: Tab, data: &Data, now: Instant) {
             .fill(crate::theme::card_fill(ui))
             .inner_margin(crate::theme::page_padding(ui))
             .show(ui, |ui| {
+                ui.set_width(ui.available_width());
                 ui.heading(RichText::new(tab.label()).size(25.0).strong());
                 if ui.ctx().content_rect().height() >= COMPACT_HEIGHT {
                     ui.weak(tab.subtitle());
@@ -3974,13 +4198,7 @@ mod tests {
     }
     #[test]
     fn quick_navigation_localized_results_fit_and_open_by_click() {
-        for language in [
-            crate::i18n::Language::English,
-            crate::i18n::Language::Turkish,
-            crate::i18n::Language::German,
-            crate::i18n::Language::French,
-            crate::i18n::Language::Spanish,
-        ] {
+        for language in crate::i18n::Language::TRANSLATED {
             let _language = crate::i18n::scope(language);
             for theme in [egui::Theme::Dark, egui::Theme::Light] {
                 let mut h = Harness::builder()
@@ -4561,13 +4779,7 @@ mod tests {
 
     #[test]
     fn status_actions_stay_inside_a_compact_window_with_a_long_message() {
-        for language in [
-            crate::i18n::Language::English,
-            crate::i18n::Language::German,
-            crate::i18n::Language::Turkish,
-            crate::i18n::Language::French,
-            crate::i18n::Language::Spanish,
-        ] {
+        for language in crate::i18n::Language::TRANSLATED {
             let _language = crate::i18n::scope(language);
             let mut d = data();
             d.elevated = false;
@@ -7474,30 +7686,27 @@ mod tests {
                 ..UiState::default()
             },
         );
-        h.get_by_role(egui::accesskit::Role::ComboBox).click();
-        h.run();
-        h.get_by_label("Türkçe").click();
-        h.run();
+        // The list scrolls: bring each choice into view before clicking it.
+        let choose = |h: &mut Harness<'_, UiState>, name: &str| {
+            h.get_by_role(egui::accesskit::Role::ComboBox).click();
+            h.run();
+            h.get_by_label(name).scroll_to_me();
+            h.run();
+            h.get_by_label(name).click();
+            h.run();
+        };
+        choose(&mut h, "Türkçe");
         assert_eq!(h.state().language, Language::Turkish);
         assert!(h.query_by_label("Dil").is_some());
-        h.get_by_role(egui::accesskit::Role::ComboBox).click();
-        h.run();
-        h.get_by_label("Français").click();
-        h.run();
+        choose(&mut h, "Français");
         assert_eq!(h.state().language, Language::Turkish);
         assert!(h.query_by_label("Dil kaydedilemedi: denied").is_some());
     }
 
     #[test]
-    fn every_page_renders_in_all_five_languages() {
+    fn every_page_renders_in_every_language() {
         use crate::i18n::{Language, scope};
-        for language in [
-            Language::English,
-            Language::Turkish,
-            Language::German,
-            Language::French,
-            Language::Spanish,
-        ] {
+        for language in Language::TRANSLATED {
             let _language = scope(language);
             let mut d = data();
             d.hardware = crate::sensors::fixture();
@@ -7526,11 +7735,13 @@ mod tests {
                     h.query_by_label(tab.subtitle()).is_some(),
                     "{language:?} {tab:?}"
                 );
+                // The field may start the translation; match its longest literal part.
                 let received = crate::i18n::tr("Data measured {0}s ago");
+                let literal = received.split("{0}").max_by_key(|p| p.len()).unwrap();
                 assert_eq!(
-                    h.query_by_label_contains(received.split("{0}").next().unwrap())
-                        .is_some(),
-                    !matches!(tab, Tab::Hardware | Tab::InstalledApps)
+                    h.query_by_label_contains(literal).is_some(),
+                    !matches!(tab, Tab::Hardware | Tab::InstalledApps),
+                    "{language:?} {tab:?}"
                 );
             }
             h.state_mut().backend.data().sample_error =
@@ -7541,6 +7752,134 @@ mod tests {
                     .is_some()
             );
             assert!((200.0..=280.0).contains(&nav_width(&h.ctx)));
+        }
+    }
+
+    /// New product workspaces use synthetic data and never start a native query.
+    #[test]
+    fn render_product_expansion_review() {
+        // Headless coverage remains complete. Keep native driver allocations
+        // bounded on the developer desktop; full GPU matrices belong in a VM.
+        #[cfg(feature = "visual-tests")]
+        let capture_limit = if std::env::var("RUSTWTM_VISUAL_VM").as_deref() == Ok("1") {
+            usize::MAX
+        } else {
+            4
+        };
+        #[cfg(feature = "visual-tests")]
+        let mut captures = 0;
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/product-expansion-review");
+        std::fs::create_dir_all(&root).unwrap();
+        let only = std::env::var("WTM_EXPANSION_LANGS").ok();
+        for language in crate::i18n::Language::TRANSLATED {
+            let code = language.code();
+            let wanted = only
+                .as_ref()
+                .map_or(["en", "tr", "de", "fr", "es"].contains(&code), |o| {
+                    o.split(',').any(|c| c == code)
+                });
+            if !wanted {
+                continue;
+            }
+            let _language = crate::i18n::scope(language);
+            for (tone, theme) in [("light", egui::Theme::Light), ("dark", egui::Theme::Dark)] {
+                for (width, size) in [("wide", [1440.0, 1000.0]), ("compact", [820.0, 640.0])] {
+                    for page in [
+                        "disk",
+                        "gpu",
+                        "network",
+                        "battery",
+                        "store",
+                        "updates",
+                        "update-review",
+                        "incidents",
+                        "file-owners",
+                        "rules",
+                        "welcome",
+                        "shortcuts",
+                    ] {
+                        #[cfg(feature = "visual-tests")]
+                        {
+                            if captures >= capture_limit {
+                                println!(
+                                    "Local GPU review bounded at {capture_limit} captures. Run the complete matrix only in a disposable VM with RUSTWTM_VISUAL_VM=1; regular headless tests retain full coverage."
+                                );
+                                return;
+                            }
+                            captures += 1;
+                        }
+                        let mut d = data();
+                        d.config = Some(Ok(("synthetic fixture".into(), String::new())));
+                        let (backend, _commands) = Backend::offline(d);
+                        let mut state = UiState {
+                            language,
+                            check_updates: false,
+                            ..Default::default()
+                        };
+                        match page {
+                            "disk" | "gpu" | "network" | "battery" => {
+                                state.tab = Tab::Hardware;
+                                state.hardware_devices = true;
+                                state.devices = crate::devices::View::fixture_for(match page {
+                                    "disk" => "Disk",
+                                    "gpu" => "GPU",
+                                    "network" => "Network",
+                                    _ => "Battery",
+                                });
+                            }
+                            "store" | "updates" | "update-review" => {
+                                state.tab = Tab::InstalledApps;
+                                state.applications_page = if page == "store" { 1 } else { 2 };
+                                state.packages =
+                                    crate::packages::View::fixture(page == "update-review");
+                            }
+                            "incidents" => {
+                                state.tab = Tab::History;
+                                state.history_incidents = true;
+                                state.incidents = crate::incidents::View::fixture();
+                            }
+                            "file-owners" => {
+                                state.tab = Tab::Disks;
+                                state.disks_locks = true;
+                                state.file_locks = crate::file_locks::View::fixture();
+                            }
+                            "rules" => {
+                                state.tab = Tab::Governor;
+                                state.governor_rules = true;
+                                state.rules = crate::rules::View::fixture();
+                            }
+                            "welcome" => state.experience.guide = true,
+                            "shortcuts" => state.experience.help = true,
+                            _ => unreachable!(),
+                        }
+                        let mut h = Harness::builder()
+                            .allow_missing_glyphs()
+                            .with_size(size)
+                            .with_theme(theme)
+                            .build_eframe(|cc| {
+                                crate::theme::install_fonts(&cc.egui_ctx);
+                                crate::theme::apply(&cc.egui_ctx);
+                                cc.egui_ctx.set_theme(theme);
+                                App {
+                                    backend,
+                                    state,
+                                    tray: None,
+                                    frames: Default::default(),
+                                }
+                            });
+                        h.run_steps(3);
+                        let path = root.join(format!("{code}-{tone}-{width}-{page}.png"));
+                        #[cfg(feature = "visual-tests")]
+                        {
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
+                        #[cfg(not(feature = "visual-tests"))]
+                        let _ = path;
+                    }
+                }
+            }
         }
     }
 
@@ -7573,17 +7912,14 @@ mod tests {
         };
         // `WTM_REVIEW_LANGS=en,de` renders only those languages.
         let only = std::env::var("WTM_REVIEW_LANGS").ok();
-        for (code, language) in [
-            ("en", crate::i18n::Language::English),
-            ("tr", crate::i18n::Language::Turkish),
-            ("de", crate::i18n::Language::German),
-            ("fr", crate::i18n::Language::French),
-            ("es", crate::i18n::Language::Spanish),
-        ] {
-            if only
+        for language in crate::i18n::Language::TRANSLATED {
+            let code = language.code();
+            let wanted = only
                 .as_ref()
-                .is_some_and(|o| !o.split(',').any(|c| c == code))
-            {
+                .map_or(["en", "tr", "de", "fr", "es"].contains(&code), |o| {
+                    o.split(',').any(|c| c == code)
+                });
+            if !wanted {
                 continue;
             }
             let _language = crate::i18n::scope(language);
@@ -7749,6 +8085,9 @@ mod tests {
                             .with_theme(theme)
                             .build_eframe(|cc| {
                                 crate::theme::install_fonts(&cc.egui_ctx);
+                                cc.egui_ctx.add_font_provider(std::sync::Arc::new(
+                                    egui_system_font_provider::SystemFontProvider::new(),
+                                ));
                                 crate::theme::apply(&cc.egui_ctx);
                                 cc.egui_ctx.set_theme(theme);
                                 App {
@@ -8452,13 +8791,7 @@ mod tests {
     #[test]
     fn monitoring_health_shows_waiting_age_failure_and_recovery_in_all_languages() {
         use crate::i18n::{Language, scope};
-        for language in [
-            Language::English,
-            Language::Turkish,
-            Language::German,
-            Language::French,
-            Language::Spanish,
-        ] {
+        for language in Language::TRANSLATED {
             let now = Instant::now();
             let mut h = Harness::builder()
                 .allow_missing_glyphs()

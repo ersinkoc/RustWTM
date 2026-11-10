@@ -105,6 +105,10 @@ pub enum Request {
         local: std::net::SocketAddr,
         remote: std::net::SocketAddr,
     },
+    /// Additive read-only query; older servers may decline this request.
+    Incidents {
+        hours: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -159,6 +163,7 @@ pub enum Response {
         files: Vec<wtm_core::FileIo>,
         seconds: f64,
     },
+    Incidents(wtm_core::incidents::Replay),
 }
 
 /// System-wide load at one sample, for history graphs.

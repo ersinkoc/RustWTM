@@ -419,6 +419,11 @@ pub fn is_visible(raw: isize) -> bool {
     unsafe { IsWindowVisible(hwnd(raw)).as_bool() }
 }
 
+pub fn is_minimized(raw: isize) -> bool {
+    // SAFETY: borrowed window handle, same contract as is_visible.
+    unsafe { IsIconic(hwnd(raw)).as_bool() }
+}
+
 #[cfg(test)]
 mod tests {
 

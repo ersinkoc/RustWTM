@@ -111,7 +111,7 @@ impl Preset {
     }
 }
 
-fn ladder_item(a: &Action) -> toml_edit::Value {
+pub(crate) fn ladder_item(a: &Action) -> toml_edit::Value {
     let mut t = toml_edit::InlineTable::new();
     match *a {
         Action::EcoQos => return "eco_qos".into(),

@@ -529,6 +529,12 @@ pub fn run(paths: &Paths, tx: Sender<EngineMsg>, rx: &Receiver<EngineMsg>) -> an
             if let Err(e) = h.record(&snap, unix) {
                 warn!(error = %e, "history write failed");
             }
+            let events = shared.events.after(h.last_incident_event());
+            if !events.is_empty()
+                && let Err(e) = h.record_actions(&events)
+            {
+                warn!(error=%e,"incident action write failed");
+            }
             if Instant::now() >= next_prune {
                 next_prune = Instant::now() + Duration::from_secs(3600);
                 let _ = h.prune(config.history_days, unix);

@@ -1,9 +1,32 @@
 # Language support
 
-Version 0.14.0 adds English, Turkish, German, French and Spanish
-to the GUI and desktop notifications. Select **Settings > This window > Language**.
-The choice applies on the next frame and is saved per Windows user. The Windows
-language option uses the user's UI language, with English for unsupported languages.
+The GUI and desktop notifications are available in 27 languages. Select
+**Settings > This window > Language**. The choice applies on the next frame and is
+saved per Windows user. The Windows language option uses the user's UI language,
+with English for unsupported languages.
+
+| Script | Languages |
+| --- | --- |
+| Latin | English, Bahasa Indonesia, Deutsch, Español, Filipino, Français, Italiano, Kiswahili, Nederlands, Polski, Português (Brasil), Tiếng Việt, Türkçe |
+| Cyrillic | Русский, Українська |
+| Indic | हिन्दी, मराठी, বাংলা, ਪੰਜਾਬੀ (Gurmukhi), ગુજરાતી, தமிழ், తెలుగు, ಕನ್ನಡ |
+| East Asian | 简体中文, 繁體中文, 日本語, 한국어 |
+
+Windows locale tags map as follows: `zh-TW`, `zh-HK`, `zh-MO` and `zh-Hant` use
+Traditional Chinese, other `zh` tags use Simplified Chinese, every `pt` region uses
+Brazilian Portuguese, `tl` and `fil` use Filipino, the legacy `in` uses Indonesian,
+and Shahmukhi Punjabi (`pa-Arab`, `pa-PK`) uses English.
+
+Right-to-left languages (Arabic, Urdu, Persian, Hebrew) are not offered. egui 0.37
+shapes text but has no bidirectional layout, so those scripts would be shown in the
+wrong order next to numbers and program names.
+
+Text is drawn with Windows fonts; none are bundled. Segoe UI covers Latin, Cyrillic
+and Vietnamese. Indic scripts come from the on-demand system font fallback (Nirmala
+UI). For Chinese, Japanese and Korean the GUI loads the matching Windows font
+(Microsoft YaHei, Microsoft JhengHei, Yu Gothic or Malgun Gothic) so shared Han
+characters take the forms of the selected language, not the Windows locale's. Only
+that one font is loaded, and it is replaced when the language changes.
 
 The saved choice is `HKCU\Software\RustWTM\Language` (a JSON-encoded language
 enum). Both normal launches and blocked-program notification launches read it.
@@ -15,16 +38,21 @@ CLI and Telegram localization is a later phase.
 
 ## Maintaining translations
 
-`crates/wtm-gui/locales/messages.json` is embedded in the executable. Each English
-key has `tr`, `de`, `fr` and `es` translations; English is the fallback. Plain labels
+`crates/wtm-gui/locales/messages.json` is embedded in the executable. It defines
+every English key and holds the `tr`, `de`, `fr` and `es` translations. Each other
+language has a flat `{ "English key": "translation" }` file in the same folder
+(`zh-Hans.json`, `ru.json`, `pt-BR.json` and so on); those files are embedded too and
+parsed only when that language is first shown. English is the fallback. Plain labels
 use `i18n::tr`, and variable text uses numbered fields with `i18n::format`.
 Keep numbers, names and other values separate from the translated template.
 Inserted values are processed once, so braces in a program name remain literal.
 Keep internal preset names and setting keys unchanged and translate their display labels.
 
-`cargo test --workspace` checks translation coverage, nonempty translations,
-matching numbered fields, locale fallback, preference persistence, notifications
-and every page in all five languages. These checks run in the existing CI.
+A new key must be added to `messages.json` and to every per-language file.
+`cargo test --workspace` checks translation coverage, that each per-language file has
+exactly the catalog's keys, nonempty translations, matching numbered fields and edge
+spacing, locale fallback and tag mapping, preference persistence, notifications and
+every page in every language. These checks run in the existing CI.
 
 For GPU visual review, run:
 
@@ -32,8 +60,10 @@ For GPU visual review, run:
 cargo test -p wtm-gui --features visual-tests render_release_review -- --nocapture
 ```
 
-The one serialized GPU test writes 28 images per language (140 total) to
-`target/visual-review/locales/{en,tr,de,fr,es}`. The captures use synthetic data
+The one serialized GPU test writes 28 images per language to
+`target/visual-review/locales/<code>`. By default it renders `en`, `tr`, `de`, `fr`
+and `es`; set `WTM_REVIEW_LANGS` to a comma-separated list of codes (for example
+`ja,zh-Hans,hi,ru`) to review others. The captures use synthetic data
 and include current and stale monitoring states at both window sizes. They do
 not apply hardware controls or alter the Windows power plan.
 

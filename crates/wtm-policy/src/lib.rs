@@ -20,6 +20,7 @@ mod limits;
 mod memory_guard;
 mod presets;
 mod reserve;
+pub mod rule_editor;
 mod rules;
 mod swarm;
 mod telegram;

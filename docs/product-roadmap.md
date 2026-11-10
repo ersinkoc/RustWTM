@@ -2,7 +2,10 @@
 
 0.28.0 adds [hardware specifications and installed applications](inventory-app-management.md),
 including confirmed uninstaller handoff and the [repository-transfer bridge](repository-migration.md).
-Package-manager discovery and updates are next; see the [release scope](0.28.0-review.md).
+The unreleased [product expansion](product-expansion.md) implements device
+workspaces/health, Store/WinGet management, bounded incident replay, file owners,
+visual policies, onboarding and numeric tray icons. See that document for exact
+validation and hardware/VM limits, separate from the [0.28.0 scope](0.28.0-review.md).
 
 Baseline: 0.25.0, reviewed on 2026-11-04. An implementation or a CI definition
 is not equivalent to hosted validation or a published feature. Record those
@@ -11,7 +14,8 @@ outcomes separately.
 The [hardware product plan](hardware-product-plan.md), reviewed after 0.27.2,
 sets the next delivery priority: device identity, disk health, battery and
 device-specific graphs, paired with consistent interaction and visual review.
-Its stage 0 is local work; the major hardware stages remain proposed.
+Its original stages remain acceptance guidance; current implementation status
+is recorded in the product expansion rather than inferred from this baseline.
 
 The [desktop experience plan](desktop-experience-plan.md), reviewed against
 0.26.2 on 2026-11-09, expands the UI and diagnosis backlog into implementation
@@ -29,8 +33,8 @@ milestone scope stays proposed.
 | P0 | Upgrade durability | Previous release -> candidate, repair, downgrade rejection, config byte retention, SQLite record retention, service IPC and uninstall retention | Dedicated disposable-VM job defined; never run on developer hardware |
 | P1 | Visual CI | Gauge gallery at four DPI scales; Overview/Performance/Containers in five languages, both themes and sizes; screenshots uploaded | GPU rendering job defined; image artifacts aid review, not automatic pixel-diff acceptance |
 | P1 | Interactive charts | Explicit time ranges, synchronized cursor, zoom/reset, real timestamps and event markers; correct missing/stale samples; keyboard access | Initial bounded timeline and focused resource views with CPU tier/GPU engine filters implemented locally; [timeline](performance-timeline.md), [resource views](performance-resources.md). Physical device selection/history, further axis controls and persisted aggregates remain pending |
-| P1 | Guided first use | Explain service/elevation/capabilities, monitoring vs protection, safe profile choices and what will change before enabling controls | Existing settings/protection levels are available; dedicated onboarding is not implemented |
-| P1 | Unified diagnosis | Correlate process, system, sensor, governor and container events by timestamp; explain source and uncertainty; navigate to existing details | Existing diagnostics and events are separate surfaces; a shared incident timeline is not implemented |
+| P1 | Guided first use | Explain service/elevation/capabilities, monitoring vs protection, safe profile choices and what will change before enabling controls | Unreleased welcome guide, shortcut reference and reviewed policy profiles implemented |
+| P1 | Unified diagnosis | Correlate process, system, sensor, governor and container events by timestamp; explain source and uncertainty; navigate to existing details | Unreleased persistent system/contributor replay and protection-event correlation implemented; sensor/container unification remains future work |
 | P2 | Personal dashboard | Persist card visibility/order with a default/reset path; responsive layout, keyboard operation and migration tests | Overview card layout remains fixed |
 | P2 | Docker persistence and alerts | Bounded retention, container identity across restart/removal, duration-based thresholds and recovery notices; distinguish Docker CPU conventions | Current read-only snapshots are bounded window memory; no persistent container history or alerts |
 | P2 | Support bundle | User-selected export with version/capability status, recent errors and redaction; exclude credentials, private command lines and container logs by default | No one-click support bundle |

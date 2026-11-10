@@ -1,5 +1,6 @@
 //! TCP/UDP endpoints with their owning process.
 
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -9,7 +10,8 @@ use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, GetExtendedUdpTable, MIB_TCP_STATE_DELETE_TCB, MIB_TCP6ROW_OWNER_PID,
     MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_LH, MIB_TCPROW_LH_0, MIB_TCPROW_OWNER_PID,
     MIB_TCPTABLE_OWNER_PID, MIB_UDP6ROW_OWNER_PID, MIB_UDP6TABLE_OWNER_PID, MIB_UDPROW_OWNER_PID,
-    MIB_UDPTABLE_OWNER_PID, SetTcpEntry, TCP_TABLE_OWNER_PID_ALL, UDP_TABLE_OWNER_PID,
+    MIB_UDPTABLE_OWNER_PID, SetTcpEntry, TCP_TABLE_OWNER_PID_ALL, TCP_TABLE_OWNER_PID_LISTENER,
+    UDP_TABLE_OWNER_PID,
 };
 
 use crate::Result;
@@ -91,7 +93,37 @@ fn scoped_v6(address: [u8; 16], raw_port: u32, scope_id: u32) -> SocketAddr {
 }
 
 /// Bytes the TCPv4, TCPv6, UDPv4 and UDPv6 tables needed last time.
-static SIZE_HINTS: [AtomicUsize; 4] = [const { AtomicUsize::new(0) }; 4];
+static SIZE_HINTS: [AtomicUsize; 6] = [const { AtomicUsize::new(0) }; 6];
+const MAX_TABLE_BYTES: usize = 16 * 1024 * 1024;
+const TABLE_ATTEMPTS: usize = 4;
+type TcpEndpoint = (SocketAddr, SocketAddr, u32);
+fn key4(r: &MIB_TCPROW_OWNER_PID) -> TcpEndpoint {
+    (
+        SocketAddr::new(v4(r.dwLocalAddr), port(r.dwLocalPort)),
+        SocketAddr::new(v4(r.dwRemoteAddr), port(r.dwRemotePort)),
+        r.dwOwningPid,
+    )
+}
+fn key6(r: &MIB_TCP6ROW_OWNER_PID) -> TcpEndpoint {
+    (
+        scoped_v6(r.ucLocalAddr, r.dwLocalPort, r.dwLocalScopeId),
+        scoped_v6(r.ucRemoteAddr, r.dwRemotePort, r.dwRemoteScopeId),
+        r.dwOwningPid,
+    )
+}
+fn confirmed_state(raw: u32, key: &TcpEndpoint, listeners: &HashSet<TcpEndpoint>) -> TcpState {
+    // Some hosts report raw state zero even for a real listener. Only the
+    // documented LISTENER table can establish that role; never guess from zero
+    // or from an empty remote address. Keep every unconfirmed value unchanged.
+    if raw == 0 && listeners.contains(key) {
+        TcpState::Listen
+    } else {
+        TcpState::from_raw(raw)
+    }
+}
+fn table_limit() -> crate::Error {
+    windows::core::Error::from(ERROR_INSUFFICIENT_BUFFER.to_hresult()).into()
+}
 
 /// Calls a `GetExtended*Table` function until the buffer is large enough.
 ///
@@ -102,9 +134,13 @@ fn fetch(
     hint: &AtomicUsize,
     mut call: impl FnMut(Option<*mut core::ffi::c_void>, &mut u32) -> u32,
 ) -> Result<Vec<u64>> {
-    let mut buf: Vec<u64> = vec![0; hint.load(Ordering::Relaxed).div_ceil(8)];
+    let hinted = hint.load(Ordering::Relaxed);
+    if hinted > MAX_TABLE_BYTES {
+        return Err(table_limit());
+    }
+    let mut buf: Vec<u64> = vec![0; hinted.div_ceil(8)];
     let mut size = (buf.len() * 8) as u32;
-    loop {
+    for _ in 0..TABLE_ATTEMPTS {
         let ptr = (!buf.is_empty()).then(|| buf.as_mut_ptr().cast());
         let rc = WIN32_ERROR(call(ptr, &mut size));
         if rc == NO_ERROR {
@@ -115,9 +151,19 @@ fn fetch(
             return Err(windows::core::Error::from(rc.to_hresult()).into());
         }
         // Tables can grow between calls; leave headroom.
-        buf.resize((size as usize + 4096).div_ceil(8), 0);
+        if size as usize > MAX_TABLE_BYTES {
+            return Err(table_limit());
+        }
+        buf.resize(
+            (size as usize)
+                .saturating_add(4096)
+                .min(MAX_TABLE_BYTES)
+                .div_ceil(8),
+            0,
+        );
         size = (buf.len() * 8) as u32;
     }
+    Err(table_limit())
 }
 
 /// # Safety
@@ -172,10 +218,32 @@ pub fn connections() -> Result<Vec<Connection>> {
         unsafe { GetExtendedTcpTable(p, size, false, AF_INET, TCP_TABLE_OWNER_PID_ALL, 0) }
     })?;
     // SAFETY: filled by GetExtendedTcpTable(AF_INET, OWNER_PID_ALL).
-    for r in unsafe {
+    let tcp4_rows = unsafe {
         rows::<MIB_TCPROW_OWNER_PID>(&tcp4, std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table))
-    } {
-        let state = TcpState::from_raw(r.dwState);
+    };
+    let mut listeners = HashSet::new();
+    if tcp4_rows.iter().any(|r| r.dwState == 0) {
+        // A failed role query leaves the original unknown state visible.
+        if let Ok(table) = fetch(&SIZE_HINTS[4], |p, size| {
+            // SAFETY: p is absent or points to size writable bytes; same
+            // documented row layout as OWNER_PID_ALL, filtered by the OS.
+            unsafe { GetExtendedTcpTable(p, size, false, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0) }
+        }) {
+            // SAFETY: successful IPv4 OWNER_PID_LISTENER query above.
+            listeners.extend(
+                unsafe {
+                    rows::<MIB_TCPROW_OWNER_PID>(
+                        &table,
+                        std::mem::offset_of!(MIB_TCPTABLE_OWNER_PID, table),
+                    )
+                }
+                .iter()
+                .map(key4),
+            );
+        }
+    }
+    for r in tcp4_rows {
+        let state = confirmed_state(r.dwState, &key4(&r), &listeners);
         out.push(Connection {
             protocol: Protocol::Tcp,
             local: SocketAddr::new(v4(r.dwLocalAddr), port(r.dwLocalPort)),
@@ -191,10 +259,32 @@ pub fn connections() -> Result<Vec<Connection>> {
         unsafe { GetExtendedTcpTable(p, size, false, AF_INET6, TCP_TABLE_OWNER_PID_ALL, 0) }
     })?;
     // SAFETY: filled by GetExtendedTcpTable(AF_INET6, OWNER_PID_ALL).
-    for r in unsafe {
+    let tcp6_rows = unsafe {
         rows::<MIB_TCP6ROW_OWNER_PID>(&tcp6, std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table))
-    } {
-        let state = TcpState::from_raw(r.dwState);
+    };
+    listeners.clear();
+    if tcp6_rows.iter().any(|r| r.dwState == 0) {
+        if let Ok(table) = fetch(&SIZE_HINTS[5], |p, size| {
+            // SAFETY: as above, using the IPv6 owner-PID row layout.
+            unsafe {
+                GetExtendedTcpTable(p, size, false, AF_INET6, TCP_TABLE_OWNER_PID_LISTENER, 0)
+            }
+        }) {
+            // SAFETY: successful IPv6 OWNER_PID_LISTENER query above.
+            listeners.extend(
+                unsafe {
+                    rows::<MIB_TCP6ROW_OWNER_PID>(
+                        &table,
+                        std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table),
+                    )
+                }
+                .iter()
+                .map(key6),
+            );
+        }
+    }
+    for r in tcp6_rows {
+        let state = confirmed_state(r.dwState, &key6(&r), &listeners);
         out.push(Connection {
             protocol: Protocol::Tcp,
             local: scoped_v6(r.ucLocalAddr, r.dwLocalPort, r.dwLocalScopeId),
@@ -255,6 +345,75 @@ mod tests {
 
     use super::*;
     use std::net::TcpListener;
+    #[test]
+    fn zero_state_needs_exact_os_listener_confirmation() {
+        let key = (
+            "127.0.0.1:8080".parse().unwrap(),
+            "0.0.0.0:0".parse().unwrap(),
+            100,
+        );
+        let confirmed = HashSet::from([key]);
+        assert_eq!(TcpState::from_raw(0), TcpState::Unknown(0));
+        assert_eq!(confirmed_state(0, &key, &confirmed), TcpState::Listen);
+        assert_eq!(
+            confirmed_state(0, &key, &HashSet::new()),
+            TcpState::Unknown(0)
+        );
+        assert_eq!(
+            confirmed_state(0, &(key.0, key.1, 101), &confirmed),
+            TcpState::Unknown(0)
+        );
+        assert_eq!(
+            confirmed_state(
+                0,
+                &(key.0, "127.0.0.1:9000".parse().unwrap(), 100),
+                &confirmed
+            ),
+            TcpState::Unknown(0)
+        );
+        assert_eq!(confirmed_state(5, &key, &confirmed), TcpState::Established);
+        assert_eq!(confirmed_state(13, &key, &confirmed), TcpState::Unknown(13));
+        let scoped = (
+            "[fe80::1%7]:8080".parse().unwrap(),
+            "[::]:0".parse().unwrap(),
+            100,
+        );
+        assert_eq!(
+            confirmed_state(
+                0,
+                &("[fe80::1%8]:8080".parse().unwrap(), scoped.1, 100),
+                &HashSet::from([scoped])
+            ),
+            TcpState::Unknown(0)
+        );
+    }
+    #[test]
+    fn table_growth_is_bounded_without_allocating_an_advertised_huge_buffer() {
+        let hint = AtomicUsize::new(0);
+        let mut calls = 0;
+        let result = fetch(&hint, |_, size| {
+            calls += 1;
+            *size = u32::MAX;
+            ERROR_INSUFFICIENT_BUFFER.0
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+        assert_eq!(hint.load(Ordering::Relaxed), 0);
+        calls = 0;
+        assert!(
+            fetch(&hint, |_, size| {
+                calls += 1;
+                *size = 16;
+                if calls > TABLE_ATTEMPTS {
+                    0
+                } else {
+                    ERROR_INSUFFICIENT_BUFFER.0
+                }
+            })
+            .is_err()
+        );
+        assert_eq!(calls, TABLE_ATTEMPTS);
+    }
 
     #[test]
     fn finds_own_listening_socket() {

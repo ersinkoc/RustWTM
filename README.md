@@ -49,6 +49,11 @@ usage history.
 
 [Release scope and validation](docs/0.28.0-review.md)
 
+Development beyond 0.28.0 adds device workspaces/health, Store and package-update
+management, persistent incident replay, file-owner investigation and a visual
+rule editor. These changes are **unreleased**; see the [implementation scope and
+limits](docs/product-expansion.md).
+
 - **Hardware specifications:** system and BIOS information, CPU topology/cache/
   reported maximum clock, motherboard, RAM modules, disk firmware and graphics
   identities, with refresh and formatted copy. [Details](docs/inventory-app-management.md).
@@ -193,8 +198,9 @@ stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/r
   launches and optional sign-in startup without storing a password. Settings
   can turn either preference off. Portable copies use the normal UAC prompt;
   automatic privileged startup requires an administrator-protected install.
-- GUI and desktop notifications in English, Türkçe, Deutsch, Français and
-  Español, with immediate language selection and a saved per-user preference.
+- GUI and desktop notifications in 27 languages, including English, 简体中文,
+  繁體中文, हिन्दी, Español, Français, বাংলা, Português, Русский, 日本語, Deutsch,
+  한국어 and Türkçe, with immediate language selection and a saved per-user preference.
   The first launch follows the Windows UI language. See [language support](docs/localization.md).
 - Settings: edit the service's configuration with live validation and a
   one-click switch between dry-run and enforcing.

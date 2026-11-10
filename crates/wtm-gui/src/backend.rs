@@ -644,6 +644,7 @@ impl Worker {
     fn run(&mut self, rx: &Receiver<UiCommand>) {
         self.data().cpu_topology = wtm_core::cpu::topology().ok();
         let mut next_tick = Instant::now();
+        let mut last_periodic_repaint = Instant::now();
         loop {
             match rx.recv_timeout(next_tick.saturating_duration_since(Instant::now())) {
                 Ok(cmd) => {
@@ -659,7 +660,14 @@ impl Worker {
             self.tick();
             self.watch_cpu();
             self.check_exits();
-            self.ctx.request_repaint();
+            let seconds =
+                crate::experience::cadence(&self.ctx, self.window.load(Ordering::Relaxed));
+            let seconds = crate::numeric_tray::background_interval(&self.ctx)
+                .map_or(seconds, |numbers| numbers.min(seconds));
+            if last_periodic_repaint.elapsed() >= Duration::from_secs(seconds) {
+                self.ctx.request_repaint();
+                last_periodic_repaint = Instant::now();
+            }
         }
     }
 
@@ -2973,6 +2981,7 @@ mod tests {
             Request::Hardware => Response::Hardware(wtm_core::hardware::HardwareReport::default()),
             Request::SetCooling { .. } => Response::Done,
             Request::CloseConnection { .. } => Response::Done,
+            Request::Incidents { .. } => Response::Incidents(Default::default()),
             Request::Firewall { .. } => Response::Done,
             Request::FirewallBlocked => Response::Blocked(Vec::new()),
             Request::DiskActivity => Response::DiskActivity {
@@ -3301,6 +3310,7 @@ mod tests {
             Request::Hardware => Response::Hardware(wtm_core::hardware::HardwareReport::default()),
             Request::SetCooling { .. } => Response::Done,
             Request::CloseConnection { .. } => Response::Done,
+            Request::Incidents { .. } => Response::Incidents(Default::default()),
             Request::Firewall { .. } => Response::Done,
             Request::FirewallBlocked => Response::Blocked(Vec::new()),
             Request::DiskActivity => Response::DiskActivity {

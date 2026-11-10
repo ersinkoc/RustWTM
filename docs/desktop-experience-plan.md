@@ -1,6 +1,11 @@
 # RustWTM desktop experience plan
 
 Status: roadmap with an initial visual subset implemented in source; see below.
+Current source has since added the [product expansion](product-expansion.md):
+device workspaces, recorded incident replay, file-owner investigation, visual
+rules, a welcome guide and optional numeric tray readouts. Historical milestones
+retain their acceptance criteria; source implementation does not substitute for
+hardware, native-shell or installer validation.
 Reviewed: 2026-11-09 against workspace version 0.26.2.
 
 The [2026-11-10 capability review](desktop-gap-review-2026-11-10.md) updates

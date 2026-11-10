@@ -8,6 +8,13 @@ use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, Predefin
 use tray_icon::{Icon, MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 pub struct Tray {
+    menu: Menu,
+    numbers: [Option<NumberIcon>; 3],
+    number_attempted: [bool; 3],
+    number_errors: [Option<String>; 3],
+    logo_visible: bool,
+    number_prefs: Option<crate::numeric_tray::Preferences>,
+    numbers_updated: Option<std::time::Instant>,
     labels: [&'static str; 3],
     show: MenuItem,
     notify: CheckMenuItem,
@@ -16,6 +23,10 @@ pub struct Tray {
     tooltip: String,
     /// CPU load shown by the icon, in steps of 10%.
     load_step: Option<u8>,
+}
+struct NumberIcon {
+    icon: TrayIcon,
+    reading: crate::numeric_tray::Reading,
 }
 
 const SIZE: u32 = 32;
@@ -152,12 +163,19 @@ impl Tray {
         }));
 
         let icon = TrayIconBuilder::new()
-            .with_menu(Box::new(menu))
+            .with_menu(Box::new(menu.clone()))
             .with_tooltip("RustWTM")
             .with_icon(icon()?)
             .build()
             .ok()?;
         Some(Self {
+            menu,
+            numbers: std::array::from_fn(|_| None),
+            number_attempted: [false; 3],
+            number_errors: std::array::from_fn(|_| None),
+            logo_visible: true,
+            number_prefs: None,
+            numbers_updated: None,
             labels: [""; 3],
             show,
             notify,
@@ -166,6 +184,117 @@ impl Tray {
             tooltip: "RustWTM".into(),
             load_step: None,
         })
+    }
+
+    pub fn set_numbers(
+        &mut self,
+        ctx: &egui::Context,
+        prefs: &crate::numeric_tray::Preferences,
+        readings: [crate::numeric_tray::Reading; 3],
+    ) {
+        let now = std::time::Instant::now();
+        let changed = self.number_prefs.as_ref() != Some(prefs);
+        let availability_changed = self.numbers.iter().zip(&readings).any(|(icon, reading)| {
+            icon.as_ref()
+                .is_some_and(|icon| icon.reading.value.is_some() != reading.value.is_some())
+        });
+        if !crate::numeric_tray::refresh_due(
+            self.numbers_updated,
+            changed,
+            availability_changed,
+            prefs.interval(),
+            now,
+        ) {
+            return;
+        }
+        self.number_prefs = Some(prefs.clone());
+        self.numbers_updated = Some(now);
+        for (kind, (enabled, reading)) in prefs.enabled().into_iter().zip(readings).enumerate() {
+            if !enabled {
+                self.numbers[kind] = None;
+                self.number_attempted[kind] = false;
+                self.number_errors[kind] = None;
+                continue;
+            }
+            if self.numbers[kind].is_none() && !self.number_attempted[kind] {
+                self.number_attempted[kind] = true;
+                let result =
+                    Icon::from_rgba(crate::numeric_tray::rgba(kind, reading.value), 32, 32)
+                        .map_err(|e| e.to_string())
+                        .and_then(|icon| {
+                            TrayIconBuilder::new()
+                                .with_id(format!("rustwtm-number-{kind}"))
+                                .with_menu(Box::new(self.menu.clone()))
+                                .with_tooltip(&reading.tooltip)
+                                .with_icon(icon)
+                                .build()
+                                .map_err(|e| e.to_string())
+                        });
+                match result {
+                    Ok(icon) => {
+                        self.numbers[kind] = Some(NumberIcon {
+                            icon,
+                            reading: reading.clone(),
+                        })
+                    }
+                    Err(error) => self.number_errors[kind] = Some(error),
+                }
+            }
+            if let Some(number) = self.numbers[kind].as_mut() {
+                let mut failure = None;
+                if number.reading.value != reading.value {
+                    match Icon::from_rgba(crate::numeric_tray::rgba(kind, reading.value), 32, 32) {
+                        Ok(icon) => {
+                            if let Err(error) = number.icon.set_icon(Some(icon)) {
+                                failure = Some(error.to_string());
+                            }
+                        }
+                        Err(error) => failure = Some(error.to_string()),
+                    }
+                }
+                if number.reading.tooltip != reading.tooltip
+                    && let Err(error) = number.icon.set_tooltip(Some(&reading.tooltip))
+                {
+                    failure = Some(error.to_string());
+                }
+                if let Some(error) = failure {
+                    self.number_errors[kind] = Some(error);
+                    self.numbers[kind] = None;
+                } else {
+                    number.reading = reading;
+                }
+            }
+        }
+        // The window can still be recovered if every optional icon is disabled
+        // or rejected by the shell. Numeric icons share the existing menu.
+        let visible = prefs.show_logo || self.numbers.iter().all(Option::is_none);
+        if visible != self.logo_visible {
+            match self.icon.set_visible(visible) {
+                Ok(()) => self.logo_visible = visible,
+                Err(error) => self.number_errors[0] = Some(error.to_string()),
+            }
+        }
+        let errors: Vec<_> = self
+            .number_errors
+            .iter()
+            .enumerate()
+            .filter_map(|(kind, error)| {
+                error.as_ref().map(|error| {
+                    format!(
+                        "{}: {error}",
+                        crate::i18n::tr(crate::numeric_tray::LABELS[kind])
+                    )
+                })
+            })
+            .collect();
+        ctx.data_mut(|d| {
+            let id = egui::Id::unique("numeric-tray-error");
+            if errors.is_empty() {
+                d.remove::<String>(id);
+            } else {
+                d.insert_temp(id, errors.join(" · "));
+            }
+        });
     }
 
     /// Shows the CPU load in the icon; redraws only when it changes by a step.
@@ -177,6 +306,14 @@ impl Tray {
             let _ = self.icon.set_icon(Some(icon));
             self.load_step = Some(step);
         }
+    }
+    pub fn clear_load(&mut self) {
+        if self.load_step.take().is_some() {
+            let _ = self.icon.set_icon(icon());
+        }
+    }
+    pub fn temperature_active(&self) -> bool {
+        self.numbers[2].is_some()
     }
 
     pub fn set_tooltip(&mut self, text: String) {
@@ -199,6 +336,7 @@ impl Tray {
         self.notify.set_text(labels[1]);
         self.exit.set_text(labels[2]);
         self.labels = labels;
+        self.numbers_updated = None;
     }
 }
 

@@ -1,7 +1,7 @@
 //! Offline presentation catalog. Process names, paths and configuration values
 //! never go through this lookup. Formatted values are inserted in one pass.
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -14,16 +14,120 @@ pub enum Language {
     German,
     French,
     Spanish,
+    // Variant names are stored in the registry: append, never rename.
+    ChineseSimplified,
+    ChineseTraditional,
+    Hindi,
+    Bengali,
+    Portuguese,
+    Russian,
+    Indonesian,
+    Japanese,
+    Marathi,
+    Vietnamese,
+    Telugu,
+    Swahili,
+    Filipino,
+    Tamil,
+    Korean,
+    Italian,
+    Gujarati,
+    Kannada,
+    Polish,
+    Ukrainian,
+    Dutch,
+    Punjabi,
 }
 
+/// Languages by catalog index; English (0) is the source text.
+const BY_INDEX: [Language; 27] = [
+    Language::English,
+    Language::Turkish,
+    Language::German,
+    Language::French,
+    Language::Spanish,
+    Language::ChineseSimplified,
+    Language::ChineseTraditional,
+    Language::Hindi,
+    Language::Bengali,
+    Language::Portuguese,
+    Language::Russian,
+    Language::Indonesian,
+    Language::Japanese,
+    Language::Marathi,
+    Language::Vietnamese,
+    Language::Telugu,
+    Language::Swahili,
+    Language::Filipino,
+    Language::Tamil,
+    Language::Korean,
+    Language::Italian,
+    Language::Gujarati,
+    Language::Kannada,
+    Language::Polish,
+    Language::Ukrainian,
+    Language::Dutch,
+    Language::Punjabi,
+];
+/// Languages from index 5 on keep one `locales/<tag>.json` file each,
+/// in `BY_INDEX` order.
+const LOCALE_FILES: [(&str, &str); 22] = [
+    ("zh-Hans", include_str!("../locales/zh-Hans.json")),
+    ("zh-Hant", include_str!("../locales/zh-Hant.json")),
+    ("hi", include_str!("../locales/hi.json")),
+    ("bn", include_str!("../locales/bn.json")),
+    ("pt-BR", include_str!("../locales/pt-BR.json")),
+    ("ru", include_str!("../locales/ru.json")),
+    ("id", include_str!("../locales/id.json")),
+    ("ja", include_str!("../locales/ja.json")),
+    ("mr", include_str!("../locales/mr.json")),
+    ("vi", include_str!("../locales/vi.json")),
+    ("te", include_str!("../locales/te.json")),
+    ("sw", include_str!("../locales/sw.json")),
+    ("fil", include_str!("../locales/fil.json")),
+    ("ta", include_str!("../locales/ta.json")),
+    ("ko", include_str!("../locales/ko.json")),
+    ("it", include_str!("../locales/it.json")),
+    ("gu", include_str!("../locales/gu.json")),
+    ("kn", include_str!("../locales/kn.json")),
+    ("pl", include_str!("../locales/pl.json")),
+    ("uk", include_str!("../locales/uk.json")),
+    ("nl", include_str!("../locales/nl.json")),
+    ("pa", include_str!("../locales/pa.json")),
+];
+const FIRST_LOCALE_FILE: usize = 5;
+
 impl Language {
-    pub const ALL: [Self; 6] = [
+    /// Picker order: Latin-script names alphabetically, then other scripts.
+    pub const ALL: [Self; 28] = [
         Self::System,
-        Self::English,
-        Self::Turkish,
+        Self::Indonesian,
         Self::German,
-        Self::French,
+        Self::English,
         Self::Spanish,
+        Self::Filipino,
+        Self::French,
+        Self::Italian,
+        Self::Swahili,
+        Self::Dutch,
+        Self::Polish,
+        Self::Portuguese,
+        Self::Vietnamese,
+        Self::Turkish,
+        Self::Russian,
+        Self::Ukrainian,
+        Self::Marathi,
+        Self::Hindi,
+        Self::Bengali,
+        Self::Punjabi,
+        Self::Gujarati,
+        Self::Tamil,
+        Self::Telugu,
+        Self::Kannada,
+        Self::ChineseSimplified,
+        Self::ChineseTraditional,
+        Self::Japanese,
+        Self::Korean,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -33,30 +137,95 @@ impl Language {
             Self::German => "Deutsch",
             Self::French => "Français",
             Self::Spanish => "Español",
+            Self::ChineseSimplified => "简体中文",
+            Self::ChineseTraditional => "繁體中文",
+            Self::Hindi => "हिन्दी",
+            Self::Bengali => "বাংলা",
+            Self::Portuguese => "Português (Brasil)",
+            Self::Russian => "Русский",
+            Self::Indonesian => "Bahasa Indonesia",
+            Self::Japanese => "日本語",
+            Self::Marathi => "मराठी",
+            Self::Vietnamese => "Tiếng Việt",
+            Self::Telugu => "తెలుగు",
+            Self::Swahili => "Kiswahili",
+            Self::Filipino => "Filipino",
+            Self::Tamil => "தமிழ்",
+            Self::Korean => "한국어",
+            Self::Italian => "Italiano",
+            Self::Gujarati => "ગુજરાતી",
+            Self::Kannada => "ಕನ್ನಡ",
+            Self::Polish => "Polski",
+            Self::Ukrainian => "Українська",
+            Self::Dutch => "Nederlands",
+            Self::Punjabi => "ਪੰਜਾਬੀ",
         }
     }
     fn index(self) -> u8 {
-        match self {
-            Self::System => system_language().index(),
-            Self::English => 0,
-            Self::Turkish => 1,
-            Self::German => 2,
-            Self::French => 3,
-            Self::Spanish => 4,
+        if self == Self::System {
+            return system_language().index();
+        }
+        BY_INDEX
+            .iter()
+            .position(|&l| l == self)
+            .expect("every language has a catalog index") as u8
+    }
+    /// Every language with a catalog, English first.
+    #[cfg(test)]
+    pub const TRANSLATED: [Self; 27] = BY_INDEX;
+    /// The language text is shown in now, with the Windows choice resolved.
+    pub fn current() -> Self {
+        BY_INDEX[index()]
+    }
+    /// Short language tag, e.g. for naming review captures.
+    #[cfg(test)]
+    pub fn code(self) -> &'static str {
+        match self.index() as usize {
+            0 => "en",
+            1 => "tr",
+            2 => "de",
+            3 => "fr",
+            4 => "es",
+            i => LOCALE_FILES[i - FIRST_LOCALE_FILE].0,
         }
     }
     pub fn from_tag(tag: &str) -> Self {
-        match tag
-            .split(['-', '_'])
-            .next()
-            .unwrap_or("")
-            .to_ascii_lowercase()
-            .as_str()
-        {
+        let tag = tag.to_ascii_lowercase();
+        let mut parts = tag.split(['-', '_']);
+        let primary = parts.next().unwrap_or("");
+        let mut rest = parts;
+        match primary {
             "tr" => Self::Turkish,
             "de" => Self::German,
             "fr" => Self::French,
             "es" => Self::Spanish,
+            "zh" if rest.any(|p| matches!(p, "hant" | "tw" | "hk" | "mo")) => {
+                Self::ChineseTraditional
+            }
+            "zh" => Self::ChineseSimplified,
+            "hi" => Self::Hindi,
+            "bn" => Self::Bengali,
+            "pt" => Self::Portuguese,
+            "ru" => Self::Russian,
+            // "in" is the withdrawn code that older systems still report.
+            "id" | "in" => Self::Indonesian,
+            "ja" => Self::Japanese,
+            "mr" => Self::Marathi,
+            "vi" => Self::Vietnamese,
+            "te" => Self::Telugu,
+            "sw" => Self::Swahili,
+            "fil" | "tl" => Self::Filipino,
+            "ta" => Self::Tamil,
+            "ko" => Self::Korean,
+            "it" => Self::Italian,
+            "gu" => Self::Gujarati,
+            "kn" => Self::Kannada,
+            "pl" => Self::Polish,
+            "uk" => Self::Ukrainian,
+            "nl" => Self::Dutch,
+            // The catalog is Gurmukhi; Shahmukhi (Pakistan) is right-to-left.
+            "pa" if rest.any(|p| matches!(p, "arab" | "pk")) => Self::English,
+            "pa" => Self::Punjabi,
             _ => Self::English,
         }
     }
@@ -79,12 +248,26 @@ impl Translations {
     }
 }
 type Catalog = BTreeMap<String, Translations>;
+/// Every English key with its Turkish, German, French and Spanish text.
 fn catalog() -> &'static Catalog {
     static CATALOG: OnceLock<Catalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
         serde_json::from_str(include_str!("../locales/messages.json"))
             .expect("validated embedded translation catalog")
     })
+}
+type LocaleCatalog = HashMap<String, String>;
+/// A per-language file, parsed on first use so only the languages
+/// actually shown take memory.
+fn locale_catalog(index: usize) -> Option<&'static LocaleCatalog> {
+    static LOADED: [OnceLock<LocaleCatalog>; LOCALE_FILES.len()] =
+        [const { OnceLock::new() }; LOCALE_FILES.len()];
+    let slot = index.checked_sub(FIRST_LOCALE_FILE)?;
+    let (tag, json) = LOCALE_FILES.get(slot)?;
+    Some(LOADED[slot].get_or_init(|| {
+        serde_json::from_str(json)
+            .unwrap_or_else(|e| panic!("validated embedded locale {tag}: {e}"))
+    }))
 }
 fn system_language() -> Language {
     Language::from_tag(&wtm_core::system_ui_language())
@@ -143,11 +326,13 @@ pub fn tr(english: &str) -> &str {
     if i == 0 {
         return english;
     }
-    catalog()
-        .get(english)
-        .and_then(|v| v.texts().get(i - 1).copied())
-        .filter(|s| !s.is_empty())
-        .unwrap_or(english)
+    let text = match locale_catalog(i) {
+        Some(locale) => locale.get(english).map(String::as_str),
+        None => catalog()
+            .get(english)
+            .and_then(|v| v.texts().get(i - 1).copied()),
+    };
+    text.filter(|s| !s.is_empty()).unwrap_or(english)
 }
 
 pub fn debug(value: impl std::fmt::Debug) -> String {
@@ -345,6 +530,65 @@ mod tests {
         }
     }
     #[test]
+    fn every_locale_file_translates_exactly_the_catalog_keys() {
+        let edges = |text: &str| {
+            let start = text.len() - text.trim_start().len();
+            let end = text.trim_end().len();
+            (text[..start].to_owned(), text[end..].to_owned())
+        };
+        for (slot, (tag, _)) in LOCALE_FILES.iter().enumerate() {
+            let index = FIRST_LOCALE_FILE + slot;
+            assert_eq!(BY_INDEX[index].index() as usize, index, "{tag}");
+            let locale = locale_catalog(index).unwrap();
+            let missing: Vec<_> = catalog()
+                .keys()
+                .filter(|k| !locale.contains_key(*k))
+                .collect();
+            assert!(missing.is_empty(), "{tag} is missing {missing:?}");
+            let extra: Vec<_> = locale
+                .keys()
+                .filter(|k| !catalog().contains_key(*k))
+                .collect();
+            assert!(extra.is_empty(), "{tag} has unknown keys {extra:?}");
+            for (key, translated) in locale {
+                assert!(
+                    !translated.trim().is_empty(),
+                    "{tag}: empty translation: {key}"
+                );
+                assert_eq!(
+                    placeholders(translated),
+                    placeholders(key),
+                    "{tag}: field mismatch: {key} -> {translated}"
+                );
+                assert_eq!(edges(translated), edges(key), "{tag}: spacing: {key:?}");
+            }
+        }
+        assert_eq!(BY_INDEX.len(), Language::ALL.len() - 1);
+        for language in BY_INDEX {
+            assert!(
+                Language::ALL.contains(&language),
+                "{language:?} not offered"
+            );
+        }
+    }
+    #[test]
+    fn every_language_translates_and_reports_itself_as_current() {
+        for language in BY_INDEX {
+            let _scope = scope(language);
+            assert_eq!(Language::current(), language);
+            if language != Language::English {
+                assert_ne!(tr("Settings"), "Settings", "{language:?}");
+            }
+            assert_eq!(tr("an unknown future message"), "an unknown future message");
+        }
+        let _scope = scope(Language::Russian);
+        assert_eq!(tr("Settings"), "Параметры");
+        assert_eq!(
+            format("User: {0}", &["{1} çğİıöşü.exe".into()]),
+            tr("User: {0}").replace("{0}", "{1} çğİıöşü.exe")
+        );
+    }
+    #[test]
     fn lookup_switches_in_all_five_languages_and_falls_back() {
         for (language, text) in [
             (Language::English, "Settings"),
@@ -366,7 +610,7 @@ mod tests {
                         Language::German => "Benutzer: ",
                         Language::French => "Utilisateur : ",
                         Language::Spanish => "Usuario: ",
-                        Language::System => unreachable!(),
+                        _ => unreachable!(),
                     },
                     "{1} çğİıöşü.exe"
                 )
@@ -400,7 +644,25 @@ mod tests {
             ("de-DE", Language::German),
             ("es-MX", Language::Spanish),
             ("en-GB", Language::English),
-            ("ja-JP", Language::English),
+            ("ja-JP", Language::Japanese),
+            ("zh-CN", Language::ChineseSimplified),
+            ("zh-Hans-SG", Language::ChineseSimplified),
+            ("zh-TW", Language::ChineseTraditional),
+            ("zh_HK", Language::ChineseTraditional),
+            ("zh-Hant", Language::ChineseTraditional),
+            ("pt-PT", Language::Portuguese),
+            ("ru-RU", Language::Russian),
+            ("uk-UA", Language::Ukrainian),
+            ("in-ID", Language::Indonesian),
+            ("tl-PH", Language::Filipino),
+            ("fil-PH", Language::Filipino),
+            ("ko-KR", Language::Korean),
+            ("hi-IN", Language::Hindi),
+            ("pa-IN", Language::Punjabi),
+            ("pa-Guru-IN", Language::Punjabi),
+            ("pa-Arab-PK", Language::English),
+            ("ar-SA", Language::English),
+            ("he-IL", Language::English),
             ("", Language::English),
         ] {
             assert_eq!(Language::from_tag(tag), language);
@@ -453,6 +715,13 @@ mod tests {
     #[test]
     fn literal_ui_lookups_have_catalog_entries() {
         let sources = [
+            include_str!("numeric_tray.rs"),
+            include_str!("devices.rs"),
+            include_str!("packages.rs"),
+            include_str!("incidents.rs"),
+            include_str!("file_locks.rs"),
+            include_str!("rules.rs"),
+            include_str!("experience.rs"),
             include_str!("app.rs"),
             include_str!("charts.rs"),
             include_str!("performance_view.rs"),
