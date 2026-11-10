@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "CPU 温度を自動選択",
   "Saved sensor unavailable": "保存されたセンサーを使用できません",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "温度にはサポートされているセンサーが必要です。取得できない測定値や古い測定値はダッシュで表示され、推測値は表示されません。",
-  "Open sensors": "センサーを開く"
+  "Open sensors": "センサーを開く",
+  "NVMe available spare": "NVMe 利用可能な予備領域"
 }

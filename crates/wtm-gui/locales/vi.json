@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "Nhiệt độ CPU tự động",
   "Saved sensor unavailable": "Không có cảm biến đã lưu",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Nhiệt độ cần cảm biến được hỗ trợ. Số đo bị thiếu hoặc đã cũ hiển thị dấu gạch ngang, không bao giờ là giá trị đoán.",
-  "Open sensors": "Mở cảm biến"
+  "Open sensors": "Mở cảm biến",
+  "NVMe available spare": "Dung lượng dự phòng NVMe khả dụng"
 }

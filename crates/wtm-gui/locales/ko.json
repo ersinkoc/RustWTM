@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "자동 CPU 온도",
   "Saved sensor unavailable": "저장된 센서를 사용할 수 없음",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "온도를 표시하려면 지원되는 센서가 필요합니다. 측정값이 없거나 오래되면 추정값 대신 대시가 표시됩니다.",
-  "Open sensors": "센서 열기"
+  "Open sensors": "센서 열기",
+  "NVMe available spare": "NVMe 사용 가능한 예비 용량"
 }

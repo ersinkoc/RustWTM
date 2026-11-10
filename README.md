@@ -45,14 +45,38 @@ usage history.
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
-## New in 0.28.0
+## New in 0.29.0
 
-[Release scope and validation](docs/0.28.0-review.md)
+[Release scope and validation](docs/0.29.0-review.md)
 
-Development beyond 0.28.0 adds device workspaces/health, Store and package-update
-management, persistent incident replay, file-owner investigation and a visual
-rule editor. These changes are **unreleased**; see the [implementation scope and
-limits](docs/product-expansion.md).
+Device workspaces/health, Store and reviewed package updates, persistent incident
+replay, file-owner investigation, visual rules and numeric tray icons are now
+included. See the [implementation scope and limits](docs/product-expansion.md).
+
+- **Device workspaces:** disk health and NVMe lifetime counters, battery readings,
+  GPU engines and memory charts, device sparklines and RAM composition.
+- **Applications:** current-user Store registrations and optional signed WinGet
+  discovery with explicit source/ID/version review before interactive updates.
+  A launched installer still requires a refreshed inventory to confirm success;
+  installer execution validation remains limited. Portable apps are not scanned.
+- **Incident replay and file owners:** bounded persistent resource/contributor
+  history with protection events, plus local file/folder owner investigation.
+- **Visual policies and first use:** rule editing, pure-engine preview, reviewed
+  profiles, welcome guide, shortcut help and opt-in global show/hide.
+- **Numeric tray icons:** independently show CPU, RAM and selected temperature
+  values; configure their refresh interval and logo visibility in Settings.
+- **27 interface languages**, shared square surfaces, responsive device details
+  and quieter navigation. Reported hardware gaps remain explicit.
+
+IPC is now protocol 16. Upgrade the GUI, CLI and service together using the MSI
+or bundled installer. Existing update discovery retains repository ID 1425760656.
+
+[Disk health](screenshots/device-disk-details.png) ·
+[GPU workspace](screenshots/device-gpu-overview.png) ·
+[Compact disk](screenshots/device-disk-compact.png) ·
+[Compact memory](screenshots/device-memory-compact.png)
+
+The [0.28.0 foundation](docs/0.28.0-review.md) remains available:
 
 - **Hardware specifications:** system and BIOS information, CPU topology/cache/
   reported maximum clock, motherboard, RAM modules, disk firmware and graphics
@@ -60,8 +84,7 @@ limits](docs/product-expansion.md).
 - **Installed desktop apps:** search, publisher/version/size/scope sorting,
   application details and confirmed registered-uninstaller handoff. A successful
   handoff means started, not removed; refresh after the vendor uninstaller ends.
-  Store and portable apps are not included yet. Package-manager updates remain
-  planned.
+  Use the separate Store and package-update workspaces for their own identities.
 - **Quick navigation (Ctrl+K):** find pages by name/description, choose with arrows
   and Enter or click, and dismiss with Escape without losing filters or drafts.
 - **Transfer-safe updates:** desktop updater discovery and the bundled installer use
@@ -186,6 +209,12 @@ stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/r
   *Files being read and written* lists, per program, the files moving the most
   disk bytes right now (a kernel trace that runs only while the tab is open,
   through the service or as administrator).
+- **Device workspaces**: select hardware from a list with recent sparklines.
+  Disk Details groups available health, endurance, temperature, NVMe spare
+  capacity, lifetime counters and device specifications. GPU Overview separates
+  engines and dedicated/shared memory; RAM shows measured used/available
+  composition. Missing readings remain unavailable. Health access depends on
+  the controller and permissions; all hardware queries are read-only.
 - Update checks discover releases by stable GitHub repository identity across
   owner/name transfers. Installer and checksum URLs come from the same release.
 - Update notice with one-click update: the new installer is downloaded,
@@ -306,8 +335,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.27.1-x64.msi            # interactive
-msiexec /i RustWTM-0.27.1-x64.msi /qn        # silent
+msiexec /i RustWTM-0.29.0-x64.msi            # interactive
+msiexec /i RustWTM-0.29.0-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc

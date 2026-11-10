@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "स्वचालित CPU तापमान",
   "Saved sensor unavailable": "सहेजा गया सेंसर उपलब्ध नहीं",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "तापमान के लिए समर्थित सेंसर आवश्यक है। अनुपलब्ध या पुरानी रीडिंग डैश दिखाती हैं, कभी अनुमानित मान नहीं।",
-  "Open sensors": "सेंसर खोलें"
+  "Open sensors": "सेंसर खोलें",
+  "NVMe available spare": "NVMe उपलब्ध अतिरिक्त क्षमता"
 }

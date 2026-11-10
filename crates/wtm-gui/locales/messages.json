@@ -8512,5 +8512,11 @@
     "de": "Sensoren öffnen",
     "fr": "Ouvrir les capteurs",
     "es": "Abrir sensores"
+  },
+  "NVMe available spare": {
+    "tr": "NVMe kullanılabilir yedek kapasite",
+    "de": "Verfügbare NVMe-Reserve",
+    "fr": "Réserve NVMe disponible",
+    "es": "Reserva NVMe disponible"
   }
 }

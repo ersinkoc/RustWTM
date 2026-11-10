@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "自動 CPU 溫度",
   "Saved sensor unavailable": "已儲存的感應器無法使用",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "溫度需要支援的感應器。缺少或過時的讀數會顯示破折號，絕不顯示推測值。",
-  "Open sensors": "開啟感應器"
+  "Open sensors": "開啟感應器",
+  "NVMe available spare": "NVMe 可用備用容量"
 }

@@ -3,7 +3,7 @@
 Implemented in 0.28.0; delivery order revised 2026-11-10: hardware specifications, installed application
 inventory and interactive uninstall, then package-manager updates. This takes
 priority over the earlier disk-health-first order in the hardware product plan.
-Current unreleased source also implements disk health, battery, device-specific
+Version 0.29.0 also implements disk health, battery, device-specific
 telemetry, Store registrations and reviewed package updates. The sections below
 describe the 0.28.0 baseline; see [current implementation and limits](product-expansion.md)
 for the newer work and its separate native/VM validation boundaries.
@@ -81,7 +81,7 @@ per-package interactive updates, refresh/version verification and partial-batch
 reporting. Keep concurrency bounded, handle UAC/cancellation and installer exit
 codes, and never treat a launched updater as a completed update. Store-package
 enumeration and source/agreement handling need their own implementation and
-acceptance tests. That follow-up is now implemented in unreleased source through
+acceptance tests. That follow-up is implemented in 0.29.0 through
 the optional signed Microsoft.WinGet.Client binary, with exact source/ID/version
 plans and explicit review. Read-only discovery returned 322 package records and
 150 current-user Store registrations on the development PC. Installer execution

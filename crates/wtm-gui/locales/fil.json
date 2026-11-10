@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "Awtomatikong temperatura ng CPU",
   "Saved sensor unavailable": "Hindi available ang na-save na sensor",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Kailangan ng sinusuportahang sensor para sa temperatura. Gitling ang ipinapakita ng mga nawawala o lumang reading, hindi kailanman hinulaang value.",
-  "Open sensors": "Buksan ang mga sensor"
+  "Open sensors": "Buksan ang mga sensor",
+  "NVMe available spare": "Magagamit na reserbang NVMe"
 }

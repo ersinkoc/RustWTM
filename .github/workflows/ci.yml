@@ -166,6 +166,8 @@ jobs:
             sha256: '3b606894528a0eb1628205e012757dd6e748169b7aafd9ac865f1193d0f41cba'
           - baseline: '0.27.2'
             sha256: 'e9910d9a9320b2ff2b5f10d44d52d62ca5074ccd091941b3139ef0bae7a8de9e'
+          - baseline: '0.28.0'
+            sha256: '89e3d5183acda95485dd40aeec74d9beb4800bee3abe5ec632b2f2898bc376e4'
     env:
       BASELINE_VERSION: ${{ matrix.baseline }}
       BASELINE_SHA256: ${{ matrix.sha256 }}
@@ -214,6 +216,8 @@ jobs:
 
   install-script:
     runs-on: windows-latest
+    env:
+      CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v5
 
@@ -221,6 +225,9 @@ jobs:
         run: rustup show
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Build locked release
+        run: cargo build --locked --release --workspace
 
       - name: Install from source, verify, uninstall
         shell: pwsh
@@ -257,11 +264,18 @@ jobs:
         run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_gauge_review -- --test-threads=1 --nocapture
       - name: Render localized product screens
         run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_release_review -- --test-threads=1 --nocapture
+      - name: Render device dashboards
+        env:
+          WTM_EXPANSION_LANGS: en
+          WTM_EXPANSION_CASES: light:wide:gpu,light:compact:disk-details,dark:wide:disk-details,dark:compact:memory
+        run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_product_expansion_review -- --test-threads=1 --nocapture
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
           name: visual-review
-          path: target/visual-review
+          path: |
+            target/visual-review
+            target/product-expansion-review
           if-no-files-found: warn
 
   artifact-provenance:

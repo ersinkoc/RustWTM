@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "Suhu CPU otomatis",
   "Saved sensor unavailable": "Sensor tersimpan tidak tersedia",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Suhu memerlukan sensor yang didukung. Pembacaan yang hilang atau usang menampilkan tanda hubung, tidak pernah nilai tebakan.",
-  "Open sensors": "Buka sensor"
+  "Open sensors": "Buka sensor",
+  "NVMe available spare": "Cadangan NVMe tersedia"
 }

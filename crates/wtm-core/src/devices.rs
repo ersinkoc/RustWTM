@@ -135,6 +135,14 @@ pub fn collect() -> Result<Report, String> {
                         ceiling: Some(100.0),
                         counter: false,
                     });
+                    device.metrics.push(Metric {
+                        id: "nvme-spare".into(),
+                        name: "NVMe available spare".into(),
+                        unit: "%".into(),
+                        value: health.spare.map(f64::from),
+                        ceiling: Some(100.0),
+                        counter: false,
+                    });
                     if let Some(value) = health.temperature {
                         device.metrics.push(Metric {
                             id: "nvme-temperature".into(),

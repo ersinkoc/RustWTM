@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "自动 CPU 温度",
   "Saved sensor unavailable": "已保存的传感器不可用",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "温度需要受支持的传感器。缺失或过期的读数显示为短划线，绝不显示猜测值。",
-  "Open sensors": "打开传感器"
+  "Open sensors": "打开传感器",
+  "NVMe available spare": "NVMe 可用备用容量"
 }

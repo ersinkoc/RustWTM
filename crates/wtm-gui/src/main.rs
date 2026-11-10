@@ -10,6 +10,7 @@ mod background;
 mod charts;
 mod containers;
 mod devices;
+mod disk_details;
 mod disks_tab;
 mod docker_worker;
 mod experience;

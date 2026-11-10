@@ -30,7 +30,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// nobody else can serve its name alongside the service.
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x12008b;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -105,7 +105,7 @@ pub enum Request {
         local: std::net::SocketAddr,
         remote: std::net::SocketAddr,
     },
-    /// Additive read-only query; older servers may decline this request.
+    /// Read-only incident replay, introduced with protocol 16.
     Incidents {
         hours: u32,
     },

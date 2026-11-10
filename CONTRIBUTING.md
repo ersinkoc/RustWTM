@@ -50,9 +50,10 @@ CI runs the same checks.
 2. Run `scripts/ci/verify-release.ps1 -Tag v0.26.1`, substituting the intended
    tag. It refuses a tag that disagrees with the workspace, hardware provider
    or release notes.
-3. Run the format, Clippy, documentation, workspace test and release build
-   checks. Push the release commit and wait for CI, including the disposable-VM
-   installer and service checks, before tagging that commit.
+3. Run format, Clippy, documentation and workspace tests. Run the optimized
+   workspace build locally when safe; use the exact-source locked CI build if
+   the developer host cannot complete it. Push the release commit and wait for
+   CI, including the disposable-VM installer and service checks, before tagging.
 4. Tag and push: `git tag v0.26.1` and `git push origin v0.26.1`.
 5. Wait for the release workflow. It gates publication on release identity,
    format, Clippy, documentation, tests and locked builds, then publishes the

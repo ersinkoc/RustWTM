@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "Halijoto ya CPU otomatiki",
   "Saved sensor unavailable": "Kitambuzi kilichohifadhiwa hakipatikani",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Halijoto inahitaji kitambuzi kinachotumika. Usomaji unaokosekana au uliopitwa na wakati huonyesha vistari, kamwe si thamani ya kukisia.",
-  "Open sensors": "Fungua vitambuzi"
+  "Open sensors": "Fungua vitambuzi",
+  "NVMe available spare": "Nafasi ya akiba ya NVMe inayopatikana"
 }

@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "Автоматична температура CPU",
   "Saved sensor unavailable": "Збережений датчик недоступний",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Для температури потрібен підтримуваний датчик. Відсутні або застарілі показники показуються рисками, а не вгаданими значеннями.",
-  "Open sensors": "Відкрити датчики"
+  "Open sensors": "Відкрити датчики",
+  "NVMe available spare": "Доступний резерв NVMe"
 }

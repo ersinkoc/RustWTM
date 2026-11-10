@@ -134,10 +134,15 @@ mod tests {
         let h = parse(&b).unwrap();
         assert!((h.temperature.unwrap() - 26.85).abs() < 0.001);
         assert_eq!(h.used, 120);
+        assert_eq!(h.spare, Some(99));
         assert_eq!(h.read_units, 123);
         b[1] = 0;
         b[2] = 0;
         assert_eq!(parse(&b).unwrap().temperature, None);
+        b[3] = 101;
+        assert_eq!(parse(&b).unwrap().spare, None);
+        b[3] = 0;
+        assert_eq!(parse(&b).unwrap().spare, Some(0));
     }
     #[test]
     fn truncated_oversized_and_out_of_bounds_replies_are_rejected() {

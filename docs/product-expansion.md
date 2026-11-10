@@ -30,6 +30,16 @@ instead of presenting duplicates as new features.
   displayed exactly; percentage used may exceed 100, while remaining endurance
   is clamped at zero. Windows reliability counters also cover supported SATA
   drives. No universal SATA SMART pass-through or physical health guarantee.
+- The device selector includes a bounded sparkline and current reading. Disk
+  Details separates health, endurance, temperature, available spare, lifetime
+  counters, hardware identity and raw health fields. A nonzero critical-warning
+  bitset overrides a healthy Windows status in the health summary. GPU Overview
+  has stable engine positions and separate dedicated/shared-memory graphs;
+  selecting a metric opens its focused chart. Memory composition requires both
+  used and available values; unavailable components are never fabricated.
+  NVMe byte conversion uses checked multiplication, with the original data-unit
+  counter retained in the health details. The log layout and units follow
+  [Microsoft's NVME_HEALTH_INFO_LOG documentation](https://learn.microsoft.com/en-us/windows/win32/api/nvme/ns-nvme-nvme_health_info_log).
 - WinGet uses the official signed Microsoft.WinGet.Client binary. It is optional;
   discovery reports its absence. Elevated windows require an all-users module.
   Updates are limited to 16 reviewed exact source/ID/version selections and are
@@ -78,3 +88,36 @@ never combine a long native graphics capture run with local compilation. A
 compiler allocation failure was observed during concurrent capture/compilation;
 the capture completed, but that is not evidence that the combined workload is
 safe for this host.
+
+Focused visual review can select pages with `WTM_EXPANSION_PAGES` and exact
+`theme:size:page` cases with `WTM_EXPANSION_CASES`, for example
+`light:wide:gpu,dark:compact:memory`. Both use comma-separated values. Ordinary
+headless coverage still exercises the complete default layout matrix.
+
+Native TCP enumeration keeps unknown state zero unless the same local endpoint,
+remote endpoint and PID also appear in the OS-filtered listener table. This uses
+the documented [TCP_TABLE_OWNER_PID_LISTENER contract](https://learn.microsoft.com/en-us/windows/win32/api/iprtrmib/ne-iprtrmib-tcp_table_class),
+not a port/address heuristic. Failed confirmation stays unknown. Table buffers
+and resize attempts are bounded; failure-path proofs use injected replies.
+
+## Local verification, 2026-11-10
+
+The device layout update was checked on base `2568bcb` plus the working changes:
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --locked --workspace --all-targets -- -D warnings`: passed.
+- `cargo test --locked --workspace --no-fail-fast -- --test-threads=2`:
+  779 passed, 22 ignored, zero failures. Both previously failing native listener
+  and port-enumeration tests passed without changing their assertions.
+- Synthetic GPU captures checked disk details in narrow/light and wide/dark
+  layouts, GPU overview in wide/light and memory in narrow/dark. After spacing
+  corrections, the wide GPU and disk captures were rendered and inspected again.
+  These captures use fixtures, not a claim of controller or sensor compatibility.
+- A separately named x64 development preview was built and its source hashes,
+  PE architecture, version metadata and SHA-256 recorded under
+  `.temp_files/product-expansion/device-preview-receipt.json`. It was not
+  launched and is not a published release or installer validation.
+
+Verification logs remain in the ignored `.temp_files/product-expansion/`
+directory. Hardware coverage, native tray interaction and installer execution
+retain the limits described above.

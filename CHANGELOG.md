@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-11
+
 ### Added
 
 - 22 more interface languages, for 27 in total: Simplified and Traditional
@@ -35,9 +37,20 @@ All notable changes to this project are documented here. The format follows
   and reviewed Work/Game/Battery policy profiles.
 - First-run guide, keyboard reference, opt-in global show/hide shortcut, window
   repaint intervals and Mbps selection for device charts.
+- Upgrade coverage from the preceding 0.28.0 MSI, alongside the existing pinned
+  baselines, on disposable Windows CI runners.
 
 ### Changed
 
+- IPC protocol 16 adds incident replay. Upgrade the GUI, CLI and service together
+  with the MSI or bundled installer; protocol 15 clients/services are rejected
+  during the handshake rather than receiving unsupported replay requests.
+- Rework device navigation with per-device sparklines and independently scrolling
+  selection. Disk Details separates measured health, endurance, temperature,
+  available NVMe spare capacity, lifetime counters, specifications and raw health
+  fields. GPU Overview shows stable engine and dedicated/shared-memory graphs;
+  memory shows a composition bar only when both used and available are known.
+  Compact layouts retain the same controls and square, padded sections.
 - Refine all desktop views through shared graphite/light surfaces, raised page
   headers, quieter inset navigation, aligned resource readings and padded section
   cards. Give service settings a responsive two-column layout while preserving
@@ -46,6 +59,13 @@ All notable changes to this project are documented here. The format follows
 - Present RustWTM as an MIT-licensed oxog.net project maintained by OXOGNET OÜ,
   Estonia, across the desktop About page, documentation and executable/installer
   metadata. Use the active rustwtm.com and rustwtm/rustwtm project links.
+
+### Fixed
+
+- Confirm zero-state TCP rows against the operating system's listener-only table
+  before identifying them as listeners. Unconfirmed rows retain their unknown
+  state; raw zero is never globally reclassified. Bound table allocation and
+  growth retries even when an API reports an unreasonable required size.
 
 ## [0.28.0] - 2026-11-10
 
@@ -1213,7 +1233,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/rustwtm/rustwtm/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/rustwtm/rustwtm/compare/v0.27.2...v0.28.0
 [0.27.2]: https://github.com/rustwtm/rustwtm/compare/v0.27.1...v0.27.2
 [0.27.1]: https://github.com/rustwtm/rustwtm/compare/v0.27.0...v0.27.1

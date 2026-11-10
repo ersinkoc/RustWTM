@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "Automatische CPU-temperatuur",
   "Saved sensor unavailable": "Opgeslagen sensor niet beschikbaar",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Temperatuur vereist een ondersteunde sensor. Ontbrekende of verouderde metingen tonen streepjes, nooit een geschatte waarde.",
-  "Open sensors": "Sensoren openen"
+  "Open sensors": "Sensoren openen",
+  "NVMe available spare": "Beschikbare NVMe-reserve"
 }

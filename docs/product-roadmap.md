@@ -2,7 +2,7 @@
 
 0.28.0 adds [hardware specifications and installed applications](inventory-app-management.md),
 including confirmed uninstaller handoff and the [repository-transfer bridge](repository-migration.md).
-The unreleased [product expansion](product-expansion.md) implements device
+The 0.29.0 [product expansion](product-expansion.md) implements device
 workspaces/health, Store/WinGet management, bounded incident replay, file owners,
 visual policies, onboarding and numeric tray icons. See that document for exact
 validation and hardware/VM limits, separate from the [0.28.0 scope](0.28.0-review.md).
@@ -32,14 +32,14 @@ milestone scope stays proposed.
 | P0 | Build provenance | ZIP/MSI attestation verifies repository, workflow and exact source commit | Release provenance job defined; CI uses a real installer artifact as its verification control |
 | P0 | Upgrade durability | Previous release -> candidate, repair, downgrade rejection, config byte retention, SQLite record retention, service IPC and uninstall retention | Dedicated disposable-VM job defined; never run on developer hardware |
 | P1 | Visual CI | Gauge gallery at four DPI scales; Overview/Performance/Containers in five languages, both themes and sizes; screenshots uploaded | GPU rendering job defined; image artifacts aid review, not automatic pixel-diff acceptance |
-| P1 | Interactive charts | Explicit time ranges, synchronized cursor, zoom/reset, real timestamps and event markers; correct missing/stale samples; keyboard access | Initial bounded timeline and focused resource views with CPU tier/GPU engine filters implemented locally; [timeline](performance-timeline.md), [resource views](performance-resources.md). Physical device selection/history, further axis controls and persisted aggregates remain pending |
-| P1 | Guided first use | Explain service/elevation/capabilities, monitoring vs protection, safe profile choices and what will change before enabling controls | Unreleased welcome guide, shortcut reference and reviewed policy profiles implemented |
-| P1 | Unified diagnosis | Correlate process, system, sensor, governor and container events by timestamp; explain source and uncertainty; navigate to existing details | Unreleased persistent system/contributor replay and protection-event correlation implemented; sensor/container unification remains future work |
+| P1 | Interactive charts | Explicit time ranges, synchronized cursor, zoom/reset, real timestamps and event markers; correct missing/stale samples; keyboard access | Bounded timeline, CPU tier/GPU engine filters and recent per-device charts are implemented; [timeline](performance-timeline.md), [resource views](performance-resources.md). Further axis controls and persisted per-device aggregates remain pending |
+| P1 | Guided first use | Explain service/elevation/capabilities, monitoring vs protection, safe profile choices and what will change before enabling controls | Welcome guide, shortcut reference and reviewed policy profiles included in 0.29.0 |
+| P1 | Unified diagnosis | Correlate process, system, sensor, governor and container events by timestamp; explain source and uncertainty; navigate to existing details | Persistent system/contributor replay and protection-event correlation included in 0.29.0; sensor/container unification remains future work |
 | P2 | Personal dashboard | Persist card visibility/order with a default/reset path; responsive layout, keyboard operation and migration tests | Overview card layout remains fixed |
 | P2 | Docker persistence and alerts | Bounded retention, container identity across restart/removal, duration-based thresholds and recovery notices; distinguish Docker CPU conventions | Current read-only snapshots are bounded window memory; no persistent container history or alerts |
 | P2 | Support bundle | User-selected export with version/capability status, recent errors and redaction; exclude credentials, private command lines and container logs by default | No one-click support bundle |
 | P2 | Updater publisher policy | Signed builds reject wrong-publisher/unsigned updates after secure copy; test canceled UAC, installer error and relaunch | Current updater validates digests; do not claim full automatic rollback or publisher pinning |
-| P2 | Local native TCP test boundary | Safe ephemeral-listener proof and independent Win32 control; no weaker assertions; pass locally and in hosted Windows | Two local Unknown(0)/missing-listener failures remain; hosted baseline tests pass |
+| P2 | Local native TCP test boundary | Safe ephemeral-listener proof and independent Win32 control; no weaker assertions; pass locally and in hosted Windows | Local listener and port tests now pass with exact OS listener-table confirmation; unconfirmed raw states stay unknown |
 | Manual hardware gate | Physical cooling certification | Per-model RPM/curve/default-restoration, stale sensor, disconnect and lease-expiry evidence, within firmware safety limits | Simulation checks do not certify a physical channel; no fan writes authorized by this roadmap |
 
 ## Delivery order

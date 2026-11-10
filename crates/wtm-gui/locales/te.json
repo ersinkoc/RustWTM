@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "ఆటోమేటిక్ CPU ఉష్ణోగ్రత",
   "Saved sensor unavailable": "సేవ్ చేసిన సెన్సార్ అందుబాటులో లేదు",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "ఉష్ణోగ్రతకు మద్దతు ఉన్న సెన్సార్ అవసరం. లేని లేదా పాతబడిన రీడింగ్‌లు డాష్‌లను చూపుతాయి, ఎప్పుడూ ఊహించిన విలువను కాదు.",
-  "Open sensors": "సెన్సార్‌లను తెరువు"
+  "Open sensors": "సెన్సార్‌లను తెరువు",
+  "NVMe available spare": "NVMe అందుబాటులో ఉన్న అదనపు సామర్థ్యం"
 }

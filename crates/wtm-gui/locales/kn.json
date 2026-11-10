@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "ಸ್ವಯಂಚಾಲಿತ CPU ತಾಪಮಾನ",
   "Saved sensor unavailable": "ಉಳಿಸಿದ ಸೆನ್ಸರ್ ಲಭ್ಯವಿಲ್ಲ",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "ತಾಪಮಾನಕ್ಕೆ ಬೆಂಬಲಿತ ಸೆನ್ಸರ್ ಅಗತ್ಯವಿದೆ. ಕಾಣೆಯಾದ ಅಥವಾ ಹಳೆಯ ರೀಡಿಂಗ್‌ಗಳು ಡ್ಯಾಶ್‌ಗಳನ್ನು ತೋರಿಸುತ್ತವೆ, ಎಂದಿಗೂ ಊಹಿಸಿದ ಮೌಲ್ಯವನ್ನಲ್ಲ.",
-  "Open sensors": "ಸೆನ್ಸರ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ"
+  "Open sensors": "ಸೆನ್ಸರ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ",
+  "NVMe available spare": "NVMe ಲಭ್ಯವಿರುವ ಹೆಚ್ಚುವರಿ ಸಾಮರ್ಥ್ಯ"
 }

@@ -7772,6 +7772,8 @@ mod tests {
             .join("../../target/product-expansion-review");
         std::fs::create_dir_all(&root).unwrap();
         let only = std::env::var("WTM_EXPANSION_LANGS").ok();
+        let pages = std::env::var("WTM_EXPANSION_PAGES").ok();
+        let cases = std::env::var("WTM_EXPANSION_CASES").ok();
         for language in crate::i18n::Language::TRANSLATED {
             let code = language.code();
             let wanted = only
@@ -7787,7 +7789,9 @@ mod tests {
                 for (width, size) in [("wide", [1440.0, 1000.0]), ("compact", [820.0, 640.0])] {
                     for page in [
                         "disk",
+                        "disk-details",
                         "gpu",
+                        "memory",
                         "network",
                         "battery",
                         "store",
@@ -7799,6 +7803,18 @@ mod tests {
                         "welcome",
                         "shortcuts",
                     ] {
+                        if pages
+                            .as_ref()
+                            .is_some_and(|wanted| !wanted.split(',').any(|p| p == page))
+                        {
+                            continue;
+                        }
+                        if cases.as_ref().is_some_and(|wanted| {
+                            let case = format!("{tone}:{width}:{page}");
+                            !wanted.split(',').any(|c| c == case)
+                        }) {
+                            continue;
+                        }
                         #[cfg(feature = "visual-tests")]
                         {
                             if captures >= capture_limit {
@@ -7818,12 +7834,14 @@ mod tests {
                             ..Default::default()
                         };
                         match page {
-                            "disk" | "gpu" | "network" | "battery" => {
+                            "disk" | "disk-details" | "gpu" | "memory" | "network" | "battery" => {
                                 state.tab = Tab::Hardware;
                                 state.hardware_devices = true;
                                 state.devices = crate::devices::View::fixture_for(match page {
                                     "disk" => "Disk",
+                                    "disk-details" => "DiskDetails",
                                     "gpu" => "GPU",
+                                    "memory" => "Memory",
                                     "network" => "Network",
                                     _ => "Battery",
                                 });

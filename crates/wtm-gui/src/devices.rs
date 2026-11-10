@@ -4,6 +4,23 @@ use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 use wtm_core::devices::{Device, Report};
 type Samples = VecDeque<(u64, Option<f64>)>;
+fn device_color(kind: &str) -> egui::Color32 {
+    match kind {
+        "GPU" => crate::theme::GPU,
+        "Network" => crate::theme::NET_RX,
+        "Memory" => crate::theme::MEMORY,
+        "Disk" => crate::theme::DISK_READ,
+        _ => crate::theme::CPU,
+    }
+}
+fn reading(m: &wtm_core::devices::Metric) -> String {
+    match m.value {
+        Some(v) if m.unit == "bytes" => wtm_core::format_bytes(v),
+        Some(v) if m.unit == "B/s" => format!("{}/s", wtm_core::format_bytes(v)),
+        Some(v) => format!("{v:.0} {}", m.unit),
+        None => crate::i18n::tr("Unavailable").into(),
+    }
+}
 
 fn metric_card(
     ui: &mut Ui,
@@ -62,6 +79,7 @@ pub struct View {
     report: Option<Result<Report, String>>,
     selected: Option<String>,
     metric: Option<String>,
+    disk_details: bool,
     auto: bool,
     last: Option<Instant>,
     previous: BTreeMap<(String, String), (u64, f64)>,
@@ -167,12 +185,17 @@ impl View {
             ui.weak(crate::i18n::tr("No supported devices were reported."));
         }
         if ui.available_width() >= 940.0 {
-            let height = ui.available_height().max(120.0);
+            let height = (ui.ctx().content_rect().height() - 200.0).max(160.0);
             ui.horizontal_top(|ui| {
                 ui.allocate_ui_with_layout(
                     egui::vec2(230.0, height),
                     egui::Layout::top_down(egui::Align::Min),
-                    |ui| self.navigation(ui, &devices),
+                    |ui| {
+                        egui::ScrollArea::vertical()
+                            .id_salt("device-rail")
+                            .max_height(height)
+                            .show(ui, |ui| self.navigation(ui, &devices));
+                    },
                 );
                 ui.separator();
                 ui.vertical(|ui| self.details(ui, &devices));
@@ -213,16 +236,182 @@ impl View {
         ui.spacing_mut().item_spacing.y = 4.0;
         for d in devices {
             let selected = Some(&d.id) == self.selected.as_ref();
-            let response = ui.add_sized(
-                [ui.available_width(), 44.0],
-                egui::Button::new(format!("{}  ·  {}", crate::i18n::tr(&d.kind), d.name))
-                    .wrap()
-                    .selected(selected),
+            let color = device_color(&d.kind);
+            let label = format!("{} · {}", crate::i18n::tr(&d.kind), d.name);
+            let frame = egui::Frame::new()
+                .fill(if selected {
+                    color.gamma_multiply(0.10)
+                } else {
+                    crate::theme::card_fill(ui)
+                })
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    if selected {
+                        color
+                    } else {
+                        ui.visuals().widgets.noninteractive.bg_stroke.color
+                    },
+                ))
+                .inner_margin(egui::Margin::symmetric(8, 8))
+                .show(ui, |ui| {
+                    ui.set_width(214.0);
+                    ui.horizontal(|ui| {
+                        let width = (ui.available_width() - 66.0).max(60.0);
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(width, 40.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(width);
+                                ui.add(egui::Label::new(&label).truncate());
+                                if let Some(m) = d.metrics.first() {
+                                    ui.add(
+                                        egui::Label::new(RichText::new(reading(m)).weak())
+                                            .truncate(),
+                                    );
+                                }
+                            },
+                        );
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(56.0, 32.0), egui::Sense::hover());
+                        if let Some(m) = d.metrics.first()
+                            && let Some(samples) = self.series.get(&(d.id.clone(), m.id.clone()))
+                        {
+                            let samples: Vec<_> = samples.iter().rev().take(30).rev().collect();
+                            let ceiling = m
+                                .ceiling
+                                .unwrap_or_else(|| {
+                                    samples.iter().filter_map(|(_, v)| *v).fold(1.0, f64::max)
+                                })
+                                .max(1.0);
+                            let mut points = Vec::new();
+                            let mut previous = None;
+                            let start = samples.first().map_or(0, |s| s.0);
+                            let span = samples
+                                .last()
+                                .map_or(1, |s| s.0.saturating_sub(start).max(1));
+                            for (at, value) in samples {
+                                if previous
+                                    .is_some_and(|last: u64| at.saturating_sub(last) > 30_000)
+                                    || value.is_none()
+                                {
+                                    if points.len() > 1 {
+                                        ui.painter().add(egui::Shape::line(
+                                            std::mem::take(&mut points),
+                                            egui::Stroke::new(1.3, color),
+                                        ));
+                                    } else {
+                                        points.clear();
+                                    }
+                                }
+                                if let Some(value) = value {
+                                    points.push(egui::pos2(
+                                        rect.left()
+                                            + rect.width()
+                                                * (at.saturating_sub(start) as f32 / span as f32),
+                                        rect.bottom()
+                                            - rect.height()
+                                                * (*value / ceiling).clamp(0.0, 1.0) as f32,
+                                    ));
+                                }
+                                previous = Some(*at);
+                            }
+                            if points.len() > 1 {
+                                ui.painter()
+                                    .add(egui::Shape::line(points, egui::Stroke::new(1.3, color)));
+                            }
+                        }
+                    });
+                });
+            let response = ui.interact(
+                frame.response.rect,
+                frame.response.id.with(&d.id),
+                egui::Sense::click(),
             );
+            response.widget_info(|| {
+                egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, &label)
+            });
+            if response.hovered() || response.has_focus() {
+                ui.painter().rect_stroke(
+                    response.rect,
+                    0.0,
+                    egui::Stroke::new(1.0, color),
+                    egui::StrokeKind::Inside,
+                );
+            }
+            let response = response
+                .on_hover_text(&d.name)
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
             if response.clicked() {
                 self.selected = Some(d.id.clone());
                 self.metric = None;
             }
+        }
+    }
+    fn chart(&self, ui: &mut Ui, d: &Device, m: &wtm_core::devices::Metric, height: f32) {
+        let bits = d.kind == "Network" && crate::experience::network_bits(ui.ctx());
+        let color = device_color(&d.kind);
+        let factor = if bits && m.unit == "B/s" {
+            8.0 / 1_000_000.0
+        } else {
+            1.0
+        };
+        ui.label(format!(
+            "{} · {}",
+            crate::i18n::tr(&m.name),
+            if bits && m.unit == "B/s" {
+                "Mbps"
+            } else {
+                &m.unit
+            }
+        ));
+        if let Some(series) = self.series.get(&(d.id.clone(), m.id.clone())) {
+            let start = series.front().map_or(0, |(t, _)| *t);
+            let mut segments = Vec::new();
+            let mut points = Vec::new();
+            let mut previous = None;
+            for (at, value) in series {
+                if previous.is_some_and(|before| at.saturating_sub(before) > 30_000)
+                    && !points.is_empty()
+                {
+                    segments.push(std::mem::take(&mut points));
+                }
+                if let Some(value) = value {
+                    points.push([at.saturating_sub(start) as f64 / 1000.0, *value * factor]);
+                } else if !points.is_empty() {
+                    segments.push(std::mem::take(&mut points));
+                }
+                previous = Some(*at);
+            }
+            if !points.is_empty() {
+                segments.push(points);
+            }
+            egui_plot::Plot::new(("device-chart", &d.id, &m.id))
+                .height(height)
+                .show_background(false)
+                .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.20))
+                .allow_drag(false)
+                .allow_scroll(false)
+                .allow_zoom(false)
+                .allow_boxed_zoom(false)
+                .y_axis_min_width(64.0)
+                .y_axis_formatter(|mark, _| match m.unit.as_str() {
+                    "bytes" => wtm_core::format_bytes(mark.value.max(0.0)),
+                    "B/s" if bits => format!("{:.1} Mbps", mark.value),
+                    "B/s" => format!("{}/s", wtm_core::format_bytes(mark.value.max(0.0))),
+                    unit => format!("{:.0} {unit}", mark.value),
+                })
+                .include_y(0.0)
+                .include_y(m.ceiling.unwrap_or(0.0) * factor)
+                .show(ui, |plot| {
+                    for (index, points) in segments.into_iter().enumerate() {
+                        plot.line(
+                            egui_plot::Line::new(format!("{} {index}", m.name), points)
+                                .color(color)
+                                .width(1.6)
+                                .fill(0.0),
+                        );
+                    }
+                });
         }
     }
     fn details(&mut self, ui: &mut Ui, devices: &[Device]) {
@@ -233,24 +422,57 @@ impl View {
             return;
         };
         let bits = d.kind == "Network" && crate::experience::network_bits(ui.ctx());
-        let color = match d.kind.as_str() {
-            "GPU" => crate::theme::GPU,
-            "Network" => crate::theme::NET_RX,
-            "Memory" => crate::theme::MEMORY,
-            "Disk" => crate::theme::DISK_READ,
-            _ => crate::theme::CPU,
-        };
+        let color = device_color(&d.kind);
+        if d.kind == "GPU" {
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .selectable_label(self.metric.is_none(), crate::i18n::tr("Overview"))
+                    .clicked()
+                {
+                    self.metric = None;
+                }
+                if ui
+                    .selectable_label(self.metric.is_some(), crate::i18n::tr("Details"))
+                    .clicked()
+                {
+                    self.metric = d.metrics.first().map(|m| m.id.clone());
+                }
+            });
+        }
+        if d.kind == "Disk" {
+            ui.horizontal_wrapped(|ui| {
+                crate::theme::choice(
+                    ui,
+                    &mut self.disk_details,
+                    false,
+                    crate::i18n::tr("Overview"),
+                );
+                crate::theme::choice(ui, &mut self.disk_details, true, crate::i18n::tr("Details"));
+            });
+            if self.disk_details {
+                ui.heading(&d.name);
+                if !d.warning.is_empty() {
+                    crate::theme::colored(ui, crate::theme::WARN, &d.warning);
+                }
+                crate::disk_details::show(ui, d);
+                return;
+            }
+        }
         crate::theme::card(ui, &d.name, |ui| {
             ui.weak(crate::i18n::tr("Windows device telemetry"));
             if !d.warning.is_empty() {
                 crate::theme::colored(ui, crate::theme::WARN, &d.warning);
             }
-            let columns = if ui.available_width() >= 620.0 { 3 } else { 2 };
             let summary: Vec<_> = d
                 .metrics
                 .iter()
                 .filter(|m| !m.id.starts_with("engine:"))
                 .collect();
+            let columns = if ui.available_width() >= 620.0 {
+                if summary.len() == 4 { 4 } else { 3 }
+            } else {
+                2
+            };
             for chunk in summary.chunks(columns) {
                 ui.columns(columns, |cols| {
                     for (col, m) in cols.iter_mut().zip(chunk) {
@@ -302,66 +524,72 @@ impl View {
                 .iter()
                 .find(|m| Some(&m.id) == self.metric.as_ref())
                 .or_else(|| d.metrics.first());
-            if let Some(m) = metric {
-                let factor = if bits && m.unit == "B/s" {
-                    8.0 / 1_000_000.0
-                } else {
-                    1.0
-                };
-                ui.label(format!(
-                    "{} · {}",
-                    crate::i18n::tr(&m.name),
-                    if bits && m.unit == "B/s" {
-                        "Mbps"
-                    } else {
-                        &m.unit
-                    }
-                ));
-                if let Some(series) = self.series.get(&(d.id.clone(), m.id.clone())) {
-                    let start = series.front().map_or(0, |(t, _)| *t);
-                    let mut segments = Vec::new();
-                    let mut points = Vec::new();
-                    for (at, value) in series {
-                        if let Some(value) = value {
-                            points
-                                .push([at.saturating_sub(start) as f64 / 1000.0, *value * factor]);
-                        } else if !points.is_empty() {
-                            segments.push(std::mem::take(&mut points));
+            if d.kind == "GPU" && self.metric.is_none() {
+                let mut engines: Vec<_> = d
+                    .metrics
+                    .iter()
+                    .filter(|m| m.id.starts_with("engine:"))
+                    .collect();
+                // Keep engine positions stable as utilization changes.
+                engines.sort_by(|a, b| a.id.cmp(&b.id));
+                if engines.is_empty() {
+                    engines.extend(d.metrics.iter().filter(|m| m.id == "load"));
+                }
+                engines.truncate(2);
+                let columns = if ui.available_width() >= 600.0 { 2 } else { 1 };
+                for row in engines.chunks(columns) {
+                    ui.columns(columns, |cols| {
+                        for (col, m) in cols.iter_mut().zip(row) {
+                            self.chart(col, d, m, 180.0);
                         }
-                    }
-                    if !points.is_empty() {
-                        segments.push(points);
-                    }
-                    egui_plot::Plot::new(("device-chart", &d.id, &m.id))
-                        .height(240.0)
-                        .show_background(false)
-                        .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.20))
-                        .allow_drag(false)
-                        .allow_scroll(false)
-                        .allow_zoom(false)
-                        .allow_boxed_zoom(false)
-                        .y_axis_min_width(64.0)
-                        .y_axis_formatter(|mark, _| match m.unit.as_str() {
-                            "bytes" => wtm_core::format_bytes(mark.value.max(0.0)),
-                            "B/s" if bits => format!("{:.1} Mbps", mark.value),
-                            "B/s" => format!("{}/s", wtm_core::format_bytes(mark.value.max(0.0))),
-                            unit => format!("{:.0} {unit}", mark.value),
-                        })
-                        .include_y(0.0)
-                        .include_y(m.ceiling.unwrap_or(0.0) * factor)
-                        .show(ui, |plot| {
-                            for (index, points) in segments.into_iter().enumerate() {
-                                plot.line(
-                                    egui_plot::Line::new(format!("{} {index}", m.name), points)
-                                        .color(color)
-                                        .width(1.6)
-                                        .fill(0.0),
-                                );
-                            }
-                        });
-                    ui.weak(crate::i18n::tr(
-                        "Recent samples while this window is open; gaps are not interpolated.",
-                    ));
+                    });
+                }
+                let memory: Vec<_> = d
+                    .metrics
+                    .iter()
+                    .filter(|m| m.id == "dedicated" || m.id == "shared")
+                    .collect();
+                for row in memory.chunks(columns) {
+                    ui.columns(columns, |cols| {
+                        for (col, m) in cols.iter_mut().zip(row) {
+                            self.chart(col, d, m, 160.0);
+                        }
+                    });
+                }
+            } else if let Some(m) = metric {
+                self.chart(ui, d, m, 240.0);
+            }
+            ui.weak(crate::i18n::tr(
+                "Recent samples while this window is open; gaps are not interpolated.",
+            ));
+            if d.kind == "Memory" {
+                let used = d
+                    .metrics
+                    .iter()
+                    .find(|m| m.id == "used")
+                    .and_then(|m| m.value);
+                let available = d
+                    .metrics
+                    .iter()
+                    .find(|m| m.id == "available")
+                    .and_then(|m| m.value);
+                if let (Some(used), Some(available)) = (used, available)
+                    && used + available > 0.0
+                {
+                    let ratio = (used / (used + available)).clamp(0.0, 1.0);
+                    ui.add(
+                        egui::ProgressBar::new(ratio as f32)
+                            .corner_radius(0.0)
+                            .desired_height(12.0)
+                            .fill(crate::theme::text_color(ui, crate::theme::MEMORY))
+                            .desired_width(ui.available_width())
+                            .text(format!(
+                                "{} / {} ({:.0}%)",
+                                wtm_core::format_bytes(used),
+                                wtm_core::format_bytes(used + available),
+                                ratio * 100.0
+                            )),
+                    );
                 }
             }
             crate::theme::divider(ui);
@@ -398,18 +626,65 @@ impl View {
                     warning: String::new(),
                     fields: vec![
                         wtm_core::devices::Field {
+                            name: "Model".into(),
+                            value: "Example SSD controller".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "Firmware".into(),
+                            value: "EX0201".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "Bus".into(),
+                            value: "NVMe".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "Capacity (bytes)".into(),
+                            value: "2000000000000".into(),
+                        },
+                        wtm_core::devices::Field {
                             name: "Storage health".into(),
                             value: "Healthy".into(),
                         },
                         wtm_core::devices::Field {
-                            name: "Power-on time".into(),
-                            value: "1842 h".into(),
+                            name: "NVMe power-on hours".into(),
+                            value: "1842".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "Data read units (512000 bytes)".into(),
+                            value: "9400000".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "Data written units (512000 bytes)".into(),
+                            value: "26000000".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "NVMe power cycles".into(),
+                            value: "501".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "Unsafe shutdowns".into(),
+                            value: "7".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "Media errors".into(),
+                            value: "0".into(),
+                        },
+                        wtm_core::devices::Field {
+                            name: "NVMe critical warning bits".into(),
+                            value: "0x00".into(),
                         },
                     ],
                     metrics: vec![
                         metric("active", "Active time", "%", 42.0, Some(100.0)),
                         metric("read", "Read", "B/s", 124_000_000.0, None),
                         metric("temperature", "Temperature", "C", 42.0, None),
+                        metric(
+                            "nvme-spare",
+                            "NVMe available spare",
+                            "%",
+                            100.0,
+                            Some(100.0),
+                        ),
                         metric(
                             "nvme-remaining",
                             "NVMe remaining endurance",
@@ -441,6 +716,41 @@ impl View {
                         metric("shared", "Shared memory", "bytes", 0.7 * 1073741824.0, None),
                         metric("engine:0:3D", "3D", "%", 36.0, Some(100.0)),
                         metric("engine:1:VideoDecode", "VideoDecode", "%", 2.0, Some(100.0)),
+                    ],
+                },
+                Device {
+                    id: "memory:fixture".into(),
+                    kind: "Memory".into(),
+                    name: "System memory".into(),
+                    at: 0,
+                    warning: String::new(),
+                    fields: vec![wtm_core::devices::Field {
+                        name: "Capacity (bytes)".into(),
+                        value: "137438953472".into(),
+                    }],
+                    metrics: vec![
+                        metric(
+                            "used",
+                            "In use",
+                            "bytes",
+                            80.0 * 1073741824.0,
+                            Some(128.0 * 1073741824.0),
+                        ),
+                        metric(
+                            "available",
+                            "Available",
+                            "bytes",
+                            48.0 * 1073741824.0,
+                            Some(128.0 * 1073741824.0),
+                        ),
+                        metric(
+                            "commit",
+                            "Committed",
+                            "bytes",
+                            110.0 * 1073741824.0,
+                            Some(192.0 * 1073741824.0),
+                        ),
+                        metric("cache", "Cached", "bytes", 45.0 * 1073741824.0, None),
                     ],
                 },
                 Device {
@@ -495,6 +805,8 @@ impl View {
             }
             view.ingest(report.clone());
         }
+        view.disk_details = kind == "DiskDetails";
+        let kind = if view.disk_details { "Disk" } else { kind };
         view.selected = view
             .report
             .as_ref()
@@ -508,6 +820,58 @@ impl View {
 mod tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
+    #[test]
+    fn memory_composition_requires_both_reported_values() {
+        let mut h = egui_kittest::Harness::builder()
+            .with_size([1000.0, 1000.0])
+            .build_ui_state(|ui, v: &mut View| v.show(ui), View::fixture_for("Memory"));
+        h.run();
+        let text = "80.0 GiB / 128.0 GiB (62%)";
+        assert!(h.query_by_label(text).is_some());
+        let report = h.state_mut().report.as_mut().unwrap().as_mut().unwrap();
+        let memory = report
+            .devices
+            .iter_mut()
+            .find(|d| d.kind == "Memory")
+            .unwrap();
+        memory
+            .metrics
+            .iter_mut()
+            .find(|m| m.id == "available")
+            .unwrap()
+            .value = None;
+        h.run();
+        assert!(h.query_by_label(text).is_none());
+    }
+    #[test]
+    fn disk_details_and_gpu_overview_switch_in_both_layouts() {
+        for width in [780.0, 1200.0] {
+            let mut h = egui_kittest::Harness::builder()
+                .with_size([width, 1200.0])
+                .build_ui_state(|ui, v: &mut View| v.show(ui), View::fixture());
+            h.run();
+            h.get_by_label("Details").click();
+            h.run();
+            assert!(h.query_by_label("Health").is_some());
+            assert!(h.query_by_label("97%").is_some());
+            assert!(h.query_by_label("SMART / NVMe").is_some());
+            assert!(h.query_by_label("EX0201").is_some());
+            h.get_by_label("Overview").click();
+            h.run();
+            assert!(h.query_by_label("SMART / NVMe").is_none());
+            *h.state_mut() = View::fixture_for("GPU");
+            h.run();
+            assert!(h.query_by_label("3D · %").is_some());
+            assert!(h.query_by_label("Dedicated memory · bytes").is_some());
+            assert!(h.query_by_label("Shared memory · bytes").is_some());
+            h.get_by_label("Details").click();
+            h.run();
+            assert!(h.query_by_label("Dedicated memory · bytes").is_none());
+            h.get_by_label("Overview").click();
+            h.run();
+            assert!(h.query_by_label("Dedicated memory · bytes").is_some());
+        }
+    }
     #[test]
     fn device_selection_and_missing_samples_render_in_both_layouts() {
         for width in [780.0, 1200.0] {

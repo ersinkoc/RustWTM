@@ -1417,5 +1417,6 @@
   "Automatic CPU temperature": "Automatyczna temperatura CPU",
   "Saved sensor unavailable": "Zapisany czujnik niedostępny",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Temperatura wymaga obsługiwanego czujnika. Brakujące lub nieaktualne odczyty są pokazywane jako kreski, nigdy jako zgadywana wartość.",
-  "Open sensors": "Otwórz czujniki"
+  "Open sensors": "Otwórz czujniki",
+  "NVMe available spare": "Dostępna rezerwa NVMe"
 }

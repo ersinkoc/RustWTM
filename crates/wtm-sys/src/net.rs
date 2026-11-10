@@ -263,25 +263,25 @@ pub fn connections() -> Result<Vec<Connection>> {
         rows::<MIB_TCP6ROW_OWNER_PID>(&tcp6, std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table))
     };
     listeners.clear();
-    if tcp6_rows.iter().any(|r| r.dwState == 0) {
-        if let Ok(table) = fetch(&SIZE_HINTS[5], |p, size| {
+    if tcp6_rows.iter().any(|r| r.dwState == 0)
+        && let Ok(table) = fetch(&SIZE_HINTS[5], |p, size| {
             // SAFETY: as above, using the IPv6 owner-PID row layout.
             unsafe {
                 GetExtendedTcpTable(p, size, false, AF_INET6, TCP_TABLE_OWNER_PID_LISTENER, 0)
             }
-        }) {
-            // SAFETY: successful IPv6 OWNER_PID_LISTENER query above.
-            listeners.extend(
-                unsafe {
-                    rows::<MIB_TCP6ROW_OWNER_PID>(
-                        &table,
-                        std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table),
-                    )
-                }
-                .iter()
-                .map(key6),
-            );
-        }
+        })
+    {
+        // SAFETY: successful IPv6 OWNER_PID_LISTENER query above.
+        listeners.extend(
+            unsafe {
+                rows::<MIB_TCP6ROW_OWNER_PID>(
+                    &table,
+                    std::mem::offset_of!(MIB_TCP6TABLE_OWNER_PID, table),
+                )
+            }
+            .iter()
+            .map(key6),
+        );
     }
     for r in tcp6_rows {
         let state = confirmed_state(r.dwState, &key6(&r), &listeners);
