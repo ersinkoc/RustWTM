@@ -1,0 +1,90 @@
+name: Website media
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable version to backfill with a website package
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: website-media-${{ inputs.tag }}
+  cancel-in-progress: false
+jobs:
+  render:
+    if: github.repository_id == '1425760656'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      TAG: ${{ inputs.tag }}
+      WGPU_BACKEND: dx12
+      WTM_REVIEW_LANGS: en
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          path: tooling
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          if ($env:TAG -cnotmatch '^v\d+\.\d+\.\d+$') { throw 'A stable version is required' }
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+          path: product
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: product -> target
+      - name: Render every navigation page in both themes
+        working-directory: product
+        run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_release_review -- --test-threads=1 --nocapture
+      - name: Render device dashboards
+        working-directory: product
+        env:
+          WTM_EXPANSION_LANGS: en
+          WTM_EXPANSION_CASES: light:wide:gpu,light:compact:disk-details,dark:wide:disk-details,dark:compact:memory
+        run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_product_expansion_review -- --test-threads=1 --nocapture
+      - name: Render quick setup
+        working-directory: product
+        run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_onboarding -- --ignored --test-threads=1 --nocapture
+      - name: Package exact-release website images
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check Pillow==13.0.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tooling/scripts/ci/test-website-media.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tooling/scripts/ci/build-website-media.py --product product --renders product/target --tag "$env:TAG" --output dist/rustwtm-website-media.zip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: website-media
+          path: dist/rustwtm-website-media.zip*
+          if-no-files-found: error
+  publish-backfill:
+    if: github.event_name == 'workflow_dispatch'
+    needs: render
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: website-media
+          path: dist
+      - name: Publish supplemental website assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: python3 scripts/ci/publish-website-media.py --repository RustWTM/RustWTM --tag "$TAG" --archive dist/rustwtm-website-media.zip

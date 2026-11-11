@@ -16,6 +16,11 @@ env:
   TAG: ${{ github.ref_name }}
 
 jobs:
+  website-media:
+    uses: ./.github/workflows/website-media.yml
+    with:
+      tag: ${{ github.ref_name }}
+
   build:
     runs-on: windows-latest
     steps:
@@ -205,8 +210,8 @@ jobs:
           if-no-files-found: error
 
   provenance:
-    needs: [build, sign]
-    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
+    needs: [build, sign, website-media]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.website-media.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -217,6 +222,10 @@ jobs:
         with:
           name: ${{ vars.WINDOWS_SIGNING_PROVIDER == 'azure-artifact-signing' && 'release-signed' || 'release-unsigned' }}
           path: dist
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: website-media
+          path: dist
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -224,8 +233,8 @@ jobs:
             dist/*.msi
 
   publish:
-    needs: [build, sign, provenance]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.provenance.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
+    needs: [build, sign, provenance, website-media]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.provenance.result == 'success' && needs.website-media.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -235,6 +244,10 @@ jobs:
           name: ${{ vars.WINDOWS_SIGNING_PROVIDER == 'azure-artifact-signing' && 'release-signed' || 'release-unsigned' }}
           path: dist
 
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: website-media
+          path: dist
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           body_path: dist/notes.md
@@ -243,3 +256,5 @@ jobs:
             dist/${{ env.ASSET }}.sha256
             dist/*.msi
             dist/*.msi.sha256
+            dist/rustwtm-website-media.zip
+            dist/rustwtm-website-media.zip.sha256

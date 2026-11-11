@@ -8,6 +8,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Build a versioned website image package from the exact release's fixture-rendered
+  interface, and publish it with the installers so homepage highlights and the
+  screenshot gallery can follow new stable releases automatically.
 - Refresh the product website after successful release publication, release-note
   edits and changelog changes through a repository-scoped GitHub App connection.
 

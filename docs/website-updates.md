@@ -2,6 +2,14 @@
 
 The product website source lives in `RustWTM/rustwtm-site`. Its deployment workflow validates the official stable release, package/checksum pairs and changelog, then publishes only when needed.
 
+## Release presentation package
+
+`Release` calls the reusable `Website media` workflow before publication. That workflow checks out the exact release tag, renders every navigation page in English with both themes and window sizes, renders the device and quick-setup fixtures, and packages optimized WebP captures as `rustwtm-website-media.zip` with a SHA-256 sidecar. New navigation pages must have a render; missing captures stop publication rather than retaining an older version label.
+
+The bounded manifest binds every capture to its release tag and source commit, with individual hashes and original dimensions. Images contain fixture data, not developer-host telemetry. The package is included in the release provenance job and is published alongside the installers. The website derives homepage highlights from the published release notes and imports the matching package as one validated content snapshot.
+
+For a previously published stable version, run `Website media` manually with its tag. The backfill publisher verifies the real tag commit and refuses to replace an existing asset with different bytes. Completion starts the existing website notification workflow. It does not rebuild or replace installer binaries.
+
 `.github/workflows/update-website.yml` requests a website content check after:
 
 - Successful completion of the trusted `Release` publisher. This also covers releases published with `GITHUB_TOKEN`, whose release event cannot trigger another workflow.
