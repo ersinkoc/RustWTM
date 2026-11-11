@@ -5622,15 +5622,40 @@ mod tests {
         }
 
         // Select our own process, open its details, ask to end it and cancel.
-        h.state_mut().state.processes.search = me.to_string();
-        h.run_steps(2);
         let name = std::env::current_exe()
             .unwrap()
             .file_name()
             .unwrap()
             .to_string_lossy()
             .into_owned();
-        h.get_by_label(&name).click();
+        // Metadata arrival is asynchronous. Exercise the descriptive rendering
+        // deterministically instead of passing only when the raw name is shown.
+        {
+            let mut d = h.state().backend.data();
+            let created = d
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .processes
+                .iter()
+                .find(|p| p.pid == me)
+                .unwrap()
+                .create_time;
+            let path = std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            d.image_paths.insert((me, created), path.clone());
+            d.descriptions
+                .insert(path, Some("RustWTM task manager".into()));
+            d.revision = d.revision.wrapping_add(1);
+        }
+        h.state_mut().state.processes.search = me.to_string();
+        h.run_steps(2);
+        let descriptive_name = format!("RustWTM task manager  {name}");
+        h.query_by_label(&name)
+            .unwrap_or_else(|| h.get_by_label(&descriptive_name))
+            .click();
         h.run_steps(2);
         std::thread::sleep(Duration::from_millis(300));
         h.run_steps(2);
