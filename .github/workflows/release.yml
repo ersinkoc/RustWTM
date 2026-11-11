@@ -5,7 +5,8 @@ on:
     tags: ['v*']
 
 # Build has read access only. Signing and provenance have separate OIDC jobs;
-# publish is the only job with repository-content write access.
+# The media call allows its manual-backfill publisher; its render job explicitly
+# reduces access to read. Normal release writes remain in publish.
 permissions:
   contents: read
 
@@ -17,6 +18,10 @@ env:
 
 jobs:
   website-media:
+    # Reusable workflows cannot request more than the caller's permission cap,
+    # including their conditional manual-only jobs. Actual rendering stays read-only.
+    permissions:
+      contents: write
     uses: ./.github/workflows/website-media.yml
     with:
       tag: ${{ github.ref_name }}

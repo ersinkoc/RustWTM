@@ -19,6 +19,8 @@ concurrency:
 jobs:
   render:
     if: github.repository_id == '1425760656'
+    permissions:
+      contents: read
     runs-on: windows-latest
     timeout-minutes: 25
     env:
