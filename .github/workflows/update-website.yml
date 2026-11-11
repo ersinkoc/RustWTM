@@ -1,0 +1,55 @@
+name: Update product website
+
+on:
+  release:
+    types: [published, edited]
+  # The release is published with GITHUB_TOKEN. Its release event does not
+  # start another workflow, so completion of the publisher is the main trigger.
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md]
+  workflow_dispatch:
+
+permissions: {}
+concurrency:
+  group: product-website-notification
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    if: >-
+      github.repository_id == '1425760656' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'release' && !github.event.release.draft && !github.event.release.prerelease) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.path == '.github/workflows/release.yml' &&
+      github.event.workflow_run.head_repository.id == 1425760656 &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # No product checkout or event-supplied code runs with this credential.
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: website
+        with:
+          client-id: ${{ vars.WEBSITE_SYNC_APP_CLIENT_ID }}
+          private-key: ${{ secrets.WEBSITE_SYNC_APP_PRIVATE_KEY }}
+          owner: RustWTM
+          repositories: rustwtm-site
+          permission-actions: write
+      - name: Request a website content check
+        env:
+          GH_TOKEN: ${{ steps.website.outputs.token }}
+        run: |
+          for delay in 0 5 15; do
+            sleep "$delay"
+            if gh workflow run deploy.yml --repo RustWTM/rustwtm-site --ref main -F check_only=true; then
+              echo 'Website update requested. The receiver revalidates official product content.'
+              exit 0
+            fi
+          done
+          echo 'Website update request failed.' >&2
+          exit 1

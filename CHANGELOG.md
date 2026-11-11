@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Refresh the product website after successful release publication, release-note
+  edits and changelog changes through a repository-scoped GitHub App connection.
+
 ## [0.30.0] - 2026-11-11
 
 ### Added
