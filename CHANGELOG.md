@@ -6,6 +6,49 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-11
+
+### Added
+
+- A skippable five-step quick setup opens on first use and once after each
+  version change. Review language, appearance, process layout, tray readouts
+  and refresh/update preferences before applying. Existing choices are preserved;
+  reopen the setup from Settings at any time. The final review groups choices
+  into compact sections with expandable details and direct editing; edited
+  sections return to the review without committing the draft.
+- Startup apps support case-insensitive name, command, scope and source search,
+  combined with enabled/disabled filters, Ctrl+F, Escape and filter reset.
+- Choose row and column separators independently across tables. Processes can
+  show the Windows file description with the executable name in muted text.
+  Name sorting follows the selected presentation and search accepts either name.
+- Right-click process headers for sort direction, grouped column visibility,
+  fitting widths, column layouts and display options. Data views expose copy,
+  navigation and applicable item actions through context menus.
+- Process actions group resource limits and diagnostics into compact submenus.
+  Disk activity menus copy file paths and readings, and open the selected owner
+  in Processes. Process and port menus share viewport-bounded scrolling.
+
+### Fixed
+
+- Overview survives zero-width native startup and measurement passes. Resource
+  cards fall back to one column before gutters can produce a negative width.
+  Page layout waits for a nonempty client area while visibility and close
+  handling remain active. Regression coverage includes every page and recovery
+  to a normal window size.
+- Restored native window geometry respects the 820×500 minimum, including stale
+  64×64 saved windows. Valid sizes, position, maximization and visibility are
+  preserved; non-finite dimensions fall back to the normal default size.
+- Quick setup keeps language-save errors visible above its scrolling review
+  without shifting navigation. Reduced motion also disables automatic scroll
+  animations throughout the window and restores normal scrolling when disabled.
+- Pages open directly into their content. Settings tabs and cards use the full
+  workspace width. Sampling age and the process Inspector menu are in the footer.
+- Service thresholds use aligned setting rows with associated accessible labels.
+- Installed application and container tables follow the selected row density.
+  Container selection highlights the full row and accepts clicks on its values.
+- Table separator controls are also available in Appearance settings. Startup
+  scope labels use readable account names and the selected-entry toolbar wraps.
+
 ## [0.29.0] - 2026-11-11
 
 ### Added
@@ -1233,7 +1276,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/rustwtm/rustwtm/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/rustwtm/rustwtm/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/rustwtm/rustwtm/compare/v0.27.2...v0.28.0
 [0.27.2]: https://github.com/rustwtm/rustwtm/compare/v0.27.1...v0.27.2

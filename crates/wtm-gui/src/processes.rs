@@ -150,12 +150,27 @@ pub struct Extra<'a> {
     pub labels: &'a ManagedMap,
     pub command_lines: &'a crate::backend::CommandLines,
     pub image_paths: &'a crate::backend::CommandLines,
+    pub descriptions: &'a HashMap<String, Option<String>>,
     pub icons: &'a HashMap<String, Option<std::sync::Arc<wtm_core::IconImage>>>,
     /// Processes whose window does not respond.
     pub hung: &'a crate::backend::HungMap,
 }
 
 impl Extra<'_> {
+    fn image_path(&self, p: &ProcessInfo) -> Option<&str> {
+        self.image_paths
+            .get(&(p.pid, p.create_time))
+            .map(String::as_str)
+            .filter(|path| !path.is_empty())
+    }
+
+    fn description(&self, p: &ProcessInfo) -> Option<&str> {
+        self.descriptions
+            .get(self.image_path(p)?)?
+            .as_deref()
+            .filter(|name| !name.eq_ignore_ascii_case(&p.name))
+    }
+
     fn label(&self, p: &ProcessInfo) -> &str {
         self.labels
             .get(&(p.pid, p.create_time))
@@ -301,6 +316,9 @@ pub struct ProcessView {
     /// Shade CPU, memory, disk and GPU cells by how much they use.
     pub heat: bool,
     pub stripes: bool,
+    pub descriptive_names: bool,
+    fit_widths: bool,
+    reset_widths: bool,
     pub hold_sorting: bool,
     pub filter: QuickFilter,
     pub more: MoreFilters,
@@ -340,6 +358,7 @@ struct RowKey {
     mode: ViewMode,
     sort: Col,
     descending: bool,
+    descriptive_names: bool,
     filter: QuickFilter,
     more: MoreFilters,
     expanded: HashSet<String>,
@@ -377,6 +396,9 @@ impl Default for ProcessView {
             table_layout: Vec::new(),
             heat: true,
             stripes: false,
+            descriptive_names: true,
+            fit_widths: false,
+            reset_widths: false,
             hold_sorting: true,
             filter: QuickFilter::All,
             more: MoreFilters::default(),
@@ -392,6 +414,103 @@ impl Default for ProcessView {
 }
 
 impl ProcessView {
+    fn columns_menu(&mut self, ui: &mut Ui, grouped: bool) {
+        ui.menu_button(crate::i18n::tr("Column profiles"), |ui| {
+            for profile in crate::process_columns::Profile::ALL {
+                if crate::context_actions::action(ui, profile.label()) {
+                    self.apply_profile(profile);
+                    egui::Popup::close_all(ui.ctx());
+                }
+            }
+        });
+        if grouped {
+            for (family, label) in ["Process", "CPU", "Memory", "Disk", "Network", "GPU"]
+                .into_iter()
+                .enumerate()
+            {
+                let columns = COLUMNS.iter().filter(|c| column_family(c.0) == family);
+                let visible = columns
+                    .clone()
+                    .filter(|c| self.visible.contains(&c.0))
+                    .count();
+                let total = columns.clone().count();
+                ui.menu_button(
+                    format!("{}  {visible}/{total}", crate::i18n::tr(label)),
+                    |ui| {
+                        for (col, label, ..) in columns {
+                            self.column_checkbox(ui, *col, label);
+                        }
+                    },
+                );
+            }
+        }
+        crate::theme::divider(ui);
+        if crate::context_actions::action(ui, crate::i18n::tr("Arrange columns…")) {
+            self.column_editor = Some(crate::process_columns::Editor::new(
+                &self.visible,
+                &self.column_order,
+            ));
+        }
+        if crate::context_actions::action(ui, crate::i18n::tr("Fit columns")) {
+            self.fit_widths = true;
+            ui.ctx().request_repaint();
+        }
+        if crate::context_actions::action(ui, crate::i18n::tr("Restore default columns")) {
+            self.apply_columns(crate::process_columns::Selection::default());
+            self.reset_widths = true;
+            ui.ctx().request_repaint();
+        }
+        crate::theme::divider(ui);
+        if grouped {
+            ui.menu_button(crate::i18n::tr("Appearance"), |ui| {
+                self.table_appearance(ui)
+            });
+        } else {
+            self.table_appearance(ui);
+        }
+        if !grouped {
+            crate::theme::divider(ui);
+            egui::ScrollArea::vertical()
+                .id_salt("column-visibility-menu")
+                .max_height((ui.ctx().content_rect().height() - 320.0).max(100.0))
+                .show(ui, |ui| {
+                    for (column, label, ..) in COLUMNS.iter().skip(1) {
+                        self.column_checkbox(ui, *column, label);
+                    }
+                });
+        }
+    }
+
+    fn table_appearance(&mut self, ui: &mut Ui) {
+        ui.checkbox(&mut self.heat, crate::i18n::tr("Heat map"));
+        ui.checkbox(
+            &mut self.stripes,
+            crate::i18n::tr("Alternating row backgrounds"),
+        );
+        ui.checkbox(
+            &mut self.descriptive_names,
+            crate::i18n::tr("Show process descriptions"),
+        );
+        crate::theme::TableLines::controls(ui);
+    }
+
+    fn column_checkbox(&mut self, ui: &mut Ui, column: Col, label: &str) {
+        let mut visible = self.visible.contains(&column);
+        if ui
+            .add_enabled(
+                column != Col::Name,
+                egui::Checkbox::new(&mut visible, crate::i18n::tr(label)),
+            )
+            .changed()
+        {
+            if visible {
+                self.visible.insert(column);
+            } else {
+                self.visible.remove(&column);
+            }
+        }
+    }
+
     pub fn normalize_columns(&mut self) {
         self.visible.remove(&Col::Unknown);
         self.visible.insert(Col::Name);
@@ -568,8 +687,29 @@ impl ProcessView {
     }
 }
 
-fn compare(a: &ProcessInfo, b: &ProcessInfo, col: Col, extra: &Extra<'_>) -> Ordering {
+fn column_family(col: Col) -> usize {
     match col {
+        Col::Cpu | Col::Threads | Col::Priority => 1,
+        Col::Memory | Col::Commit | Col::WorkingSet => 2,
+        Col::Disk => 3,
+        Col::Network => 4,
+        Col::Gpu | Col::GpuMemory => 5,
+        _ => 0,
+    }
+}
+
+fn compare(
+    a: &ProcessInfo,
+    b: &ProcessInfo,
+    col: Col,
+    extra: &Extra<'_>,
+    descriptions: bool,
+) -> Ordering {
+    match col {
+        Col::Name if descriptions => crate::sort::text(
+            extra.description(a).unwrap_or(&a.name),
+            extra.description(b).unwrap_or(&b.name),
+        ),
         Col::Name | Col::Unknown => crate::sort::text(&a.name, &b.name),
         Col::Pid => a.pid.cmp(&b.pid),
         Col::Cpu => a.cpu_percent.total_cmp(&b.cpu_percent),
@@ -630,7 +770,7 @@ fn tree_order(
     extra: &Extra<'_>,
 ) -> Vec<(usize, usize)> {
     tree_order_by(procs, false, |a, b| {
-        let o = compare(a, b, col, extra);
+        let o = compare(a, b, col, extra, false);
         if descending { o.reverse() } else { o }
     })
 }
@@ -816,41 +956,7 @@ impl ProcessView {
                     }
                 });
             });
-            ui.menu_button(crate::i18n::tr("Columns"), |ui| {
-                ui.menu_button(crate::i18n::tr("Column profiles"), |ui| {
-                    for profile in crate::process_columns::Profile::ALL {
-                        if ui.button(profile.label()).clicked() {
-                            self.apply_profile(profile);
-                            egui::Popup::close_all(ui.ctx());
-                            ui.close();
-                        }
-                    }
-                });
-                if ui.button(crate::i18n::tr("Arrange columns…")).clicked() {
-                    self.column_editor = Some(crate::process_columns::Editor::new(&self.visible, &self.column_order));
-                    ui.close();
-                }
-                if ui.button(crate::i18n::tr("Restore default columns")).clicked() {
-                    self.apply_columns(crate::process_columns::Selection::default());
-                    ui.close();
-                }
-                crate::theme::divider(ui);
-                ui.checkbox(&mut self.heat, crate::i18n::tr("Heat map"))
-                    .on_hover_text(crate::i18n::tr("Shade busy CPU, memory, disk and GPU cells"));
-                crate::theme::divider(ui);
-                egui::ScrollArea::vertical().id_salt("column-visibility-menu")
-                    .max_height((ui.ctx().content_rect().height() - 230.0).max(120.0))
-                    .show(ui, |ui| { for (col, label, ..) in COLUMNS.iter().skip(1) {
-                    let mut on = self.visible.contains(col);
-                    if ui.checkbox(&mut on, crate::i18n::tr(label)).changed() {
-                        if on {
-                            self.visible.insert(*col);
-                        } else {
-                            self.visible.remove(col);
-                        }
-                    }
-                } });
-            });
+            ui.menu_button(crate::i18n::tr("Columns"), |ui| self.columns_menu(ui, false));
             let toggle_key = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F6))
                 && !ui.ctx().text_edit_focused()
                 && !egui::Popup::is_any_open(ui.ctx())
@@ -1011,6 +1117,8 @@ impl ProcessView {
             .iter()
             .filter_map(|col| COLUMNS.iter().find(|c| c.0 == *col))
             .collect();
+        let fit_widths = std::mem::take(&mut self.fit_widths);
+        let reset_widths = std::mem::take(&mut self.reset_widths);
 
         // Every header fits in its column at first, with room for the sort
         // arrow; the name column gives way on small windows.
@@ -1018,7 +1126,7 @@ impl ProcessView {
         let widths: Vec<f32> = columns
             .iter()
             .map(|(col, label, width, ..)| {
-                let width = if *col == Col::Name && narrow {
+                let width = if *col == Col::Name && narrow && !self.descriptive_names {
                     NARROW_NAME
                 } else {
                     *width
@@ -1055,13 +1163,26 @@ impl ProcessView {
                     table = table.scroll_to_row(row, None);
                 }
                 for (i, ((col, ..), width)) in columns.iter().zip(&widths).enumerate() {
-                    table = table.column(match col {
+                    let column = match col {
                         Col::Name => Column::initial(*width).at_least(140.0).clip(true),
                         _ if i == columns.len() - 1 => {
                             Column::remainder().at_least(*width).clip(true)
                         }
                         _ => Column::initial(*width).clip(true),
+                    };
+                    table = table.column(if fit_widths {
+                        let maximum: f32 = match col {
+                            Col::Name => 540.0,
+                            Col::CommandLine => 640.0,
+                            _ => 280.0,
+                        };
+                        column.at_most(maximum.max(*width)).auto_size_this_frame(true)
+                    } else {
+                        column
                     });
+                }
+                if reset_widths {
+                    table.reset();
                 }
                 table
                     .header(row_height * 2.0, |mut header| {
@@ -1078,12 +1199,20 @@ impl ProcessView {
                                     Col::Gpu => Some(format!("{:.0}%", snap.system.gpu_percent)),
                                     _ => None,
                                 };
+                                if ui.is_sizing_pass() {
+                                    if let Some(total) = total {
+                                        ui.strong(total);
+                                    }
+                                    ui.strong(format!("{label} ↓"));
+                                    return;
+                                }
                                 ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), row_height), Layout::right_to_left(Align::Center), |ui| {
                                     ui.add_sized([ui.available_width(), row_height], egui::Label::new(RichText::new(total.unwrap_or_default()).strong()).truncate())
                                         .on_hover_text(crate::i18n::tr("System-wide total; filters only change the rows. Memory is physical use; disk is process I/O; network includes all adapters."));
                                 });
                                 let current = (self.sort == *col).then_some(self.descending);
-                                if crate::sort::cell(ui, label, right_aligned(*col), current) {
+                                let response = crate::sort::cell_response(ui, label, right_aligned(*col), current);
+                                if response.clicked() {
                                     if self.sort == *col {
                                         self.descending = !self.descending;
                                     } else {
@@ -1091,6 +1220,23 @@ impl ProcessView {
                                         self.descending = *numeric;
                                     }
                                 }
+                                crate::context_actions::menu(&response, (menu_id, "header", col), |ui| {
+                                    ui.strong(label);
+                                    if crate::context_actions::action(ui, crate::i18n::tr("Sort ascending")) {
+                                        self.sort = *col;
+                                        self.descending = false;
+                                    }
+                                    if crate::context_actions::action(ui, crate::i18n::tr("Sort descending")) {
+                                        self.sort = *col;
+                                        self.descending = true;
+                                    }
+                                    if *col != Col::Name && crate::context_actions::action(ui, crate::i18n::tr("Hide")) {
+                                        self.visible.remove(col);
+                                        self.normalize_columns();
+                                    }
+                                    crate::theme::divider(ui);
+                                    self.columns_menu(ui, true);
+                                });
                                 });
                             }));
                         }
@@ -1131,17 +1277,22 @@ impl ProcessView {
                                                 ui.label(if open { "⏷" } else { "⏵" });
                                             }
                                             app_icon(ui, extra.icon(p));
-                                            match group {
-                                                Some(g) => ui.label(
-                                                    RichText::new(format!(
-                                                        "{} ({})",
-                                                        p.name,
-                                                        g.members.len()
-                                                    ))
-                                                    .strong(),
-                                                ),
-                                                None => ui.label(&p.name),
+                                            let description = self.descriptive_names.then(|| extra.description(p)).flatten();
+                                            let name = description.unwrap_or(&p.name);
+                                            let title = if let Some(g) = group {
+                                                RichText::new(format!("{name} ({})", g.members.len())).strong()
+                                            } else {
+                                                RichText::new(name)
                                             };
+                                            let mut job = egui::text::LayoutJob::default();
+                                            title.append_to(&mut job, ui.style(), egui::FontSelection::Default, Align::Center);
+                                            if description.is_some() {
+                                                RichText::new(format!("  {}", p.name)).weak().small()
+                                                    .append_to(&mut job, ui.style(), egui::FontSelection::Default, Align::Center);
+                                            }
+                                            let label = egui::Label::new(job);
+                                            let label = if ui.is_sizing_pass() { label.extend() } else { label.truncate() };
+                                            ui.add(label);
                                             if p.suspended {
                                                 ui.label(
                                                     RichText::new(crate::i18n::tr("Suspended"))
@@ -1231,16 +1382,25 @@ impl ProcessView {
                                 if response.clicked() && !self.expanded.remove(&g.key) {
                                     self.expanded.insert(g.key.clone());
                                 }
-                                egui::Popup::context_menu(&response)
-                                    .id(menu_id.with(("app", &g.key)))
-                                    .show(|ui| app_menu(ui, g, &snap.processes, &mut intents));
+                                crate::context_actions::menu(&response, (menu_id, "app", &g.key), |ui| {
+                                        crate::context_actions::copy(ui, crate::i18n::tr("Name"), || p.name.clone());
+                                        crate::theme::divider(ui);
+                                        app_menu(ui, g, &snap.processes, &mut intents);
+                                    });
                             } else {
                                 if response.clicked() {
                                     intents.push(Intent::Select(target.clone()));
                                 }
-                                egui::Popup::context_menu(&response)
-                                    .id(menu_id.with(("process", key)))
-                                    .show(|ui| {
+                                crate::context_actions::menu(&response, (menu_id, "process", key), |ui| {
+                                        if crate::context_actions::action(ui, crate::i18n::tr("Details")) {
+                                            intents.push(Intent::Select(target.clone()));
+                                        }
+                                        crate::context_actions::copy(ui, crate::i18n::tr("Name"), || p.name.clone());
+                                        crate::context_actions::copy(ui, "PID", || p.pid.to_string());
+                                        if let Some(path) = extra.image_path(p) {
+                                            crate::context_actions::copy(ui, crate::i18n::tr("Path"), || path.to_owned());
+                                        }
+                                        crate::theme::divider(ui);
                                         context_menu(
                                             ui,
                                             &target,
@@ -1279,6 +1439,7 @@ impl ProcessView {
             && key.mode == self.mode
             && key.sort == self.sort
             && key.descending == self.descending
+            && key.descriptive_names == self.descriptive_names
             && key.filter == self.filter
             && key.more == self.more
             && key.second == second
@@ -1290,6 +1451,7 @@ impl ProcessView {
             && key.mode == self.mode
             && key.sort == self.sort
             && key.descending == self.descending
+            && key.descriptive_names == self.descriptive_names
             && key.filter == self.filter
             && key.more == self.more
     }
@@ -1324,6 +1486,9 @@ impl ProcessView {
                 && self.more.matches(p, now)
                 && (filter.is_empty()
                     || p.name.to_lowercase().contains(&filter)
+                    || extra
+                        .description(p)
+                        .is_some_and(|name| name.to_lowercase().contains(&filter))
                     || p.pid.to_string().contains(&filter)
                     || extra.command_line(p).to_lowercase().contains(&filter)
                     || extra
@@ -1336,7 +1501,7 @@ impl ProcessView {
             .as_ref()
             .filter(|s| self.inspection_held && self.same_order_settings(&s.key));
         let live_order = |a: &ProcessInfo, b: &ProcessInfo| {
-            let o = compare(a, b, self.sort, extra);
+            let o = compare(a, b, self.sort, extra, self.descriptive_names);
             if self.descending { o.reverse() } else { o }
         };
         let order = |a: &ProcessInfo, b: &ProcessInfo| {
@@ -1402,6 +1567,7 @@ impl ProcessView {
                 mode: self.mode,
                 sort: self.sort,
                 descending: self.descending,
+                descriptive_names: self.descriptive_names,
                 filter: self.filter,
                 more: self.more.clone(),
                 expanded: if self.mode == ViewMode::Apps {
@@ -1648,55 +1814,57 @@ pub fn context_menu(
             ));
         });
     }
-    ui.menu_button(crate::i18n::tr("Limit CPU"), |ui| {
-        for (label, cores) in [
-            (crate::i18n::tr("¼ core"), 0.25),
-            (crate::i18n::tr("½ core"), 0.5),
-            (crate::i18n::tr("1 core"), 1.0),
-            (crate::i18n::tr("2 cores"), 2.0),
-            (crate::i18n::tr("4 cores"), 4.0),
-        ] {
-            if cores > f64::from(logical_cpus) {
-                continue;
+    ui.menu_button(crate::i18n::tr("Limits"), |ui| {
+        ui.menu_button(crate::i18n::tr("Limit CPU"), |ui| {
+            for (label, cores) in [
+                (crate::i18n::tr("¼ core"), 0.25),
+                (crate::i18n::tr("½ core"), 0.5),
+                (crate::i18n::tr("1 core"), 1.0),
+                (crate::i18n::tr("2 cores"), 2.0),
+                (crate::i18n::tr("4 cores"), 4.0),
+            ] {
+                if cores > f64::from(logical_cpus) {
+                    continue;
+                }
+                let percent = (cores / f64::from(logical_cpus) * 100.0) as f32;
+                let limits = Limits {
+                    cpu_percent: Some(percent),
+                    memory_bytes: None,
+                };
+                cmd(
+                    ui,
+                    &{
+                        crate::i18n::format(
+                            "{0}  ({1}% of machine)",
+                            &[label.to_string(), format!("{:.2}", percent)],
+                        )
+                    },
+                    Command::Limit(limits),
+                    false,
+                );
             }
-            let percent = (cores / f64::from(logical_cpus) * 100.0) as f32;
-            let limits = Limits {
-                cpu_percent: Some(percent),
-                memory_bytes: None,
-            };
-            cmd(
-                ui,
-                &{
-                    crate::i18n::format(
-                        "{0}  ({1}% of machine)",
-                        &[label.to_string(), format!("{:.2}", percent)],
-                    )
-                },
-                Command::Limit(limits),
-                false,
-            );
-        }
+        });
+        ui.menu_button(crate::i18n::tr("Limit memory"), |ui| {
+            for mb in [256u64, 512, 1024, 2048, 4096, 8192] {
+                let limits = Limits {
+                    cpu_percent: None,
+                    memory_bytes: Some(mb << 20),
+                };
+                cmd(
+                    ui,
+                    &format_bytes((mb << 20) as f64),
+                    Command::Limit(limits),
+                    false,
+                );
+            }
+        });
+        cmd(
+            ui,
+            crate::i18n::tr("Remove limits"),
+            Command::Unlimit,
+            false,
+        );
     });
-    ui.menu_button(crate::i18n::tr("Limit memory"), |ui| {
-        for mb in [256u64, 512, 1024, 2048, 4096, 8192] {
-            let limits = Limits {
-                cpu_percent: None,
-                memory_bytes: Some(mb << 20),
-            };
-            cmd(
-                ui,
-                &format_bytes((mb << 20) as f64),
-                Command::Limit(limits),
-                false,
-            );
-        }
-    });
-    cmd(
-        ui,
-        crate::i18n::tr("Remove limits"),
-        Command::Unlimit,
-        false,
-    );
     cmd(
         ui,
         crate::i18n::tr("Free memory"),
@@ -1733,35 +1901,37 @@ pub fn context_menu(
         ui.close();
     }
     crate::theme::divider(ui);
-    if ui
-        .button(crate::i18n::tr("Notify me when it exits"))
-        .on_hover_text(crate::i18n::tr(
-            "A desktop notification when it ends, e.g. a long build or download; again to stop",
-        ))
-        .clicked()
-    {
-        intents.push(Intent::WatchExit(t.clone()));
-        ui.close();
-    }
-    if ui
-        .button(crate::i18n::tr("Create memory dump file"))
-        .on_hover_text(crate::i18n::tr(
-            "A full dump in your Temp folder, for debugging a hang or crash",
-        ))
-        .clicked()
-    {
-        intents.push(Intent::Dump(t.clone()));
-        ui.close();
-    }
-    if ui.button(crate::i18n::tr("Search online")).clicked() {
-        ui.ctx()
-            .open_url(egui::OpenUrl::new_tab(search_url(&t.name)));
-        ui.close();
-    }
-    if ui.button(crate::i18n::tr("Properties")).clicked() {
-        intents.push(Intent::Select(t.clone()));
-        ui.close();
-    }
+    ui.menu_button(crate::i18n::tr("Diagnostics"), |ui| {
+        if ui
+            .button(crate::i18n::tr("Notify me when it exits"))
+            .on_hover_text(crate::i18n::tr(
+                "A desktop notification when it ends, e.g. a long build or download; again to stop",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::WatchExit(t.clone()));
+            ui.close();
+        }
+        if ui
+            .button(crate::i18n::tr("Create memory dump file"))
+            .on_hover_text(crate::i18n::tr(
+                "A full dump in your Temp folder, for debugging a hang or crash",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::Dump(t.clone()));
+            ui.close();
+        }
+        if ui.button(crate::i18n::tr("Search online")).clicked() {
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab(search_url(&t.name)));
+            ui.close();
+        }
+        if ui.button(crate::i18n::tr("Properties")).clicked() {
+            intents.push(Intent::Select(t.clone()));
+            ui.close();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -1884,6 +2054,7 @@ mod tests {
             labels: Box::leak(Box::default()),
             command_lines: Box::leak(Box::default()),
             image_paths: Box::leak(Box::default()),
+            descriptions: Box::leak(Box::default()),
             icons: Box::leak(Box::default()),
             hung: Box::leak(Box::default()),
         }

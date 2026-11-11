@@ -76,7 +76,7 @@ impl View {
                                 .to_lowercase()
                                 .contains(&query)
                         }) {
-                            egui::CollapsingHeader::new(format!(
+                            let card = egui::CollapsingHeader::new(format!(
                                 "{}  ·  {}",
                                 app.name, app.version
                             ))
@@ -93,6 +93,25 @@ impl View {
                                     }
                                 });
                             });
+                            crate::context_actions::menu(
+                                &card.header_response,
+                                ("store-package", &app.id),
+                                |ui| {
+                                    crate::context_actions::copy(ui, "ID", || app.id.clone());
+                                    crate::context_actions::copy(
+                                        ui,
+                                        crate::i18n::tr("Version"),
+                                        || app.version.clone(),
+                                    );
+                                    if !app.location.is_empty() {
+                                        crate::context_actions::copy(
+                                            ui,
+                                            crate::i18n::tr("Path"),
+                                            || app.location.clone(),
+                                        );
+                                    }
+                                },
+                            );
                         }
                     } else {
                         let updates: Vec<_> = report
@@ -145,13 +164,33 @@ impl View {
                                 ui.horizontal_wrapped(|ui| {
                                     let supported =
                                         matches!(p.source.as_str(), "winget" | "msstore");
-                                    if ui
-                                        .add_enabled(
-                                            !busy && supported,
-                                            egui::Checkbox::new(&mut selected, &p.name),
-                                        )
-                                        .changed()
-                                    {
+                                    let response = ui.add_enabled(
+                                        !busy && supported,
+                                        egui::Checkbox::new(&mut selected, &p.name),
+                                    );
+                                    crate::context_actions::menu(
+                                        &response,
+                                        ("package-update", &key),
+                                        |ui| {
+                                            crate::context_actions::copy(ui, "ID", || p.id.clone());
+                                            if !busy
+                                                && supported
+                                                && crate::context_actions::action(
+                                                    ui,
+                                                    crate::i18n::tr("Review package updates"),
+                                                )
+                                            {
+                                                match UpdatePlan::new(std::slice::from_ref(p)) {
+                                                    Ok(plan) => {
+                                                        self.confirm = Some(plan);
+                                                        self.error = None;
+                                                    }
+                                                    Err(e) => self.error = Some(e),
+                                                }
+                                            }
+                                        },
+                                    );
+                                    if response.changed() {
                                         if selected {
                                             self.selected.insert(key.clone());
                                         } else {

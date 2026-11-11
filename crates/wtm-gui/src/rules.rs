@@ -90,7 +90,16 @@ impl View {
             }
             for rule in &config.rules {
                 ui.horizontal_wrapped(|ui| {
-                    ui.strong(&rule.name);
+                    let title = ui.strong(&rule.name).interact(egui::Sense::click());
+                    let mut edit = false;
+                    let mut remove = false;
+                    crate::context_actions::menu(&title, ("saved-rule", &rule.name), |ui| {
+                        crate::context_actions::copy(ui, crate::i18n::tr("Rule name"), || {
+                            rule.name.clone()
+                        });
+                        edit = crate::context_actions::action(ui, crate::i18n::tr("Edit rule"));
+                        remove = crate::context_actions::action(ui, crate::i18n::tr("Remove rule"));
+                    });
                     ui.weak(
                         rule.actions
                             .iter()
@@ -98,13 +107,13 @@ impl View {
                             .collect::<Vec<_>>()
                             .join(" · "),
                     );
-                    if ui.button(crate::i18n::tr("Edit rule")).clicked() {
+                    if ui.button(crate::i18n::tr("Edit rule")).clicked() || edit {
                         self.draft = Some(rule.clone());
                         self.original_name = Some(rule.name.clone());
                         self.preview.clear();
                         self.previewed = false;
                     }
-                    if ui.button(crate::i18n::tr("Remove rule")).clicked() {
+                    if ui.button(crate::i18n::tr("Remove rule")).clicked() || remove {
                         proposed = Some(wtm_policy::rule_editor::remove(text, &rule.name).map(
                             |next| {
                                 (

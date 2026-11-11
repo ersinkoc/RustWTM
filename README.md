@@ -45,7 +45,24 @@ usage history.
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
-## New in 0.29.0
+## New in 0.30.0
+
+[Release scope and validation](docs/0.30.0-review.md)
+
+- **Quick setup:** a skippable five-step welcome flow on first use and after
+  updates, with a compact review, direct section editing and remembered choices.
+- **Process workspace:** optional descriptive titles beside muted executable
+  names, independent table separators, grouped column menus and width fitting.
+- **Desktop consistency:** full-width Settings, shared row density, aligned
+  controls, contextual copy/actions, and Startup search and enabled/disabled filters.
+- **Reliable startup:** restored window geometry respects the minimum size;
+  zero-size native frames defer layout safely. Reduced motion also covers
+  automatic scrolling, and setup errors remain visible above the review.
+
+IPC remains protocol 16. Existing repository-identity-based updates continue to
+discover the current release and its paired installer/checksum assets.
+
+## Included since 0.29.0
 
 [Release scope and validation](docs/0.29.0-review.md)
 
@@ -119,7 +136,8 @@ stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/r
   protection levels, the busiest apps with quick actions.
 
 - Processes: list, tree or Apps view (one row per app, acting on all of its
-  processes), program icons, search (Ctrl+F), sort by any column, choose columns,
+  processes), program icons, optional descriptive titles with muted executable
+  names, search (Ctrl+F), sort by any column, choose columns,
   details panel (path, command line, user, priority, affinity, efficiency
   mode, uptime, I/O), open file location.
 - Pause process-list updates (F6) to inspect a stable snapshot while monitoring
@@ -138,7 +156,10 @@ stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/r
   a searchable column editor with keyboard-operable ordering, Apply/Cancel and
   reset. Name stays first. The active layout is shared by List/Tree/Apps and
   survives restart. [Usage and compatibility](docs/process-columns.md).
-- **Display preferences**: square, adjoining panels and line-separated tables;
+- **Context menus** offer grouped column visibility, width fitting, sorting,
+  data copying and item actions throughout the workspace. Disk activity can
+  open a live owner in Processes and copy file paths.
+- **Display preferences**: square, adjoining panels and optional row/column separators;
   remembered interface scale, row heights, reduced animation, sidebar layout,
   process-table behavior and chart options. [Settings guide](docs/display-preferences.md).
   [Screen-by-screen visual review](docs/ui-screen-review.md).
@@ -159,8 +180,11 @@ stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/r
   [`[reserve]`](docs/configuration.md#reserve).
 - Actions: end task, end process tree, suspend / resume, priority, CPU
   affinity, efficiency mode (EcoQoS), hard CPU cap and memory cap (job objects).
+- **Startup apps**: name, command, account-scope and source search, enabled/disabled
+  filters, inline status switches and context actions. Ctrl+F focuses search and
+  Escape clears it.
 - Performance graphs (CPU with every logical processor, memory, GPU, network,
-  disk I/O), App history, Startup apps,
+  disk I/O), App history,
   Users, Services (start / stop / startup type), Network connections, Events;
   every list sorts by any column.
 - **Timeline inspection**: covered 1/2/5-minute ranges, shared time cursor,
@@ -335,8 +359,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.29.0-x64.msi            # interactive
-msiexec /i RustWTM-0.29.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.30.0-x64.msi            # interactive
+msiexec /i RustWTM-0.30.0-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc

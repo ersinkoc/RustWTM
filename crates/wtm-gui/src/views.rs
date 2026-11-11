@@ -1,4 +1,4 @@
-//! Read-only Users and Network tabs.
+//! User sessions, services, network connections and startup applications.
 
 use std::collections::HashMap;
 
@@ -8,7 +8,8 @@ use std::net::SocketAddr;
 
 use wtm_core::format_bytes;
 
-use crate::backend::Data;
+use crate::backend::{Data, ServiceOp, UiCommand};
+use crate::context_actions::{action, copy, menu};
 use crate::sort::{Sort, header, num, text};
 use crate::theme::{BAD, GOOD, WARN, right};
 
@@ -65,6 +66,7 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
     crate::theme::table_panel(ui, "users", 1100.0, |ui| {
         crate::theme::table(ui)
             .id_salt("user_sessions")
+            .sense(egui::Sense::click())
             .striped(true)
             .resizable(true)
             .auto_shrink([false, true])
@@ -158,6 +160,29 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
                             });
                         })
                     });
+                    menu(
+                        &row.response(),
+                        (
+                            "session",
+                            session.id,
+                            &session.user,
+                            &session.domain,
+                            &session.station,
+                        ),
+                        |ui| {
+                            copy(ui, crate::i18n::tr("User"), || account(session));
+                            copy(ui, crate::i18n::tr("Session"), || session.id.to_string());
+                            if session.state != wtm_core::SessionState::Disconnected
+                                && action(ui, crate::i18n::tr("Disconnect"))
+                            {
+                                request =
+                                    Some((session.id, account(session), SessionOp::Disconnect));
+                            }
+                            if action(ui, crate::i18n::tr("Sign off")) {
+                                request = Some((session.id, account(session), SessionOp::SignOff));
+                            }
+                        },
+                    );
                 })
             });
     });
@@ -213,6 +238,7 @@ pub(crate) fn closable(c: &wtm_core::Connection) -> Option<(SocketAddr, SocketAd
 pub enum NetworkAction {
     Close(SocketAddr, SocketAddr),
     Unblock(String),
+    Reveal(wtm_core::control::ProcessRef),
     /// Stop narrowing the list to the selected process.
     ShowAll,
 }
@@ -295,18 +321,18 @@ pub fn network(
         Some(Ok(c)) => c,
     };
 
-    let names: HashMap<u32, &str> = data
+    let owners: HashMap<u32, &wtm_core::ProcessInfo> = data
         .snapshot
         .iter()
         .flat_map(|s| &s.processes)
-        .map(|p| (p.pid, p.name.as_str()))
+        .map(|p| (p.pid, p))
         .collect();
     let f = filter.trim().to_lowercase();
     let mut rows: Vec<_> = conns
         .iter()
         .filter(|c| only_pid.is_none_or(|pid| c.pid == pid))
         .map(|c| {
-            let name = names.get(&c.pid).copied().unwrap_or("?");
+            let name = owners.get(&c.pid).map_or("?", |p| p.name.as_str());
             let remote = c.remote.map(|r| r.to_string()).unwrap_or_default();
             (c, name, remote)
         })
@@ -362,6 +388,7 @@ pub fn network(
     crate::theme::table_panel(ui, "network", min_width, |ui| {
         crate::theme::table(ui)
         .id_salt("network_table")
+        .sense(egui::Sense::click())
         .striped(true)
         .resizable(true)
         .cell_layout(Layout::left_to_right(Align::Center))
@@ -418,11 +445,64 @@ pub fn network(
                         close = Some(NetworkAction::Close(pair.0, pair.1));
                     }
                 }));
+                let owner = owners.get(&c.pid).copied();
+                menu(&row.response(), ("connection", c.protocol == wtm_core::Protocol::Tcp, c.local, c.remote, c.pid, owner.map(|p| p.create_time)), |ui| {
+                    copy(ui, crate::i18n::tr("Local"), || c.local.to_string());
+                    if let Some(remote) = c.remote {
+                        copy(ui, crate::i18n::tr("Remote"), || remote.to_string());
+                    }
+                    if let Some(owner) = owner && action(ui, crate::i18n::tr("Show in Processes")) {
+                        close = Some(NetworkAction::Reveal(wtm_core::control::ProcessRef::from(owner)));
+                    }
+                    if let Some((local, remote)) = closable(c) && action(ui, crate::i18n::tr("Close")) {
+                        close = Some(NetworkAction::Close(local, remote));
+                    }
+                });
             });
         });
     });
     sort.store(ui, "network");
     close
+}
+
+pub fn service_operations(ui: &mut Ui, service: &wtm_core::ServiceEntry) -> Option<ServiceOp> {
+    let mut result = None;
+    for (label, enabled, op) in [
+        (
+            "Start",
+            service.state == wtm_core::ServiceState::Stopped,
+            ServiceOp::Start,
+        ),
+        (
+            "Stop",
+            service.state == wtm_core::ServiceState::Running,
+            ServiceOp::Stop,
+        ),
+        (
+            "Restart",
+            service.state == wtm_core::ServiceState::Running,
+            ServiceOp::Restart,
+        ),
+    ] {
+        if ui
+            .add_enabled(enabled, egui::Button::new(crate::i18n::tr(label)))
+            .clicked()
+        {
+            result = Some(op);
+        }
+    }
+    ui.menu_button(crate::i18n::tr("Startup type"), |ui| {
+        for kind in [
+            wtm_core::StartType::Automatic,
+            wtm_core::StartType::Manual,
+            wtm_core::StartType::Disabled,
+        ] {
+            if action(ui, &crate::i18n::debug(kind)) {
+                result = Some(ServiceOp::StartType(kind));
+            }
+        }
+    });
+    result
 }
 
 /// Running services in green, stopped ones in secondary text, the others
@@ -436,7 +516,12 @@ fn state_color(ui: &Ui, state: wtm_core::ServiceState) -> Color32 {
 }
 
 /// Returns the service the user right-clicked or clicked, if any.
-pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_core::ServiceEntry> {
+pub fn services(
+    ui: &mut Ui,
+    data: &Data,
+    filter: &mut String,
+    command: &mut Option<UiCommand>,
+) -> Option<wtm_core::ServiceEntry> {
     let group_id = egui::Id::unique("service-state-filter");
     let mut group = ui.data(|d| d.get_temp::<u8>(group_id)).unwrap_or(0);
     ui.horizontal_wrapped(|ui| {
@@ -595,9 +680,25 @@ pub fn services(ui: &mut Ui, data: &Data, filter: &mut String) -> Option<wtm_cor
                             ui.label(s.account.as_deref().unwrap_or(""));
                         })
                     });
-                    if row.response().secondary_clicked() || row.response().clicked() {
+                    let response = row.response();
+                    if response.clicked() || response.secondary_clicked() {
                         clicked = Some(s.clone());
                     }
+                    menu(&response, ("service", &s.name), |ui| {
+                        ui.strong(&s.display_name);
+                        copy(ui, crate::i18n::tr("Name"), || s.name.clone());
+                        if s.pid != 0 {
+                            copy(ui, "PID", || s.pid.to_string());
+                        }
+                        crate::theme::divider(ui);
+                        if let Some(op) = service_operations(ui, s) {
+                            *command = Some(UiCommand::Service {
+                                name: s.name.clone(),
+                                op,
+                            });
+                            ui.close();
+                        }
+                    });
                 });
             });
     });
@@ -855,7 +956,13 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                                     }
                                 })
                             });
-                            if row.response().clicked() {
+                            let response = row.response();
+                            let mut open = response.clicked();
+                            menu(&response, ("app-history", &s.app), |ui| {
+                                copy(ui, crate::i18n::tr("App"), || s.app.clone());
+                                open |= action(ui, crate::i18n::tr("Details"));
+                            });
+                            if open {
                                 view.selected = Some(s.app.clone());
                                 changed = true;
                             }
@@ -976,72 +1083,122 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow], height:
     });
 }
 
+fn startup_scope_label(scope: wtm_core::startup::StartupScope) -> &'static str {
+    crate::i18n::tr(match scope {
+        wtm_core::startup::StartupScope::CurrentUser => "Current user",
+        wtm_core::startup::StartupScope::AllUsers => "All users",
+    })
+}
+
 /// Startup programs. Returns a command when the user toggles the selected entry.
 pub fn startup(
     ui: &mut Ui,
     data: &Data,
     selected: &mut Option<wtm_core::startup::StartupEntry>,
+    filter: &mut String,
 ) -> Option<crate::backend::UiCommand> {
     let Some(entries) = &data.startup else {
         crate::theme::loading(ui, crate::i18n::tr("Loading startup apps…"));
         return None;
     };
     let mut command = None;
-    ui.horizontal(|ui| {
-        // Re-resolve the selection so the button reflects the current state.
-        let current = selected.as_ref().and_then(|s| {
-            entries
-                .iter()
-                .find(|e| e.name == s.name && e.scope == s.scope && e.source == s.source)
-        });
-        match current {
-            Some(e) => {
-                ui.strong(&e.name);
-                let (label, enable) = if e.enabled {
-                    (crate::i18n::tr("Disable"), false)
-                } else {
-                    (crate::i18n::tr("Enable"), true)
-                };
-                if ui.button(label).clicked() {
-                    command = Some(crate::backend::UiCommand::SetStartup {
-                        entry: e.clone(),
-                        enabled: enable,
-                    });
-                }
-            }
-            None => {
-                ui.weak(crate::i18n::tr(
-                    "Select an entry to enable or disable it at sign-in.",
-                ));
-            }
+    let group_id = egui::Id::unique("startup-state-filter");
+    let mut group = ui.data(|d| d.get_temp::<u8>(group_id)).unwrap_or(0);
+    ui.horizontal_wrapped(|ui| {
+        crate::theme::search_bar(
+            ui,
+            egui::Id::unique(("search", "startup")),
+            filter,
+            &format!(
+                "{} · {}",
+                crate::i18n::tr("Name"),
+                crate::i18n::tr("Command line")
+            ),
+            240.0,
+        );
+        for (value, label) in [(0, "All apps"), (1, "Enabled"), (2, "Disabled")] {
+            crate::theme::choice(ui, &mut group, value, crate::i18n::tr(label));
         }
     });
+    ui.data_mut(|d| d.insert_temp(group_id, group));
     crate::theme::divider(ui);
 
-    let mut rows: Vec<_> = entries.iter().collect();
+    let query = filter.trim().to_lowercase();
+    let mut rows: Vec<_> = entries
+        .iter()
+        .filter(|entry| {
+            (group == 0 || entry.enabled == (group == 1))
+                && (query.is_empty()
+                    || entry.name.to_lowercase().contains(&query)
+                    || entry.command.to_lowercase().contains(&query)
+                    || startup_scope_label(entry.scope)
+                        .to_lowercase()
+                        .contains(&query)
+                    || source_label(entry.source).to_lowercase().contains(&query))
+        })
+        .collect();
     let mut sort = Sort::load(ui, "startup", Sort::new(0, false));
     sort.apply(&mut rows, |a, b, col| match col {
         0 => text(&a.name, &b.name),
         1 => a.enabled.cmp(&b.enabled),
-        2 => text(&format!("{:?}", a.scope), &format!("{:?}", b.scope)),
+        2 => text(startup_scope_label(a.scope), startup_scope_label(b.scope)),
         3 => text(source_label(a.source), source_label(b.source)),
         _ => text(&a.command, &b.command),
     });
+
+    if let Some(entry) = selected.as_ref().and_then(|selected| {
+        rows.iter().copied().find(|entry| {
+            entry.name == selected.name
+                && entry.scope == selected.scope
+                && entry.source == selected.source
+        })
+    }) {
+        ui.horizontal_wrapped(|ui| {
+            // Re-resolve the selection so the button reflects the current state.
+            ui.strong(&entry.name);
+            let (label, enable) = if entry.enabled {
+                (crate::i18n::tr("Disable"), false)
+            } else {
+                (crate::i18n::tr("Enable"), true)
+            };
+            if ui.button(label).clicked() {
+                command = Some(crate::backend::UiCommand::SetStartup {
+                    entry: entry.clone(),
+                    enabled: enable,
+                });
+            }
+        });
+    }
     if rows.is_empty() {
-        crate::theme::empty_state(
-            ui,
-            crate::i18n::tr("No startup apps"),
-            crate::i18n::tr("Nothing is set to start when you sign in."),
-        );
+        if !entries.is_empty() {
+            ui.strong(crate::i18n::tr("No matching applications"));
+            if ui.button(crate::i18n::tr("Clear filters")).clicked() {
+                filter.clear();
+                ui.data_mut(|d| d.insert_temp(group_id, 0_u8));
+            }
+        } else {
+            crate::theme::empty_state(
+                ui,
+                crate::i18n::tr("No startup apps"),
+                crate::i18n::tr("Nothing is set to start when you sign in."),
+            );
+        }
         return command;
     }
-    ui.weak(crate::i18n::format(
-        "{0} startup apps, {1} enabled",
-        &[
-            rows.len().to_string(),
-            rows.iter().filter(|e| e.enabled).count().to_string(),
-        ],
-    ));
+    if query.is_empty() && group == 0 {
+        ui.weak(crate::i18n::format(
+            "{0} startup apps, {1} enabled",
+            &[
+                rows.len().to_string(),
+                rows.iter().filter(|e| e.enabled).count().to_string(),
+            ],
+        ));
+    } else {
+        ui.weak(crate::i18n::format(
+            "{0} of {1} apps",
+            &[rows.len().to_string(), entries.len().to_string()],
+        ));
+    }
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
     // Every header fits at first; narrow windows scroll sideways.
@@ -1121,7 +1278,7 @@ pub fn startup(
                     });
                     row.col(|ui| {
                         crate::theme::table_cell(ui, |ui| {
-                            ui.label(crate::i18n::debug(e.scope));
+                            ui.label(startup_scope_label(e.scope));
                         })
                     });
                     row.col(|ui| {
@@ -1134,9 +1291,35 @@ pub fn startup(
                             ui.label(&e.command);
                         })
                     });
-                    if row.response().clicked() {
+                    let response = row.response();
+                    if response.clicked() {
                         *selected = Some(e.clone());
                     }
+                    menu(
+                        &response,
+                        (
+                            "startup",
+                            &e.name,
+                            e.scope as u8,
+                            e.source as u8,
+                            &e.command,
+                        ),
+                        |ui| {
+                            copy(ui, crate::i18n::tr("Name"), || e.name.clone());
+                            if action(ui, crate::i18n::tr("Copy command line")) {
+                                ui.ctx().copy_text(e.command.clone());
+                            }
+                            if action(
+                                ui,
+                                crate::i18n::tr(if e.enabled { "Disable" } else { "Enable" }),
+                            ) {
+                                command = Some(UiCommand::SetStartup {
+                                    entry: e.clone(),
+                                    enabled: !e.enabled,
+                                });
+                            }
+                        },
+                    );
                 });
             });
     });

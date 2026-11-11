@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "சேமித்த உணரி கிடைக்கவில்லை",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "வெப்பநிலைக்கு ஆதரிக்கப்படும் உணரி தேவை. இல்லாத அல்லது பழைய அளவீடுகள் கோடுகளைக் காட்டும், ஒருபோதும் ஊகித்த மதிப்பை அல்ல.",
   "Open sensors": "உணரிகளைத் திற",
-  "NVMe available spare": "NVMe கிடைக்கும் உதிரி கொள்ளளவு"
+  "NVMe available spare": "NVMe கிடைக்கும் உதிரி கொள்ளளவு",
+  "Copy {0}": "{0} நகலெடு",
+  "Row separators": "வரி பிரிப்பான்கள்",
+  "Column separators": "நெடுவரிசைப் பிரிப்பான்கள்",
+  "Show process descriptions": "செயல்முறை விளக்கங்களைக் காட்டு",
+  "Sort ascending": "ஏறுவரிசையில் வரிசைப்படுத்து",
+  "Sort descending": "இறங்குவரிசையில் வரிசைப்படுத்து",
+  "Fit columns": "நெடுவரிசைகளைப் பொருத்து",
+  "Path": "பாதை",
+  "Quick setup": "விரைவு அமைப்பு",
+  "Welcome back": "மீண்டும் வருக",
+  "Choose your quick settings. You can change them later in Settings.": "உங்கள் விரைவு அமைப்புகளைத் தேர்வுசெய்யவும். பின்னர் அமைப்புகளில் மாற்றலாம்.",
+  "Next": "அடுத்து",
+  "Back": "பின்செல்",
+  "Skip setup": "அமைப்பைத் தவிர்",
+  "Apply and finish": "பயன்படுத்தி முடி",
+  "Step {0} of {1}": "படி {0} / {1}",
+  "Review your settings": "உங்கள் அமைப்புகளைச் சரிபார்க்கவும்"
 }

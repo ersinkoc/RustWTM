@@ -341,7 +341,19 @@ impl View {
             let response = response
                 .on_hover_text(&d.name)
                 .on_hover_cursor(egui::CursorIcon::PointingHand);
-            if response.clicked() {
+            let mut open = response.clicked();
+            crate::context_actions::menu(&response, ("hardware-device", &d.id), |ui| {
+                open |= crate::context_actions::action(ui, crate::i18n::tr("Details"));
+                crate::context_actions::copy(ui, crate::i18n::tr("Specifications"), || {
+                    std::iter::once(d.name.clone())
+                        .chain(d.fields.iter().map(|field| {
+                            format!("{}: {}", crate::i18n::tr(&field.name), field.value)
+                        }))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                });
+            });
+            if open {
                 self.selected = Some(d.id.clone());
                 self.metric = None;
             }
@@ -355,7 +367,7 @@ impl View {
         } else {
             1.0
         };
-        ui.label(format!(
+        let caption = ui.label(format!(
             "{} · {}",
             crate::i18n::tr(&m.name),
             if bits && m.unit == "B/s" {
@@ -364,6 +376,19 @@ impl View {
                 &m.unit
             }
         ));
+        if let Some(value) = m.value {
+            let display = if bits && m.unit == "B/s" {
+                format!("{:.1} Mbps", value * factor)
+            } else {
+                reading(m)
+            };
+            crate::context_actions::copy_text(
+                &caption,
+                ("device-chart", &d.id, &m.id),
+                crate::i18n::tr("Current"),
+                &display,
+            );
+        }
         if let Some(series) = self.series.get(&(d.id.clone(), m.id.clone())) {
             let start = series.front().map_or(0, |(t, _)| *t);
             let mut segments = Vec::new();

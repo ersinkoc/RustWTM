@@ -8518,5 +8518,107 @@
     "de": "Verfügbare NVMe-Reserve",
     "fr": "Réserve NVMe disponible",
     "es": "Reserva NVMe disponible"
+  },
+  "Copy {0}": {
+    "tr": "{0} kopyala",
+    "de": "{0} kopieren",
+    "fr": "Copier {0}",
+    "es": "Copiar {0}"
+  },
+  "Row separators": {
+    "tr": "Satır ayırıcıları",
+    "de": "Zeilentrennlinien",
+    "fr": "Séparateurs de lignes",
+    "es": "Separadores de filas"
+  },
+  "Column separators": {
+    "tr": "Sütun ayırıcıları",
+    "de": "Spaltentrennlinien",
+    "fr": "Séparateurs de colonnes",
+    "es": "Separadores de columnas"
+  },
+  "Show process descriptions": {
+    "tr": "İşlem açıklamalarını göster",
+    "de": "Prozessbeschreibungen anzeigen",
+    "fr": "Afficher les descriptions des processus",
+    "es": "Mostrar descripciones de procesos"
+  },
+  "Sort ascending": {
+    "tr": "Artan sırala",
+    "de": "Aufsteigend sortieren",
+    "fr": "Tri croissant",
+    "es": "Orden ascendente"
+  },
+  "Sort descending": {
+    "tr": "Azalan sırala",
+    "de": "Absteigend sortieren",
+    "fr": "Tri décroissant",
+    "es": "Orden descendente"
+  },
+  "Fit columns": {
+    "tr": "Sütunları sığdır",
+    "de": "Spalten anpassen",
+    "fr": "Ajuster les colonnes",
+    "es": "Ajustar columnas"
+  },
+  "Path": {
+    "tr": "Yol",
+    "de": "Pfad",
+    "fr": "Chemin",
+    "es": "Ruta"
+  },
+  "Quick setup": {
+    "tr": "Hızlı kurulum",
+    "de": "Schnelleinrichtung",
+    "fr": "Configuration rapide",
+    "es": "Configuración rápida"
+  },
+  "Welcome back": {
+    "tr": "Tekrar hoş geldiniz",
+    "de": "Willkommen zurück",
+    "fr": "Bon retour",
+    "es": "Te damos la bienvenida de nuevo"
+  },
+  "Choose your quick settings. You can change them later in Settings.": {
+    "tr": "Hızlı ayarlarınızı seçin. Bunları daha sonra Ayarlar’dan değiştirebilirsiniz.",
+    "de": "Wählen Sie Ihre Schnelleinstellungen. Sie können sie später in den Einstellungen ändern.",
+    "fr": "Choisissez vos réglages rapides. Vous pourrez les modifier plus tard dans les paramètres.",
+    "es": "Elige tus ajustes rápidos. Podrás cambiarlos después en Configuración."
+  },
+  "Next": {
+    "tr": "İleri",
+    "de": "Weiter",
+    "fr": "Suivant",
+    "es": "Siguiente"
+  },
+  "Back": {
+    "tr": "Geri",
+    "de": "Zurück",
+    "fr": "Retour",
+    "es": "Atrás"
+  },
+  "Skip setup": {
+    "tr": "Kurulumu atla",
+    "de": "Einrichtung überspringen",
+    "fr": "Ignorer la configuration",
+    "es": "Omitir configuración"
+  },
+  "Apply and finish": {
+    "tr": "Uygula ve bitir",
+    "de": "Übernehmen und abschließen",
+    "fr": "Appliquer et terminer",
+    "es": "Aplicar y finalizar"
+  },
+  "Step {0} of {1}": {
+    "tr": "Adım {0} / {1}",
+    "de": "Schritt {0} von {1}",
+    "fr": "Étape {0} sur {1}",
+    "es": "Paso {0} de {1}"
+  },
+  "Review your settings": {
+    "tr": "Ayarlarınızı gözden geçirin",
+    "de": "Einstellungen überprüfen",
+    "fr": "Vérifier vos réglages",
+    "es": "Revisar tus ajustes"
   }
 }

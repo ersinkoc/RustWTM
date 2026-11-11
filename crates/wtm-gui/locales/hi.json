@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "सहेजा गया सेंसर उपलब्ध नहीं",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "तापमान के लिए समर्थित सेंसर आवश्यक है। अनुपलब्ध या पुरानी रीडिंग डैश दिखाती हैं, कभी अनुमानित मान नहीं।",
   "Open sensors": "सेंसर खोलें",
-  "NVMe available spare": "NVMe उपलब्ध अतिरिक्त क्षमता"
+  "NVMe available spare": "NVMe उपलब्ध अतिरिक्त क्षमता",
+  "Copy {0}": "{0} कॉपी करें",
+  "Row separators": "पंक्ति विभाजक",
+  "Column separators": "स्तंभ विभाजक",
+  "Show process descriptions": "प्रक्रिया विवरण दिखाएँ",
+  "Sort ascending": "आरोही क्रम",
+  "Sort descending": "अवरोही क्रम",
+  "Fit columns": "स्तंभ समायोजित करें",
+  "Path": "पथ",
+  "Quick setup": "त्वरित सेटअप",
+  "Welcome back": "फिर से स्वागत है",
+  "Choose your quick settings. You can change them later in Settings.": "अपनी त्वरित सेटिंग चुनें। इन्हें बाद में सेटिंग में बदल सकते हैं।",
+  "Next": "आगे",
+  "Back": "पीछे",
+  "Skip setup": "सेटअप छोड़ें",
+  "Apply and finish": "लागू करें और समाप्त करें",
+  "Step {0} of {1}": "चरण {0} / {1}",
+  "Review your settings": "अपनी सेटिंग की समीक्षा करें"
 }

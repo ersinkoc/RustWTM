@@ -265,7 +265,18 @@ egui::Grid::new("app_limits_grid")
             crate::theme::end_row(ui);
             for r in &rows {
                 let l = r.limit;
-                ui.label(&l.name);
+                let response = ui.label(&l.name).interact(egui::Sense::click());
+                crate::context_actions::menu(&response, ("app-limit", &l.name, l.scope as u8), |ui| {
+                    crate::context_actions::copy(ui, crate::i18n::tr("Name"), || l.name.clone());
+                    crate::context_actions::copy(ui, crate::i18n::tr("Budget"), || budget_label(l));
+                    if admin && crate::context_actions::action(ui, crate::i18n::tr("Edit")) { view.edit(l); }
+                    if admin && crate::context_actions::action(ui, crate::i18n::tr("Remove")) {
+                        match remove_app_limit(text, &l.name, l.scope) {
+                            Ok(new) => commands.push(UiCommand::SaveConfig(new)),
+                            Err(e) => view.error = Some(e),
+                        }
+                    }
+                });
                 let mut budget = budget_label(l);
                 if let Some(p) = l.cpu_percent(cpus) {
                     budget.push_str(&{

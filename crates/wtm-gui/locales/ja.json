@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "保存されたセンサーを使用できません",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "温度にはサポートされているセンサーが必要です。取得できない測定値や古い測定値はダッシュで表示され、推測値は表示されません。",
   "Open sensors": "センサーを開く",
-  "NVMe available spare": "NVMe 利用可能な予備領域"
+  "NVMe available spare": "NVMe 利用可能な予備領域",
+  "Copy {0}": "{0}をコピー",
+  "Row separators": "行の区切り線",
+  "Column separators": "列の区切り線",
+  "Show process descriptions": "プロセスの説明を表示",
+  "Sort ascending": "昇順で並べ替え",
+  "Sort descending": "降順で並べ替え",
+  "Fit columns": "列幅を調整",
+  "Path": "パス",
+  "Quick setup": "クイック設定",
+  "Welcome back": "おかえりなさい",
+  "Choose your quick settings. You can change them later in Settings.": "クイック設定を選択してください。後から設定で変更できます。",
+  "Next": "次へ",
+  "Back": "戻る",
+  "Skip setup": "設定をスキップ",
+  "Apply and finish": "適用して完了",
+  "Step {0} of {1}": "ステップ {0} / {1}",
+  "Review your settings": "設定の確認"
 }

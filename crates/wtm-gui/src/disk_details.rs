@@ -27,7 +27,14 @@ fn value(ui: &mut Ui, title: &str, text: &str) {
 fn property(ui: &mut Ui, title: &str, text: &str) {
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new(crate::i18n::tr(title)).weak());
-        ui.label(crate::i18n::tr(text));
+        let display = crate::i18n::tr(text);
+        let response = ui.label(display);
+        crate::context_actions::copy_text(
+            &response,
+            ("disk-property", response.id, title, text),
+            crate::i18n::tr(title),
+            display,
+        );
     });
 }
 pub fn show(ui: &mut Ui, d: &Device) {

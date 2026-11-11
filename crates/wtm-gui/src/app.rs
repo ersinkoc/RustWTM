@@ -375,6 +375,7 @@ pub struct App {
 }
 
 struct UiState {
+    onboarding: crate::onboarding::View,
     numeric_tray: crate::numeric_tray::Preferences,
     experience: crate::experience::View,
     rules: crate::rules::View,
@@ -417,6 +418,7 @@ struct UiState {
     /// Transient event filters and the open diagnostic record.
     events: EventsView,
     selected_startup: Option<wtm_core::startup::StartupEntry>,
+    startup_filter: String,
     history: views::HistoryView,
     history_dirty: bool,
     selected_service: Option<String>,
@@ -458,6 +460,10 @@ struct UiState {
     limit_labels: Option<((u64, crate::i18n::Language), ManagedMap)>,
 }
 
+#[cfg(test)]
+#[path = "onboarding_tests.rs"]
+mod onboarding_tests;
+
 impl App {
     /// `background`: start hidden in the tray.
     pub fn new(
@@ -491,7 +497,7 @@ impl App {
             ));
         }
         let mut state = UiState::restored(cc.storage);
-        state.experience.guide = first_run && !background;
+        state.onboarding.schedule(env!("CARGO_PKG_VERSION"));
         if let Some(error) = &startup_error {
             backend.data().message = Some((
                 EventLevel::Warn,
@@ -521,6 +527,7 @@ const PREFS_KEY: &str = "prefs";
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 struct Prefs {
+    onboarding_version: Option<String>,
     numeric_tray: crate::numeric_tray::Preferences,
     experience: crate::experience::Preferences,
     resource_strip: bool,
@@ -537,6 +544,7 @@ struct Prefs {
     process_column_order: Vec<crate::processes::Col>,
     process_heat: bool,
     process_stripes: bool,
+    process_descriptions: bool,
     process_hold_sorting: bool,
     chart_range_seconds: u32,
     chart_options: crate::charts::Options,
@@ -557,9 +565,58 @@ impl Default for Prefs {
 }
 
 impl UiState {
+    fn setup_snapshot(&self, ctx: &egui::Context) -> crate::onboarding::Draft {
+        crate::onboarding::Draft {
+            language: self.language,
+            theme: ctx.options(|o| o.theme_preference),
+            display: self.display,
+            mode: self.processes.mode,
+            inspector: self.inspector_mode,
+            resource_strip: self.resource_strip,
+            descriptions: self.processes.descriptive_names,
+            lines: crate::theme::TableLines::load_context(ctx),
+            numeric_tray: self.numeric_tray.clone(),
+            tray_on_close: self.tray_on_close,
+            check_updates: self.check_updates,
+            experience: self.experience.prefs,
+        }
+    }
+
+    fn apply_setup(
+        &mut self,
+        ctx: &egui::Context,
+        draft: crate::onboarding::Draft,
+        save_language: impl FnOnce(crate::i18n::Language) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        // Language is the only fallible external write. Keep the draft and all
+        // previous preferences intact if it fails, so the user can retry.
+        if self.language != draft.language {
+            save_language(draft.language)?;
+        }
+        self.language = draft.language;
+        self.language_error = None;
+        let _language = crate::i18n::scope(self.language);
+        crate::theme::install_fonts(ctx);
+        ctx.set_theme(draft.theme);
+        draft.lines.store_context(ctx);
+        self.display = draft.display;
+        self.applied_display = None;
+        self.processes.mode = draft.mode;
+        self.processes.descriptive_names = draft.descriptions;
+        self.inspector_mode = draft.inspector;
+        self.resource_strip = draft.resource_strip;
+        self.numeric_tray = draft.numeric_tray;
+        self.tray_on_close = draft.tray_on_close;
+        self.check_updates = draft.check_updates;
+        self.experience.prefs = draft.experience;
+        self.onboarding.acknowledge();
+        Ok(())
+    }
+
     fn prefs(&self) -> Prefs {
         let p = &self.processes;
         Prefs {
+            onboarding_version: self.onboarding.seen_version.clone(),
             numeric_tray: self.numeric_tray.clone(),
             experience: self.experience.prefs,
             resource_strip: self.resource_strip,
@@ -576,6 +633,7 @@ impl UiState {
             process_column_order: p.column_order.clone(),
             process_heat: p.heat,
             process_stripes: p.stripes,
+            process_descriptions: p.descriptive_names,
             process_hold_sorting: p.hold_sorting,
             chart_range_seconds: self.charts.range_seconds(),
             chart_options: self.charts.options,
@@ -599,6 +657,7 @@ impl UiState {
     }
 
     fn apply(&mut self, prefs: Prefs) {
+        self.onboarding.seen_version = prefs.onboarding_version;
         self.numeric_tray = prefs.numeric_tray;
         self.experience.prefs = prefs.experience;
         self.resource_strip = prefs.resource_strip;
@@ -620,6 +679,7 @@ impl UiState {
         p.normalize_columns();
         p.heat = prefs.process_heat;
         p.stripes = prefs.process_stripes;
+        p.descriptive_names = prefs.process_descriptions;
         p.hold_sorting = prefs.process_hold_sorting;
         self.sensors.profiles = prefs.cooling_profiles;
         self.alerts = prefs.alerts;
@@ -633,6 +693,7 @@ impl UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            onboarding: crate::onboarding::View::default(),
             numeric_tray: crate::numeric_tray::Preferences::default(),
             experience: crate::experience::View::default(),
             file_locks: crate::file_locks::View::default(),
@@ -669,6 +730,7 @@ impl Default for UiState {
             services_filter: String::new(),
             events: EventsView::default(),
             selected_startup: None,
+            startup_filter: String::new(),
             history: views::HistoryView::default(),
             history_dirty: true,
             selected_service: None,
@@ -708,9 +770,6 @@ fn level_color(ui: &Ui, level: EventLevel) -> Color32 {
         EventLevel::Error => crate::theme::text_color(ui, BAD),
     }
 }
-
-/// Windows shorter than this leave out the page subtitle.
-const COMPACT_HEIGHT: f32 = 640.0;
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -770,6 +829,15 @@ impl eframe::App for App {
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, PREFS_KEY, &self.state.prefs());
+        self.state.onboarding.save_pending = false;
+    }
+
+    fn auto_save_interval(&self) -> Duration {
+        if self.state.onboarding.save_pending {
+            Duration::ZERO
+        } else {
+            Duration::from_secs(30)
+        }
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -820,6 +888,14 @@ impl eframe::App for App {
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
+        // Native creation/minimization can briefly leave no client area.
+        // Keep visibility/close handling above, but defer page layout until
+        // there is room for grids to subtract their gutters safely.
+        let available = ui.available_size();
+        if available.x <= 0.0 || available.y <= 0.0 {
+            ctx.request_repaint_after(Duration::from_millis(50));
+            return;
         }
         let mut intents = Vec::new();
         let mut service_cmds: Vec<UiCommand> = Vec::new();
@@ -872,6 +948,9 @@ impl eframe::App for App {
                         crate::backend::service_problem(data.service_error.as_deref()),
                         stale_age(&data, Instant::now()),
                     );
+                    if !matches!(state.tab, Tab::Hardware | Tab::InstalledApps) {
+                        data_age(ui, &data, Instant::now());
+                    }
                     if let Some(game) = data.status.as_ref().and_then(|s| s.game.as_ref()) {
                         ui.label(
                             RichText::new(crate::i18n::tr("▶ Game mode"))
@@ -930,6 +1009,9 @@ impl eframe::App for App {
                     {
                         state.run_task = Some((String::new(), false));
                     }
+                    if state.tab == Tab::Processes {
+                        state.inspector_mode.menu(ui);
+                    }
                     if !data.elevated
                     && ui
                         .small_button(crate::i18n::tr("Restart as administrator"))
@@ -969,14 +1051,6 @@ impl eframe::App for App {
             egui::Panel::top("process_workspace_header")
                 .frame(crate::theme::surface(ui))
                 .show(ui, |ui| {
-                    page_header_with_inspector(
-                        ui,
-                        state.tab,
-                        &data,
-                        Instant::now(),
-                        Some(&mut state.inspector_mode),
-                    );
-                    ui.add_space(0.0);
                     crate::theme::workspace(ui, |ui| {
                         if stale_age(&data, Instant::now()).is_some() {
                             ui.multiply_opacity(STALE_OPACITY);
@@ -1067,23 +1141,8 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
                 let now = Instant::now();
-                if state.tab != Tab::Processes || !state.resource_strip {
-                    if state.tab == Tab::Processes {
-                        page_header_with_inspector(
-                            ui,
-                            state.tab,
-                            &data,
-                            now,
-                            Some(&mut state.inspector_mode),
-                        );
-                    } else if state.tab == Tab::Settings {
-                        crate::theme::reading_column(ui, |ui| {
-                            page_header(ui, state.tab, &data, now)
-                        });
-                    } else {
-                        page_header(ui, state.tab, &data, now);
-                    }
-                    ui.add_space(0.0);
+                if !matches!(state.tab, Tab::Hardware | Tab::InstalledApps) {
+                    stale_banner(ui, &data, now);
                 }
                 // Values that stopped updating must not pass for live ones.
                 if !matches!(state.tab, Tab::Hardware | Tab::InstalledApps)
@@ -1092,9 +1151,7 @@ impl eframe::App for App {
                     ui.multiply_opacity(STALE_OPACITY);
                 }
                 if state.tab == Tab::Settings {
-                    crate::theme::reading_column(ui, |ui| {
-                        crate::settings::page_bar(ui, &mut state.config.page)
-                    });
+                    crate::settings::page_bar(ui, &mut state.config.page);
                 }
                 let scroll_page = match state.tab {
                     Tab::Settings => state.config.page.scrolls(),
@@ -1112,8 +1169,6 @@ impl eframe::App for App {
                 };
                 let page_id = state.tab.label();
                 let settings_page = state.config.page;
-                let settings_layout =
-                    state.tab == Tab::Settings && state.config.page != crate::settings::Page::File;
                 let mut content = |ui: &mut Ui| match state.tab {
                     Tab::Hardware => {
                         ui.horizontal_wrapped(|ui| {
@@ -1176,6 +1231,7 @@ impl eframe::App for App {
                                 labels: &managed,
                                 command_lines: &data.command_lines,
                                 image_paths: &data.image_paths,
+                                descriptions: &data.descriptions,
                                 icons: &data.icons,
                                 hung: &data.hung,
                             };
@@ -1217,7 +1273,11 @@ impl eframe::App for App {
                                 intents.push(Intent::Reveal(process));
                             }
                         } else {
-                            crate::disks_tab::disks_tab(ui, &data, &mut state.disks);
+                            if let Some(process) =
+                                crate::disks_tab::disks_tab(ui, &data, &mut state.disks)
+                            {
+                                intents.push(Intent::Reveal(process));
+                            }
                         }
                     }
                     Tab::Sensors => {
@@ -1243,7 +1303,7 @@ impl eframe::App for App {
                                 service_cmds.push(cmd);
                             }
                         } else {
-                            governor(ui, &data);
+                            governor(ui, &data, &mut intents);
                         }
                     }
                     Tab::Containers => {
@@ -1280,7 +1340,12 @@ impl eframe::App for App {
                         }
                     }
                     Tab::Startup => {
-                        if let Some(cmd) = views::startup(ui, &data, &mut state.selected_startup) {
+                        if let Some(cmd) = views::startup(
+                            ui,
+                            &data,
+                            &mut state.selected_startup,
+                            &mut state.startup_filter,
+                        ) {
                             service_cmds.push(cmd);
                         }
                     }
@@ -1366,7 +1431,13 @@ impl eframe::App for App {
                         }
                     },
                     Tab::Services => {
-                        match service_bar(ui, &data, state.selected_service.as_deref()) {
+                        let mut command = service_bar(ui, &data, state.selected_service.as_deref());
+                        if let Some(service) =
+                            views::services(ui, &data, &mut state.services_filter, &mut command)
+                        {
+                            state.selected_service = Some(service.name);
+                        }
+                        match command {
                             Some(UiCommand::Service { name, op })
                                 if Change::needs_confirming(op) =>
                             {
@@ -1380,9 +1451,6 @@ impl eframe::App for App {
                             }
                             Some(cmd) => service_cmds.push(cmd),
                             None => {}
-                        }
-                        if let Some(s) = views::services(ui, &data, &mut state.services_filter) {
-                            state.selected_service = Some(s.name);
                         }
                     }
                     Tab::Network => {
@@ -1398,6 +1466,9 @@ impl eframe::App for App {
                             Some(views::NetworkAction::Unblock(path)) => {
                                 service_cmds.push(UiCommand::Firewall { path, block: false });
                             }
+                            Some(views::NetworkAction::Reveal(process)) => {
+                                intents.push(Intent::Reveal(process))
+                            }
                             Some(views::NetworkAction::ShowAll) => {
                                 state.network_all_for = state.processes.selected.clone();
                             }
@@ -1409,13 +1480,7 @@ impl eframe::App for App {
                     }
                 };
                 let mut page_content = |ui: &mut Ui| {
-                    if settings_layout {
-                        crate::theme::reading_column(ui, |ui| {
-                            crate::theme::workspace(ui, &mut content)
-                        });
-                    } else {
-                        crate::theme::workspace(ui, &mut content);
-                    }
+                    crate::theme::workspace(ui, &mut content);
                 };
                 if scroll_page {
                     let mut area = egui::ScrollArea::vertical()
@@ -1658,6 +1723,39 @@ impl eframe::App for App {
         }
 
         drop(data);
+        if std::mem::take(&mut state.experience.quick_setup) {
+            state.onboarding.request_manual(env!("CARGO_PKG_VERSION"));
+        }
+        let foreground =
+            state.hide_frames == 0 && ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        let other_modal = ctx
+            .memory(|m| m.top_modal_layer())
+            .is_some_and(|layer| layer.id != crate::onboarding::modal_id());
+        if foreground && !other_modal {
+            if state.onboarding.needs_draft(true) && !egui::Popup::is_any_open(&ctx) {
+                let draft = state.setup_snapshot(&ctx);
+                state.onboarding.begin(draft);
+            }
+            match state.onboarding.show(&ctx) {
+                Some(crate::onboarding::Action::Skip) => state.onboarding.acknowledge(),
+                Some(crate::onboarding::Action::Apply(draft)) => {
+                    #[cfg(not(test))]
+                    let save_language = crate::i18n::save;
+                    #[cfg(test)]
+                    let save_language = |_| Ok(());
+                    if let Err(error) = state.apply_setup(&ctx, draft, save_language) {
+                        state.onboarding.error = Some(crate::i18n::format(
+                            "Cannot save language: {0}",
+                            &[error.to_string()],
+                        ));
+                    }
+                }
+                None => {}
+            }
+            if state.onboarding.save_pending {
+                ctx.request_repaint();
+            }
+        }
         if matches!(state.tab, Tab::Overview | Tab::Containers) {
             backend.request_docker(if state.tab == Tab::Containers {
                 state.containers.selected.as_deref()
@@ -2122,77 +2220,6 @@ fn stale_age(data: &Data, now: Instant) -> Option<Option<Duration>> {
         crate::backend::SampleFreshness::Stale(age) => Some(age),
         _ => None,
     }
-}
-
-/// The page title and subtitle with the age of the data on the right, and
-/// a warning below them while the data is out of date. Short windows leave
-/// out the subtitle and show the age next to the title.
-fn page_header(ui: &mut Ui, tab: Tab, data: &Data, now: Instant) {
-    if matches!(tab, Tab::Hardware | Tab::InstalledApps) {
-        egui::Frame::new()
-            .fill(crate::theme::card_fill(ui))
-            .inner_margin(crate::theme::page_padding(ui))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.heading(RichText::new(tab.label()).size(25.0).strong());
-                if ui.ctx().content_rect().height() >= COMPACT_HEIGHT {
-                    ui.weak(tab.subtitle());
-                }
-            });
-        return;
-    }
-    page_header_with_inspector(ui, tab, data, now, None);
-}
-
-fn page_header_with_inspector(
-    ui: &mut Ui,
-    tab: Tab,
-    data: &Data,
-    now: Instant,
-    mut inspector: Option<&mut crate::workspace_inspector::Mode>,
-) {
-    egui::Frame::new()
-        .fill(crate::theme::card_fill(ui))
-        .inner_margin(crate::theme::page_padding(ui))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing = crate::theme::CONTENT_SPACING;
-            let compact = ui.ctx().content_rect().height() < COMPACT_HEIGHT;
-            ui.horizontal(|ui| {
-                let title = ui.heading(RichText::new(tab.label()).size(25.0).strong());
-                let icon = NAV.iter().find(|entry| entry.0 == tab).map(|entry| entry.1);
-                if let Some(icon) = icon {
-                    crate::navigation::badge(
-                        ui,
-                        icon,
-                        crate::theme::text_color(ui, crate::theme::ACCENT),
-                    );
-                }
-                if !compact && let Some(mode) = inspector.as_mut() {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        mode.menu(ui)
-                    });
-                }
-                if compact {
-                    title.on_hover_text(tab.subtitle());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(mode) = inspector.as_mut() {
-                            mode.menu(ui);
-                        }
-                        data_age(ui, data, now);
-                    });
-                }
-            });
-            if !compact {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(tab.subtitle()).weak());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        data_age(ui, data, now);
-                    });
-                });
-            }
-            stale_banner(ui, data, now);
-        });
 }
 
 /// How old the shown data is: secondary text, a warning once out of date.
@@ -2709,7 +2736,7 @@ fn details_panel(
             .color(crate::theme::text_color(ui, crate::theme::ACCENT)),
     );
     ui.add_space(0.0);
-    ui.heading(&sel.name);
+    let heading = ui.heading(&sel.name).interact(egui::Sense::click());
     let Some(p) = snap
         .processes
         .iter()
@@ -2719,6 +2746,21 @@ fn details_panel(
         return;
     };
 
+    crate::context_actions::menu(
+        &heading,
+        ("process-inspector", sel.pid, sel.create_time),
+        |ui| {
+            crate::context_actions::copy(ui, "PID", || sel.pid.to_string());
+            crate::context_actions::copy(ui, crate::i18n::tr("Name"), || sel.name.clone());
+            context_menu(
+                ui,
+                sel,
+                snap.system.logical_cpus,
+                data.cpu_topology.as_ref(),
+                intents,
+            );
+        },
+    );
     ui.horizontal_wrapped(|ui| {
         ui.weak(format!("PID {}", p.pid));
         crate::theme::divider(ui);
@@ -2797,11 +2839,23 @@ fn details_panel(
         }
         if let Some(path) = &d.path {
             ui.add_space(0.0);
-            ui.label(RichText::new(path).small().weak());
+            let response = ui.label(RichText::new(path).small().weak());
+            crate::context_actions::copy_text(
+                &response,
+                ("process-path", sel.pid, sel.create_time),
+                crate::i18n::tr("Path"),
+                path,
+            );
         }
         if let Some(cmd) = d.command_line.as_deref().filter(|c| !c.is_empty()) {
             ui.add_space(0.0);
-            ui.label(RichText::new(cmd).small().monospace());
+            let response = ui.label(RichText::new(cmd).small().monospace());
+            crate::context_actions::copy_text(
+                &response,
+                ("process-command", sel.pid, sel.create_time),
+                crate::i18n::tr("Command line"),
+                cmd,
+            );
             if ui
                 .small_button(crate::i18n::tr("Copy command line"))
                 .clicked()
@@ -2819,7 +2873,13 @@ fn details_panel(
         .show(ui, |ui| {
             let mut row = |k: &str, v: String| {
                 ui.label(k);
-                ui.label(v);
+                let response = ui.label(&v);
+                crate::context_actions::copy_text(
+                    &response,
+                    ("process-fact", sel.pid, sel.create_time, k),
+                    k,
+                    &v,
+                );
                 crate::theme::end_row(ui);
             };
             row("PID", p.pid.to_string());
@@ -3622,7 +3682,7 @@ fn perf_summary(
             });
     });
 }
-fn governor(ui: &mut Ui, data: &Data) {
+fn governor(ui: &mut Ui, data: &Data, intents: &mut Vec<Intent>) {
     let Some(status) = &data.status else {
         crate::theme::panel(ui, |ui| {
             crate::theme::empty_state(
@@ -3647,7 +3707,7 @@ fn governor(ui: &mut Ui, data: &Data) {
             "Managed processes ({0})",
             &[status.managed.len().to_string()],
         ),
-        |ui| managed_table(ui, status),
+        |ui| managed_table(ui, status, intents),
     );
 }
 
@@ -3704,7 +3764,7 @@ fn governor_status(ui: &mut Ui, status: &wtm_ipc::Status) {
 }
 
 /// What the service limits right now, sortable.
-fn managed_table(ui: &mut Ui, status: &wtm_ipc::Status) {
+fn managed_table(ui: &mut Ui, status: &wtm_ipc::Status, intents: &mut Vec<Intent>) {
     if status.managed.is_empty() {
         ui.weak(crate::i18n::tr("No process is currently limited."));
         return;
@@ -3767,8 +3827,32 @@ fn managed_table(ui: &mut Ui, status: &wtm_ipc::Status) {
                         });
                         row.col(|ui| {
                             crate::theme::table_cell(ui, |ui| {
-                                ui.add(egui::Label::new(&managed.target.name).truncate())
+                                let response = ui
+                                    .add(
+                                        egui::Label::new(&managed.target.name)
+                                            .truncate()
+                                            .sense(egui::Sense::click()),
+                                    )
                                     .on_hover_text(&managed.target.name);
+                                crate::context_actions::menu(
+                                    &response,
+                                    (
+                                        "managed-process",
+                                        managed.target.pid,
+                                        managed.target.create_time,
+                                    ),
+                                    |ui| {
+                                        crate::context_actions::copy(ui, "PID", || {
+                                            managed.target.pid.to_string()
+                                        });
+                                        if crate::context_actions::action(
+                                            ui,
+                                            crate::i18n::tr("Show in Processes"),
+                                        ) {
+                                            intents.push(Intent::Reveal(managed.target.clone()));
+                                        }
+                                    },
+                                );
                             })
                         });
                         row.col(|ui| {
@@ -4008,7 +4092,7 @@ fn events(ui: &mut Ui, data: &Data, view: &mut EventsView) {
                     row.col(|ui| {
                         crate::theme::table_cell(ui, |ui| {
                             let message = crate::i18n::message(&e.message);
-                            if ui
+                            let response = ui
                                 .add(
                                     egui::Button::selectable(
                                         view.selected == Some((e.id, e.unix_ms)),
@@ -4016,9 +4100,25 @@ fn events(ui: &mut Ui, data: &Data, view: &mut EventsView) {
                                     )
                                     .truncate(),
                                 )
-                                .on_hover_text(message.as_ref())
-                                .clicked()
-                            {
+                                .on_hover_text(message.as_ref());
+                            let mut open = response.clicked();
+                            crate::context_actions::menu(
+                                &response,
+                                ("event", e.id, e.unix_ms),
+                                |ui| {
+                                    if crate::context_actions::action(
+                                        ui,
+                                        crate::i18n::tr("Copy message"),
+                                    ) {
+                                        ui.ctx().copy_text(message.to_string());
+                                    }
+                                    open |= crate::context_actions::action(
+                                        ui,
+                                        crate::i18n::tr("Details"),
+                                    );
+                                },
+                            );
+                            if open {
                                 view.selected = Some((e.id, e.unix_ms));
                             }
                         })
@@ -4114,43 +4214,9 @@ fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCom
             return;
         };
         ui.strong(&s.display_name);
-        let running = s.state == wtm_core::ServiceState::Running;
-        let stopped = s.state == wtm_core::ServiceState::Stopped;
-        let mut send = |op| {
-            out = Some(UiCommand::Service {
-                name: s.name.clone(),
-                op,
-            });
-        };
-        if ui
-            .add_enabled(stopped, egui::Button::new(crate::i18n::tr("Start")))
-            .clicked()
-        {
-            send(ServiceOp::Start);
-        }
-        if ui
-            .add_enabled(running, egui::Button::new(crate::i18n::tr("Stop")))
-            .clicked()
-        {
-            send(ServiceOp::Stop);
-        }
-        if ui
-            .add_enabled(running, egui::Button::new(crate::i18n::tr("Restart")))
-            .clicked()
-        {
-            send(ServiceOp::Restart);
-        }
-        ui.menu_button(crate::i18n::tr("Startup type"), |ui| {
-            for t in [
-                wtm_core::StartType::Automatic,
-                wtm_core::StartType::Manual,
-                wtm_core::StartType::Disabled,
-            ] {
-                if ui.button(crate::i18n::debug(t)).clicked() {
-                    send(ServiceOp::StartType(t));
-                    ui.close();
-                }
-            }
+        out = views::service_operations(ui, s).map(|op| UiCommand::Service {
+            name: s.name.clone(),
+            op,
         });
     });
     crate::theme::divider(ui);
@@ -4321,6 +4387,248 @@ mod tests {
 
     use crate::backend::Backend;
     use crate::ui_tests::data;
+
+    #[test]
+    fn settings_use_the_workspace_width_without_a_page_header() {
+        use egui::accesskit::Role;
+        let (mut h, _rx) = kill_app(Tab::Settings);
+        h.state_mut().state.config.page = crate::settings::Page::Appearance;
+        let mut positions = Vec::new();
+        for width in [1440.0, 1920.0] {
+            h.set_size(egui::vec2(width, 900.0));
+            h.run_steps(3);
+            let left = h
+                .get_by_role_and_label(Role::Label, "Control and row height")
+                .rect()
+                .left();
+            let right = h
+                .get_by_role_and_label(Role::Button, "Comfortable")
+                .rect()
+                .right();
+            positions.push((left, right));
+        }
+        assert!(
+            (positions[1].0 - positions[0].0).abs() < 2.0,
+            "settings left gutter stays aligned: {positions:?}"
+        );
+        assert!(
+            (positions[1].1 - positions[0].1 - 480.0).abs() < 2.0,
+            "settings controls follow the right edge: {positions:?}"
+        );
+        assert!(h.query_by_label(Tab::Settings.subtitle()).is_none());
+    }
+
+    #[test]
+    fn application_and_container_rows_follow_the_selected_density() {
+        for (tab, first, second) in [
+            (Tab::InstalledApps, "Example Editor", "Example Tools"),
+            (Tab::Containers, "web-0", "web-1"),
+        ] {
+            let (mut h, _rx) = kill_app(tab);
+            h.state().backend.data().docker = std::sync::Arc::new(crate::containers::fixture());
+            h.state_mut().state.installed_apps = crate::installed_apps::fixture();
+            for (density, expected) in [
+                (crate::preferences::Density::Compact, 22.0),
+                (crate::preferences::Density::Comfortable, 34.0),
+            ] {
+                h.state_mut().state.display.density = density;
+                h.run_steps(3);
+                let gap = h.get_by_label(second).rect().center().y
+                    - h.get_by_label(first).rect().center().y;
+                assert!(
+                    (gap - expected).abs() < 1.0,
+                    "{tab:?} {density:?}: row spacing {gap}, expected {expected}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compact_process_context_uses_window_height_for_diagnostics() {
+        let (mut h, _rx) = kill_app(Tab::Processes);
+        h.set_size(egui::vec2(820.0, 620.0));
+        crate::theme::apply(&h.ctx);
+        {
+            let mut data = h.state().backend.data();
+            let process = data
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .processes
+                .iter()
+                .find(|process| process.pid == 100)
+                .unwrap();
+            let key = (process.pid, process.create_time);
+            data.image_paths.insert(key, r"C:\Example\alpha.exe".into());
+        }
+        h.run_steps(3);
+        h.get_by_label("alpha.exe").click_secondary();
+        h.run_steps(3);
+        let point = h.get_by_label("Diagnostics").rect().center();
+        assert_eq!(
+            h.ctx.layer_id_at(point).map(|layer| layer.order),
+            Some(egui::Order::Foreground),
+            "last action is inside the visible popup at {point:?}"
+        );
+        h.get_by_label("Diagnostics").hover();
+        h.run_steps(3);
+        assert!(h.query_by_label("Create memory dump file").is_some());
+    }
+
+    #[test]
+    fn service_context_restart_reviews_the_service_after_rows_change() {
+        let (mut h, rx) = kill_app(Tab::Services);
+        h.run_steps(2);
+        h.get_by_label("Print Spooler").click_secondary();
+        h.run_steps(2);
+        h.state()
+            .backend
+            .data()
+            .services
+            .as_mut()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .reverse();
+        h.run_steps(2);
+        h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Restart")
+            .last()
+            .unwrap()
+            .click();
+        h.run_steps(2);
+        assert!(
+            matches!(&h.state().state.confirm_change, Some(Change::Service { name, op: ServiceOp::Restart, .. }) if name == "Spooler")
+        );
+        assert!(
+            !rx.try_iter()
+                .any(|command| matches!(command, UiCommand::Service { .. }))
+        );
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(h.state().state.confirm_change.is_none());
+        assert!(
+            !rx.try_iter()
+                .any(|command| matches!(command, UiCommand::Service { .. }))
+        );
+    }
+
+    #[test]
+    fn startup_search_and_filters_fit_compact_windows() {
+        use egui::accesskit::Role;
+        for width in [420.0, 820.0] {
+            let (mut h, _rx) = kill_app(Tab::Startup);
+            h.set_size(egui::vec2(width, 620.0));
+            h.run_steps(3);
+            let search = h.get_by_role(Role::TextInput).rect();
+            assert!(
+                search.min.x >= 56.0 && search.max.x <= width,
+                "search fits {width}: {search:?}"
+            );
+            for label in ["All apps", "Enabled", "Disabled"] {
+                let rect = h.get_by_role_and_label(Role::Button, label).rect();
+                assert!(
+                    rect.min.x >= 56.0 && rect.max.x <= width && rect.max.y < 620.0,
+                    "{label} fits {width}: {rect:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn startup_search_and_status_filters_follow_backend_results() {
+        use egui::accesskit::Role;
+        let (mut h, rx) = kill_app(Tab::Startup);
+        h.set_size(egui::vec2(820.0, 620.0));
+        {
+            let mut data = h.state().backend.data();
+            let entries = data.startup.as_mut().unwrap();
+            let mut backup = entries[0].clone();
+            backup.name = "Backup agent".into();
+            backup.command = r"C:\Tools\backup.exe --background".into();
+            backup.enabled = false;
+            let mut helper = entries[0].clone();
+            helper.name = "Hardware helper".into();
+            helper.command = r"C:\Tools\hardware.exe /quiet".into();
+            helper.scope = wtm_core::startup::StartupScope::AllUsers;
+            entries.extend([backup, helper]);
+        }
+        h.run_steps(3);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+        h.run_steps(2);
+        h.get_by_role(Role::TextInput).type_text("BACKUP");
+        h.run_steps(2);
+        assert_eq!(h.state().state.startup_filter, "BACKUP");
+        h.get_by_role_and_label(Role::Button, "Disabled").click();
+        h.run_steps(2);
+        assert!(h.query_by_label("Updater").is_none());
+        assert!(h.query_by_label("1 of 3 apps").is_some());
+        assert!(
+            !rx.try_iter()
+                .any(|command| matches!(command, UiCommand::SetStartup { .. }))
+        );
+        h.get_by_label("Backup agent").click();
+        h.run_steps(2);
+        h.get_by_label("Backup agent: Disabled").click();
+        h.run_steps(2);
+        assert!(rx.try_iter().any(|command| matches!(command, UiCommand::SetStartup { entry, enabled: true } if entry.name == "Backup agent")));
+        assert!(h.query_by_label("Backup agent: Disabled").is_some());
+        h.state()
+            .backend
+            .data()
+            .startup
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|entry| entry.name == "Backup agent")
+            .unwrap()
+            .enabled = true;
+        h.run_steps(2);
+        assert!(h.query_by_label("No matching applications").is_some());
+        assert!(h.query_by_role_and_label(Role::Button, "Disable").is_none());
+        h.get_by_label("Clear filters").click();
+        h.run_steps(2);
+        assert!(h.state().state.startup_filter.is_empty());
+        assert!(h.query_by_label("3 startup apps, 3 enabled").is_some());
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+        h.run_steps(2);
+        h.get_by_role(Role::TextInput).type_text("/QUIET");
+        h.run_steps(2);
+        assert!(h.query_by_label("Hardware helper").is_some());
+        assert!(h.query_by_label("Updater").is_none());
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().state.startup_filter.is_empty());
+    }
+
+    #[test]
+    fn startup_context_action_keeps_the_registration_after_rows_change() {
+        let (mut h, rx) = kill_app(Tab::Startup);
+        h.run_steps(2);
+        h.get_by_label("Updater").click_secondary();
+        h.run_steps(2);
+        let mut new_entry = h.state().backend.data().startup.as_ref().unwrap()[0].clone();
+        new_entry.name = "Earlier application".into();
+        new_entry.command = r"C:\Example\earlier.exe".into();
+        h.state()
+            .backend
+            .data()
+            .startup
+            .as_mut()
+            .unwrap()
+            .insert(0, new_entry);
+        h.run_steps(2);
+        h.get_by_role_and_label(egui::accesskit::Role::Button, "Disable")
+            .click();
+        h.run_steps(2);
+        let commands: Vec<_> = rx
+            .try_iter()
+            .filter_map(|command| match command {
+                UiCommand::SetStartup { entry, enabled } => Some((entry.name, enabled)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(commands, [("Updater".to_owned(), false)]);
+    }
 
     #[test]
     fn service_startup_menu_and_confirmation_keep_the_selected_service_on_refresh() {
@@ -4895,22 +5203,21 @@ mod tests {
     }
 
     #[test]
-    fn desktop_contract_resource_cards_align_with_page_heading() {
+    fn resource_cards_start_at_the_workspace_gutter_without_a_page_header() {
         let (mut h, _) = overview_app(data());
         for tab in [Tab::Overview, Tab::Processes] {
             h.state_mut().state.tab = tab;
             h.run_steps(3);
-            let heading = h
-                .get_all_by_label(tab.label())
-                .filter(|n| n.rect().top() < 60.0)
-                .max_by(|a, b| a.rect().min.x.total_cmp(&b.rect().min.x))
-                .unwrap()
-                .rect();
             let card = h.get_by_label_contains("CPU: 42%").rect();
             assert!(
-                (heading.left() - card.left()).abs() < 1.0,
-                "{tab:?}: heading and resource card must share the page gutter: {heading:?}, {card:?}"
+                (card.left() - nav_width(&h.ctx) - 16.0).abs() < 2.0,
+                "{tab:?}: resource card follows the workspace gutter: {card:?}"
             );
+            assert!(
+                card.top() < 24.0,
+                "{tab:?}: resource content starts at the top: {card:?}"
+            );
+            assert!(h.query_by_label(tab.subtitle()).is_none());
         }
     }
 
@@ -5362,7 +5669,7 @@ mod tests {
                 let mut intents = Vec::new();
                 ui.columns(2, |cols| {
                     details_panel(&mut cols[0], &d, &snap, &sel, &mut intents);
-                    governor(&mut cols[0], &d);
+                    governor(&mut cols[0], &d, &mut Vec::new());
                     let _ = service_bar(&mut cols[0], &d, Some("Spooler"));
                     let _ = service_bar(&mut cols[0], &d, None);
                     for mode in [
@@ -5422,7 +5729,7 @@ mod tests {
         d.events.clear();
         d.snapshot = None;
         let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
-            governor(ui, &d);
+            governor(ui, &d, &mut Vec::new());
             events(ui, &d, &mut EventsView::default());
             performance(ui, &d);
         });
@@ -5444,7 +5751,7 @@ mod tests {
             .allow_missing_glyphs()
             .with_size([900.0, 1200.0])
             .build_ui(|ui| {
-                governor(ui, &d);
+                governor(ui, &d, &mut Vec::new());
                 performance(ui, &d);
             });
         h.run_steps(2);
@@ -5614,6 +5921,36 @@ mod tests {
     }
 
     #[test]
+    fn table_separator_choices_survive_saved_window_memory() {
+        use egui::accesskit::Toggled;
+        use egui_kittest::kittest::NodeT;
+        let mut storage = MemStorage::default();
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .build_ui(crate::theme::TableLines::controls);
+        h.run_steps(2);
+        h.get_by_label("Row separators").click();
+        h.run_steps(2);
+        h.get_by_label("Column separators").click();
+        h.run_steps(2);
+        h.ctx
+            .memory(|memory| eframe::set_value(&mut storage, "egui", memory));
+        let saved: egui::Memory = eframe::get_value(&storage, "egui").unwrap();
+        drop(h);
+        let mut restored = Harness::builder()
+            .allow_missing_glyphs()
+            .with_context_setup(move |ctx| ctx.memory_mut(|memory| *memory = saved))
+            .build_ui(crate::theme::TableLines::controls);
+        restored.run_steps(2);
+        for label in ["Row separators", "Column separators"] {
+            assert_eq!(
+                restored.get_by_label(label).accesskit_node().toggled(),
+                Some(Toggled::False)
+            );
+        }
+    }
+
+    #[test]
     fn preferences_survive_a_restart() {
         use crate::processes::{Col, ViewMode};
         use eframe::Storage as _;
@@ -5634,6 +5971,7 @@ mod tests {
         state.processes.column_order.swap(2, 3);
         state.processes.heat = false;
         state.processes.stripes = true;
+        state.processes.descriptive_names = false;
         state.processes.hold_sorting = false;
         state.display = crate::preferences::Display {
             density: crate::preferences::Density::Compact,
@@ -5665,6 +6003,7 @@ mod tests {
         let partial = UiState::restored(Some(&storage)).prefs();
         assert_eq!(partial.tab, Tab::About);
         assert_eq!(partial.process_sort, Prefs::default().process_sort);
+        assert!(partial.process_descriptions);
     }
 
     #[test]
@@ -5974,6 +6313,8 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("beta.exe").click_secondary();
         h.run_steps(2);
+        h.get_by_label("Add to kill list…").scroll_to_me();
+        h.run_steps(3);
         h.get_by_label("Add to kill list…").click();
         h.run_steps(3);
         assert_eq!(h.state().state.tab, Tab::KillList);
@@ -6494,6 +6835,8 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("alpha.exe").click_secondary();
         h.run_steps(2);
+        h.get_by_label("Block network access").scroll_to_me();
+        h.run_steps(3);
         h.get_by_label("Block network access").click();
         h.run_steps(3);
         // Asked first: the program stays offline until unblocked.
@@ -6948,7 +7291,8 @@ mod tests {
         h.run_steps(2);
         h.get_by_label("config.toml").click();
         h.run_steps(2);
-        let editor = h.get_by_role(egui::accesskit::Role::MultilineTextInput);
+        let editor =
+            h.get_by_role_and_label(egui::accesskit::Role::MultilineTextInput, "config.toml");
         let rect = editor.rect();
         assert!(rect.min.y < 300.0, "editor starts near the top: {rect:?}");
         assert!(rect.height() > 300.0, "and fills the page: {rect:?}");
@@ -7130,6 +7474,39 @@ mod tests {
             });
         h.run_steps(2);
         (h, rx)
+    }
+
+    #[test]
+    fn overview_recovers_after_a_zero_width_native_startup_layout() {
+        let (mut h, rx) = overview_app(data());
+        for width in [0.0, 1.0, 3.0, 4.0, 16.0, 72.0, 820.0] {
+            h.set_size(egui::vec2(width, 500.0));
+            h.run_steps(2);
+        }
+        h.set_size(egui::vec2(1400.0, 1000.0));
+        h.run_steps(3);
+        h.get_by_label_contains("CPU:").click();
+        h.run_steps(3);
+        assert_eq!(h.state().state.tab, Tab::Performance);
+        assert!(
+            rx.try_iter()
+                .all(|command| !matches!(command, UiCommand::Control { .. }))
+        );
+    }
+
+    #[test]
+    fn every_page_survives_a_transient_zero_width_startup_layout() {
+        let (mut h, _) = overview_app(data());
+        crate::inventory::set_test_inventory(&h.ctx, Some(Ok(b"[]")));
+        h.state_mut().state.autostart = Some(false);
+        h.state_mut().state.prefer_administrator = Some(false);
+        for (tab, _, _) in NAV {
+            h.state_mut().state.tab = tab;
+            h.set_size(egui::vec2(0.0, 500.0));
+            h.run_steps(2);
+            h.set_size(egui::vec2(1300.0, 850.0));
+            h.run_steps(2);
+        }
     }
 
     fn saved_config(rx: &std::sync::mpsc::Receiver<UiCommand>) -> Option<wtm_policy::Config> {
@@ -7732,7 +8109,7 @@ mod tests {
                 h.state_mut().state.tab = tab;
                 h.run_steps(2);
                 assert!(
-                    h.query_by_label(tab.subtitle()).is_some(),
+                    h.query_by_label(tab.subtitle()).is_none(),
                     "{language:?} {tab:?}"
                 );
                 // The field may start the translation; match its longest literal part.
@@ -7752,6 +8129,314 @@ mod tests {
                     .is_some()
             );
             assert!((200.0..=280.0).contains(&nav_width(&h.ctx)));
+        }
+    }
+
+    #[cfg(feature = "visual-tests")]
+    #[test]
+    #[ignore = "bounded, opt-in native render of the process header menu"]
+    fn render_process_context_review() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/process-context-review");
+        std::fs::create_dir_all(&root).unwrap();
+        for (name, theme, size) in [
+            ("light", egui::Theme::Light, [1440.0, 900.0]),
+            ("dark-compact", egui::Theme::Dark, [820.0, 620.0]),
+        ] {
+            let mut d = data();
+            let p = d
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .processes
+                .iter()
+                .find(|p| p.pid == 100)
+                .unwrap();
+            let path = r"C:\Example\alpha.exe".to_owned();
+            d.image_paths.insert((p.pid, p.create_time), path.clone());
+            d.descriptions.insert(path, Some("Example Editor".into()));
+            let (backend, _commands) = Backend::offline(d);
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size(size)
+                .with_theme(theme)
+                .build_eframe(|cc| {
+                    crate::theme::install_fonts(&cc.egui_ctx);
+                    crate::theme::apply(&cc.egui_ctx);
+                    cc.egui_ctx.set_theme(theme);
+                    App {
+                        backend,
+                        state: UiState {
+                            tab: Tab::Processes,
+                            check_updates: false,
+                            ..Default::default()
+                        },
+                        tray: None,
+                        frames: Default::default(),
+                    }
+                });
+            crate::inventory::set_test_inventory(&h.ctx, Some(Ok(b"[]")));
+            h.run_steps(3);
+            assert!(h.query_by_label("Example Editor  alpha.exe").is_some());
+            for option in ["Row separators", "Column separators"] {
+                egui::Popup::close_all(&h.ctx);
+                h.run_steps(2);
+                h.get_by_label("Name").click_secondary();
+                h.run_steps(2);
+                h.get_by_label("Appearance").hover();
+                h.run_steps(3);
+                h.get_by_label(option).scroll_to_me();
+                h.run_steps(2);
+                h.get_by_label(option).click();
+                h.run_steps(2);
+            }
+            egui::Popup::close_all(&h.ctx);
+            h.run_steps(2);
+            h.get_by_label("Name").click_secondary();
+            h.run_steps(2);
+            assert!(h.query_by_label("Sort ascending").is_some());
+            let last = h.get_by_label("Appearance").rect();
+            assert!(
+                last.min.y >= 0.0 && last.max.y <= size[1],
+                "context menu fits {name}: {last:?}"
+            );
+            let path = root.join(format!("{name}.png"));
+            h.render().expect("GPU render").save(&path).unwrap();
+            println!("Rendered {}", path.display());
+            if name == "light" {
+                h.key_press(egui::Key::Escape);
+                h.event(egui::Event::PointerMoved(egui::pos2(12.0, 12.0)));
+                h.run_steps(3);
+                let path = root.join("light-table.png");
+                h.render().expect("GPU render").save(&path).unwrap();
+                println!("Rendered {}", path.display());
+            }
+            if name == "dark-compact" {
+                egui::Popup::close_all(&h.ctx);
+                h.run_steps(2);
+                h.get_by_label("Example Editor  alpha.exe")
+                    .click_secondary();
+                h.run_steps(3);
+                for label in ["Details", "Diagnostics"] {
+                    let rect = h.get_by_label(label).rect();
+                    assert!(
+                        rect.min.y >= 0.0 && rect.max.y <= size[1],
+                        "process menu fits: {label} {rect:?}"
+                    );
+                    assert_eq!(
+                        h.ctx.layer_id_at(rect.center()).map(|layer| layer.order),
+                        Some(egui::Order::Foreground),
+                        "process action is inside the popup: {label}"
+                    );
+                }
+                let path = root.join("dark-compact-process.png");
+                h.render().expect("GPU render").save(&path).unwrap();
+                println!("Rendered {}", path.display());
+            }
+        }
+    }
+
+    #[cfg(feature = "visual-tests")]
+    #[test]
+    #[ignore = "bounded native review of headerless workspaces and full-width settings"]
+    fn render_headerless_workspace_review() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/headerless-workspace-review");
+        std::fs::create_dir_all(&root).unwrap();
+        for (tab, page, theme, size, name) in [
+            (
+                Tab::Settings,
+                crate::settings::Page::Appearance,
+                egui::Theme::Light,
+                [1920.0, 1000.0],
+                "appearance-wide-light",
+            ),
+            (
+                Tab::Settings,
+                crate::settings::Page::Service,
+                egui::Theme::Dark,
+                [1440.0, 900.0],
+                "service-wide-dark",
+            ),
+            (
+                Tab::Settings,
+                crate::settings::Page::File,
+                egui::Theme::Light,
+                [820.0, 620.0],
+                "file-compact-light",
+            ),
+            (
+                Tab::Processes,
+                crate::settings::Page::Appearance,
+                egui::Theme::Dark,
+                [1440.0, 900.0],
+                "processes-wide-dark",
+            ),
+        ] {
+            let mut data = data();
+            data.mode = Mode::Service {
+                admin: true,
+                verified: true,
+            };
+            data.elevated = true;
+            data.config = Some(Ok((
+                "config.toml".into(),
+                wtm_policy::DEFAULT_CONFIG_TOML.into(),
+            )));
+            let (backend, _commands) = Backend::offline(data);
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size(size)
+                .with_theme(theme)
+                .build_eframe(|cc| {
+                    crate::theme::install_fonts(&cc.egui_ctx);
+                    crate::theme::apply(&cc.egui_ctx);
+                    cc.egui_ctx.set_theme(theme);
+                    let mut state = UiState {
+                        tab,
+                        autostart: Some(false),
+                        prefer_administrator: Some(false),
+                        check_updates: false,
+                        ..Default::default()
+                    };
+                    state.config.page = page;
+                    App {
+                        backend,
+                        state,
+                        tray: None,
+                        frames: Default::default(),
+                    }
+                });
+            crate::inventory::set_test_inventory(&h.ctx, Some(Ok(b"[]")));
+            h.run_steps(3);
+            assert!(h.query_by_label(tab.subtitle()).is_none());
+            if tab == Tab::Processes {
+                let rect = h.get_by_label("Inspector").rect();
+                assert!(
+                    rect.min.y > size[1] * 0.8 && rect.max.y <= size[1],
+                    "Inspector is reachable in the footer: {rect:?}"
+                );
+            }
+            let path = root.join(format!("{name}.png"));
+            h.render().expect("GPU render").save(&path).unwrap();
+            println!("Rendered {}", path.display());
+        }
+    }
+
+    #[cfg(feature = "visual-tests")]
+    #[test]
+    #[ignore = "bounded native review of table density and appearance controls"]
+    fn render_table_pages_review() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/table-pages-review");
+        std::fs::create_dir_all(&root).unwrap();
+        for (tab, theme, size, density, name) in [
+            (
+                Tab::InstalledApps,
+                egui::Theme::Light,
+                [1440.0, 900.0],
+                crate::preferences::Density::Compact,
+                "applications-compact-light",
+            ),
+            (
+                Tab::Containers,
+                egui::Theme::Dark,
+                [1440.0, 900.0],
+                crate::preferences::Density::Comfortable,
+                "containers-comfortable-dark",
+            ),
+            (
+                Tab::Settings,
+                egui::Theme::Light,
+                [820.0, 620.0],
+                crate::preferences::Density::Standard,
+                "appearance-compact-light",
+            ),
+            (
+                Tab::Startup,
+                egui::Theme::Dark,
+                [820.0, 620.0],
+                crate::preferences::Density::Standard,
+                "startup-compact-dark",
+            ),
+        ] {
+            let mut data = data();
+            data.docker = std::sync::Arc::new(crate::containers::fixture());
+            if tab == Tab::Startup {
+                let entries = data.startup.as_mut().unwrap();
+                let mut backup = entries[0].clone();
+                backup.name = "Backup agent".into();
+                backup.command = r"C:\Tools\backup.exe --background".into();
+                backup.enabled = false;
+                let mut helper = entries[0].clone();
+                helper.name = "Hardware helper".into();
+                helper.command = r"C:\Tools\hardware.exe /quiet".into();
+                helper.scope = wtm_core::startup::StartupScope::AllUsers;
+                entries.extend([backup, helper]);
+            }
+            let (backend, _commands) = Backend::offline(data);
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size(size)
+                .with_theme(theme)
+                .build_eframe(|cc| {
+                    crate::theme::install_fonts(&cc.egui_ctx);
+                    crate::theme::apply(&cc.egui_ctx);
+                    cc.egui_ctx.set_theme(theme);
+                    let mut state = UiState {
+                        tab,
+                        installed_apps: crate::installed_apps::fixture(),
+                        autostart: Some(false),
+                        prefer_administrator: Some(false),
+                        check_updates: false,
+                        ..Default::default()
+                    };
+                    state.display.density = density;
+                    state.config.page = crate::settings::Page::Appearance;
+                    App {
+                        backend,
+                        state,
+                        tray: None,
+                        frames: Default::default(),
+                    }
+                });
+            crate::inventory::set_test_inventory(&h.ctx, Some(Ok(b"[]")));
+            h.state_mut().state.tab = Tab::Settings;
+            h.run_steps(3);
+            for label in ["Row separators", "Column separators"] {
+                h.get_by_label(label).click();
+                h.run_steps(2);
+            }
+            h.state_mut().state.tab = tab;
+            h.run_steps(3);
+            if tab == Tab::Containers {
+                h.get_by_label("12.5%").click();
+                h.run_steps(2);
+            }
+            if tab == Tab::Settings {
+                for label in ["Row separators", "Column separators"] {
+                    let rect = h.get_by_label(label).rect();
+                    assert!(
+                        rect.min.y >= 0.0 && rect.max.y <= size[1],
+                        "appearance control fits: {label}"
+                    );
+                }
+            }
+            h.event(egui::Event::PointerMoved(egui::pos2(0.0, 0.0)));
+            h.run_steps(2);
+            let path = root.join(format!("{name}.png"));
+            h.render().expect("GPU render").save(&path).unwrap();
+            println!("Rendered {}", path.display());
+            if tab == Tab::Startup {
+                h.get_by_role_and_label(egui::accesskit::Role::Button, "Disabled")
+                    .click();
+                h.run_steps(2);
+                assert!(h.query_by_label("Backup agent").is_some());
+                assert!(h.query_by_label("Updater").is_none());
+                let path = root.join("startup-disabled-compact-dark.png");
+                h.render().expect("GPU render").save(&path).unwrap();
+                println!("Rendered {}", path.display());
+            }
         }
     }
 
@@ -8188,11 +8873,7 @@ mod tests {
                             h.ctx.global_style().visuals.dark_mode,
                             theme == egui::Theme::Dark
                         );
-                        // Short windows leave the subtitle out.
-                        assert_eq!(
-                            h.query_by_label(tab.subtitle()).is_some(),
-                            size[1] >= COMPACT_HEIGHT
-                        );
+                        assert!(h.query_by_label(tab.subtitle()).is_none());
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         capture(&mut h, &path);
                         println!("Rendered {}", path.display());

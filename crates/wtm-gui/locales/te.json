@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "సేవ్ చేసిన సెన్సార్ అందుబాటులో లేదు",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "ఉష్ణోగ్రతకు మద్దతు ఉన్న సెన్సార్ అవసరం. లేని లేదా పాతబడిన రీడింగ్‌లు డాష్‌లను చూపుతాయి, ఎప్పుడూ ఊహించిన విలువను కాదు.",
   "Open sensors": "సెన్సార్‌లను తెరువు",
-  "NVMe available spare": "NVMe అందుబాటులో ఉన్న అదనపు సామర్థ్యం"
+  "NVMe available spare": "NVMe అందుబాటులో ఉన్న అదనపు సామర్థ్యం",
+  "Copy {0}": "{0} కాపీ చేయండి",
+  "Row separators": "వరుస విభాజకాలు",
+  "Column separators": "నిలువు వరుస విభాజకాలు",
+  "Show process descriptions": "ప్రాసెస్ వివరణలను చూపు",
+  "Sort ascending": "ఆరోహణ క్రమం",
+  "Sort descending": "అవరోహణ క్రమం",
+  "Fit columns": "నిలువు వరుసలను సర్దు",
+  "Path": "మార్గం",
+  "Quick setup": "త్వరిత సెటప్",
+  "Welcome back": "తిరిగి స్వాగతం",
+  "Choose your quick settings. You can change them later in Settings.": "మీ త్వరిత సెట్టింగ్‌లను ఎంచుకోండి. తర్వాత సెట్టింగ్‌లలో మార్చవచ్చు.",
+  "Next": "తదుపరి",
+  "Back": "వెనుకకు",
+  "Skip setup": "సెటప్ దాటవేయి",
+  "Apply and finish": "వర్తింపజేసి ముగించు",
+  "Step {0} of {1}": "దశ {0} / {1}",
+  "Review your settings": "మీ సెట్టింగ్‌లను సమీక్షించండి"
 }

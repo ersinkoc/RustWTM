@@ -715,6 +715,7 @@ mod tests {
     #[test]
     fn literal_ui_lookups_have_catalog_entries() {
         let sources = [
+            include_str!("context_actions.rs"),
             include_str!("disk_details.rs"),
             include_str!("numeric_tray.rs"),
             include_str!("devices.rs"),
@@ -723,6 +724,7 @@ mod tests {
             include_str!("file_locks.rs"),
             include_str!("rules.rs"),
             include_str!("experience.rs"),
+            include_str!("onboarding.rs"),
             include_str!("app.rs"),
             include_str!("charts.rs"),
             include_str!("performance_view.rs"),
@@ -752,7 +754,7 @@ mod tests {
         ];
         for source in sources {
             let source = source.split("\n#[cfg(test)]\nmod tests").next().unwrap();
-            for marker in ["crate::i18n::tr(", "crate::i18n::format("] {
+            for marker in ["i18n::tr(", "i18n::format("] {
                 for tail in source.split(marker).skip(1) {
                     let literal = tail.trim_start();
                     if !literal.starts_with('"') {

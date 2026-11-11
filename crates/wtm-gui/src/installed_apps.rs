@@ -208,6 +208,7 @@ impl View {
             4 => scope_label(a.id.scope).cmp(scope_label(b.id.scope)),
             _ => crate::sort::text(&a.name, &b.name),
         });
+        let row_height = ui.spacing().interact_size.y;
         crate::theme::table_panel(ui, "installed_apps", 850.0, |ui| {
             let table_height = (ui.ctx().content_rect().height() * 0.52).clamp(160.0, 600.0);
             crate::theme::table(ui)
@@ -221,7 +222,7 @@ impl View {
                 .column(Column::initial(120.0).clip(true))
                 .column(Column::initial(110.0).clip(true))
                 .column(Column::remainder().at_least(100.0).clip(true))
-                .header(32.0, |mut header| {
+                .header(row_height, |mut header| {
                     for (i, label) in ["Name", "Publisher", "Version", "Estimated size", "Scope"]
                         .iter()
                         .enumerate()
@@ -234,35 +235,25 @@ impl View {
                     }
                 })
                 .body(|body| {
-                    body.rows(32.0, rows.len(), |mut row| {
+                    body.rows(row_height, rows.len(), |mut row| {
                         let app = rows[row.index()];
                         row.set_selected(self.selected.as_ref() == Some(&app.id));
                         let size = app
                             .estimated_bytes
                             .map(|n| wtm_core::format_bytes(n as f64))
                             .unwrap_or_else(|| "—".into());
+                        let mut name_response = None;
                         row.col(|ui| {
                             crate::theme::table_cell(ui, |ui| {
-                                let response = ui
-                                    .add_sized(
-                                        [ui.available_width(), 28.0],
-                                        egui::Button::new("")
-                                            .left_text(&app.name)
-                                            .frame(false)
-                                            .truncate(),
-                                    )
-                                    .on_hover_text(&app.name);
-                                response.widget_info(|| {
-                                    egui::WidgetInfo::selected(
-                                        egui::Role::Button,
-                                        true,
-                                        self.selected.as_ref() == Some(&app.id),
-                                        &app.name,
-                                    )
-                                });
+                                let response = crate::theme::table_name(
+                                    ui,
+                                    &app.name,
+                                    self.selected.as_ref() == Some(&app.id),
+                                );
                                 if response.clicked() {
                                     self.selected = Some(app.id.clone());
                                 }
+                                name_response = Some(response);
                             })
                         });
                         for text in [
@@ -278,9 +269,41 @@ impl View {
                                 })
                             });
                         }
-                        if row.response().clicked() {
+                        let response = row.response();
+                        if response.clicked() {
                             self.selected = Some(app.id.clone());
                         }
+                        let response = name_response
+                            .map_or_else(|| response.clone(), |name| response.clone().union(name));
+                        crate::context_actions::menu(
+                            &response,
+                            (
+                                "installed-app",
+                                app.id.scope as u8,
+                                app.id.view32,
+                                &app.id.key,
+                            ),
+                            |ui| {
+                                use crate::context_actions::{action, copy};
+                                if action(ui, crate::i18n::tr("Details")) {
+                                    self.selected = Some(app.id.clone());
+                                }
+                                copy(ui, crate::i18n::tr("Name"), || app.name.clone());
+                                if !app.version.is_empty() {
+                                    copy(ui, crate::i18n::tr("Version"), || app.version.clone());
+                                }
+                                if !app.location.is_empty() {
+                                    copy(ui, crate::i18n::tr("Path"), || app.location.clone());
+                                }
+                                let plan = wtm_core::installed::plan(app);
+                                if self.worker.is_none()
+                                    && let Ok(plan) = plan
+                                    && action(ui, crate::i18n::tr("Uninstall…"))
+                                {
+                                    self.confirm = Some((app.clone(), plan));
+                                }
+                            },
+                        );
                     })
                 });
         });

@@ -10,7 +10,7 @@ Source previews: [wide workspace](../screenshots/workspace-system.png),
 
 ## Inspector
 
-The **Inspector** menu in the page heading has three saved modes:
+The **Inspector** menu in the footer has three saved modes:
 
 - **Adaptive inspector**: system overview in windows at least 1180 logical
   pixels wide; selected-process details at any supported width.
@@ -27,7 +27,7 @@ text summary through the explicit button.
 Selecting a process replaces system facts with the identity-bound process
 inspector. **Close details** clears the selection and returns to the overview
 when the visibility mode allows it. **Close system overview** hides the pane;
-the heading menu reopens it. Each process identity and the system view have
+the footer menu reopens it. Each process identity and the system view have
 separate scroll state. Hidden mode remains hidden until changed in the menu.
 
 Older preferences default to Adaptive; unknown future mode identifiers also

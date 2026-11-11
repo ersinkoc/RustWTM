@@ -9,6 +9,7 @@ mod backend;
 mod background;
 mod charts;
 mod containers;
+mod context_actions;
 mod devices;
 mod disk_details;
 mod disks_tab;
@@ -25,6 +26,7 @@ mod limits_tab;
 mod logo;
 mod navigation;
 mod numeric_tray;
+mod onboarding;
 mod overview;
 mod packages;
 mod performance_view;
@@ -48,6 +50,26 @@ mod workspace_inspector;
 
 use eframe::egui;
 
+const MIN_WINDOW_SIZE: egui::Vec2 = egui::vec2(820.0, 500.0);
+const DEFAULT_WINDOW_SIZE: egui::Vec2 = egui::vec2(1240.0, 780.0);
+
+/// eframe restores saved geometry before calling this hook. Win32 does not
+/// enforce the user-resize minimum on that programmatic initial size.
+fn restore_window_bounds(viewport: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    let saved = viewport.inner_size.unwrap_or(DEFAULT_WINDOW_SIZE);
+    let dimension = |value: f32, minimum: f32, fallback: f32| {
+        if value.is_finite() {
+            value.max(minimum)
+        } else {
+            fallback
+        }
+    };
+    viewport.with_inner_size(egui::vec2(
+        dimension(saved.x, MIN_WINDOW_SIZE.x, DEFAULT_WINDOW_SIZE.x),
+        dimension(saved.y, MIN_WINDOW_SIZE.y, DEFAULT_WINDOW_SIZE.y),
+    ))
+}
+
 /// `visible: false` starts hidden in the tray (`--background`, used at sign-in).
 fn options(visible: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
@@ -57,13 +79,14 @@ fn options(visible: bool) -> eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("RustWTM")
             .with_visible(visible)
-            .with_inner_size([1240.0, 780.0])
-            .with_min_inner_size([820.0, 500.0])
+            .with_inner_size(DEFAULT_WINDOW_SIZE)
+            .with_min_inner_size(MIN_WINDOW_SIZE)
             .with_icon(std::sync::Arc::new(egui::IconData {
                 rgba: logo::rgba(64),
                 width: 64,
                 height: 64,
             })),
+        window_builder: Some(Box::new(restore_window_bounds)),
         ..Default::default()
     }
 }
@@ -268,5 +291,47 @@ mod tests {
             Some(eframe::egui::vec2(820.0, 500.0))
         );
         assert_eq!(viewport.icon.unwrap().width, 64);
+    }
+
+    #[test]
+    fn startup_window_restoration_clamps_stale_small_geometry() {
+        use eframe::egui;
+        let mut options = super::options(true);
+        // eframe replaces inner_size with the saved geometry before invoking
+        // the window-builder hook. This is the observed 64x64 startup state.
+        let saved = options
+            .viewport
+            .clone()
+            .with_inner_size([64.0, 64.0])
+            .with_position([0.0, 0.0]);
+        let restored = match options.window_builder.take() {
+            Some(hook) => hook(saved),
+            None => saved,
+        };
+        assert_eq!(restored.inner_size, Some(egui::vec2(820.0, 500.0)));
+        assert_eq!(restored.position, Some(egui::pos2(0.0, 0.0)));
+    }
+
+    #[test]
+    fn startup_window_restoration_keeps_valid_geometry_and_window_flags() {
+        use eframe::egui;
+        for (size, expected) in [
+            ([1600.0, 900.0], [1600.0, 900.0]),
+            ([64.0, 900.0], [820.0, 900.0]),
+            ([1600.0, 64.0], [1600.0, 500.0]),
+            ([0.0, 0.0], [820.0, 500.0]),
+            ([f32::NAN, f32::INFINITY], [1240.0, 780.0]),
+        ] {
+            let viewport = egui::ViewportBuilder::default()
+                .with_inner_size(size)
+                .with_position([42.0, 64.0])
+                .with_maximized(true)
+                .with_visible(false);
+            let restored = super::restore_window_bounds(viewport);
+            assert_eq!(restored.inner_size, Some(expected.into()));
+            assert_eq!(restored.position, Some(egui::pos2(42.0, 64.0)));
+            assert_eq!(restored.maximized, Some(true));
+            assert_eq!(restored.visible, Some(false));
+        }
     }
 }

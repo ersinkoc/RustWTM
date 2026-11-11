@@ -341,6 +341,7 @@ struct ProcState {
     intents: Vec<String>,
     managed: ManagedMap,
     hung: crate::backend::HungMap,
+    descriptions: HashMap<String, Option<String>>,
 }
 
 fn describe_intent(i: &Intent) -> String {
@@ -372,7 +373,9 @@ fn process_harness() -> Harness<'static, ProcState> {
         .build_ui_state(
             |ui, st: &mut ProcState| {
                 let snap = st.snap.clone();
-                let intents = st.view.ui(ui, &snap, &extra_with(&st.managed, &st.hung));
+                let mut extra = extra_with(&st.managed, &st.hung);
+                extra.descriptions = &st.descriptions;
+                let intents = st.view.ui(ui, &snap, &extra);
                 st.intents.extend(intents.iter().map(describe_intent));
             },
             ProcState {
@@ -381,6 +384,7 @@ fn process_harness() -> Harness<'static, ProcState> {
                 intents: Vec::new(),
                 managed: ManagedMap::new(),
                 hung: HashMap::new(),
+                descriptions: HashMap::new(),
             },
         )
 }
@@ -452,6 +456,7 @@ fn keyboard_selection_stays_visible_in_a_long_process_list() {
                     intents: Vec::new(),
                     managed: ManagedMap::new(),
                     hung: HashMap::new(),
+                    descriptions: HashMap::new(),
                 },
             );
         h.run_steps(3);
@@ -670,22 +675,28 @@ fn processes_row_click_and_context_menu_produce_intents() {
     h.run();
     assert!(h.state().intents.contains(&"select 200".to_owned()));
 
-    for (item, expected) in [
-        ("End task", "confirm 200 Kill"),
-        ("End process tree", "confirm 200 KillTree"),
-        ("Suspend", "command 200 Suspend"),
-        ("Resume", "command 200 Resume"),
-        ("Remove limits", "command 200 Unlimit"),
-        ("Free memory", "command 200 TrimMemory"),
-        ("Open file location", "open 200"),
-        ("Limit all beta.exe…", "limit app beta.exe"),
-        ("Add to kill list…", "kill list beta.exe"),
-        ("Create memory dump file", "dump 200"),
-        ("Notify me when it exits", "watch exit 200"),
-        ("Properties", "select 200"),
+    for (menu, item, expected) in [
+        ("", "End task", "confirm 200 Kill"),
+        ("", "End process tree", "confirm 200 KillTree"),
+        ("", "Suspend", "command 200 Suspend"),
+        ("", "Resume", "command 200 Resume"),
+        ("Limits", "Remove limits", "command 200 Unlimit"),
+        ("", "Free memory", "command 200 TrimMemory"),
+        ("", "Open file location", "open 200"),
+        ("", "Limit all beta.exe…", "limit app beta.exe"),
+        ("", "Add to kill list…", "kill list beta.exe"),
+        ("Diagnostics", "Create memory dump file", "dump 200"),
+        ("Diagnostics", "Notify me when it exits", "watch exit 200"),
+        ("Diagnostics", "Properties", "select 200"),
     ] {
         h.get_by_label("beta.exe").click_secondary();
         h.run();
+        if !menu.is_empty() {
+            h.get_all_by_label(menu).last().unwrap().hover();
+            h.run_steps(3);
+        }
+        h.get_by_label(item).scroll_to_me();
+        h.run_steps(3);
         h.get_by_label(item).click();
         h.run();
         assert!(
@@ -713,6 +724,8 @@ fn processes_row_click_and_context_menu_produce_intents() {
     }
     h.get_by_label("beta.exe").click_secondary();
     h.run();
+    h.get_all_by_label("Limits").last().unwrap().hover();
+    h.run_steps(3);
     h.get_by_label("Limit CPU").hover();
     h.run();
     h.get_by_label_contains("1 core").click();
@@ -720,6 +733,8 @@ fn processes_row_click_and_context_menu_produce_intents() {
     assert!(h.state().intents.iter().any(|i| i.contains("Limit")));
     h.get_by_label("beta.exe").click_secondary();
     h.run();
+    h.get_all_by_label("Limits").last().unwrap().hover();
+    h.run_steps(3);
     h.get_by_label("Limit memory").hover();
     h.run();
     h.get_by_label("512.0 MiB").click();
@@ -732,6 +747,82 @@ fn processes_row_click_and_context_menu_produce_intents() {
             .count()
             >= 2
     );
+}
+
+#[test]
+fn process_header_fits_descriptive_names_and_restores_column_widths() {
+    let mut h = process_harness();
+    h.state_mut().descriptions.insert(
+        r"C:\Apps\alpha.exe".into(),
+        Some("Example Editor Professional Workspace for Desktop Applications".into()),
+    );
+    h.run_steps(3);
+    let initial = h.get_by_label("Name").rect().width();
+    h.get_by_label("Name").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Fit columns").click();
+    h.run_steps(3);
+    let fitted = h.get_by_label("Name").rect().width();
+    assert!(fitted > initial + 60.0, "{initial} -> {fitted}");
+    assert!(fitted <= 542.0, "bounded fitted width: {fitted}");
+    h.get_by_label("Name").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Restore default columns").click();
+    h.run_steps(3);
+    let restored = h.get_by_label("Name").rect().width();
+    assert!((restored - initial).abs() < 2.0, "{initial} -> {restored}");
+}
+
+#[test]
+fn process_context_workspace_preferences_and_copy_use_the_visible_row() {
+    let mut h = process_harness();
+    h.state_mut()
+        .descriptions
+        .insert(r"C:\Apps\alpha.exe".into(), Some("Example Editor".into()));
+    h.run_steps(3);
+    assert!(h.query_by_label("Example Editor  alpha.exe").is_some());
+    for option in ["Row separators", "Column separators"] {
+        egui::Popup::close_all(&h.ctx);
+        h.run_steps(2);
+        h.get_by_label("CPU ↓").click_secondary();
+        h.run_steps(2);
+        assert!(h.query_by_label_contains("Memory  ").is_some());
+        h.get_by_label("Appearance").hover();
+        h.run_steps(3);
+        h.get_by_label(option).scroll_to_me();
+        h.run_steps(3);
+        h.get_by_label(option).click();
+        h.run_steps(2);
+    }
+    egui::Popup::close_all(&h.ctx);
+    h.run_steps(2);
+    h.get_by_label("CPU ↓").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Sort ascending").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("CPU ↑").is_some());
+    h.get_by_label("Example Editor  alpha.exe")
+        .click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Copy PID").click();
+    h.step();
+    assert!(
+        h.output()
+            .platform_output
+            .commands
+            .iter()
+            .any(|command| matches!(command, egui::OutputCommand::CopyText(text) if text == "100"))
+    );
+    h.get_by_label("CPU ↑").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Appearance").hover();
+    h.run_steps(3);
+    h.get_by_label("Show process descriptions").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Show process descriptions").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("alpha.exe").is_some());
+    assert!(h.query_by_label("Example Editor  alpha.exe").is_none());
 }
 
 #[test]
@@ -1146,6 +1237,7 @@ struct PickState {
     filter: String,
     service: Option<wtm_core::ServiceEntry>,
     startup: Option<StartupEntry>,
+    startup_filter: String,
     commands: Vec<String>,
 }
 
@@ -1158,10 +1250,17 @@ fn services_and_startup_views_select_and_toggle() {
             |ui, st: &mut PickState| {
                 // Two independent areas so neither table hides the other.
                 ui.columns(2, |cols| {
-                    if let Some(s) = views::services(&mut cols[0], &st.data, &mut st.filter) {
+                    if let Some(s) =
+                        views::services(&mut cols[0], &st.data, &mut st.filter, &mut None)
+                    {
                         st.service = Some(s);
                     }
-                    if let Some(cmd) = views::startup(&mut cols[1], &st.data, &mut st.startup) {
+                    if let Some(cmd) = views::startup(
+                        &mut cols[1],
+                        &st.data,
+                        &mut st.startup,
+                        &mut st.startup_filter,
+                    ) {
                         st.commands.push(match cmd {
                             UiCommand::SetStartup { entry, enabled } => {
                                 format!("{} {enabled}", entry.name)
@@ -1176,6 +1275,7 @@ fn services_and_startup_views_select_and_toggle() {
                 filter: String::new(),
                 service: None,
                 startup: None,
+                startup_filter: String::new(),
                 commands: Vec::new(),
             },
         );
@@ -1336,6 +1436,8 @@ fn processes_show_limits_and_fit_cpu_limits_to_the_machine() {
     assert!(h.query_by_label("App limit: 1.5 cores, 8 GB").is_some());
     h.get_by_label("beta.exe").click_secondary();
     h.run();
+    h.get_all_by_label("Limits").last().unwrap().hover();
+    h.run_steps(3);
     h.get_by_label("Limit CPU").hover();
     h.run();
     // Only limits up to the single core are offered.
@@ -1378,6 +1480,7 @@ fn views_show_alternative_states() {
     let mut filter = "10.0.0.5".to_owned();
     let mut services_filter = String::new();
     let mut startup = d.startup.as_ref().map(|e| e[0].clone());
+    let mut startup_filter = String::new();
     let mut history = views::HistoryView {
         // The loaded series belongs to another app.
         selected: Some("beta.exe".into()),
@@ -1391,8 +1494,9 @@ fn views_show_alternative_states() {
             ui.columns(3, |cols| {
                 views::users(&mut cols[0], &d);
                 let _ = views::network(&mut cols[0], &d, &mut filter, None);
-                let _ = views::services(&mut cols[1], &d, &mut services_filter);
-                if let Some(c) = views::startup(&mut cols[1], &d, &mut startup) {
+                let _ = views::services(&mut cols[1], &d, &mut services_filter, &mut None);
+                if let Some(c) = views::startup(&mut cols[1], &d, &mut startup, &mut startup_filter)
+                {
                     command = Some(c);
                 }
                 views::app_history(&mut cols[2], &d, &mut history);
@@ -1422,7 +1526,7 @@ fn views_show_alternative_states() {
     d.services = Some(Err("services failed".into()));
     let mut h = Harness::builder().allow_missing_glyphs().build_ui(|ui| {
         views::users(ui, &d);
-        let _ = views::services(ui, &d, &mut String::new());
+        let _ = views::services(ui, &d, &mut String::new(), &mut None);
     });
     h.run_steps(2);
     assert!(h.query_by_label("sessions failed").is_some());
@@ -1434,6 +1538,7 @@ fn every_table_sorts_by_every_column() {
     use egui_kittest::kittest::NodeT;
     let d = data();
     let mut selected = None;
+    let mut startup_filter = String::new();
     let mut h = Harness::builder()
         .allow_missing_glyphs()
         .with_size([1600.0, 1400.0])
@@ -1442,8 +1547,12 @@ fn every_table_sorts_by_every_column() {
             ui.push_id("n", |ui| {
                 let _ = views::network(ui, &d, &mut String::new(), None);
             });
-            ui.push_id("s", |ui| views::services(ui, &d, &mut String::new()));
-            ui.push_id("st", |ui| views::startup(ui, &d, &mut selected));
+            ui.push_id("s", |ui| {
+                views::services(ui, &d, &mut String::new(), &mut None)
+            });
+            ui.push_id("st", |ui| {
+                views::startup(ui, &d, &mut selected, &mut startup_filter)
+            });
         });
     h.run();
     for header in [
@@ -1757,6 +1866,11 @@ fn extra_with<'a>(
         labels: managed,
         command_lines: command_lines(),
         image_paths: &icons().0,
+        descriptions: {
+            static EMPTY: std::sync::LazyLock<std::collections::HashMap<String, Option<String>>> =
+                std::sync::LazyLock::new(Default::default);
+            &EMPTY
+        },
         icons: &icons().1,
         hung,
     }
@@ -1848,7 +1962,7 @@ fn table_searches_clear_and_explain_an_empty_result() {
             |ui, pages: &mut Pages| {
                 ui.columns(3, |cols| {
                     let _ = views::network(&mut cols[0], &d, &mut pages.network, None);
-                    let _ = views::services(&mut cols[1], &d, &mut pages.services);
+                    let _ = views::services(&mut cols[1], &d, &mut pages.services, &mut None);
                     crate::ports_tab::ports_tab(
                         &mut cols[2],
                         &d,
@@ -1912,7 +2026,7 @@ fn table_searches_clear_and_explain_an_empty_result() {
                 &mut pages.network,
                 Some(&ProcessRef::from(&proc(100, 4, "alpha.exe", 0.0))),
             );
-            let _ = views::services(ui, &d, &mut pages.services);
+            let _ = views::services(ui, &d, &mut pages.services, &mut None);
             crate::ports_tab::ports_tab(ui, &d, &mut pages.ports, &mut Vec::new());
         });
     h.run_steps(2);

@@ -25,15 +25,28 @@ keep 4-pixel gaps.
 Table cells remain joined, with internal padding and square corners. A sortable
 header selects, highlights and responds across its full cell, including totals.
 
+Right-click a sortable table header for sort direction and independent row and
+column separators. Process headers also offer grouped column visibility,
+width fitting and saved presentation controls. Right-click data items to copy
+their values or use the available navigation and actions. Disk activity exposes
+file-path copying and **Show in Processes** for a live owner. A remaining file
+activity record can still copy its PID after its process exits.
+
 Startup status switches send the existing startup command directly. The displayed
 state follows the next backend refresh, including failures; the view does not
 pretend that a failed operation succeeded. The selected-entry toolbar remains
 available. Services combine search with All services, Running and Stopped filters.
-These filters describe runtime state and do not classify a publisher from a name
+Startup combines name, command-line, account-scope and registration-source search
+with All apps, Enabled and Disabled filters. Ctrl+F focuses search, Escape clears
+its text and Clear filters resets both text and status after an empty result.
+The selected-entry action toolbar follows the visible rows and current backend
+state. Counts show the visible share of registered entries while filtering.
+Service filters describe runtime state and do not classify a publisher from a name
 or installation path.
 
 Service CPU and memory percentage thresholds use sliders with editable numeric
-values. Existing validation, ranges, persistence and privilege checks still apply.
+values. Thresholds and durations use aligned rows with associated field labels.
+Existing validation, ranges, persistence and privilege checks still apply.
 The sidebar toggle belongs to the brand header. The footer separates connection
 and current resource information from actions and inline operation messages.
 
@@ -72,10 +85,42 @@ as documented by [Microsoft's physical memory class](https://learn.microsoft.com
 Tests use synthetic inventory and command capture; they never change startup
 entries or services. The opt-in local inventory smoke only reads hardware.
 
+## Quick setup
+
+On first use and once after each version change, a five-step welcome flow offers
+language, theme, scale, density, process layout and inspector, table separators,
+CPU/memory tray readouts, close-to-tray behavior and refresh/update preferences.
+It begins with the current settings. Next and Back retain draft choices; only
+Apply and finish commits them. Skip setup, Escape or clicking outside dismisses
+the flow without changing preferences, and marks that version as seen.
+
+The final review groups language, appearance, process workspace and window
+behavior into compact sections. Expand Details to inspect individual switches.
+Each Edit button opens its section directly; Review your settings returns to
+the summary with draft changes intact. Larger windows show all four sections
+together, and smaller windows scroll while keeping navigation available.
+
+Hidden launches defer the flow until the window is brought to the foreground.
+Completion and skipping request an immediate normal preferences save. Existing
+settings without a setup marker receive the flow once. Reopen it with Quick
+setup under Settings, in Interface activity and shortcuts. Language-save failures
+keep the draft open for retry, with a persistent warning above the scrolling
+content. The warning shares the content height budget so navigation stays in
+place. Escape closes an open language picker before dismissing quick setup.
+Native startup, service and policy settings are
+configured separately.
+
 ## Visual layout
 
-Settings use a centered reading column of at most 980 logical pixels, while the
-raw configuration editor retains the window width. Focused performance pages
+Saved native window dimensions are validated after restoration. Sizes below
+820×500 are raised to the supported minimum; valid geometry and window flags
+are retained. Non-finite dimensions use the default 1240×780 size. During a
+zero-size native creation or minimization frame, page layout waits for a usable
+client area while visibility and close handling continue normally.
+
+Pages open directly into their controls and content. Settings tabs, cards and
+the configuration editor span the available workspace width. Sampling age and
+the process Inspector menu are available in the footer. Focused performance pages
 allocate more height to charts; processor tiles use adaptive columns and small
 gutters. Compact windows retain scrolling and a wrapping footer.
 

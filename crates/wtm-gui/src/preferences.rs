@@ -54,6 +54,11 @@ impl Display {
                     Density::Comfortable => 34.0,
                 };
                 style.animation_time = if self.reduced_motion { 0.0 } else { 0.1 };
+                style.scroll_animation = if self.reduced_motion {
+                    egui::style::ScrollAnimation::none()
+                } else {
+                    egui::style::ScrollAnimation::default()
+                };
             });
             ctx.set_zoom_factor(zoom);
             *applied = Some(*self);
@@ -70,7 +75,6 @@ pub fn appearance(ui: &mut Ui, display: &mut Display, nav: &mut Option<bool>) {
             ui.add(egui::Slider::new(&mut display.scale, 75..=150).suffix("%"))
                 .labelled_by(label);
         });
-        crate::theme::divider(ui);
         crate::theme::setting_row(ui, crate::i18n::tr("Control and row height"), |ui, _| {
             ui.horizontal_wrapped(|ui| {
                 for (value, label) in [
@@ -82,11 +86,12 @@ pub fn appearance(ui: &mut Ui, display: &mut Display, nav: &mut Option<bool>) {
                 }
             });
         });
-        crate::theme::divider(ui);
         ui.checkbox(
             &mut display.reduced_motion,
             crate::i18n::tr("Reduce interface animation"),
         );
+        crate::theme::divider(ui);
+        crate::theme::TableLines::controls(ui);
     });
     crate::theme::card(ui, crate::i18n::tr("Sidebar layout"), |ui| {
         ui.horizontal_wrapped(|ui| {
@@ -105,6 +110,7 @@ pub fn appearance(ui: &mut Ui, display: &mut Display, nav: &mut Option<bool>) {
     {
         *display = Display::default();
         *nav = None;
+        crate::theme::TableLines::default().store(ui);
     }
 }
 
@@ -146,6 +152,11 @@ pub fn processes(
         });
     });
     crate::theme::card(ui, crate::i18n::tr("Process table behavior"), |ui| {
+        crate::theme::TableLines::controls(ui);
+        ui.checkbox(
+            &mut view.descriptive_names,
+            crate::i18n::tr("Show process descriptions"),
+        );
         ui.checkbox(&mut view.heat, crate::i18n::tr("Heat map"));
         ui.checkbox(
             &mut view.stripes,

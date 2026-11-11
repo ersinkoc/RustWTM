@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Kitambuzi kilichohifadhiwa hakipatikani",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Halijoto inahitaji kitambuzi kinachotumika. Usomaji unaokosekana au uliopitwa na wakati huonyesha vistari, kamwe si thamani ya kukisia.",
   "Open sensors": "Fungua vitambuzi",
-  "NVMe available spare": "Nafasi ya akiba ya NVMe inayopatikana"
+  "NVMe available spare": "Nafasi ya akiba ya NVMe inayopatikana",
+  "Copy {0}": "Nakili {0}",
+  "Row separators": "Vitenganishi vya safu mlalo",
+  "Column separators": "Vitenganishi vya safu wima",
+  "Show process descriptions": "Onyesha maelezo ya michakato",
+  "Sort ascending": "Panga kwa kupanda",
+  "Sort descending": "Panga kwa kushuka",
+  "Fit columns": "Tosheleza safu wima",
+  "Path": "Njia",
+  "Quick setup": "Usanidi wa haraka",
+  "Welcome back": "Karibu tena",
+  "Choose your quick settings. You can change them later in Settings.": "Chagua mipangilio yako ya haraka. Unaweza kuibadilisha baadaye katika Mipangilio.",
+  "Next": "Inayofuata",
+  "Back": "Rudi",
+  "Skip setup": "Ruka usanidi",
+  "Apply and finish": "Tumia na umalize",
+  "Step {0} of {1}": "Hatua {0} kati ya {1}",
+  "Review your settings": "Kagua mipangilio yako"
 }

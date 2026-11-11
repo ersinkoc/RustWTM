@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Sensor tersimpan tidak tersedia",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Suhu memerlukan sensor yang didukung. Pembacaan yang hilang atau usang menampilkan tanda hubung, tidak pernah nilai tebakan.",
   "Open sensors": "Buka sensor",
-  "NVMe available spare": "Cadangan NVMe tersedia"
+  "NVMe available spare": "Cadangan NVMe tersedia",
+  "Copy {0}": "Salin {0}",
+  "Row separators": "Pemisah baris",
+  "Column separators": "Pemisah kolom",
+  "Show process descriptions": "Tampilkan deskripsi proses",
+  "Sort ascending": "Urutkan menaik",
+  "Sort descending": "Urutkan menurun",
+  "Fit columns": "Sesuaikan kolom",
+  "Path": "Jalur",
+  "Quick setup": "Penyiapan cepat",
+  "Welcome back": "Selamat datang kembali",
+  "Choose your quick settings. You can change them later in Settings.": "Pilih pengaturan cepat Anda. Anda dapat mengubahnya nanti di Pengaturan.",
+  "Next": "Berikutnya",
+  "Back": "Kembali",
+  "Skip setup": "Lewati penyiapan",
+  "Apply and finish": "Terapkan dan selesai",
+  "Step {0} of {1}": "Langkah {0} dari {1}",
+  "Review your settings": "Tinjau pengaturan Anda"
 }

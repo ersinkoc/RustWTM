@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Opgeslagen sensor niet beschikbaar",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Temperatuur vereist een ondersteunde sensor. Ontbrekende of verouderde metingen tonen streepjes, nooit een geschatte waarde.",
   "Open sensors": "Sensoren openen",
-  "NVMe available spare": "Beschikbare NVMe-reserve"
+  "NVMe available spare": "Beschikbare NVMe-reserve",
+  "Copy {0}": "{0} kopiëren",
+  "Row separators": "Rijscheidingen",
+  "Column separators": "Kolomscheidingen",
+  "Show process descriptions": "Procesbeschrijvingen tonen",
+  "Sort ascending": "Oplopend sorteren",
+  "Sort descending": "Aflopend sorteren",
+  "Fit columns": "Kolommen passend maken",
+  "Path": "Pad",
+  "Quick setup": "Snelle installatie",
+  "Welcome back": "Welkom terug",
+  "Choose your quick settings. You can change them later in Settings.": "Kies uw snelle instellingen. U kunt deze later wijzigen in Instellingen.",
+  "Next": "Volgende",
+  "Back": "Terug",
+  "Skip setup": "Installatie overslaan",
+  "Apply and finish": "Toepassen en voltooien",
+  "Step {0} of {1}": "Stap {0} van {1}",
+  "Review your settings": "Controleer uw instellingen"
 }

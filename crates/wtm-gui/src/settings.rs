@@ -28,12 +28,7 @@ impl Page {
 /// The bar of Settings pages.
 pub fn page_bar(ui: &mut Ui, page: &mut Page) {
     egui::Frame::new()
-        .inner_margin(egui::Margin {
-            left: 12,
-            right: 12,
-            top: 0,
-            bottom: 8,
-        })
+        .inner_margin(crate::theme::page_padding(ui))
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 4.0);
             let width = ui.available_width();
@@ -195,12 +190,21 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
     let dirty = view.dirty();
     let valid = view.validate();
 
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(path).monospace());
-        if dirty {
-            crate::theme::colored(ui, crate::theme::WARN, crate::i18n::tr("● unsaved changes"));
-        }
-    });
+    let path_label = ui
+        .horizontal(|ui| {
+            let label = ui.label(RichText::new(path).monospace());
+            crate::context_actions::copy_text(
+                &label,
+                ("config-path", path),
+                crate::i18n::tr("Path"),
+                path,
+            );
+            if dirty {
+                crate::theme::colored(ui, crate::theme::WARN, crate::i18n::tr("● unsaved changes"));
+            }
+            label.id
+        })
+        .inner;
     if let Some(e) = data.status.as_ref().and_then(|s| s.config_error.as_deref()) {
         crate::theme::colored(
             ui,
@@ -265,12 +269,15 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
             area = area.vertical_scroll_offset(y);
         }
         let out = area.show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut view.text)
-                    .code_editor()
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(rows),
-            );
+            let editor = ui
+                .add(
+                    egui::TextEdit::multiline(&mut view.text)
+                        .code_editor()
+                        .desired_width(f32::INFINITY)
+                        .desired_rows(rows),
+                )
+                .labelled_by(path_label);
+            crate::context_actions::copy_text(&editor, "config-editor", "config.toml", &view.text);
         });
         let fill = ui.visuals().text_edit_bg_color();
         crate::theme::more_below(ui, "config_text", &out, fill);
@@ -297,16 +304,10 @@ pub fn settings(ui: &mut Ui, data: &Data, view: &mut ConfigView) -> Vec<UiComman
 }
 
 /// Keep thresholds and their duration together when policy cards are narrow.
-fn policy_row(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
-    if ui.available_width() < 620.0 {
-        ui.label(title);
-        ui.horizontal_wrapped(add);
-    } else {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(title);
-            add(ui);
-        });
-    }
+fn policy_row(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui, egui::Id)) {
+    crate::theme::setting_row(ui, title, |ui, label| {
+        ui.horizontal_wrapped(|ui| add(ui, label));
+    });
 }
 
 /// The settings most people change, as controls; returns the edited text.
@@ -358,48 +359,60 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                     set("governor", "enabled", toml_edit_value::V::Bool(on));
                 }
                 ui.add_enabled_ui(g.enabled, |ui| {
-                    policy_row(ui, crate::i18n::tr("Act when the CPU stays above"), |ui| {
-                        let mut high = g.high_cpu_percent;
-                        if ui
-                            .add(egui::Slider::new(&mut high, 50.0..=100.0).suffix("%"))
-                            .changed()
-                        {
-                            set(
-                                "governor",
-                                "high_cpu_percent",
-                                toml_edit_value::V::Float(high),
-                            );
-                        }
-                        ui.label(crate::i18n::tr("for"));
-                        let mut secs = g.sustain_secs;
-                        if ui
-                            .add(egui::DragValue::new(&mut secs).range(1..=300).suffix(" s"))
-                            .changed()
-                        {
-                            set("governor", "sustain_secs", toml_edit_value::V::Int(secs));
-                        }
-                    });
-                    policy_row(ui, crate::i18n::tr("Undo once it stays below"), |ui| {
-                        let mut low = g.recover_cpu_percent;
-                        if ui
-                            .add(egui::Slider::new(&mut low, 10.0..=99.0).suffix("%"))
-                            .changed()
-                        {
-                            set(
-                                "governor",
-                                "recover_cpu_percent",
-                                toml_edit_value::V::Float(low),
-                            );
-                        }
-                        ui.label(crate::i18n::tr("for"));
-                        let mut secs = g.recover_secs;
-                        if ui
-                            .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
-                            .changed()
-                        {
-                            set("governor", "recover_secs", toml_edit_value::V::Int(secs));
-                        }
-                    });
+                    policy_row(
+                        ui,
+                        crate::i18n::tr("Act when the CPU stays above"),
+                        |ui, label| {
+                            let mut high = g.high_cpu_percent;
+                            if ui
+                                .add(egui::Slider::new(&mut high, 50.0..=100.0).suffix("%"))
+                                .labelled_by(label)
+                                .changed()
+                            {
+                                set(
+                                    "governor",
+                                    "high_cpu_percent",
+                                    toml_edit_value::V::Float(high),
+                                );
+                            }
+                            ui.label(crate::i18n::tr("for"));
+                            let mut secs = g.sustain_secs;
+                            if ui
+                                .add(egui::DragValue::new(&mut secs).range(1..=300).suffix(" s"))
+                                .labelled_by(label)
+                                .changed()
+                            {
+                                set("governor", "sustain_secs", toml_edit_value::V::Int(secs));
+                            }
+                        },
+                    );
+                    policy_row(
+                        ui,
+                        crate::i18n::tr("Undo once it stays below"),
+                        |ui, label| {
+                            let mut low = g.recover_cpu_percent;
+                            if ui
+                                .add(egui::Slider::new(&mut low, 10.0..=99.0).suffix("%"))
+                                .labelled_by(label)
+                                .changed()
+                            {
+                                set(
+                                    "governor",
+                                    "recover_cpu_percent",
+                                    toml_edit_value::V::Float(low),
+                                );
+                            }
+                            ui.label(crate::i18n::tr("for"));
+                            let mut secs = g.recover_secs;
+                            if ui
+                                .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
+                                .labelled_by(label)
+                                .changed()
+                            {
+                                set("governor", "recover_secs", toml_edit_value::V::Int(secs));
+                            }
+                        },
+                    );
                     ui.horizontal_wrapped(|ui| {
                         let label = ui.label(crate::i18n::tr("Slow down up to"));
                         let mut n = g.max_offenders as u64;
@@ -431,31 +444,37 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                     set("memory_guard", "enabled", toml_edit_value::V::Bool(on));
                 }
                 ui.add_enabled_ui(m.enabled, |ui| {
-                    policy_row(ui, crate::i18n::tr("When memory use stays above"), |ui| {
-                        let mut high = m.high_percent;
-                        if ui
-                            .add(egui::Slider::new(&mut high, 50.0..=99.0).suffix("%"))
-                            .changed()
-                        {
-                            set(
-                                "memory_guard",
-                                "high_percent",
-                                toml_edit_value::V::Float(high),
-                            );
-                        }
-                        ui.label(crate::i18n::tr("for"));
-                        let mut secs = m.sustain_secs;
-                        if ui
-                            .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
-                            .changed()
-                        {
-                            set(
-                                "memory_guard",
-                                "sustain_secs",
-                                toml_edit_value::V::Int(secs),
-                            );
-                        }
-                    });
+                    policy_row(
+                        ui,
+                        crate::i18n::tr("When memory use stays above"),
+                        |ui, label| {
+                            let mut high = m.high_percent;
+                            if ui
+                                .add(egui::Slider::new(&mut high, 50.0..=99.0).suffix("%"))
+                                .labelled_by(label)
+                                .changed()
+                            {
+                                set(
+                                    "memory_guard",
+                                    "high_percent",
+                                    toml_edit_value::V::Float(high),
+                                );
+                            }
+                            ui.label(crate::i18n::tr("for"));
+                            let mut secs = m.sustain_secs;
+                            if ui
+                                .add(egui::DragValue::new(&mut secs).range(1..=600).suffix(" s"))
+                                .labelled_by(label)
+                                .changed()
+                            {
+                                set(
+                                    "memory_guard",
+                                    "sustain_secs",
+                                    toml_edit_value::V::Int(secs),
+                                );
+                            }
+                        },
+                    );
                 });
             });
         } else {
@@ -506,11 +525,12 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                     set("reserve", "rescue_core", toml_edit_value::V::Bool(on));
                 }
                 ui.add_enabled_ui(r.rescue_core, |ui| {
-                    policy_row(ui, crate::i18n::tr("When CPU stays above"), |ui| {
+                    policy_row(ui, crate::i18n::tr("When CPU stays above"), |ui, label| {
                         let mut high = r.trigger_cpu_percent;
                         let range = (r.release_cpu_percent + 1.0).max(50.0)..=100.0;
                         if ui
                             .add(egui::Slider::new(&mut high, range).suffix("%"))
+                            .labelled_by(label)
                             .changed()
                         {
                             set(
@@ -523,6 +543,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                         let mut secs = r.sustain_secs;
                         if ui
                             .add(egui::DragValue::new(&mut secs).range(1..=120).suffix(" s"))
+                            .labelled_by(label)
                             .changed()
                         {
                             set("reserve", "sustain_secs", toml_edit_value::V::Int(secs));
@@ -530,10 +551,11 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                     });
                 });
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(crate::i18n::tr("Service memory never paged out"));
+                    let label = ui.label(crate::i18n::tr("Service memory never paged out"));
                     let mut mb = r.working_set_mb;
                     if ui
                         .add(egui::DragValue::new(&mut mb).range(0..=1024).suffix(" MB"))
+                        .labelled_by(label.id)
                         .changed()
                     {
                         set("reserve", "working_set_mb", toml_edit_value::V::Int(mb));
@@ -589,7 +611,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
 
             crate::theme::card(ui, crate::i18n::tr("History"), |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(crate::i18n::tr("Keep per-app usage for"));
+                    let label = ui.label(crate::i18n::tr("Keep per-app usage for"));
                     let mut days = u64::from(c.history_days);
                     if ui
                         .add(
@@ -597,6 +619,7 @@ fn form(ui: &mut Ui, c: &wtm_policy::Config, text: &str) -> Option<String> {
                                 .range(1..=365)
                                 .suffix(crate::i18n::tr(" days")),
                         )
+                        .labelled_by(label.id)
                         .changed()
                     {
                         set("", "history_days", toml_edit_value::V::Int(days));
@@ -656,6 +679,35 @@ mod toml_edit_value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn service_thresholds_have_accessible_names_at_both_widths() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let text = wtm_policy::DEFAULT_CONFIG_TOML;
+        let config = wtm_policy::Config::from_toml(text).unwrap();
+        for width in [1440.0, 820.0] {
+            let mut h = Harness::builder()
+                .allow_missing_glyphs()
+                .with_size([width, 1600.0])
+                .with_context_setup(crate::theme::apply)
+                .build_ui(|ui| {
+                    let _ = form(ui, &config, text);
+                });
+            h.run_steps(2);
+            for label in [
+                "Act when the CPU stays above",
+                "Undo once it stays below",
+                "When memory use stays above",
+                "When CPU stays above",
+            ] {
+                assert!(
+                    h.query_by_role_and_label(egui::accesskit::Role::Slider, label)
+                        .is_some(),
+                    "{width}: {label}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn settings_tabs_keep_balanced_rows_and_accessible_names() {
         use egui_kittest::kittest::Queryable;

@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align, Color32, Layout, RichText, Ui};
 use egui_extras::Column;
+use wtm_core::control::ProcessRef;
 use wtm_core::diskscan::{self, DirNode, Progress, ScanResult};
 use wtm_core::{DriveKind, Volume, format_bytes};
 
@@ -205,7 +206,7 @@ impl DisksView {
     }
 }
 
-pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) {
+pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) -> Option<ProcessRef> {
     if view.analysis_open {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
@@ -220,7 +221,7 @@ pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) {
                 analysis(ui, view)
             });
         });
-        return;
+        return None;
     }
     view.refresh_volumes(ui.ctx());
     if view.scan.is_some() {
@@ -231,15 +232,17 @@ pub fn disks_tab(ui: &mut Ui, data: &Data, view: &mut DisksView) {
     }
     drives(ui, view);
     ui.add_space(0.0);
-    activity(ui, data);
+    let mut selected = None;
+    activity(ui, data, &mut selected);
     ui.add_space(0.0);
-    file_activity(ui, data);
+    file_activity(ui, data, &mut selected);
     ui.add_space(0.0);
     if view.scan.is_none() {
         card(ui, crate::i18n::tr("What takes up the space"), |ui| {
             analysis(ui, view);
         });
     }
+    selected
 }
 
 fn used_color(percent: f32) -> Color32 {
@@ -305,7 +308,22 @@ fn drives(ui: &mut Ui, view: &mut DisksView) {
                                 } else {
                                     format!("{} ({})", v.label, v.root.trim_end_matches('\\'))
                                 };
-                                ui.label(RichText::new(name).strong());
+                                let label = ui
+                                    .label(RichText::new(name).strong())
+                                    .interact(egui::Sense::click());
+                                crate::context_actions::menu(&label, ("drive", &v.root), |ui| {
+                                    crate::context_actions::copy(
+                                        ui,
+                                        crate::i18n::tr("Path"),
+                                        || v.root.clone(),
+                                    );
+                                    if crate::context_actions::action(
+                                        ui,
+                                        crate::i18n::tr("Analyze"),
+                                    ) {
+                                        analyze = Some(v.root.clone());
+                                    }
+                                });
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     ui.weak(format!("{} · {}", kind_label(v.kind), v.file_system));
                                 });
@@ -346,7 +364,7 @@ fn drives(ui: &mut Ui, view: &mut DisksView) {
     });
 }
 
-fn activity(ui: &mut Ui, data: &Data) {
+fn activity(ui: &mut Ui, data: &Data, selected: &mut Option<ProcessRef>) {
     card(ui, crate::i18n::tr("Disk activity right now"), |ui| {
         let Some(snap) = &data.snapshot else {
             crate::theme::loading(ui, crate::i18n::tr("Waiting for monitoring data…"));
@@ -364,10 +382,43 @@ fn activity(ui: &mut Ui, data: &Data) {
                     .spacing([8.0, 4.0])
                     .show(ui, |ui| {
                         for d in &snap.system.disks {
-                            ui.label(crate::i18n::format(
-                                "Disk {0}",
-                                std::slice::from_ref(&d.name),
-                            ));
+                            let title = ui
+                                .label(crate::i18n::format(
+                                    "Disk {0}",
+                                    std::slice::from_ref(&d.name),
+                                ))
+                                .interact(egui::Sense::click());
+                            crate::context_actions::menu(
+                                &title,
+                                ("disk-activity", &d.name),
+                                |ui| {
+                                    crate::context_actions::copy(
+                                        ui,
+                                        crate::i18n::tr("Name"),
+                                        || d.name.clone(),
+                                    );
+                                    crate::context_actions::copy(
+                                        ui,
+                                        crate::i18n::tr("Current"),
+                                        || {
+                                            format!(
+                                                "{}\n{}",
+                                                crate::i18n::format(
+                                                    "{0}% busy",
+                                                    &[format!("{:.0}", d.active_percent)]
+                                                ),
+                                                crate::i18n::format(
+                                                    "read {0}/s · write {1}/s",
+                                                    &[
+                                                        format_bytes(d.read_rate),
+                                                        format_bytes(d.write_rate)
+                                                    ]
+                                                )
+                                            )
+                                        },
+                                    );
+                                },
+                            );
                             ui.horizontal(|ui| {
                                 bar(
                                     ui,
@@ -406,7 +457,14 @@ fn activity(ui: &mut Ui, data: &Data) {
                     .spacing([8.0, 4.0])
                     .show(ui, |ui| {
                         for p in busy.into_iter().take(TOP_PROCESSES) {
-                            ui.label(&p.name);
+                            let name = ui.label(&p.name).interact(egui::Sense::click());
+                            crate::context_actions::menu(
+                                &name,
+                                ("disk-process", p.pid, p.create_time),
+                                |ui| {
+                                    process_actions(ui, p, selected);
+                                },
+                            );
                             ui.label(crate::i18n::format(
                                 "read {0}/s",
                                 &[format_bytes(p.io_read_rate)],
@@ -441,7 +499,7 @@ fn two_up(ui: &mut Ui, left: impl FnOnce(&mut Ui), right: impl FnOnce(&mut Ui)) 
 }
 
 /// Files read and written right now, by program.
-fn file_activity(ui: &mut Ui, data: &Data) {
+fn file_activity(ui: &mut Ui, data: &Data, selected: &mut Option<ProcessRef>) {
     card(ui, crate::i18n::tr("Files being read and written"), |ui| {
         // A still label, not a spinner: nothing repaints while waiting.
         let Some(activity) = &data.disk_activity else {
@@ -464,11 +522,11 @@ fn file_activity(ui: &mut Ui, data: &Data) {
             ));
             return;
         }
-        let names: std::collections::HashMap<u32, &str> = data
+        let owners: std::collections::HashMap<u32, &wtm_core::ProcessInfo> = data
             .snapshot
             .iter()
             .flat_map(|s| &s.processes)
-            .map(|p| (p.pid, p.name.as_str()))
+            .map(|p| (p.pid, p))
             .collect();
         let per_second = |b: u64| format_bytes(b as f64 / seconds.max(0.5));
         egui::Grid::new("file_activity")
@@ -486,18 +544,59 @@ fn file_activity(ui: &mut Ui, data: &Data) {
                 }
                 crate::theme::end_row(ui);
                 for f in files.iter().take(20) {
-                    ui.label(names.get(&f.pid).copied().unwrap_or("?"))
-                        .on_hover_text(format!("PID {}", f.pid));
+                    let owner = owners.get(&f.pid).copied();
+                    let name = ui
+                        .label(owner.map_or("?", |p| p.name.as_str()))
+                        .on_hover_text(format!("PID {}", f.pid))
+                        .interact(egui::Sense::click());
+                    crate::context_actions::menu(
+                        &name,
+                        (
+                            "file-activity-process",
+                            f.pid,
+                            owner.map(|p| p.create_time),
+                            &f.path,
+                        ),
+                        |ui| {
+                            if let Some(owner) = owner {
+                                process_actions(ui, owner, selected);
+                            } else {
+                                crate::context_actions::copy(ui, "PID", || f.pid.to_string());
+                            }
+                        },
+                    );
                     ui.label(format!("{}/s", per_second(f.read)));
                     ui.label(format!("{}/s", per_second(f.write)));
                     match &f.path {
-                        Some(p) => ui.add(egui::Label::new(p).truncate()),
-                        None => ui.weak(crate::i18n::tr("(name not known yet)")),
-                    };
+                        Some(path) => {
+                            let response = ui.add(egui::Label::new(path).truncate());
+                            crate::context_actions::copy_text(
+                                &response,
+                                ("file-activity-path", f.pid, path),
+                                crate::i18n::tr("Path"),
+                                path,
+                            );
+                        }
+                        None => {
+                            ui.weak(crate::i18n::tr("(name not known yet)"));
+                        }
+                    }
                     crate::theme::end_row(ui);
                 }
             });
     });
+}
+
+fn process_actions(
+    ui: &mut Ui,
+    process: &wtm_core::ProcessInfo,
+    selected: &mut Option<ProcessRef>,
+) {
+    crate::context_actions::copy(ui, crate::i18n::tr("Name"), || process.name.clone());
+    crate::context_actions::copy(ui, "PID", || process.pid.to_string());
+    if crate::context_actions::action(ui, crate::i18n::tr("Show in Processes")) {
+        *selected = Some(ProcessRef::from(process));
+    }
 }
 
 fn analysis(ui: &mut Ui, view: &mut DisksView) {
@@ -802,6 +901,19 @@ fn folders(
                                         .truncate()
                                         .sense(egui::Sense::click()),
                                 );
+                                crate::context_actions::menu(&label, ("disk-folder", path), |ui| {
+                                    crate::context_actions::copy(
+                                        ui,
+                                        crate::i18n::tr("Path"),
+                                        || path.to_string_lossy().into_owned(),
+                                    );
+                                    if crate::context_actions::action(
+                                        ui,
+                                        crate::i18n::tr("Show in Explorer"),
+                                    ) {
+                                        *reveal = Some(path.clone());
+                                    }
+                                });
                                 if node.denied {
                                     label.on_hover_text(crate::i18n::tr("Could not be read"));
                                 } else if label.double_clicked()
@@ -945,7 +1057,22 @@ fn largest(ui: &mut Ui, r: &ScanResult, reveal: &mut Option<PathBuf>) {
                 });
                 row.col(|ui| {
                     crate::theme::table_cell(ui, |ui| {
-                        ui.add(egui::Label::new(f.path.display().to_string()).truncate());
+                        let response = ui.add(
+                            egui::Label::new(f.path.display().to_string())
+                                .truncate()
+                                .sense(egui::Sense::click()),
+                        );
+                        crate::context_actions::menu(&response, ("disk-file", &f.path), |ui| {
+                            crate::context_actions::copy(ui, crate::i18n::tr("Path"), || {
+                                f.path.to_string_lossy().into_owned()
+                            });
+                            if crate::context_actions::action(
+                                ui,
+                                crate::i18n::tr("Show in Explorer"),
+                            ) {
+                                *reveal = Some(f.path.clone());
+                            }
+                        });
                     })
                 });
             });
@@ -1133,6 +1260,7 @@ mod tests {
     struct State {
         data: Data,
         view: DisksView,
+        selected: Option<ProcessRef>,
     }
 
     fn harness(view: DisksView) -> Harness<'static, State> {
@@ -1143,8 +1271,16 @@ mod tests {
             .allow_missing_glyphs()
             .with_size([1300.0, 1400.0])
             .build_ui_state(
-                |ui, s: &mut State| disks_tab(ui, &s.data, &mut s.view),
-                State { data, view },
+                |ui, s: &mut State| {
+                    if let Some(process) = disks_tab(ui, &s.data, &mut s.view) {
+                        s.selected = Some(process);
+                    }
+                },
+                State {
+                    data,
+                    view,
+                    selected: None,
+                },
             )
     }
 
@@ -1157,6 +1293,76 @@ mod tests {
             total: 1000 << 30,
             free: 50 << 30,
         }
+    }
+
+    #[test]
+    fn disk_activity_context_copies_paths_and_reveals_the_original_process() {
+        let mut h = harness(DisksView::with_volumes(vec![]));
+        h.state_mut().data.disk_activity = Some(Ok((
+            vec![wtm_core::FileIo {
+                pid: 100,
+                path: Some(r"C:\data\app.db".into()),
+                read: 4096,
+                write: 0,
+            }],
+            1.0,
+        )));
+        h.run_steps(3);
+        h.get_by_label(r"C:\data\app.db").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Copy Path").click();
+        h.step();
+        assert!(h.output().platform_output.commands.iter().any(|command| {
+            matches!(command, egui::OutputCommand::CopyText(value) if value == r"C:\data\app.db")
+        }));
+
+        h.get_all_by_label("alpha.exe")
+            .last()
+            .unwrap()
+            .click_secondary();
+        h.run_steps(2);
+        Arc::make_mut(h.state_mut().data.snapshot.as_mut().unwrap())
+            .processes
+            .reverse();
+        h.run_steps(2);
+        h.get_by_label("Show in Processes").click();
+        h.run_steps(2);
+        let selected = h.state_mut().selected.take().unwrap();
+        assert_eq!(
+            (selected.pid, selected.create_time),
+            (
+                100,
+                crate::ui_tests::proc(100, 0, "alpha.exe", 0.0).create_time
+            )
+        );
+
+        h.get_all_by_label("alpha.exe")
+            .last()
+            .unwrap()
+            .click_secondary();
+        h.run_steps(2);
+        let snapshot = Arc::make_mut(h.state_mut().data.snapshot.as_mut().unwrap());
+        snapshot
+            .processes
+            .iter_mut()
+            .find(|p| p.pid == 100)
+            .unwrap()
+            .create_time += 1;
+        h.run_steps(2);
+        assert!(h.query_by_label("Show in Processes").is_none());
+        assert!(h.state().selected.is_none());
+        Arc::make_mut(h.state_mut().data.snapshot.as_mut().unwrap())
+            .processes
+            .retain(|p| p.pid != 100);
+        h.run_steps(2);
+        h.get_by_label("?").click_secondary();
+        h.run_steps(2);
+        assert!(h.query_by_label("Show in Processes").is_none());
+        h.get_by_label("Copy PID").click();
+        h.step();
+        assert!(h.output().platform_output.commands.iter().any(
+            |command| matches!(command, egui::OutputCommand::CopyText(value) if value == "100")
+        ));
     }
 
     #[test]
@@ -1399,10 +1605,13 @@ mod tests {
                     .with_size([820.0, 500.0])
                     .with_theme(theme)
                     .build_ui_state(
-                        |ui, s: &mut State| disks_tab(ui, &s.data, &mut s.view),
+                        |ui, s: &mut State| {
+                            let _ = disks_tab(ui, &s.data, &mut s.view);
+                        },
                         State {
                             data: crate::ui_tests::data(),
                             view: disk,
+                            selected: None,
                         },
                     );
                 h.run();

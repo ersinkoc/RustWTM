@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "जतन केलेला सेन्सर उपलब्ध नाही",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "तापमानासाठी समर्थित सेन्सर आवश्यक आहे. गहाळ किंवा जुनी वाचने डॅश दाखवतात, कधीही अंदाजित मूल्य नाही.",
   "Open sensors": "सेन्सर उघडा",
-  "NVMe available spare": "NVMe उपलब्ध अतिरिक्त क्षमता"
+  "NVMe available spare": "NVMe उपलब्ध अतिरिक्त क्षमता",
+  "Copy {0}": "{0} कॉपी करा",
+  "Row separators": "ओळ विभाजक",
+  "Column separators": "स्तंभ विभाजक",
+  "Show process descriptions": "प्रक्रियेचे वर्णन दाखवा",
+  "Sort ascending": "चढता क्रम",
+  "Sort descending": "उतरता क्रम",
+  "Fit columns": "स्तंभ जुळवा",
+  "Path": "पथ",
+  "Quick setup": "जलद सेटअप",
+  "Welcome back": "पुन्हा स्वागत आहे",
+  "Choose your quick settings. You can change them later in Settings.": "तुमची जलद सेटिंग्ज निवडा. ती नंतर सेटिंग्जमध्ये बदलू शकता.",
+  "Next": "पुढे",
+  "Back": "मागे",
+  "Skip setup": "सेटअप वगळा",
+  "Apply and finish": "लागू करा आणि पूर्ण करा",
+  "Step {0} of {1}": "पायरी {0} / {1}",
+  "Review your settings": "तुमच्या सेटिंग्ज तपासा"
 }

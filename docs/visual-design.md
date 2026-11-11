@@ -20,13 +20,13 @@ with the readings.
   spacing. Table cells remain joined with fine separators and square corners.
 - Selected tabs and segmented choices share an accent underline. Primary save,
   add and analyze actions have a distinct brand treatment; utility buttons stay
-  neutral. Header, tabs and settings form share one fixed reading column.
+  neutral. Settings tabs and forms share the full workspace width and gutters.
 - User sessions and governor-managed processes use the same resizable, padded
   table component as the other lists, including horizontal/vertical scrolling.
 
 ## Type and density
 
-Page headings lead the view. Inspector headings are smaller. Secondary labels use
+Page content starts at the workspace gutter. Inspector headings identify the selected item. Secondary labels use
 12-point text; the footer has a consistent 12-point scale. Chart legends use
 smaller text and spaced middle dots instead of crowded vertical bars.
 
@@ -36,7 +36,7 @@ use the brand colour with a white thumb; disabled switches stay neutral.
 
 ## Settings
 
-Settings use a bounded reading column. Related options remain grouped, with
+Settings span the available workspace width. Related options remain grouped, with
 aligned control columns on wide screens. At narrow widths labels and controls
 stack, preserving the whole interactive area. The raw configuration editor keeps
 the available width. Percentage controls remain directly editable sliders. Settings

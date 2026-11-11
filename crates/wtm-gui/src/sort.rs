@@ -51,19 +51,35 @@ impl Sort {
 /// columns start with the largest value, text columns with A.
 pub fn header(ui: &mut Ui, label: &str, col: usize, numeric: bool, sort: &mut Sort) {
     let current = (sort.col == col).then_some(sort.desc);
-    if cell(ui, crate::i18n::tr(label), numeric, current) {
+    let response = cell_response(ui, crate::i18n::tr(label), numeric, current);
+    if response.clicked() {
         *sort = if sort.col == col {
             Sort::new(col, !sort.desc)
         } else {
             Sort::new(col, numeric)
         };
     }
+    crate::context_actions::menu(&response, ("sort", response.id), |ui| {
+        if crate::context_actions::action(ui, crate::i18n::tr("Sort ascending")) {
+            *sort = Sort::new(col, false);
+        }
+        if crate::context_actions::action(ui, crate::i18n::tr("Sort descending")) {
+            *sort = Sort::new(col, true);
+        }
+        crate::theme::divider(ui);
+        crate::theme::TableLines::controls(ui);
+    });
 }
 
 /// The look of every sortable header: the column sorted by is highlighted
 /// with its direction, numeric columns are aligned right like their values.
 /// `current` is `Some(descending)` for the sorted column. Returns a click.
-pub fn cell(ui: &mut Ui, label: &str, numeric: bool, current: Option<bool>) -> bool {
+pub fn cell_response(
+    ui: &mut Ui,
+    label: &str,
+    numeric: bool,
+    current: Option<bool>,
+) -> egui::Response {
     let arrow = match current {
         Some(true) => " ↓",
         Some(false) => " ↑",
@@ -113,7 +129,7 @@ pub fn cell(ui: &mut Ui, label: &str, numeric: bool, current: Option<bool>) -> b
             galley,
             visuals.fg_stroke.color,
         );
-        return response.on_hover_text(hint).clicked();
+        return response.on_hover_text(hint);
     }
     let add = |ui: &mut Ui| {
         ui.scope(|ui| {
@@ -122,7 +138,6 @@ pub fn cell(ui: &mut Ui, label: &str, numeric: bool, current: Option<bool>) -> b
             ui.spacing_mut().button_padding.x = 0.0;
             ui.add(egui::Button::selectable(current.is_some(), text))
                 .on_hover_text(hint)
-                .clicked()
         })
         .inner
     };

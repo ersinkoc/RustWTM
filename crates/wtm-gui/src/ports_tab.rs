@@ -669,14 +669,17 @@ fn listening_table(
                     }
                     // A refresh may move rows or replace a port's owner.
                     // Keep the popup bound to the original listener/process.
-                    egui::Popup::context_menu(&response)
-                        .id(menu_id.with((
+                    crate::context_actions::menu(
+                        &response,
+                        (
+                            menu_id,
                             u.port,
                             u.protocol == Protocol::Tcp,
                             u.pid,
                             p.map(|p| p.create_time),
-                        )))
-                        .show(|ui| port_menu(ui, u, p, view, intents));
+                        ),
+                        |ui| port_menu(ui, u, p, view, intents),
+                    );
                 });
             });
     });
@@ -691,7 +694,9 @@ fn port_menu(
     intents: &mut Vec<Intent>,
 ) {
     let port = u.port;
+    crate::context_actions::copy(ui, crate::i18n::tr("Local"), || u.address_text());
     if let Some(p) = p {
+        crate::context_actions::copy(ui, "PID", || p.pid.to_string());
         let target = ProcessRef::from(p);
         let reason = ports::end_blocked(p.pid, &p.name);
         ui.add_enabled_ui(reason.is_none(), |ui| {

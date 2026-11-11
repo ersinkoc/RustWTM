@@ -326,7 +326,40 @@ pub fn kill_tab(ui: &mut Ui, data: &Data, view: &mut KillView, panic: &mut bool)
                             right(ui, RichText::new(crate::i18n::tr("Running now")).strong());
                             crate::theme::end_row(ui);
                             for (i, e) in data.kill_list.iter().enumerate() {
-                                ui.label(e.label());
+                                let label = e.label();
+                                let response = ui.label(&label).interact(egui::Sense::click());
+                                crate::context_actions::menu(
+                                    &response,
+                                    ("kill-list", &label, e.describe(), e.tree),
+                                    |ui| {
+                                        crate::context_actions::copy(
+                                            ui,
+                                            crate::i18n::tr("Program"),
+                                            || label.clone(),
+                                        );
+                                        if admin
+                                            && crate::context_actions::action(
+                                                ui,
+                                                crate::i18n::tr("Edit"),
+                                            )
+                                        {
+                                            view.edit(e);
+                                        }
+                                        if admin
+                                            && crate::context_actions::action(
+                                                ui,
+                                                crate::i18n::tr("Remove"),
+                                            )
+                                        {
+                                            match remove_kill_entry(text, i) {
+                                                Ok(new) => {
+                                                    commands.push(UiCommand::SaveConfig(new))
+                                                }
+                                                Err(e) => view.error = Some(e),
+                                            }
+                                        }
+                                    },
+                                );
                                 ui.label(e.describe());
                                 ui.label(crate::i18n::tr(if e.tree { "yes" } else { "no" }));
                                 let label = e.label();

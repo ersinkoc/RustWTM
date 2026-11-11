@@ -222,8 +222,34 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                             egui::vec2(name_width, 22.0),
                             egui::Layout::left_to_right(egui::Align::Center),
                             |ui| {
-                                ui.add(egui::Label::new(&sensor.name).truncate())
-                                    .on_hover_text(format!("{}\n{}", sensor.name, sensor.id));
+                                let response = ui
+                                    .add(egui::Label::new(&sensor.name).truncate())
+                                    .on_hover_text(format!("{}\n{}", sensor.name, sensor.id))
+                                    .interact(egui::Sense::click());
+                                crate::context_actions::menu(
+                                    &response,
+                                    ("sensor", &sensor.id),
+                                    |ui| {
+                                        crate::context_actions::copy(
+                                            ui,
+                                            crate::i18n::tr("Name"),
+                                            || sensor.name.clone(),
+                                        );
+                                        if let Some(value) = sensor.value {
+                                            crate::context_actions::copy(
+                                                ui,
+                                                crate::i18n::tr("Current"),
+                                                || reading(sensor.kind, value),
+                                            );
+                                        }
+                                        if crate::context_actions::action(
+                                            ui,
+                                            crate::i18n::tr("Reset min/max"),
+                                        ) {
+                                            view.extremes.remove(&sensor.id);
+                                        }
+                                    },
+                                );
                             },
                         );
                         match sensor.value {

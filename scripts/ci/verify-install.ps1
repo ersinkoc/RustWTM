@@ -85,6 +85,16 @@ $taskManagerKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File
 Assert ((Get-ItemPropertyValue $taskManagerKey -Name Debugger) -ceq "`"$InstallDir\rustwtm.exe`" --task-manager") 'Ctrl+Shift+Esc replacement points to the fixed GUI command'
 # Exercise Windows' real IFEO launch on this disposable VM. Forwarded taskmgr
 # arguments must not hide the replacement or create a second GUI instance.
+# This disposable profile reproduces a stale saved window that previously
+# opened at 64x64 and caused negative-width layout panics on native startup.
+$guiProfile = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'RustWTM/data/app.ron'
+Assert (-not (Test-Path -LiteralPath $guiProfile)) 'GUI geometry fixture owns a clean profile'
+New-Item -ItemType Directory -Path (Split-Path $guiProfile -Parent) -Force | Out-Null
+@'
+{
+    "window": "(normal_geometry:(outer_position_pixels:Some((x:0.0,y:0.0)),scale_factor:1.0,inner_size_points:(x:64.0,y:64.0)),fullscreen:false,maximized:false)",
+}
+'@ | Set-Content -LiteralPath $guiProfile -Encoding utf8NoBOM
 $taskmgr = Join-Path $env:WINDIR 'System32/taskmgr.exe'
 $launch = Start-Process -FilePath $taskmgr -ArgumentList '--background' -PassThru `
     -RedirectStandardOutput task-manager-launch.stdout.log -RedirectStandardError task-manager-launch.stderr.log
@@ -105,6 +115,20 @@ try {
 }
 $gui = @(Get-Process rustwtm -ErrorAction SilentlyContinue)
 Assert ($gui.Count -eq 1 -and $gui[0].Path -ieq (Join-Path $InstallDir 'rustwtm.exe')) 'Windows launched the installed replacement visibly'
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential)]
+public struct RustWtmClientRect { public int Left, Top, Right, Bottom; }
+public static class RustWtmNativeGeometry {
+    [DllImport("user32.dll", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetClientRect(IntPtr window, out RustWtmClientRect rect);
+}
+'@
+$client = [RustWtmClientRect]::new()
+Assert ([RustWtmNativeGeometry]::GetClientRect($gui[0].MainWindowHandle, [ref]$client)) 'read native GUI client bounds'
+Assert (($client.Right - $client.Left) -ge 820 -and ($client.Bottom - $client.Top) -ge 500) 'stale 64x64 window restored to at least 820x500'
 $secondLaunch = Start-Process -FilePath $taskmgr -PassThru
 Assert ($secondLaunch.WaitForExit(30000)) 'second launch exits after handing off to the original GUI'
 $reopened = @(Get-Process rustwtm -ErrorAction SilentlyContinue)

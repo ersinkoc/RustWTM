@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Zapisany czujnik niedostępny",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Temperatura wymaga obsługiwanego czujnika. Brakujące lub nieaktualne odczyty są pokazywane jako kreski, nigdy jako zgadywana wartość.",
   "Open sensors": "Otwórz czujniki",
-  "NVMe available spare": "Dostępna rezerwa NVMe"
+  "NVMe available spare": "Dostępna rezerwa NVMe",
+  "Copy {0}": "Kopiuj {0}",
+  "Row separators": "Separatory wierszy",
+  "Column separators": "Separatory kolumn",
+  "Show process descriptions": "Pokaż opisy procesów",
+  "Sort ascending": "Sortuj rosnąco",
+  "Sort descending": "Sortuj malejąco",
+  "Fit columns": "Dopasuj kolumny",
+  "Path": "Ścieżka",
+  "Quick setup": "Szybka konfiguracja",
+  "Welcome back": "Witamy ponownie",
+  "Choose your quick settings. You can change them later in Settings.": "Wybierz szybkie ustawienia. Możesz je później zmienić w Ustawieniach.",
+  "Next": "Dalej",
+  "Back": "Wstecz",
+  "Skip setup": "Pomiń konfigurację",
+  "Apply and finish": "Zastosuj i zakończ",
+  "Step {0} of {1}": "Krok {0} z {1}",
+  "Review your settings": "Sprawdź ustawienia"
 }

@@ -219,6 +219,7 @@ pub struct Data {
     pub image_paths: CommandLines,
     /// Small icon per image path; `None` when the file has none.
     pub icons: std::collections::HashMap<String, Option<Arc<wtm_core::IconImage>>>,
+    pub descriptions: std::collections::HashMap<String, Option<String>>,
     /// The service's configuration file: (path, text).
     pub config: Option<Result<(String, String), String>>,
     /// Processes to announce with a notification when they exit, and since
@@ -2137,32 +2138,56 @@ fn update_image_paths(cache: &mut CommandLines, procs: &[wtm_core::ProcessInfo])
 /// Extracts the icons of image paths seen for the first time. Runs without
 /// holding the data lock: icon extraction touches the disk.
 fn refresh_icons(data: &Mutex<Data>) {
-    let missing: Vec<String> = {
-        let d = data.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut paths: Vec<String> = d
-            .image_paths
-            .values()
-            .filter(|p| !p.is_empty() && !d.icons.contains_key(*p))
-            .cloned()
-            .collect();
+    let (missing_icons, missing_descriptions): (Vec<_>, Vec<_>) = {
+        let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
+        let Data {
+            image_paths,
+            descriptions,
+            icons,
+            ..
+        } = &mut *d;
+        let mut paths: Vec<_> = image_paths.values().filter(|p| !p.is_empty()).collect();
         paths.sort();
         paths.dedup();
-        paths
+        descriptions.retain(|path, _| paths.binary_search(&path).is_ok());
+        let description_budget = 4096usize.saturating_sub(descriptions.len()).min(32);
+        let pending_descriptions = paths
+            .iter()
+            .copied()
+            .filter(|p| !descriptions.contains_key(*p))
+            .take(description_budget)
+            .cloned()
+            .collect();
+        let pending_icons = paths
+            .into_iter()
+            .filter(|p| !icons.contains_key(*p))
+            .cloned()
+            .collect();
+        (pending_icons, pending_descriptions)
     };
-    if missing.is_empty() {
+    if missing_icons.is_empty() && missing_descriptions.is_empty() {
         return;
     }
-    let found: Vec<_> = missing
+    let found: Vec<_> = missing_icons
         .into_iter()
         .map(|p| {
             let icon = wtm_core::small_icon(&p).map(Arc::new);
             (p, icon)
         })
         .collect();
-    data.lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .icons
-        .extend(found);
+    let descriptions: Vec<_> = missing_descriptions
+        .into_iter()
+        .map(|path: String| {
+            let description = wtm_sys::image_metadata::description(&path);
+            (path, description)
+        })
+        .collect();
+    let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
+    data.icons.extend(found);
+    if descriptions.iter().any(|(_, name)| name.is_some()) {
+        data.revision = data.revision.wrapping_add(1);
+    }
+    data.descriptions.extend(descriptions);
 }
 
 /// Reads the command line of every new process once; a process's command
@@ -3879,16 +3904,29 @@ mod tests {
     fn image_paths_and_icons_are_loaded_once() {
         let snap = Sampler::new().sample().unwrap();
         let data = Mutex::new(Data::default());
-        update_image_paths(&mut data.lock().unwrap().image_paths, &snap.processes);
         let me = snap
             .processes
             .iter()
             .find(|p| p.pid == std::process::id())
             .unwrap();
+        // Keep this independent of the number of apps competing for each
+        // metadata refresh's small read budget on the developer's machine.
+        update_image_paths(
+            &mut data.lock().unwrap().image_paths,
+            std::slice::from_ref(me),
+        );
         let path = data.lock().unwrap().image_paths[&(me.pid, me.create_time)].clone();
         assert!(path.to_lowercase().ends_with(".exe"), "{path}");
         refresh_icons(&data);
         assert!(data.lock().unwrap().icons.contains_key(&path));
+        assert_eq!(
+            data.lock()
+                .unwrap()
+                .descriptions
+                .get(&path)
+                .and_then(Option::as_deref),
+            Some("RustWTM task manager")
+        );
         // Nothing new: no further work.
         let before = data.lock().unwrap().icons.len();
         refresh_icons(&data);

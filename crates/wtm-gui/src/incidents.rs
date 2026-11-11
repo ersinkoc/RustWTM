@@ -207,7 +207,9 @@ impl View {
                             }
                             for p in &f.processes {
                                 ui.horizontal_wrapped(|ui| {
-                                    ui.label(RichText::new(&p.target.name).strong());
+                                    let name = ui
+                                        .label(RichText::new(&p.target.name).strong())
+                                        .interact(egui::Sense::click());
                                     ui.weak(format!(
                                         "PID {} · CPU {:.1}% · {}",
                                         p.target.pid,
@@ -220,6 +222,33 @@ impl View {
                                                 && r.create_time == p.target.create_time
                                         })
                                     });
+                                    crate::context_actions::menu(
+                                        &name,
+                                        (
+                                            "incident-process",
+                                            f.at,
+                                            p.target.pid,
+                                            p.target.create_time,
+                                        ),
+                                        |ui| {
+                                            crate::context_actions::copy(ui, "PID", || {
+                                                p.target.pid.to_string()
+                                            });
+                                            crate::context_actions::copy(
+                                                ui,
+                                                crate::i18n::tr("Name"),
+                                                || p.target.name.clone(),
+                                            );
+                                            if live
+                                                && crate::context_actions::action(
+                                                    ui,
+                                                    crate::i18n::tr("Inspect process"),
+                                                )
+                                            {
+                                                reveal = Some(p.target.clone());
+                                            }
+                                        },
+                                    );
                                     if ui
                                         .add_enabled(
                                             live,

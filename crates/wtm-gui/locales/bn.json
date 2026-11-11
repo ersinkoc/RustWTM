@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "সংরক্ষিত সেন্সর উপলব্ধ নয়",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "তাপমাত্রার জন্য একটি সমর্থিত সেন্সর প্রয়োজন। অনুপস্থিত বা পুরোনো রিডিং ড্যাশ দেখায়, কখনো অনুমান করা মান নয়।",
   "Open sensors": "সেন্সর খুলুন",
-  "NVMe available spare": "NVMe উপলব্ধ অতিরিক্ত ধারণক্ষমতা"
+  "NVMe available spare": "NVMe উপলব্ধ অতিরিক্ত ধারণক্ষমতা",
+  "Copy {0}": "{0} কপি করুন",
+  "Row separators": "সারির বিভাজক",
+  "Column separators": "কলামের বিভাজক",
+  "Show process descriptions": "প্রক্রিয়ার বিবরণ দেখান",
+  "Sort ascending": "ঊর্ধ্বক্রমে সাজান",
+  "Sort descending": "নিম্নক্রমে সাজান",
+  "Fit columns": "কলামের প্রস্থ মেলান",
+  "Path": "পথ",
+  "Quick setup": "দ্রুত সেটআপ",
+  "Welcome back": "আবার স্বাগতম",
+  "Choose your quick settings. You can change them later in Settings.": "আপনার দ্রুত সেটিংস বেছে নিন। পরে সেটিংস থেকে এগুলি বদলাতে পারবেন।",
+  "Next": "পরবর্তী",
+  "Back": "পিছনে",
+  "Skip setup": "সেটআপ এড়িয়ে যান",
+  "Apply and finish": "প্রয়োগ করে শেষ করুন",
+  "Step {0} of {1}": "ধাপ {0} / {1}",
+  "Review your settings": "আপনার সেটিংস পর্যালোচনা করুন"
 }

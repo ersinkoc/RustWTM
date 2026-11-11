@@ -3,6 +3,21 @@
 Open **Processes → Columns** to choose a profile, toggle individual columns,
 arrange their order or restore the original column selection.
 
+Right-click any process column header for ascending or descending sort, hiding
+that column, and visibility groups with visible/available counts. **Fit columns**
+sizes the columns from the visible rows. **Restore default columns** also resets
+their saved widths. The Name column stays visible.
+
+The same menu offers independent row and column separators, alternating row
+backgrounds, heat shading and process descriptions. **Show process descriptions**
+uses the executable's Windows file description when available and shows the
+actual executable name in muted text. Search matches both names. Name sorting
+follows the displayed title. Process actions keep using the process identity.
+
+In a process row menu, **Limits** contains CPU and memory limits and their
+removal. **Diagnostics** contains exit notifications, memory dumps, online
+search and properties. Menus scroll within the window on smaller displays.
+
 | Profile | Focus |
 | --- | --- |
 | Basic | CPU, memory, I/O, network and GPU together |

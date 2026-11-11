@@ -57,7 +57,13 @@ impl View {
                 }
                 Ok(report) => {
                     crate::theme::card(ui, crate::i18n::tr("File owners"), |ui| {
-                        ui.label(&report.path);
+                        let path = ui.label(&report.path);
+                        crate::context_actions::copy_text(
+                            &path,
+                            ("file-owner-path", &report.path),
+                            crate::i18n::tr("Path"),
+                            &report.path,
+                        );
                         ui.weak(crate::i18n::format(
                             "{0} files checked",
                             &[report.files_checked.to_string()],
@@ -70,7 +76,26 @@ impl View {
                         }
                         for locker in &report.lockers {
                             ui.horizontal_wrapped(|ui| {
-                                ui.strong(&locker.name);
+                                let name = ui.strong(&locker.name).interact(egui::Sense::click());
+                                crate::context_actions::menu(
+                                    &name,
+                                    ("file-owner", locker.pid, locker.create_time),
+                                    |ui| {
+                                        crate::context_actions::copy(ui, "PID", || {
+                                            locker.pid.to_string()
+                                        });
+                                        if crate::context_actions::action(
+                                            ui,
+                                            crate::i18n::tr("Inspect process"),
+                                        ) {
+                                            selected = Some(ProcessRef {
+                                                pid: locker.pid,
+                                                create_time: locker.create_time,
+                                                name: locker.name.clone(),
+                                            });
+                                        }
+                                    },
+                                );
                                 ui.weak(format!("PID {}", locker.pid));
                                 if !locker.service.is_empty() {
                                     ui.label(&locker.service);

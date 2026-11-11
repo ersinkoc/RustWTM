@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "已保存的传感器不可用",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "温度需要受支持的传感器。缺失或过期的读数显示为短划线，绝不显示猜测值。",
   "Open sensors": "打开传感器",
-  "NVMe available spare": "NVMe 可用备用容量"
+  "NVMe available spare": "NVMe 可用备用容量",
+  "Copy {0}": "复制{0}",
+  "Row separators": "行分隔线",
+  "Column separators": "列分隔线",
+  "Show process descriptions": "显示进程说明",
+  "Sort ascending": "升序排列",
+  "Sort descending": "降序排列",
+  "Fit columns": "调整列宽",
+  "Path": "路径",
+  "Quick setup": "快速设置",
+  "Welcome back": "欢迎回来",
+  "Choose your quick settings. You can change them later in Settings.": "选择快速设置。稍后可在设置中更改。",
+  "Next": "下一步",
+  "Back": "上一步",
+  "Skip setup": "跳过设置",
+  "Apply and finish": "应用并完成",
+  "Step {0} of {1}": "第 {0} 步，共 {1} 步",
+  "Review your settings": "检查您的设置"
 }

@@ -206,15 +206,31 @@ fn stat_row(ui: &mut Ui, stats: &[Stat<'_>], intents: &mut Vec<Intent>) {
         stats.len()
     } else if width >= 640.0 {
         3
-    } else {
+    } else if width >= 320.0 {
         2
+    } else {
+        // Native startup/measurement can offer zero width. Multiple columns
+        // would subtract their gutters and pass a negative width to egui.
+        1
     };
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
         for chunk in stats.chunks(per_row.max(1)) {
             ui.columns(chunk.len(), |cols| {
                 for (col, s) in cols.iter_mut().zip(chunk) {
-                    if stat_card(col, s).clicked() {
+                    let response = stat_card(col, s);
+                    let mut open = response.clicked();
+                    crate::context_actions::menu(
+                        &response,
+                        ("overview-resource", response.id),
+                        |ui| {
+                            crate::context_actions::copy(ui, crate::i18n::tr("Current"), || {
+                                s.value.to_string()
+                            });
+                            open |= crate::context_actions::action(ui, crate::i18n::tr("Details"));
+                        },
+                    );
+                    if open {
                         intents.push(Intent::ShowResource(s.resource));
                     }
                 }
@@ -701,7 +717,16 @@ fn busiest_table(
                         .get(&(first.pid, first.create_time))
                         .and_then(|path| Some((path.as_str(), data.icons.get(path)?.as_deref()?)));
                     crate::processes::app_icon(ui, icon);
-                    ui.label(a.name);
+                    let response = ui.label(a.name).interact(egui::Sense::CLICK);
+                    crate::context_actions::menu(&response, ("overview-app", a.name, first.pid, first.create_time), |ui| {
+                        crate::context_actions::copy(ui, crate::i18n::tr("Name"), || a.name.to_owned());
+                        if crate::context_actions::action(ui, crate::i18n::tr("Show in Processes")) {
+                            intents.push(Intent::Reveal(first.clone()));
+                        }
+                        if crate::context_actions::action(ui, crate::i18n::tr("Limit…")) {
+                            intents.push(Intent::LimitApp(a.name.to_owned()));
+                        }
+                    });
                 });
                 let cpus = data.snapshot.as_ref().map_or(1, |s| s.system.logical_cpus);
                 let mut cpu = RichText::new(format!("{:.1}%", a.cpu));
@@ -984,7 +1009,29 @@ fn protection(ui: &mut Ui, data: &Data, commands: &mut Vec<UiCommand>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    #[test]
+    fn resource_cards_handle_the_zero_width_startup_pass() {
+        let stats = [Resource::Cpu, Resource::Memory].map(|resource| super::Stat {
+            resource,
+            title: "Resource",
+            accent: crate::theme::CPU,
+            ring: Some(0.0),
+            value: "0%".into(),
+            detail: String::new(),
+            series: Vec::new(),
+            max: Some(100.0),
+        });
+        let mut h = egui_kittest::Harness::builder()
+            .allow_missing_glyphs()
+            .build_ui(|ui| {
+                let rect = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(0.0, 500.0));
+                ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                    assert_eq!(ui.available_width(), 0.0);
+                    super::stat_row(ui, &stats, &mut Vec::new());
+                });
+            });
+        h.run_steps(2);
+    }
     #[test]
     fn protection_button_saves_quoted_or_defaulted_mode_keys() {
         use egui_kittest::kittest::Queryable;

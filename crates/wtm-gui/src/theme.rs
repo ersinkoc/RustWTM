@@ -293,6 +293,10 @@ pub fn divider(ui: &mut Ui) -> egui::Response {
 
 /// Shared table boundaries. No inset is added to the cell or its contents.
 pub fn cell_lines(ui: &Ui) {
+    let lines = TableLines::load(ui);
+    if !lines.rows && !lines.columns {
+        return;
+    }
     // Place strokes inside the cell clip rect so shared edges stay visible.
     let rect = ui.max_rect().shrink(0.5);
     let stroke = Stroke::new(
@@ -304,15 +308,70 @@ pub fn cell_lines(ui: &Ui) {
             .color
             .gamma_multiply(0.45),
     );
-    ui.painter()
-        .line_segment([rect.right_top(), rect.right_bottom()], stroke);
-    ui.painter()
-        .line_segment([rect.left_bottom(), rect.right_bottom()], stroke);
+    if lines.columns {
+        ui.painter()
+            .line_segment([rect.right_top(), rect.right_bottom()], stroke);
+    }
+    if lines.rows {
+        ui.painter()
+            .line_segment([rect.left_bottom(), rect.right_bottom()], stroke);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TableLines {
+    pub rows: bool,
+    pub columns: bool,
+}
+
+impl Default for TableLines {
+    fn default() -> Self {
+        Self {
+            rows: true,
+            columns: true,
+        }
+    }
+}
+
+impl TableLines {
+    pub fn load(ui: &Ui) -> Self {
+        Self::load_context(ui.ctx())
+    }
+
+    pub fn load_context(ctx: &egui::Context) -> Self {
+        ctx.data_mut(|d| d.get_persisted(egui::Id::unique("workspace-table-lines")))
+            .unwrap_or_default()
+    }
+
+    pub fn store(self, ui: &Ui) {
+        self.store_context(ui.ctx());
+    }
+
+    pub fn store_context(self, ctx: &egui::Context) {
+        ctx.data_mut(|d| d.insert_persisted(egui::Id::unique("workspace-table-lines"), self));
+    }
+
+    pub fn controls(ui: &mut Ui) {
+        let mut lines = Self::load(ui);
+        let rows = ui
+            .checkbox(&mut lines.rows, crate::i18n::tr("Row separators"))
+            .changed();
+        let columns = ui
+            .checkbox(&mut lines.columns, crate::i18n::tr("Column separators"))
+            .changed();
+        if rows || columns {
+            lines.store(ui);
+        }
+    }
 }
 
 /// Table cells touch at their boundaries, independently of form/control spacing.
 pub fn table(ui: &mut Ui) -> egui_extras::TableBuilder<'_> {
     ui.spacing_mut().item_spacing = Vec2::ZERO;
+    if !TableLines::load(ui).columns {
+        // Retain resize hit targets and the hover/drag indicator.
+        ui.visuals_mut().widgets.noninteractive.bg_stroke.width = 0.0;
+    }
     egui_extras::TableBuilder::new(ui)
 }
 
@@ -326,7 +385,9 @@ pub fn table_cell(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
     egui::Frame::new()
         .inner_margin(Margin::symmetric(8, 0))
         .show(ui, |ui| {
-            ui.set_width((size.x - 16.0).max(0.0));
+            if !ui.is_sizing_pass() {
+                ui.set_width((size.x - 16.0).max(0.0));
+            }
             ui.set_min_height(size.y);
             ui.spacing_mut().item_spacing = CONTENT_SPACING;
             add(ui);
@@ -337,6 +398,21 @@ pub fn table_cell(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
             d.insert_temp(key, previous);
         }
     });
+}
+
+/// A named row action with the table's density and full-cell hit area.
+pub fn table_name(ui: &mut Ui, name: &str, selected: bool) -> egui::Response {
+    let response = ui.add_sized(
+        [ui.available_width(), ui.spacing().interact_size.y],
+        egui::Button::new("")
+            .left_text(name)
+            .frame(false)
+            .truncate(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::Role::Button, ui.is_enabled(), selected, name)
+    });
+    response.on_hover_text(name)
 }
 
 /// Forms use their grid alignment; do not draw a box around every field row.
@@ -557,6 +633,10 @@ pub fn table_panel<R>(ui: &mut Ui, id: &str, min_width: f32, add: impl FnOnce(&m
 
 /// A cell of a table or grid with its text on the right, for numbers.
 pub fn right(ui: &mut Ui, text: impl Into<egui::WidgetText>) {
+    if ui.is_sizing_pass() {
+        ui.label(text);
+        return;
+    }
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.label(text);
     });
@@ -919,22 +999,6 @@ pub fn switch(ui: &mut Ui, value: &mut bool, label: &str) -> egui::Response {
         },
     );
     response.on_hover_text(label)
-}
-
-/// Keep long settings readable on wide displays without shrinking compact ones.
-pub fn reading_column<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
-    let available = ui.available_width();
-    let width = available.min(980.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        ui.add_space((available - width) * 0.5);
-        ui.vertical(|ui| {
-            ui.set_width(width);
-            add(ui)
-        })
-        .inner
-    })
-    .inner
 }
 
 /// A readable settings row: aligned controls on wide screens, stacked on narrow ones.

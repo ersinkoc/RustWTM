@@ -168,6 +168,8 @@ jobs:
             sha256: 'e9910d9a9320b2ff2b5f10d44d52d62ca5074ccd091941b3139ef0bae7a8de9e'
           - baseline: '0.28.0'
             sha256: '89e3d5183acda95485dd40aeec74d9beb4800bee3abe5ec632b2f2898bc376e4'
+          - baseline: '0.29.0'
+            sha256: 'd299964d54eda468a3e5137071866b1453e01cc8d5c2eaefb475107a9bf8e82a'
     env:
       BASELINE_VERSION: ${{ matrix.baseline }}
       BASELINE_SHA256: ${{ matrix.sha256 }}
@@ -269,6 +271,8 @@ jobs:
           WTM_EXPANSION_LANGS: en
           WTM_EXPANSION_CASES: light:wide:gpu,light:compact:disk-details,dark:wide:disk-details,dark:compact:memory
         run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_product_expansion_review -- --test-threads=1 --nocapture
+      - name: Render quick setup and retry feedback
+        run: cargo test --locked -p wtm-gui --features visual-tests -j 2 render_onboarding -- --ignored --test-threads=1 --nocapture
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: always()
         with:
@@ -276,6 +280,8 @@ jobs:
           path: |
             target/visual-review
             target/product-expansion-review
+            target/onboarding-review
+            target/onboarding-error-review
           if-no-files-found: warn
 
   artifact-provenance:

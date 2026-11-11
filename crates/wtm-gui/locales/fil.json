@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Hindi available ang na-save na sensor",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Kailangan ng sinusuportahang sensor para sa temperatura. Gitling ang ipinapakita ng mga nawawala o lumang reading, hindi kailanman hinulaang value.",
   "Open sensors": "Buksan ang mga sensor",
-  "NVMe available spare": "Magagamit na reserbang NVMe"
+  "NVMe available spare": "Magagamit na reserbang NVMe",
+  "Copy {0}": "Kopyahin ang {0}",
+  "Row separators": "Mga panghiwalay ng hanay",
+  "Column separators": "Mga panghiwalay ng kolum",
+  "Show process descriptions": "Ipakita ang mga paglalarawan ng proseso",
+  "Sort ascending": "Ayusin nang pataas",
+  "Sort descending": "Ayusin nang pababa",
+  "Fit columns": "Iakma ang mga kolum",
+  "Path": "Path",
+  "Quick setup": "Mabilis na pag-setup",
+  "Welcome back": "Maligayang pagbabalik",
+  "Choose your quick settings. You can change them later in Settings.": "Piliin ang mga mabilis na setting. Maaari mong baguhin ang mga ito sa Settings mamaya.",
+  "Next": "Susunod",
+  "Back": "Bumalik",
+  "Skip setup": "Laktawan ang setup",
+  "Apply and finish": "Ilapat at tapusin",
+  "Step {0} of {1}": "Hakbang {0} ng {1}",
+  "Review your settings": "Suriin ang iyong mga setting"
 }

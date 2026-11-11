@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Sensor salvo indisponível",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "A temperatura requer um sensor com suporte. Leituras ausentes ou desatualizadas mostram traços, nunca um valor estimado.",
   "Open sensors": "Abrir sensores",
-  "NVMe available spare": "Reserva NVMe disponível"
+  "NVMe available spare": "Reserva NVMe disponível",
+  "Copy {0}": "Copiar {0}",
+  "Row separators": "Separadores de linhas",
+  "Column separators": "Separadores de colunas",
+  "Show process descriptions": "Mostrar descrições dos processos",
+  "Sort ascending": "Ordem crescente",
+  "Sort descending": "Ordem decrescente",
+  "Fit columns": "Ajustar colunas",
+  "Path": "Caminho",
+  "Quick setup": "Configuração rápida",
+  "Welcome back": "Boas-vindas de volta",
+  "Choose your quick settings. You can change them later in Settings.": "Escolha seus ajustes rápidos. Você pode alterá-los depois em Configurações.",
+  "Next": "Avançar",
+  "Back": "Voltar",
+  "Skip setup": "Pular configuração",
+  "Apply and finish": "Aplicar e concluir",
+  "Step {0} of {1}": "Etapa {0} de {1}",
+  "Review your settings": "Revisar seus ajustes"
 }

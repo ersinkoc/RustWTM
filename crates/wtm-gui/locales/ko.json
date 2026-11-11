@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "저장된 센서를 사용할 수 없음",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "온도를 표시하려면 지원되는 센서가 필요합니다. 측정값이 없거나 오래되면 추정값 대신 대시가 표시됩니다.",
   "Open sensors": "센서 열기",
-  "NVMe available spare": "NVMe 사용 가능한 예비 용량"
+  "NVMe available spare": "NVMe 사용 가능한 예비 용량",
+  "Copy {0}": "{0} 복사",
+  "Row separators": "행 구분선",
+  "Column separators": "열 구분선",
+  "Show process descriptions": "프로세스 설명 표시",
+  "Sort ascending": "오름차순 정렬",
+  "Sort descending": "내림차순 정렬",
+  "Fit columns": "열 너비 맞춤",
+  "Path": "경로",
+  "Quick setup": "빠른 설정",
+  "Welcome back": "다시 오신 것을 환영합니다",
+  "Choose your quick settings. You can change them later in Settings.": "빠른 설정을 선택하세요. 나중에 설정에서 변경할 수 있습니다.",
+  "Next": "다음",
+  "Back": "뒤로",
+  "Skip setup": "설정 건너뛰기",
+  "Apply and finish": "적용하고 완료",
+  "Step {0} of {1}": "{0} / {1}단계",
+  "Review your settings": "설정 검토"
 }

@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Сохраненный датчик недоступен",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Для температуры нужен поддерживаемый датчик. При отсутствии или устаревании показаний отображаются прочерки, а не предполагаемое значение.",
   "Open sensors": "Открыть датчики",
-  "NVMe available spare": "Доступный резерв NVMe"
+  "NVMe available spare": "Доступный резерв NVMe",
+  "Copy {0}": "Копировать {0}",
+  "Row separators": "Разделители строк",
+  "Column separators": "Разделители столбцов",
+  "Show process descriptions": "Показывать описания процессов",
+  "Sort ascending": "По возрастанию",
+  "Sort descending": "По убыванию",
+  "Fit columns": "Подогнать столбцы",
+  "Path": "Путь",
+  "Quick setup": "Быстрая настройка",
+  "Welcome back": "С возвращением",
+  "Choose your quick settings. You can change them later in Settings.": "Выберите быстрые настройки. Позже их можно изменить в настройках.",
+  "Next": "Далее",
+  "Back": "Назад",
+  "Skip setup": "Пропустить настройку",
+  "Apply and finish": "Применить и завершить",
+  "Step {0} of {1}": "Шаг {0} из {1}",
+  "Review your settings": "Проверьте настройки"
 }

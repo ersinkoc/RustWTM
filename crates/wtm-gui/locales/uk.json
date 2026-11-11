@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Збережений датчик недоступний",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Для температури потрібен підтримуваний датчик. Відсутні або застарілі показники показуються рисками, а не вгаданими значеннями.",
   "Open sensors": "Відкрити датчики",
-  "NVMe available spare": "Доступний резерв NVMe"
+  "NVMe available spare": "Доступний резерв NVMe",
+  "Copy {0}": "Копіювати {0}",
+  "Row separators": "Роздільники рядків",
+  "Column separators": "Роздільники стовпців",
+  "Show process descriptions": "Показувати описи процесів",
+  "Sort ascending": "За зростанням",
+  "Sort descending": "За спаданням",
+  "Fit columns": "Підігнати стовпці",
+  "Path": "Шлях",
+  "Quick setup": "Швидке налаштування",
+  "Welcome back": "З поверненням",
+  "Choose your quick settings. You can change them later in Settings.": "Виберіть швидкі налаштування. Пізніше їх можна змінити в налаштуваннях.",
+  "Next": "Далі",
+  "Back": "Назад",
+  "Skip setup": "Пропустити налаштування",
+  "Apply and finish": "Застосувати й завершити",
+  "Step {0} of {1}": "Крок {0} з {1}",
+  "Review your settings": "Перевірте налаштування"
 }

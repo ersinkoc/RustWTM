@@ -609,6 +609,32 @@ impl State {
             self.cursor = Some((point.x * 1000.0) as u64);
             ui.ctx().request_repaint();
         }
+        crate::context_actions::menu(&result.response, ("timeline-chart", id), |ui| {
+            if crate::context_actions::action(ui, crate::i18n::tr("Live")) {
+                self.live();
+            }
+            if crate::context_actions::action(ui, crate::i18n::tr("Reset zoom")) {
+                self.live();
+            }
+            crate::context_actions::copy(ui, crate::i18n::tr("Current"), || {
+                series
+                    .iter()
+                    .map(|(label, values, _)| {
+                        let value = if self.cursor.is_some() {
+                            self.value(times, values, unit)
+                        } else {
+                            values
+                                .back()
+                                .copied()
+                                .filter(|v| unit.valid(*v) && values.len() == times.len())
+                        };
+                        format!("{label}: {}", unit.text(value))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
+            ui.checkbox(&mut self.options.grid, crate::i18n::tr("Show chart grid"));
+        });
         result.response.on_hover_text(crate::i18n::tr(
             "Click a chart to inspect. Double-click to follow live.",
         ));

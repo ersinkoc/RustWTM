@@ -19,6 +19,7 @@ mod handle;
 pub mod hotkey;
 pub mod http;
 pub mod icon;
+pub mod image_metadata;
 pub mod job;
 pub mod modules;
 pub mod net;

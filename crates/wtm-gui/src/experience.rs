@@ -37,6 +37,7 @@ pub enum Destination {
 pub struct View {
     pub prefs: Preferences,
     pub guide: bool,
+    pub quick_setup: bool,
     pub help: bool,
     hotkey: Option<wtm_sys::hotkey::Hotkey>,
     requested: Option<(bool, u8)>,
@@ -139,6 +140,9 @@ impl View {
                     crate::theme::colored(ui, crate::theme::WARN, e);
                 }
                 ui.horizontal_wrapped(|ui| {
+                    if ui.button(crate::i18n::tr("Quick setup")).clicked() {
+                        self.quick_setup = true;
+                    }
                     if ui.button(crate::i18n::tr("Open welcome guide")).clicked() {
                         self.guide = true;
                     }

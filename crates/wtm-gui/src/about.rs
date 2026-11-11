@@ -82,13 +82,30 @@ pub fn about(
                     ))
                     .size(18.0),
                 );
-                ui.weak({
+                let version = ui.weak({
                     let __wtm_i18n_0 = &(env!("CARGO_PKG_VERSION"));
                     crate::i18n::format(
                         "Version {0}  ·  MIT license  ·  written in Rust",
                         &[__wtm_i18n_0.to_string()],
                     )
                 });
+                crate::context_actions::menu(
+                    &version.interact(egui::Sense::click()),
+                    "about-version",
+                    |ui| {
+                        crate::context_actions::copy(ui, crate::i18n::tr("Version"), || {
+                            env!("CARGO_PKG_VERSION").into()
+                        });
+                        if !matches!(update, UpdateState::Checking | UpdateState::Installing(_))
+                            && crate::context_actions::action(
+                                ui,
+                                crate::i18n::tr("Check for updates"),
+                            )
+                        {
+                            check = true;
+                        }
+                    },
+                );
                 ui.horizontal_wrapped(|ui| {
                     let status = match update {
                         UpdateState::Unknown => String::new(),

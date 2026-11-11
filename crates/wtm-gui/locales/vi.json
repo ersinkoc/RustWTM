@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "Không có cảm biến đã lưu",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "Nhiệt độ cần cảm biến được hỗ trợ. Số đo bị thiếu hoặc đã cũ hiển thị dấu gạch ngang, không bao giờ là giá trị đoán.",
   "Open sensors": "Mở cảm biến",
-  "NVMe available spare": "Dung lượng dự phòng NVMe khả dụng"
+  "NVMe available spare": "Dung lượng dự phòng NVMe khả dụng",
+  "Copy {0}": "Sao chép {0}",
+  "Row separators": "Đường phân cách hàng",
+  "Column separators": "Đường phân cách cột",
+  "Show process descriptions": "Hiện mô tả tiến trình",
+  "Sort ascending": "Sắp xếp tăng dần",
+  "Sort descending": "Sắp xếp giảm dần",
+  "Fit columns": "Vừa độ rộng cột",
+  "Path": "Đường dẫn",
+  "Quick setup": "Thiết lập nhanh",
+  "Welcome back": "Chào mừng trở lại",
+  "Choose your quick settings. You can change them later in Settings.": "Chọn cài đặt nhanh của bạn. Bạn có thể thay đổi sau trong Cài đặt.",
+  "Next": "Tiếp theo",
+  "Back": "Quay lại",
+  "Skip setup": "Bỏ qua thiết lập",
+  "Apply and finish": "Áp dụng và hoàn tất",
+  "Step {0} of {1}": "Bước {0} trên {1}",
+  "Review your settings": "Xem lại cài đặt"
 }

@@ -237,8 +237,11 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
     } else {
         (ui.available_height() - 20.0).max(90.0)
     };
+    let row_height = ui.spacing().interact_size.y;
+    ui.style_mut().interaction.selectable_labels = false;
     theme::table_panel(ui, "docker_table", 740.0, |ui| {
         crate::theme::table(ui)
+            .sense(egui::Sense::click())
             .striped(true)
             .resizable(true)
             .min_scrolled_height(60.0)
@@ -249,7 +252,7 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
             .column(Column::initial(85.0))
             .column(Column::initial(120.0))
             .column(Column::remainder().clip(true))
-            .header(28.0, |mut header| {
+            .header(row_height, |mut header| {
                 for (index, label) in [
                     crate::i18n::tr("Container"),
                     crate::i18n::tr("Project"),
@@ -269,24 +272,22 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
                 }
             })
             .body(|body| {
-                body.rows(30.0, rows.len(), |mut row| {
+                body.rows(row_height, rows.len(), |mut row| {
                     let c = rows[row.index()];
+                    row.set_selected(view.selected.as_deref() == Some(&c.id));
                     let current = fresh(c, state, now);
+                    let mut name_response = None;
                     row.col(|ui| {
                         crate::theme::table_cell(ui, |ui| {
-                            if ui
-                                .add(
-                                    egui::Button::selectable(
-                                        view.selected.as_deref() == Some(&c.id),
-                                        &c.name,
-                                    )
-                                    .truncate(),
-                                )
-                                .on_hover_text(&c.name)
-                                .clicked()
-                            {
+                            let response = theme::table_name(
+                                ui,
+                                &c.name,
+                                view.selected.as_deref() == Some(&c.id),
+                            );
+                            if response.clicked() {
                                 view.selected = Some(c.id.clone());
                             }
+                            name_response = Some(response);
                         })
                     });
                     row.col(|ui| {
@@ -335,6 +336,23 @@ pub fn show(ui: &mut Ui, state: &State, view: &mut View) {
                             ui.add(egui::Label::new(&c.image).truncate())
                                 .on_hover_text(&c.image);
                         })
+                    });
+                    let row_response = row.response();
+                    if row_response.clicked() {
+                        view.selected = Some(c.id.clone());
+                    }
+                    let response = name_response.map_or_else(
+                        || row_response.clone(),
+                        |name| row_response.clone().union(name),
+                    );
+                    crate::context_actions::menu(&response, ("container", &c.id), |ui| {
+                        use crate::context_actions::{action, copy};
+                        if action(ui, crate::i18n::tr("Details")) {
+                            view.selected = Some(c.id.clone());
+                        }
+                        copy(ui, crate::i18n::tr("Name"), || c.name.clone());
+                        copy(ui, "ID", || c.id.clone());
+                        copy(ui, crate::i18n::tr("Image"), || c.image.clone());
                     });
                 });
             });
@@ -566,6 +584,27 @@ pub fn fixture() -> State {
 mod tests {
     use super::*;
     use egui_kittest::{Harness, kittest::Queryable};
+    #[test]
+    fn clicking_a_container_metric_selects_its_row() {
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1080.0, 700.0])
+            .with_context_setup(theme::apply)
+            .build_ui_state(
+                |ui, (state, view): &mut (State, View)| {
+                    show(ui, state, view);
+                },
+                (fixture(), View::default()),
+            );
+        h.run_steps(2);
+        h.get_by_label("12.5%").click();
+        h.run_steps(2);
+        assert_eq!(
+            h.state().1.selected.as_deref(),
+            Some(format!("{:064x}", 0).as_str())
+        );
+    }
+
     #[test]
     fn docker_filters_details_keyboard_and_copy_work_in_both_themes_and_sizes() {
         for theme in [egui::Theme::Light, egui::Theme::Dark] {

@@ -57,7 +57,15 @@ fn fact(
                 crate::navigation::badge(ui, icon, color);
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
-                        ui.strong(title);
+                        let heading = ui.strong(title).interact(egui::Sense::click());
+                        crate::context_actions::menu(&heading, ("system-fact", heading.id), |ui| {
+                            crate::context_actions::copy(ui, title, || {
+                                std::iter::once(value.as_str())
+                                    .chain(detail.lines())
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            });
+                        });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(RichText::new(value).size(18.0).color(color));
                         });

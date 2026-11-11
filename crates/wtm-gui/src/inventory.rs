@@ -484,8 +484,22 @@ fn item_card(ui: &mut Ui, item: &Item) {
             title.push_str(" · ");
             title.push_str(slot);
         }
-        ui.strong(title);
+        let heading = ui.strong(&title).interact(egui::Sense::click());
         let fields = formatted_fields(item);
+        if !fields.is_empty() {
+            crate::context_actions::menu(&heading, ("inventory", heading.id, &item.kind), |ui| {
+                crate::context_actions::copy(ui, crate::i18n::tr("Specifications"), || {
+                    std::iter::once(title.clone())
+                        .chain(
+                            fields
+                                .iter()
+                                .map(|(name, value)| format!("{}: {value}", crate::i18n::tr(name))),
+                        )
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                });
+            });
+        }
         if fields.is_empty() {
             ui.weak(crate::i18n::tr("Hardware details unavailable"));
         }
@@ -496,8 +510,15 @@ fn item_card(ui: &mut Ui, item: &Item) {
                     [label_width, 18.0],
                     egui::Label::new(egui::RichText::new(crate::i18n::tr(label)).weak()).wrap(),
                 );
-                ui.add(egui::Label::new(&display).wrap())
-                    .on_hover_text(display);
+                let response = ui
+                    .add(egui::Label::new(&display).wrap())
+                    .on_hover_text(&display);
+                crate::context_actions::copy_text(
+                    &response,
+                    ("inventory-value", response.id),
+                    crate::i18n::tr(label),
+                    &display,
+                );
             });
         }
     });

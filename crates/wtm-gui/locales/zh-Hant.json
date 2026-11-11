@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "已儲存的感應器無法使用",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "溫度需要支援的感應器。缺少或過時的讀數會顯示破折號，絕不顯示推測值。",
   "Open sensors": "開啟感應器",
-  "NVMe available spare": "NVMe 可用備用容量"
+  "NVMe available spare": "NVMe 可用備用容量",
+  "Copy {0}": "複製{0}",
+  "Row separators": "列分隔線",
+  "Column separators": "欄分隔線",
+  "Show process descriptions": "顯示處理程序描述",
+  "Sort ascending": "遞增排序",
+  "Sort descending": "遞減排序",
+  "Fit columns": "調整欄寬",
+  "Path": "路徑",
+  "Quick setup": "快速設定",
+  "Welcome back": "歡迎回來",
+  "Choose your quick settings. You can change them later in Settings.": "選擇快速設定。稍後可在設定中變更。",
+  "Next": "下一步",
+  "Back": "上一步",
+  "Skip setup": "略過設定",
+  "Apply and finish": "套用並完成",
+  "Step {0} of {1}": "第 {0} 步，共 {1} 步",
+  "Review your settings": "檢查您的設定"
 }

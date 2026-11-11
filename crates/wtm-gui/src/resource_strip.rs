@@ -197,7 +197,18 @@ pub fn show(ui: &mut Ui, data: &Data, band: crate::preferences::Band) -> Option<
                             m.detail,
                             crate::i18n::tr("View resource details")
                         ));
-                    if response.clicked() {
+                    let mut open = response.clicked();
+                    crate::context_actions::menu(
+                        &response,
+                        ("resource-strip", response.id),
+                        |ui| {
+                            crate::context_actions::copy(ui, crate::i18n::tr("Current"), || {
+                                format!("{}: {} · {}", m.title, m.value, m.detail)
+                            });
+                            open |= crate::context_actions::action(ui, crate::i18n::tr("Details"));
+                        },
+                    );
+                    if open {
                         clicked = Some(m.resource);
                     }
                 });

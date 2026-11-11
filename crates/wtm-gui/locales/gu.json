@@ -1418,5 +1418,22 @@
   "Saved sensor unavailable": "સાચવેલ સેન્સર ઉપલબ્ધ નથી",
   "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.": "તાપમાન માટે સમર્થિત સેન્સર જરૂરી છે. ગુમ અથવા જૂના રીડિંગ ડૅશ બતાવે છે, ક્યારેય અનુમાનિત મૂલ્ય નહીં.",
   "Open sensors": "સેન્સર ખોલો",
-  "NVMe available spare": "NVMe ઉપલબ્ધ વધારાની ક્ષમતા"
+  "NVMe available spare": "NVMe ઉપલબ્ધ વધારાની ક્ષમતા",
+  "Copy {0}": "{0} કૉપી કરો",
+  "Row separators": "પંક્તિ વિભાજકો",
+  "Column separators": "કૉલમ વિભાજકો",
+  "Show process descriptions": "પ્રક્રિયાના વર્ણનો બતાવો",
+  "Sort ascending": "ચડતો ક્રમ",
+  "Sort descending": "ઊતરતો ક્રમ",
+  "Fit columns": "કૉલમ ગોઠવો",
+  "Path": "પથ",
+  "Quick setup": "ઝડપી સેટઅપ",
+  "Welcome back": "ફરી સ્વાગત છે",
+  "Choose your quick settings. You can change them later in Settings.": "તમારી ઝડપી સેટિંગ્સ પસંદ કરો. પછી સેટિંગ્સમાં બદલી શકો છો.",
+  "Next": "આગળ",
+  "Back": "પાછળ",
+  "Skip setup": "સેટઅપ છોડો",
+  "Apply and finish": "લાગુ કરો અને પૂર્ણ કરો",
+  "Step {0} of {1}": "પગલું {0} / {1}",
+  "Review your settings": "તમારી સેટિંગ્સ તપાસો"
 }
