@@ -8,7 +8,7 @@ The product website source lives in `RustWTM/rustwtm-site`. Its deployment workf
 
 The bounded manifest binds every capture to its release tag and source commit, with individual hashes and original dimensions. Images contain fixture data, not developer-host telemetry. The package is included in the release provenance job and is published alongside the installers. The website derives homepage highlights from the published release notes and imports the matching package as one validated content snapshot.
 
-For a previously published stable version, run `Website media` manually with its tag. The backfill publisher verifies the real tag commit and refuses to replace an existing asset with different bytes. Completion starts the existing website notification workflow. It does not rebuild or replace installer binaries.
+For a previously published stable version, run `Website media` manually with its tag. Before rendering, the backfill verifies any existing package against the real tag commit, both public asset digests, the sidecar and every image hash. A complete package is reused without changing its published bytes; an invalid or incomplete existing package stops the run. This matters because the About view includes measured frame timings, so a second real render can differ even at the same source commit. If no package exists, rendering and publication proceed normally. Completion starts the existing website notification workflow. It does not rebuild or replace installer binaries.
 
 `.github/workflows/update-website.yml` requests a website content check after:
 

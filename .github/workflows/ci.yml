@@ -68,6 +68,9 @@ jobs:
         shell: pwsh
         run: scripts/ci/test-release-discovery.ps1
 
+      - name: Website package publication controls
+        run: python scripts/ci/test-publish-website-media.py
+
   coverage:
     runs-on: windows-latest
     steps:

@@ -17,8 +17,30 @@ concurrency:
   group: website-media-${{ inputs.tag }}
   cancel-in-progress: false
 jobs:
+  existing:
+    if: github.event_name == 'workflow_dispatch' && github.repository_id == '1425760656'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      complete: ${{ steps.package.outputs.complete }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Test published package verification
+        run: python3 scripts/ci/test-publish-website-media.py
+      - name: Verify existing released images before rendering again
+        id: package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: python3 scripts/ci/publish-website-media.py --repository RustWTM/RustWTM --tag "$TAG" --check-existing
   render:
-    if: github.repository_id == '1425760656'
+    needs: existing
+    if: >-
+      always() && github.repository_id == '1425760656' &&
+      (github.event_name != 'workflow_dispatch' ||
+      (needs.existing.result == 'success' && needs.existing.outputs.complete == 'false'))
     permissions:
       contents: read
     runs-on: windows-latest
@@ -72,20 +94,29 @@ jobs:
           path: dist/rustwtm-website-media.zip*
           if-no-files-found: error
   publish-backfill:
-    if: github.event_name == 'workflow_dispatch'
-    needs: render
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' &&
+      needs.existing.result == 'success' &&
+      (needs.existing.outputs.complete == 'true' || needs.render.result == 'success')
+    needs: [existing, render]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Keep the verified published package
+        if: needs.existing.outputs.complete == 'true'
+        run: echo 'The complete released website package is verified. No images or assets were replaced.'
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        if: needs.existing.outputs.complete != 'true'
         with:
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: needs.existing.outputs.complete != 'true'
         with:
           name: website-media
           path: dist
       - name: Publish supplemental website assets
+        if: needs.existing.outputs.complete != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}

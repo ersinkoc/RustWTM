@@ -8,6 +8,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Verify and reuse complete published website image packages on repeated backfills,
+  preserving their bytes when measured frame timings differ in a fresh render.
 - Build a versioned website image package from the exact release's fixture-rendered
   interface, and publish it with the installers so homepage highlights and the
   screenshot gallery can follow new stable releases automatically.
