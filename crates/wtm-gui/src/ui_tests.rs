@@ -363,6 +363,9 @@ fn describe_intent(i: &Intent) -> String {
         Intent::WhyAlive(t) => format!("why alive {}", t.pid),
         Intent::Modules(t) => format!("modules {}", t.pid),
         Intent::Network(t, block) => format!("network {} {block}", t.pid),
+        Intent::AskAi(t) => format!("ask ai {}", t.pid),
+        Intent::ManageAccounts => "manage accounts".into(),
+        Intent::SignOut(session, user) => format!("sign out {session} {user}"),
     }
 }
 
@@ -678,7 +681,7 @@ fn processes_row_click_and_context_menu_produce_intents() {
     for (menu, item, expected) in [
         ("", "End task", "confirm 200 Kill"),
         ("", "End process tree", "confirm 200 KillTree"),
-        ("", "Suspend", "command 200 Suspend"),
+        ("", "Suspend", "confirm 200 Suspend"),
         ("", "Resume", "command 200 Resume"),
         ("Limits", "Remove limits", "command 200 Unlimit"),
         ("", "Free memory", "command 200 TrimMemory"),
@@ -828,7 +831,7 @@ fn process_context_workspace_preferences_and_copy_use_the_visible_row() {
 #[test]
 fn process_context_menu_keeps_its_target_when_live_rows_reorder() {
     for (action, expected) in [
-        ("Suspend", "command 100 Suspend"),
+        ("Suspend", "confirm 100 Suspend"),
         ("End task", "confirm 100 Kill"),
     ] {
         let mut h = process_harness();
@@ -1074,7 +1077,7 @@ fn process_context_menu_does_not_transfer_to_a_reused_pid() {
     h.run_steps(2);
     h.get_by_label("Suspend").click();
     h.run_steps(2);
-    assert_eq!(h.state().intents, ["command 100 Suspend"]);
+    assert_eq!(h.state().intents, ["confirm 100 Suspend"]);
 }
 
 #[test]
@@ -1095,7 +1098,7 @@ fn app_context_menu_keeps_its_group_when_live_totals_reorder() {
     h.run_steps(2);
     h.get_by_label("Suspend all").click();
     h.run_steps(2);
-    assert_eq!(h.state().intents, ["command 100 Suspend"]);
+    assert_eq!(h.state().intents, ["confirm 1 processes Suspend"]);
 }
 
 #[test]
@@ -1873,6 +1876,16 @@ fn extra_with<'a>(
         },
         icons: &icons().1,
         hung,
+        facts: {
+            static EMPTY: std::sync::LazyLock<crate::backend::FactsMap> =
+                std::sync::LazyLock::new(Default::default);
+            &EMPTY
+        },
+        versions: {
+            static EMPTY: std::sync::LazyLock<std::collections::HashMap<String, Option<String>>> =
+                std::sync::LazyLock::new(Default::default);
+            &EMPTY
+        },
     }
 }
 

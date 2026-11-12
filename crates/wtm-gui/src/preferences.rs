@@ -179,6 +179,43 @@ pub fn processes(
             }
         });
     });
+    crate::theme::card(ui, crate::i18n::tr("Grouping and system processes"), |ui| {
+        ui.label(crate::i18n::tr("Group processes by user"));
+        ui.horizontal_wrapped(|ui| {
+            for (value, label) in [
+                (crate::processes::UserGrouping::Auto, "Automatic"),
+                (crate::processes::UserGrouping::Always, "Always group"),
+                (crate::processes::UserGrouping::Never, "Never group"),
+            ] {
+                crate::theme::choice(ui, &mut view.user_grouping, value, crate::i18n::tr(label));
+            }
+        });
+        ui.weak(crate::i18n::tr(
+            "Applies to the List view. Automatic groups only while more than one user runs programs.",
+        ));
+        crate::theme::divider(ui);
+        ui.checkbox(
+            &mut view.hide_system,
+            crate::i18n::tr("Hide system processes"),
+        );
+        ui.checkbox(
+            &mut view.tree_collapsed,
+            crate::i18n::tr("Start the process tree collapsed"),
+        );
+        name_list(
+            ui,
+            crate::i18n::tr("Always show these programs"),
+            &mut view.system.always_show,
+        );
+        name_list(
+            ui,
+            crate::i18n::tr("Also hide these programs"),
+            &mut view.system.also_hide,
+        );
+        ui.weak(crate::i18n::tr(
+            "One program file name per line, for example notepad.exe.",
+        ));
+    });
     crate::theme::card(ui, crate::i18n::tr("Column layouts"), |ui| {
         ui.horizontal_wrapped(|ui| {
             for profile in crate::process_columns::Profile::ALL {
@@ -190,6 +227,35 @@ pub fn processes(
     });
     ui.button(crate::i18n::tr("Open process column editor"))
         .clicked()
+}
+
+/// Edits a list of image names, one per line. Blank lines are dropped.
+fn name_list(ui: &mut Ui, label: &str, names: &mut Vec<String>) {
+    let id = ui.make_persistent_id(("name-list", label));
+    let mut text = ui
+        .data(|d| d.get_temp::<String>(id))
+        .unwrap_or_else(|| names.join("\n"));
+    let label = ui.label(label);
+    let response = ui
+        .add(
+            egui::TextEdit::multiline(&mut text)
+                .desired_rows(3)
+                .desired_width(f32::INFINITY),
+        )
+        .labelled_by(label.id);
+    if response.changed() {
+        *names = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect();
+    }
+    if response.has_focus() {
+        ui.data_mut(|d| d.insert_temp(id, text));
+    } else {
+        ui.data_mut(|d| d.remove::<String>(id));
+    }
 }
 
 pub fn charts(ui: &mut Ui, view: &mut crate::charts::State) {

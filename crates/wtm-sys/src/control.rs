@@ -11,7 +11,8 @@ use windows::Win32::Foundation::{
     E_FAIL, FILETIME, HANDLE, NTSTATUS, S_FALSE, UNICODE_STRING, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::Security::{
-    GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER, TokenUser,
+    GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_ELEVATION, TOKEN_QUERY, TOKEN_USER,
+    TokenElevation, TokenUser,
 };
 use windows::Win32::System::Diagnostics::Debug::{
     CONTEXT_FLAGS, IsProcessSnapshotCallback, MINIDUMP_CALLBACK_INFORMATION,
@@ -29,6 +30,8 @@ use windows::Win32::System::Memory::{
     GetProcessWorkingSetSizeEx, QUOTA_LIMITS_HARDWS_MAX_DISABLE, QUOTA_LIMITS_HARDWS_MIN_ENABLE,
     SETPROCESSWORKINGSETSIZEEX_FLAGS, SetProcessWorkingSetSizeEx,
 };
+use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_UNKNOWN};
+use windows::Win32::System::Threading::IsWow64Process2;
 use windows::Win32::System::Threading::{
     ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, GetPriorityClass,
     GetProcessAffinityMask, GetProcessInformation, GetProcessTimes, HIGH_PRIORITY_CLASS,
@@ -149,6 +152,39 @@ pub enum EcoQos {
     On,
     /// Explicitly opted out of throttling.
     Off,
+}
+
+/// The instruction set a process runs as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Architecture {
+    X86,
+    X64,
+    Arm,
+    Arm64,
+    Other(u16),
+}
+
+impl Architecture {
+    /// From an `IMAGE_FILE_MACHINE_*` value.
+    pub fn from_machine(machine: u16) -> Self {
+        match machine {
+            0x014c => Self::X86,
+            0x8664 => Self::X64,
+            0x01c0 | 0x01c4 => Self::Arm,
+            0xaa64 => Self::Arm64,
+            other => Self::Other(other),
+        }
+    }
+
+    pub fn label(self) -> String {
+        match self {
+            Self::X86 => "x86".into(),
+            Self::X64 => "x64".into(),
+            Self::Arm => "ARM".into(),
+            Self::Arm64 => "ARM64".into(),
+            Self::Other(m) => format!("0x{m:04x}"),
+        }
+    }
 }
 
 /// An open process handle.
@@ -310,6 +346,43 @@ impl ProcessHandle {
                 String::from_utf16_lossy(&domain[..n as usize])
             ),
         })
+    }
+
+    /// Whether the process runs with an elevated (administrator) token.
+    /// Fails when the token cannot be opened, which is not the same as `false`.
+    pub fn elevated(&self) -> Result<bool> {
+        let mut raw = HANDLE::default();
+        // SAFETY: `raw` receives a token handle that OwnedHandle closes.
+        unsafe { OpenProcessToken(self.raw(), TOKEN_QUERY, &mut raw)? };
+        let token = OwnedHandle::new(raw);
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut len = 0u32;
+        // SAFETY: `elevation` is writable for its full size.
+        unsafe {
+            GetTokenInformation(
+                token.raw(),
+                TokenElevation,
+                Some(std::ptr::from_mut(&mut elevation).cast()),
+                size_of::<TOKEN_ELEVATION>() as u32,
+                &mut len,
+            )?
+        };
+        Ok(elevation.TokenIsElevated != 0)
+    }
+
+    /// The instruction set the process runs as.
+    pub fn architecture(&self) -> Result<Architecture> {
+        let mut process = IMAGE_FILE_MACHINE::default();
+        let mut native = IMAGE_FILE_MACHINE::default();
+        // SAFETY: both out-pointers reference live values.
+        unsafe { IsWow64Process2(self.raw(), &mut process, Some(&mut native))? };
+        // UNKNOWN: not a WOW64 process, so it runs as the native machine.
+        let machine = if process == IMAGE_FILE_MACHINE_UNKNOWN {
+            native
+        } else {
+            process
+        };
+        Ok(Architecture::from_machine(machine.0))
     }
 
     /// Moves as much of the working set as possible to the standby list.

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.30.0"
+version = "0.30.1"
 edition = "2024"
 rust-version = "1.99"
 publish = false
@@ -17,6 +17,7 @@ wtm-sys = { path = "crates/wtm-sys" }
 wtm-core = { path = "crates/wtm-core" }
 wtm-policy = { path = "crates/wtm-policy" }
 wtm-ipc = { path = "crates/wtm-ipc" }
+wtm-ai = { path = "crates/wtm-ai" }
 
 anyhow = "1.0.104"
 chrono = "0.4.45"

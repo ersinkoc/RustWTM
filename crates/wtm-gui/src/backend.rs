@@ -16,6 +16,8 @@ use wtm_core::{Sampler, Snapshot};
 use wtm_policy::{AppStats, Finding, MinuteRow};
 
 pub type CommandLines = std::collections::HashMap<(u32, i64), String>;
+/// Account, elevation and architecture per process instance.
+pub type FactsMap = std::collections::HashMap<(u32, i64), wtm_core::control::ProcessFacts>;
 /// A process's modules with who signed each.
 pub type ModuleList = Vec<(wtm_core::Module, wtm_core::Signature)>;
 /// Processes with a window Windows marks as not responding, and its title.
@@ -220,6 +222,10 @@ pub struct Data {
     /// Small icon per image path; `None` when the file has none.
     pub icons: std::collections::HashMap<String, Option<Arc<wtm_core::IconImage>>>,
     pub descriptions: std::collections::HashMap<String, Option<String>>,
+    /// File version per image path; `None` when the file has none.
+    pub versions: std::collections::HashMap<String, Option<String>>,
+    /// Facts per process instance, read once with this window's own rights.
+    pub facts: FactsMap,
     /// The service's configuration file: (path, text).
     pub config: Option<Result<(String, String), String>>,
     /// Processes to announce with a notification when they exit, and since
@@ -352,6 +358,8 @@ pub enum UiCommand {
     TaskManager(Option<bool>),
     /// The user closed the CPU alert; stay quiet for this long.
     CloseAlert(Duration),
+    /// Stop the alert's countdown: it stays until closed.
+    HoldAlert,
     /// Ask GitHub for the latest release.
     CheckUpdate,
     /// Download, verify and install this release, then restart.
@@ -821,12 +829,14 @@ impl Worker {
     }
 
     fn watch_cpu_at(&mut self, now: Instant) {
-        let fired = {
+        let (fired, closed) = {
             let mut data = self.data();
+            let was_shown = data.alert_watch.active.is_some();
             if !matches!(data.sample_freshness(now), SampleFreshness::Current(_)) {
                 data.alert_watch.interrupt();
                 return;
             }
+            let shown = |data: &Data| data.alert_watch.active.is_some();
             // Re-reading a service cache is not another CPU measurement.
             let measured = data
                 .sample_measured_at
@@ -835,16 +845,21 @@ impl Worker {
             match data.snapshot.as_ref() {
                 Some(s) if s.interval.is_some() => {
                     let cpu = s.system.cpu_percent;
-                    data.alert_watch.update(measured, cpu)
+                    let fired = data.alert_watch.update(measured, cpu);
+                    // Closed by itself: the load stayed back to normal.
+                    (fired, was_shown && !shown(&data))
                 }
                 _ => {
                     data.alert_watch.interrupt();
-                    false
+                    (false, false)
                 }
             }
         };
         if fired {
             (self.raise)(self.window.load(Ordering::Relaxed));
+        }
+        if closed {
+            (self.calm)(self.window.load(Ordering::Relaxed));
         }
     }
 
@@ -1259,6 +1274,7 @@ impl Worker {
                 self.data().alert_watch.close(Instant::now(), quiet);
                 (self.calm)(self.window.load(Ordering::Relaxed));
             }
+            UiCommand::HoldAlert => self.data().alert_watch.held = true,
             UiCommand::SaveConfig(toml) => {
                 let result = match self.client.as_mut() {
                     None => Err(without_service(&self.data, NO_CONFIG)),
@@ -1952,6 +1968,7 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     trim(&mut data.events, EVENTS_KEPT);
     update_command_lines(&mut data.command_lines, &snapshot.processes);
     update_image_paths(&mut data.image_paths, &snapshot.processes);
+    forget_exited(&mut data.facts, &snapshot.processes);
     data.snapshot = Some(Arc::new(snapshot));
 }
 
@@ -2086,11 +2103,13 @@ fn hung_map() -> HungMap {
 struct Lookups {
     command_lines: Vec<((u32, i64), String)>,
     image_paths: Vec<((u32, i64), String)>,
+    facts: Vec<((u32, i64), wtm_core::control::ProcessFacts)>,
 }
 
 impl Lookups {
     fn fetch(data: &Mutex<Data>, procs: &[wtm_core::ProcessInfo]) -> Self {
-        let (known_lines, known_paths): (
+        let (known_lines, known_paths, known_facts): (
+            std::collections::HashSet<_>,
             std::collections::HashSet<_>,
             std::collections::HashSet<_>,
         ) = {
@@ -2098,6 +2117,7 @@ impl Lookups {
             (
                 d.command_lines.keys().copied().collect(),
                 d.image_paths.keys().copied().collect(),
+                d.facts.keys().copied().collect(),
             )
         };
         let mut lookups = Self::default();
@@ -2112,6 +2132,10 @@ impl Lookups {
                 let path = control::image_path(&target()).unwrap_or_default();
                 lookups.image_paths.push((key, path));
             }
+            if !known_facts.contains(&key) {
+                let facts = control::facts(&target()).unwrap_or_default();
+                lookups.facts.push((key, facts));
+            }
         }
         lookups
     }
@@ -2120,7 +2144,15 @@ impl Lookups {
     fn apply(self, data: &mut Data) {
         data.command_lines.extend(self.command_lines);
         data.image_paths.extend(self.image_paths);
+        data.facts.extend(self.facts);
     }
+}
+
+/// Drops the facts of processes that are gone; new ones come from [`Lookups`].
+fn forget_exited(cache: &mut FactsMap, procs: &[wtm_core::ProcessInfo]) {
+    let live: std::collections::HashSet<(u32, i64)> =
+        procs.iter().map(|p| (p.pid, p.create_time)).collect();
+    cache.retain(|k, _| live.contains(k));
 }
 
 /// Reads the image path of every new process once.
@@ -2143,6 +2175,7 @@ fn refresh_icons(data: &Mutex<Data>) {
         let Data {
             image_paths,
             descriptions,
+            versions,
             icons,
             ..
         } = &mut *d;
@@ -2150,6 +2183,7 @@ fn refresh_icons(data: &Mutex<Data>) {
         paths.sort();
         paths.dedup();
         descriptions.retain(|path, _| paths.binary_search(&path).is_ok());
+        versions.retain(|path, _| paths.binary_search(&path).is_ok());
         let description_budget = 4096usize.saturating_sub(descriptions.len()).min(32);
         let pending_descriptions = paths
             .iter()
@@ -2175,19 +2209,22 @@ fn refresh_icons(data: &Mutex<Data>) {
             (p, icon)
         })
         .collect();
-    let descriptions: Vec<_> = missing_descriptions
+    let (descriptions, versions): (Vec<_>, Vec<_>) = missing_descriptions
         .into_iter()
         .map(|path: String| {
-            let description = wtm_sys::image_metadata::description(&path);
-            (path, description)
+            let m = wtm_sys::image_metadata::metadata(&path);
+            ((path.clone(), m.description), (path, m.version))
         })
-        .collect();
+        .unzip();
     let mut data = data.lock().unwrap_or_else(PoisonError::into_inner);
     data.icons.extend(found);
-    if descriptions.iter().any(|(_, name)| name.is_some()) {
+    if descriptions.iter().any(|(_, name)| name.is_some())
+        || versions.iter().any(|(_, v)| v.is_some())
+    {
         data.revision = data.revision.wrapping_add(1);
     }
     data.descriptions.extend(descriptions);
+    data.versions.extend(versions);
 }
 
 /// Reads the command line of every new process once; a process's command

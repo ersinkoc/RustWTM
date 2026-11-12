@@ -14,6 +14,7 @@ name = "wtm"
 path = "src/main.rs"
 
 [dependencies]
+wtm-ai.workspace = true
 wtm-core.workspace = true
 wtm-ipc.workspace = true
 wtm-policy.workspace = true

@@ -26,7 +26,7 @@ fn resolve(specs: &[String], procs: &[ProcessInfo]) -> anyhow::Result<Vec<Proces
 }
 
 /// The processes `specs` select, each once, in order of first mention.
-fn matching<'a>(
+pub(crate) fn matching<'a>(
     specs: &[String],
     procs: &'a [ProcessInfo],
 ) -> anyhow::Result<Vec<&'a ProcessInfo>> {

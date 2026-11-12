@@ -16,6 +16,7 @@ pub enum Page {
     Service,
     File,
     Telegram,
+    Ai,
 }
 
 impl Page {
@@ -62,6 +63,7 @@ pub fn page_bar(ui: &mut Ui, page: &mut Page) {
                 ),
                 (Page::File, "config.toml", crate::i18n::tr("File")),
                 (Page::Telegram, "Telegram", "Telegram"),
+                (Page::Ai, crate::i18n::tr("AI assistant"), "AI"),
             ];
             let mut render = |ui: &mut Ui, p, label: &str, short: &str| {
                 let response = crate::theme::choice(
@@ -733,6 +735,7 @@ mod tests {
                     "Service settings",
                     "config.toml",
                     "Telegram",
+                    "AI assistant",
                 ]
                 .into_iter()
                 .enumerate()

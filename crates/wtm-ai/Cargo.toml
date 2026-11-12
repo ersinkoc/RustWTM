@@ -1,0 +1,22 @@
+[package]
+name = "wtm-ai"
+description = "AI assistance for RustWTM: provider clients, process facts for models, MCP tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+wtm-core.workspace = true
+wtm-ipc.workspace = true
+wtm-policy.workspace = true
+wtm-sys.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[lints]
+workspace = true

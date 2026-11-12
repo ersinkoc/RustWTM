@@ -716,6 +716,7 @@ mod tests {
     fn literal_ui_lookups_have_catalog_entries() {
         let sources = [
             include_str!("context_actions.rs"),
+            include_str!("ai_assistant.rs"),
             include_str!("disk_details.rs"),
             include_str!("numeric_tray.rs"),
             include_str!("devices.rs"),

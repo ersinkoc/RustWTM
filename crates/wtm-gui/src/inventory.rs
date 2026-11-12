@@ -652,7 +652,9 @@ mod tests {
         let mut h = egui_kittest::Harness::builder()
             .allow_missing_glyphs()
             .with_size([450.0, 700.0])
-            .build_ui(|ui| crate::workspace_inspector::show(ui, &crate::backend::Data::default()));
+            .build_ui(|ui| {
+                crate::workspace_inspector::show(ui, &crate::backend::Data::default());
+            });
         set_test_inventory(&h.ctx, None);
         h.run();
         assert!(

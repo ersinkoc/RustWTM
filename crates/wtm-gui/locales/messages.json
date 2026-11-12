@@ -8620,5 +8620,527 @@
     "de": "Einstellungen überprüfen",
     "fr": "Vérifier vos réglages",
     "es": "Revisar tus ajustes"
+  },
+  "Saved.": {
+    "tr": "Kaydedildi.",
+    "de": "Gespeichert.",
+    "fr": "Enregistré.",
+    "es": "Guardado."
+  },
+  "The provider listed no models.": {
+    "tr": "Sağlayıcı hiçbir model listelemedi.",
+    "de": "Der Anbieter hat keine Modelle aufgelistet.",
+    "fr": "Le fournisseur n'a listé aucun modèle.",
+    "es": "El proveedor no mostró ningún modelo."
+  },
+  "AI assistant": {
+    "tr": "Yapay zekâ asistanı",
+    "de": "KI-Assistent",
+    "fr": "Assistant IA",
+    "es": "Asistente de IA"
+  },
+  "Ask an AI model what a process is, whether it is safe, and how to make this PC faster. You bring the API key; requests go straight from this window to the provider you choose.": {
+    "tr": "Bir yapay zekâ modeline bir işlemin ne olduğunu, güvenli olup olmadığını ve bu bilgisayarı nasıl hızlandıracağınızı sorun. API anahtarını siz sağlarsınız; istekler bu pencereden doğrudan seçtiğiniz sağlayıcıya gider.",
+    "de": "Fragen Sie ein KI-Modell, was ein Prozess ist, ob er sicher ist und wie dieser PC schneller wird. Den API-Schlüssel bringen Sie selbst mit; Anfragen gehen direkt aus diesem Fenster an den gewählten Anbieter.",
+    "fr": "Demandez à un modèle d'IA ce qu'est un processus, s'il est sûr et comment accélérer ce PC. Vous fournissez la clé API ; les requêtes partent directement de cette fenêtre vers le fournisseur choisi.",
+    "es": "Pregunte a un modelo de IA qué es un proceso, si es seguro y cómo hacer más rápido este equipo. Usted aporta la clave de API; las solicitudes van directamente desde esta ventana al proveedor que elija."
+  },
+  "Send process facts to the AI provider when I ask": {
+    "tr": "İstediğimde işlem bilgilerini yapay zekâ sağlayıcısına gönder",
+    "de": "Prozessdaten auf meine Anfrage an den KI-Anbieter senden",
+    "fr": "Envoyer les données des processus au fournisseur d'IA à ma demande",
+    "es": "Enviar datos de los procesos al proveedor de IA cuando lo pida"
+  },
+  "Provider": {
+    "tr": "Sağlayıcı",
+    "de": "Anbieter",
+    "fr": "Fournisseur",
+    "es": "Proveedor"
+  },
+  "Choose": {
+    "tr": "Seçin",
+    "de": "Auswählen",
+    "fr": "Choisir",
+    "es": "Elegir"
+  },
+  "API address": {
+    "tr": "API adresi",
+    "de": "API-Adresse",
+    "fr": "Adresse de l'API",
+    "es": "Dirección de la API"
+  },
+  "API key": {
+    "tr": "API anahtarı",
+    "de": "API-Schlüssel",
+    "fr": "Clé API",
+    "es": "Clave de API"
+  },
+  "Show or hide the key": {
+    "tr": "Anahtarı göster veya gizle",
+    "de": "Schlüssel anzeigen oder verbergen",
+    "fr": "Afficher ou masquer la clé",
+    "es": "Mostrar u ocultar la clave"
+  },
+  "Effort": {
+    "tr": "Düşünme düzeyi",
+    "de": "Denkaufwand",
+    "fr": "Effort de réflexion",
+    "es": "Esfuerzo de razonamiento"
+  },
+  "Answer language": {
+    "tr": "Yanıt dili",
+    "de": "Antwortsprache",
+    "fr": "Langue de réponse",
+    "es": "Idioma de respuesta"
+  },
+  "Send command lines (secrets in them are masked)": {
+    "tr": "Komut satırlarını gönder (içlerindeki gizli bilgiler maskelenir)",
+    "de": "Befehlszeilen senden (enthaltene Geheimnisse werden maskiert)",
+    "fr": "Envoyer les lignes de commande (leurs secrets sont masqués)",
+    "es": "Enviar líneas de comandos (sus secretos se enmascaran)"
+  },
+  "Forget the stored key": {
+    "tr": "Kayıtlı anahtarı unut",
+    "de": "Gespeicherten Schlüssel vergessen",
+    "fr": "Oublier la clé enregistrée",
+    "es": "Olvidar la clave guardada"
+  },
+  "List models": {
+    "tr": "Modelleri listele",
+    "de": "Modelle auflisten",
+    "fr": "Lister les modèles",
+    "es": "Listar modelos"
+  },
+  "Save first": {
+    "tr": "Önce kaydedin",
+    "de": "Zuerst speichern",
+    "fr": "Enregistrez d'abord",
+    "es": "Guarde primero"
+  },
+  "Test connection": {
+    "tr": "Bağlantıyı test et",
+    "de": "Verbindung testen",
+    "fr": "Tester la connexion",
+    "es": "Probar conexión"
+  },
+  "Use it from other AI apps (MCP)": {
+    "tr": "Diğer yapay zekâ uygulamalarından kullanın (MCP)",
+    "de": "Aus anderen KI-Apps nutzen (MCP)",
+    "fr": "L'utiliser depuis d'autres applis d'IA (MCP)",
+    "es": "Usarlo desde otras apps de IA (MCP)"
+  },
+  "Claude Desktop, Claude Code and other MCP clients can query RustWTM directly. Add this command as a stdio MCP server:": {
+    "tr": "Claude Desktop, Claude Code ve diğer MCP istemcileri RustWTM'yi doğrudan sorgulayabilir. Bu komutu stdio MCP sunucusu olarak ekleyin:",
+    "de": "Claude Desktop, Claude Code und andere MCP-Clients können RustWTM direkt abfragen. Fügen Sie diesen Befehl als stdio-MCP-Server hinzu:",
+    "fr": "Claude Desktop, Claude Code et d'autres clients MCP peuvent interroger RustWTM directement. Ajoutez cette commande comme serveur MCP stdio :",
+    "es": "Claude Desktop, Claude Code y otros clientes MCP pueden consultar RustWTM directamente. Agregue este comando como servidor MCP stdio:"
+  },
+  "Copy": {
+    "tr": "Kopyala",
+    "de": "Kopieren",
+    "fr": "Copier",
+    "es": "Copiar"
+  },
+  "Read-only by default; add --allow-control to let the assistant end, suspend or deprioritize processes.": {
+    "tr": "Varsayılan olarak salt okunur; asistanın işlemleri sonlandırabilmesi, askıya alabilmesi veya önceliğini düşürebilmesi için --allow-control ekleyin.",
+    "de": "Standardmäßig schreibgeschützt; fügen Sie --allow-control hinzu, damit der Assistent Prozesse beenden, anhalten oder herabstufen kann.",
+    "fr": "Lecture seule par défaut ; ajoutez --allow-control pour permettre à l'assistant d'arrêter, de suspendre ou de baisser la priorité des processus.",
+    "es": "Solo lectura de forma predeterminada; agregue --allow-control para que el asistente pueda finalizar, suspender o bajar la prioridad de procesos."
+  },
+  "Stored — type a new one to replace it": {
+    "tr": "Kayıtlı — değiştirmek için yenisini yazın",
+    "de": "Gespeichert — zum Ersetzen einen neuen eingeben",
+    "fr": "Enregistrée — saisissez-en une nouvelle pour la remplacer",
+    "es": "Guardada — escriba una nueva para reemplazarla"
+  },
+  "Not needed for a local server": {
+    "tr": "Yerel sunucu için gerekmez",
+    "de": "Für einen lokalen Server nicht nötig",
+    "fr": "Inutile pour un serveur local",
+    "es": "No es necesaria para un servidor local"
+  },
+  "Paste your API key": {
+    "tr": "API anahtarınızı yapıştırın",
+    "de": "API-Schlüssel einfügen",
+    "fr": "Collez votre clé API",
+    "es": "Pegue su clave de API"
+  },
+  "Key stored, sealed for this Windows account.": {
+    "tr": "Anahtar kaydedildi, bu Windows hesabına mühürlendi.",
+    "de": "Schlüssel gespeichert, versiegelt für dieses Windows-Konto.",
+    "fr": "Clé enregistrée, scellée pour ce compte Windows.",
+    "es": "Clave guardada, sellada para esta cuenta de Windows."
+  },
+  "No key needed.": {
+    "tr": "Anahtar gerekmez.",
+    "de": "Kein Schlüssel nötig.",
+    "fr": "Aucune clé nécessaire.",
+    "es": "No se necesita clave."
+  },
+  "No key yet.": {
+    "tr": "Henüz anahtar yok.",
+    "de": "Noch kein Schlüssel.",
+    "fr": "Pas encore de clé.",
+    "es": "Aún no hay clave."
+  },
+  "Model default": {
+    "tr": "Model varsayılanı",
+    "de": "Modellstandard",
+    "fr": "Valeur par défaut du modèle",
+    "es": "Predeterminado del modelo"
+  },
+  "Ask AI about this PC": {
+    "tr": "Bu bilgisayarı yapay zekâya sor",
+    "de": "KI zu diesem PC fragen",
+    "fr": "Interroger l'IA sur ce PC",
+    "es": "Preguntar a la IA sobre este equipo"
+  },
+  "Open AI settings": {
+    "tr": "Yapay zekâ ayarlarını aç",
+    "de": "KI-Einstellungen öffnen",
+    "fr": "Ouvrir les paramètres de l'IA",
+    "es": "Abrir la configuración de IA"
+  },
+  "Your question (leave empty for a general explanation)": {
+    "tr": "Sorunuz (genel bir açıklama için boş bırakın)",
+    "de": "Ihre Frage (leer lassen für eine allgemeine Erklärung)",
+    "fr": "Votre question (laissez vide pour une explication générale)",
+    "es": "Su pregunta (déjela vacía para una explicación general)"
+  },
+  "Ask": {
+    "tr": "Sor",
+    "de": "Fragen",
+    "fr": "Demander",
+    "es": "Preguntar"
+  },
+  "Gathering facts and waiting for the answer…": {
+    "tr": "Bilgiler toplanıyor ve yanıt bekleniyor…",
+    "de": "Daten werden gesammelt, Antwort wird abgewartet…",
+    "fr": "Collecte des données et attente de la réponse…",
+    "es": "Recopilando datos y esperando la respuesta…"
+  },
+  "The answer was cut short at the token limit.": {
+    "tr": "Yanıt token sınırında kesildi.",
+    "de": "Die Antwort wurde am Token-Limit abgeschnitten.",
+    "fr": "La réponse a été tronquée à la limite de jetons.",
+    "es": "La respuesta se cortó al alcanzar el límite de tokens."
+  },
+  "No answer yet.": {
+    "tr": "Henüz yanıt yok.",
+    "de": "Noch keine Antwort.",
+    "fr": "Pas encore de réponse.",
+    "es": "Aún no hay respuesta."
+  },
+  "Sent to the provider:": {
+    "tr": "Sağlayıcıya gönderilen:",
+    "de": "An den Anbieter gesendet:",
+    "fr": "Envoyé au fournisseur :",
+    "es": "Enviado al proveedor:"
+  },
+  "Copy answer": {
+    "tr": "Yanıtı kopyala",
+    "de": "Antwort kopieren",
+    "fr": "Copier la réponse",
+    "es": "Copiar respuesta"
+  },
+  "Show what was sent": {
+    "tr": "Gönderileni göster",
+    "de": "Gesendete Daten anzeigen",
+    "fr": "Afficher ce qui a été envoyé",
+    "es": "Mostrar lo enviado"
+  },
+  "AI answers can be wrong. Check before ending or removing anything.": {
+    "tr": "Yapay zekâ yanıtları yanlış olabilir. Bir şeyi sonlandırmadan veya kaldırmadan önce kontrol edin.",
+    "de": "KI-Antworten können falsch sein. Prüfen Sie sie, bevor Sie etwas beenden oder entfernen.",
+    "fr": "Les réponses de l'IA peuvent être fausses. Vérifiez avant d'arrêter ou de supprimer quoi que ce soit.",
+    "es": "Las respuestas de la IA pueden ser erróneas. Compruébelas antes de finalizar o quitar nada."
+  },
+  "{0} models available.": {
+    "tr": "{0} model kullanılabilir.",
+    "de": "{0} Modelle verfügbar.",
+    "fr": "{0} modèles disponibles.",
+    "es": "{0} modelos disponibles."
+  },
+  "Key from the {0} environment variable.": {
+    "tr": "Anahtar {0} ortam değişkeninden alındı.",
+    "de": "Schlüssel aus der Umgebungsvariable {0}.",
+    "fr": "Clé issue de la variable d'environnement {0}.",
+    "es": "Clave de la variable de entorno {0}."
+  },
+  "Ask AI about {0} (PID {1})": {
+    "tr": "{0} (PID {1}) hakkında yapay zekâya sor",
+    "de": "KI zu {0} fragen (PID {1})",
+    "fr": "Interroger l'IA sur {0} (PID {1})",
+    "es": "Preguntar a la IA sobre {0} (PID {1})"
+  },
+  "What slows this PC down and what to change, from your AI provider": {
+    "tr": "Bu bilgisayarı neyin yavaşlattığı ve neyin değiştirilmesi gerektiği, yapay zekâ sağlayıcınızdan",
+    "de": "Was diesen PC bremst und was zu ändern ist – von Ihrem KI-Anbieter",
+    "fr": "Ce qui ralentit ce PC et ce qu'il faut changer, selon votre fournisseur d'IA",
+    "es": "Qué ralentiza este equipo y qué cambiar, según su proveedor de IA"
+  },
+  "Ask AI about it": {
+    "tr": "Yapay zekâya sor",
+    "de": "KI dazu fragen",
+    "fr": "Interroger l'IA",
+    "es": "Preguntar a la IA"
+  },
+  "What it is, whether it is safe and whether to end it, from your AI provider": {
+    "tr": "Ne olduğu, güvenli olup olmadığı ve sonlandırılması gerekip gerekmediği, yapay zekâ sağlayıcınızdan",
+    "de": "Was es ist, ob es sicher ist und ob man es beenden sollte – von Ihrem KI-Anbieter",
+    "fr": "Ce que c'est, s'il est sûr et s'il faut l'arrêter, selon votre fournisseur d'IA",
+    "es": "Qué es, si es seguro y si conviene finalizarlo, según su proveedor de IA"
+  },
+  "When you ask, the provider receives facts about the processes concerned: names, paths, command lines, user names, resource use, signatures, services, startup entries and network endpoints. If you let it look things up, it can also read any process, the network connections, services, startup programs and history of this PC. Secrets and your account name are masked (best effort). The AI only advises: it cannot change anything on this PC.": {
+    "tr": "Sorduğunuzda sağlayıcı, ilgili işlemler hakkında şu bilgileri alır: adlar, yollar, komut satırları, kullanıcı adları, kaynak kullanımı, imzalar, servisler, başlangıç kayıtları ve ağ uç noktaları. Bilgi aramasına izin verirseniz bu bilgisayardaki herhangi bir işlemi, ağ bağlantılarını, servisleri, başlangıç programlarını ve geçmişi de okuyabilir. Gizli bilgiler ve hesap adınız maskelenir (elden geldiğince). Yapay zekâ yalnızca öneride bulunur: bu bilgisayarda hiçbir şeyi değiştiremez.",
+    "de": "Wenn Sie fragen, erhält der Anbieter Daten zu den betroffenen Prozessen: Namen, Pfade, Befehlszeilen, Benutzernamen, Ressourcennutzung, Signaturen, Dienste, Autostarteinträge und Netzwerkendpunkte. Wenn Sie das Nachschlagen erlauben, kann er außerdem jeden Prozess, die Netzwerkverbindungen, Dienste, Autostartprogramme und den Verlauf dieses PCs lesen. Geheimnisse und Ihr Kontoname werden maskiert (nach bestem Bemühen). Die KI berät nur: Sie kann auf diesem PC nichts ändern.",
+    "fr": "Quand vous posez une question, le fournisseur reçoit des données sur les processus concernés : noms, chemins, lignes de commande, noms d'utilisateur, utilisation des ressources, signatures, services, entrées de démarrage et points de terminaison réseau. Si vous l'autorisez à consulter des informations, il peut aussi lire n'importe quel processus, les connexions réseau, les services, les programmes de démarrage et l'historique de ce PC. Les secrets et le nom de votre compte sont masqués (au mieux). L'IA ne fait que conseiller : elle ne peut rien modifier sur ce PC.",
+    "es": "Cuando pregunta, el proveedor recibe datos de los procesos implicados: nombres, rutas, líneas de comandos, nombres de usuario, uso de recursos, firmas, servicios, entradas de inicio y puntos de conexión de red. Si le permite consultar información, también puede leer cualquier proceso, las conexiones de red, los servicios, los programas de inicio y el historial de este equipo. Los secretos y el nombre de su cuenta se enmascaran (en la medida de lo posible). La IA solo aconseja: no puede cambiar nada en este equipo."
+  },
+  "Let the AI look up more details when it needs them (read-only)": {
+    "tr": "Yapay zekâ gerektiğinde daha fazla ayrıntı arayabilsin (salt okunur)",
+    "de": "Die KI bei Bedarf weitere Details nachschlagen lassen (nur lesend)",
+    "fr": "Laisser l'IA consulter plus de détails quand elle en a besoin (lecture seule)",
+    "es": "Permitir que la IA consulte más detalles cuando los necesite (solo lectura)"
+  },
+  "What slows this PC down?": {
+    "tr": "Bu bilgisayarı ne yavaşlatıyor?",
+    "de": "Was bremst diesen PC?",
+    "fr": "Qu'est-ce qui ralentit ce PC ?",
+    "es": "¿Qué ralentiza este equipo?"
+  },
+  "Which startup programs can I safely disable?": {
+    "tr": "Hangi başlangıç programlarını güvenle devre dışı bırakabilirim?",
+    "de": "Welche Autostartprogramme kann ich gefahrlos deaktivieren?",
+    "fr": "Quels programmes de démarrage puis-je désactiver sans risque ?",
+    "es": "¿Qué programas de inicio puedo desactivar sin riesgo?"
+  },
+  "Explain what RustWTM did recently": {
+    "tr": "RustWTM'nin son zamanlarda ne yaptığını açıkla",
+    "de": "Erkläre, was RustWTM zuletzt getan hat",
+    "fr": "Explique ce que RustWTM a fait récemment",
+    "es": "Explica qué hizo RustWTM recientemente"
+  },
+  "Does anything look suspicious?": {
+    "tr": "Şüpheli görünen bir şey var mı?",
+    "de": "Wirkt irgendetwas verdächtig?",
+    "fr": "Quelque chose semble-t-il suspect ?",
+    "es": "¿Hay algo que parezca sospechoso?"
+  },
+  "Is it safe to end?": {
+    "tr": "Sonlandırmak güvenli mi?",
+    "de": "Kann ich ihn gefahrlos beenden?",
+    "fr": "Puis-je le terminer sans risque ?",
+    "es": "¿Es seguro finalizarlo?"
+  },
+  "Why does it use so much CPU or memory?": {
+    "tr": "Neden bu kadar çok CPU veya bellek kullanıyor?",
+    "de": "Warum verbraucht er so viel CPU oder Arbeitsspeicher?",
+    "fr": "Pourquoi utilise-t-il autant de CPU ou de mémoire ?",
+    "es": "¿Por qué usa tanta CPU o memoria?"
+  },
+  "Could it be malware?": {
+    "tr": "Kötü amaçlı yazılım olabilir mi?",
+    "de": "Könnte das Schadsoftware sein?",
+    "fr": "Pourrait-il s'agir d'un logiciel malveillant ?",
+    "es": "¿Podría ser malware?"
+  },
+  "The AI assistant is off. Choose a provider and agree to send process facts in Settings → AI assistant.": {
+    "tr": "Yapay zekâ asistanı kapalı. Ayarlar → Yapay zekâ asistanı bölümünde bir sağlayıcı seçin ve işlem bilgilerinin gönderilmesini onaylayın.",
+    "de": "Der KI-Assistent ist aus. Wählen Sie unter Einstellungen → KI-Assistent einen Anbieter und stimmen Sie dem Senden von Prozessdaten zu.",
+    "fr": "L'assistant IA est désactivé. Choisissez un fournisseur et acceptez l'envoi des données des processus dans Paramètres → Assistant IA.",
+    "es": "El asistente de IA está desactivado. Elija un proveedor y acepte enviar datos de los procesos en Configuración → Asistente de IA."
+  },
+  "This model cannot look things up; it answered from the facts sent.": {
+    "tr": "Bu model bilgi arayamıyor; gönderilen bilgilere göre yanıt verdi.",
+    "de": "Dieses Modell kann nichts nachschlagen; es hat anhand der gesendeten Daten geantwortet.",
+    "fr": "Ce modèle ne peut rien consulter ; il a répondu à partir des données envoyées.",
+    "es": "Este modelo no puede consultar información; respondió con los datos enviados."
+  },
+  "Looked up: {0}": {
+    "tr": "Aranan: {0}",
+    "de": "Nachgeschlagen: {0}",
+    "fr": "Consulté : {0}",
+    "es": "Consultado: {0}"
+  },
+  "Keep it open": {
+    "tr": "Açık kalsın",
+    "de": "Offen lassen",
+    "fr": "Laisser ouverte",
+    "es": "Mantener abierta"
+  },
+  "Stops the countdown; the alert stays until you close it": {
+    "tr": "Geri sayımı durdurur; uyarı siz kapatana kadar açık kalır",
+    "de": "Stoppt den Countdown; die Warnung bleibt, bis Sie sie schließen",
+    "fr": "Arrête le compte à rebours ; l'alerte reste affichée jusqu'à ce que vous la fermiez",
+    "es": "Detiene la cuenta atrás; la alerta permanece hasta que la cierre"
+  },
+  "Closes by itself in {0} s.": {
+    "tr": "{0} sn içinde kendiliğinden kapanır.",
+    "de": "Schließt sich in {0} s von selbst.",
+    "fr": "Se ferme automatiquement dans {0} s.",
+    "es": "Se cierra sola en {0} s."
+  },
+  "Also hide these programs": {
+    "tr": "Bu programları da gizle",
+    "de": "Diese Programme ebenfalls ausblenden",
+    "fr": "Masquer aussi ces programmes",
+    "es": "Ocultar también estos programas"
+  },
+  "Always group": {
+    "tr": "Her zaman grupla",
+    "de": "Immer gruppieren",
+    "fr": "Toujours regrouper",
+    "es": "Agrupar siempre"
+  },
+  "Always show these programs": {
+    "tr": "Bu programları her zaman göster",
+    "de": "Diese Programme immer anzeigen",
+    "fr": "Toujours afficher ces programmes",
+    "es": "Mostrar siempre estos programas"
+  },
+  "Applies to the List view. Automatic groups only while more than one user runs programs.": {
+    "tr": "Liste görünümünde geçerlidir. Otomatik, yalnızca birden fazla kullanıcı program çalıştırırken gruplar.",
+    "de": "Gilt für die Listenansicht. Automatisch gruppiert nur, wenn mehr als ein Benutzer Programme ausführt.",
+    "fr": "S'applique à la vue Liste. Automatique ne regroupe que si plusieurs utilisateurs exécutent des programmes.",
+    "es": "Se aplica a la vista Lista. Automático solo agrupa cuando más de un usuario ejecuta programas."
+  },
+  "Architecture": {
+    "tr": "Mimari",
+    "de": "Architektur",
+    "fr": "Architecture",
+    "es": "Arquitectura"
+  },
+  "Collapse": {
+    "tr": "Daralt",
+    "de": "Zuklappen",
+    "fr": "Réduire",
+    "es": "Contraer"
+  },
+  "Collapse all": {
+    "tr": "Tümünü daralt",
+    "de": "Alle zuklappen",
+    "fr": "Tout réduire",
+    "es": "Contraer todo"
+  },
+  "Elevated": {
+    "tr": "Yükseltilmiş",
+    "de": "Erhöht",
+    "fr": "Élevé",
+    "es": "Con privilegios elevados"
+  },
+  "Expand": {
+    "tr": "Genişlet",
+    "de": "Aufklappen",
+    "fr": "Développer",
+    "es": "Expandir"
+  },
+  "Expand all": {
+    "tr": "Tümünü genişlet",
+    "de": "Alle aufklappen",
+    "fr": "Tout développer",
+    "es": "Expandir todo"
+  },
+  "File version": {
+    "tr": "Dosya sürümü",
+    "de": "Dateiversion",
+    "fr": "Version du fichier",
+    "es": "Versión del archivo"
+  },
+  "Group processes by user": {
+    "tr": "Süreçleri kullanıcıya göre grupla",
+    "de": "Prozesse nach Benutzer gruppieren",
+    "fr": "Regrouper les processus par utilisateur",
+    "es": "Agrupar procesos por usuario"
+  },
+  "Grouping and system processes": {
+    "tr": "Gruplama ve sistem süreçleri",
+    "de": "Gruppierung und Systemprozesse",
+    "fr": "Regroupement et processus système",
+    "es": "Agrupación y procesos del sistema"
+  },
+  "Hide Windows components and services. Edit the program lists in Settings > Processes.": {
+    "tr": "Windows bileşenlerini ve hizmetlerini gizler. Program listelerini Ayarlar > Süreçler'de düzenleyin.",
+    "de": "Blendet Windows-Komponenten und -Dienste aus. Die Programmlisten bearbeiten Sie unter Einstellungen > Prozesse.",
+    "fr": "Masque les composants et services Windows. Modifiez les listes de programmes dans Paramètres > Processus.",
+    "es": "Oculta los componentes y servicios de Windows. Edite las listas de programas en Configuración > Procesos."
+  },
+  "Hide system processes": {
+    "tr": "Sistem süreçlerini gizle",
+    "de": "Systemprozesse ausblenden",
+    "fr": "Masquer les processus système",
+    "es": "Ocultar procesos del sistema"
+  },
+  "Manage user accounts": {
+    "tr": "Kullanıcı hesaplarını yönet",
+    "de": "Benutzerkonten verwalten",
+    "fr": "Gérer les comptes d'utilisateur",
+    "es": "Administrar cuentas de usuario"
+  },
+  "Never group": {
+    "tr": "Asla gruplama",
+    "de": "Nie gruppieren",
+    "fr": "Ne jamais regrouper",
+    "es": "No agrupar nunca"
+  },
+  "No": {
+    "tr": "Hayır",
+    "de": "Nein",
+    "fr": "Non",
+    "es": "No"
+  },
+  "Not readable with this window's rights": {
+    "tr": "Bu pencerenin yetkileriyle okunamıyor",
+    "de": "Mit den Rechten dieses Fensters nicht lesbar",
+    "fr": "Illisible avec les droits de cette fenêtre",
+    "es": "No se puede leer con los permisos de esta ventana"
+  },
+  "One program file name per line, for example notepad.exe.": {
+    "tr": "Her satıra bir program dosya adı, örneğin notepad.exe.",
+    "de": "Ein Programmdateiname pro Zeile, zum Beispiel notepad.exe.",
+    "fr": "Un nom de fichier de programme par ligne, par exemple notepad.exe.",
+    "es": "Un nombre de archivo de programa por línea, por ejemplo notepad.exe."
+  },
+  "Sign out…": {
+    "tr": "Oturumu kapat…",
+    "de": "Abmelden…",
+    "fr": "Se déconnecter…",
+    "es": "Cerrar sesión…"
+  },
+  "Start the process tree collapsed": {
+    "tr": "Süreç ağacını daraltılmış başlat",
+    "de": "Prozessbaum zugeklappt starten",
+    "fr": "Démarrer l'arborescence des processus réduite",
+    "es": "Iniciar el árbol de procesos contraído"
+  },
+  "Unknown account": {
+    "tr": "Bilinmeyen hesap",
+    "de": "Unbekanntes Konto",
+    "fr": "Compte inconnu",
+    "es": "Cuenta desconocida"
+  },
+  "User name": {
+    "tr": "Kullanıcı adı",
+    "de": "Benutzername",
+    "fr": "Nom d'utilisateur",
+    "es": "Nombre de usuario"
+  },
+  "Yes": {
+    "tr": "Evet",
+    "de": "Ja",
+    "fr": "Oui",
+    "es": "Sí"
+  },
+  "{0} \"{1}\" (PID {2})? Its windows stop responding and it does no work until it is resumed. Programs waiting for it may also stop responding.": {
+    "tr": "{0}: \"{1}\" (PID {2})? Pencereleri yanıt vermeyi bırakır ve sürdürülene kadar hiçbir iş yapmaz. Onu bekleyen programlar da yanıt vermeyebilir.",
+    "de": "{0} \"{1}\" (PID {2})? Seine Fenster reagieren nicht mehr, und er arbeitet nicht, bis er fortgesetzt wird. Programme, die auf ihn warten, reagieren eventuell ebenfalls nicht.",
+    "fr": "{0} \"{1}\" (PID {2}) ? Ses fenêtres cessent de répondre et il ne fait rien jusqu'à sa reprise. Les programmes qui l'attendent peuvent aussi cesser de répondre.",
+    "es": "¿{0} \"{1}\" (PID {2})? Sus ventanas dejan de responder y no hace nada hasta que se reanude. Los programas que lo esperan también pueden dejar de responder."
+  },
+  "{0} all {1} processes of \"{2}\"? Its windows stop responding and it does no work until it is resumed. Programs waiting for it may also stop responding.": {
+    "tr": "{0}: \"{2}\" uygulamasının {1} işleminin tümü? Pencereleri yanıt vermeyi bırakır ve sürdürülene kadar hiçbir iş yapmaz. Onu bekleyen programlar da yanıt vermeyebilir.",
+    "de": "{0} alle {1} Prozesse von \"{2}\"? Seine Fenster reagieren nicht mehr, und er arbeitet nicht, bis er fortgesetzt wird. Programme, die auf ihn warten, reagieren eventuell ebenfalls nicht.",
+    "fr": "{0} les {1} processus de \"{2}\" ? Ses fenêtres cessent de répondre et il ne fait rien jusqu'à sa reprise. Les programmes qui l'attendent peuvent aussi cesser de répondre.",
+    "es": "¿{0} todos los {1} procesos de \"{2}\"? Sus ventanas dejan de responder y no hace nada hasta que se reanude. Los programas que lo esperan también pueden dejar de responder."
   }
 }

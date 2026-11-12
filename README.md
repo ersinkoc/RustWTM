@@ -45,7 +45,25 @@ usage history.
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
-## New in 0.30.0
+## New in 0.30.1
+
+[Release scope and validation](docs/0.30.1-review.md)
+
+- **AI assistant:** ask what a process is, whether it is safe to end and what
+  slows the PC down, with your own key for Claude, OpenAI, Gemini, OpenRouter,
+  Groq, DeepSeek, Mistral, xAI or a local model (Ollama, LM Studio). The model
+  may look up more with read-only tools; secrets are masked, keys are sealed
+  with DPAPI and it never gets control. Also `wtm ai` and new MCP tools.
+- **Process workspace:** User name, Architecture, Elevated and File version
+  columns, a *Hide system processes* switch, collapsible tree nodes with
+  Expand/Collapse all, and grouping by user with *Sign out…*.
+- **Calmer alerts and safer suspend:** the overload alert closes itself once the
+  load is back to normal (*Keep it open* stops the countdown), and suspending
+  asks for confirmation first.
+
+IPC remains protocol 16.
+
+## Included since 0.30.0
 
 [Release scope and validation](docs/0.30.0-review.md)
 
@@ -220,6 +238,18 @@ stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/r
   standard input/output, so Claude Desktop, Claude Code and other MCP clients
   can ask what this PC is doing. Read-only unless started with
   `--allow-control`; nothing listens on the network.
+- **Built-in AI assistant**: right-click a process → *Diagnostics* → *Ask AI
+  about it*, or *Ask AI about this PC* in the system overview, to have a model
+  explain what a process is, whether it looks legitimate, whether it is safe to
+  end, and what slows the PC down. Bring your own API key for Anthropic
+  (Claude), OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral or xAI,
+  or use a local model through Ollama, LM Studio or any OpenAI-compatible
+  server. Off until you agree to it in *Settings → AI*; keys are sealed with
+  DPAPI for your Windows account; secrets in command lines and your account
+  name are masked before sending, and *Show what was sent* displays the exact
+  text. When the facts do not settle a question, the model may look up more
+  with RustWTM's read-only tools (bounded rounds, results masked; turn it off
+  in the settings). The model only advises: it is never given control.
 - **Disks**: every drive with its free space, live activity per physical disk
   and the processes reading and writing the most. *Analyze* any drive or folder
   to see what takes up the space: a folder tree with sizes and shares, the 200
@@ -359,8 +389,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.30.0-x64.msi            # interactive
-msiexec /i RustWTM-0.30.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.30.1-x64.msi            # interactive
+msiexec /i RustWTM-0.30.1-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc
@@ -441,7 +471,23 @@ wtm config show                    the service's configuration
 wtm config check my.toml           validate a file
 wtm config apply my.toml           validate and apply it (elevated)
 wtm mcp [--allow-control]          MCP server for AI assistants (stdio)
+wtm ai setup --provider anthropic  choose an AI provider (and agree to send facts)
+wtm ai key                         store its API key (typed hidden, or piped)
+wtm ai models / wtm ai test        list models, check the key
+wtm ai explain chrome              what is it, is it safe, should I end it?
+wtm ai advise "why is my fan loud?"   advice about the whole PC
+wtm ai explain 1234 --dry-run      print what would be sent, send nothing
+wtm ai setup --provider anthropic --lookups off   answer only from the facts sent
 ```
+
+`wtm ai` and the window share `%APPDATA%\RustWTM\ai.toml`. Providers:
+`anthropic`, `openai`, `gemini`, `openrouter`, `groq`, `deepseek`, `mistral`,
+`xai`, `ollama`, `lmstudio` and `custom` (any OpenAI-compatible `--base-url`).
+The key can also come from `RUSTWTM_AI_KEY` or the provider's own variable
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …). Requests go from
+your session with your key, never from the service; keys travel only over
+HTTPS (or to this PC), and redirects are refused so a key never reaches
+another host.
 
 To let an MCP client use it, add RustWTM to its server list, e.g. in Claude
 Desktop's `claude_desktop_config.json`:
@@ -452,8 +498,12 @@ Desktop's `claude_desktop_config.json`:
 
 or with Claude Code: `claude mcp add rustwtm -- "C:\Program Files\RustWTM\wtm.exe" mcp`.
 Tools: `system_overview`, `list_processes`, `process_details`,
-`why_not_responding`, `why_wont_it_end`, `network_connections`, `drives`,
-`recent_events`; with `--allow-control` also `end_process`, `suspend_process`,
+`process_report` (usage, path, signature, parent and children, hosted services,
+ports, startup entries in one call), `process_tree`, `process_modules`,
+`why_not_responding`, `why_wont_it_end`, `network_connections`, `services`,
+`startup_items`, `app_history`, `drives`, `recent_events`; prompts
+`explain_process`, `diagnose_slowdown` and `security_review`; with
+`--allow-control` also `end_process`, `suspend_process`,
 `resume_process`, `set_priority` and `efficiency_mode`, which require the
 `create_time` that `list_processes` reports, so a PID reused meanwhile is
 refused.

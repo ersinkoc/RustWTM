@@ -127,7 +127,15 @@ fn rate(value: f64) -> String {
     }
 }
 
-pub fn show(ui: &mut Ui, data: &Data) {
+/// The system overview; `true` when the user asked the AI assistant about
+/// this PC.
+pub fn show(ui: &mut Ui, data: &Data) -> bool {
+    let mut ask_ai = false;
+    overview(ui, data, &mut ask_ai);
+    ask_ai
+}
+
+fn overview(ui: &mut Ui, data: &Data, ask_ai: &mut bool) {
     use crate::navigation::Icon;
     ui.horizontal(|ui| {
         crate::navigation::badge(
@@ -156,6 +164,15 @@ pub fn show(ui: &mut Ui, data: &Data) {
         && let crate::inventory::ClipboardSummary::Ready(text) = &summary
     {
         ui.ctx().copy_text(text.clone());
+    }
+    if ui
+        .add(egui::Button::new(crate::i18n::tr("Ask AI about this PC")).small())
+        .on_hover_text(crate::i18n::tr(
+            "What slows this PC down and what to change, from your AI provider",
+        ))
+        .clicked()
+    {
+        *ask_ai = true;
     }
     match summary {
         crate::inventory::ClipboardSummary::Loading => {

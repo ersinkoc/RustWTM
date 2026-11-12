@@ -15,6 +15,9 @@ use crate::processes::Intent;
 pub const QUIET_AFTER_CLOSE: Duration = Duration::from_secs(5 * 60);
 /// "Snooze" button.
 pub const SNOOZE: Duration = Duration::from_secs(60 * 60);
+/// How long the load must stay back to normal before the alert closes by
+/// itself (unless the user keeps it open).
+pub const AUTO_CLOSE: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -51,6 +54,10 @@ pub struct AlertWatch {
     above_since: Option<Instant>,
     quiet_until: Option<Instant>,
     pub active: Option<Alert>,
+    /// Since when the CPU is back below the threshold, while an alert shows.
+    normal_since: Option<Instant>,
+    /// The user stopped the countdown: the alert stays until closed.
+    pub held: bool,
 }
 
 impl AlertWatch {
@@ -60,9 +67,19 @@ impl AlertWatch {
     }
 
     /// Feeds one CPU sample; `true` when an alert has just been raised.
+    /// An alert whose load stays back to normal for [`AUTO_CLOSE`] closes
+    /// by itself, unless the user held it; a new overload restarts the wait.
     pub fn update(&mut self, now: Instant, cpu: f32) -> bool {
         if let Some(a) = &mut self.active {
             a.cpu = cpu;
+            if cpu < self.settings.threshold {
+                let since = *self.normal_since.get_or_insert(now);
+                if !self.held && now.saturating_duration_since(since) >= AUTO_CLOSE {
+                    self.close(now, QUIET_AFTER_CLOSE);
+                }
+            } else {
+                self.normal_since = None;
+            }
             return false;
         }
         if !self.settings.enabled || cpu < self.settings.threshold {
@@ -77,12 +94,25 @@ impl AlertWatch {
             return false;
         }
         self.active = Some(Alert { cpu, started: now });
+        self.normal_since = None;
+        self.held = false;
         true
+    }
+
+    /// Time left before the alert closes by itself, while it counts down.
+    pub fn closes_in(&self, now: Instant) -> Option<Duration> {
+        if self.active.is_none() || self.held {
+            return None;
+        }
+        let since = self.normal_since?;
+        Some(AUTO_CLOSE.saturating_sub(now.saturating_duration_since(since)))
     }
 
     /// The user closed the alert: stay quiet for `quiet`.
     pub fn close(&mut self, now: Instant, quiet: Duration) {
         self.active = None;
+        self.normal_since = None;
+        self.held = false;
         self.above_since = None;
         self.quiet_until = Some(now + quiet);
     }
@@ -157,7 +187,25 @@ pub fn dialog(
             .color(color),
         );
         if alert.cpu < settings.threshold {
-            crate::theme::colored(ui, GOOD, crate::i18n::tr("The load is back to normal."));
+            ui.horizontal_wrapped(|ui| {
+                crate::theme::colored(ui, GOOD, crate::i18n::tr("The load is back to normal."));
+                if let Some(left) = data.alert_watch.closes_in(std::time::Instant::now()) {
+                    ui.label(crate::i18n::format(
+                        "Closes by itself in {0} s.",
+                        &[left.as_secs().max(1).to_string()],
+                    ));
+                    if ui
+                        .button(crate::i18n::tr("Keep it open"))
+                        .on_hover_text(crate::i18n::tr(
+                            "Stops the countdown; the alert stays until you close it",
+                        ))
+                        .clicked()
+                    {
+                        commands.push(UiCommand::HoldAlert);
+                    }
+                    ui.ctx().request_repaint_after(Duration::from_millis(500));
+                }
+            });
         } else {
             ui.label(crate::i18n::tr(
                 "These apps use the most CPU. One click brings them down; nothing is lost.",
@@ -369,5 +417,93 @@ mod tests {
         };
         assert!(!off.update(at(0), 100.0));
         assert!(!off.update(at(60), 100.0));
+    }
+
+    #[test]
+    fn closes_itself_once_the_load_stays_normal_unless_held() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let raised = || {
+            let mut w = AlertWatch {
+                settings: AlertSettings {
+                    seconds: 0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            assert!(w.update(at(0), 99.0));
+            w
+        };
+        let mut w = raised();
+        assert_eq!(w.closes_in(at(0)), None, "no countdown while overloaded");
+        assert!(!w.update(at(1), 40.0));
+        assert_eq!(w.closes_in(at(1)), Some(AUTO_CLOSE));
+        assert_eq!(
+            w.closes_in(at(6)),
+            Some(AUTO_CLOSE - Duration::from_secs(5))
+        );
+        // The overload comes back: the countdown starts over later.
+        assert!(!w.update(at(5), 95.0));
+        assert_eq!(w.closes_in(at(5)), None);
+        assert!(!w.update(at(6), 40.0));
+        assert!(!w.update(at(6 + 14), 40.0));
+        assert!(w.active.is_some(), "not yet");
+        assert!(!w.update(at(6 + 15), 40.0));
+        assert!(w.active.is_none(), "closed by itself");
+        assert!(!w.update(at(30), 99.0), "and quiet as after a close");
+
+        // Held: it stays, without a countdown, until closed.
+        let mut w = raised();
+        assert!(!w.update(at(1), 40.0));
+        w.held = true;
+        assert_eq!(w.closes_in(at(2)), None);
+        assert!(!w.update(at(100), 40.0));
+        assert!(w.active.is_some());
+        w.close(at(101), QUIET_AFTER_CLOSE);
+        assert!(!w.held, "the next alert counts down again");
+    }
+
+    #[test]
+    fn the_dialog_shows_the_countdown_and_can_be_kept_open() {
+        use egui_kittest::kittest::Queryable;
+        let mut data = Data::default();
+        data.alert_watch.settings.seconds = 0;
+        let now = Instant::now();
+        assert!(data.alert_watch.update(now, 99.0));
+        let render = |ui: &mut egui::Ui, (data, commands): &mut (Data, Vec<UiCommand>)| {
+            let mut settings = data.alert_watch.settings;
+            let (mut panic, mut intents) = (false, Vec::new());
+            dialog(
+                ui.ctx(),
+                data,
+                &mut settings,
+                &mut panic,
+                commands,
+                &mut intents,
+            );
+        };
+        // Still overloaded: no countdown.
+        let mut h = egui_kittest::Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([900.0, 700.0])
+            .build_ui_state(render, (data, Vec::new()));
+        h.run_steps(2);
+        assert!(h.query_by_label(crate::i18n::tr("Keep it open")).is_none());
+        // Back to normal: the countdown and the button to stop it.
+        h.state_mut().0.alert_watch.update(now, 40.0);
+        h.run_steps(2);
+        h.get_by_label(crate::i18n::tr("Keep it open")).click();
+        h.run_steps(2);
+        assert!(
+            h.state()
+                .1
+                .iter()
+                .any(|c| matches!(c, UiCommand::HoldAlert)),
+            "the button asks to hold the alert"
+        );
+        // Held: the countdown is gone.
+        h.state_mut().0.alert_watch.held = true;
+        h.run_steps(2);
+        assert!(h.query_by_label(crate::i18n::tr("Keep it open")).is_none());
     }
 }

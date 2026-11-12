@@ -34,7 +34,8 @@ fn query<'a>(block: &'a [u8], key: &str, unit: usize) -> Option<&'a [u8]> {
     block.get(start..end)
 }
 
-pub fn description(path: &str) -> Option<String> {
+/// The version resource of a local fixed-disk image, read without running it.
+fn version_block(path: &str) -> Option<Vec<u32>> {
     let drive = path.get(..3)?;
     if !drive.as_bytes()[0].is_ascii_alphabetic()
         || &drive.as_bytes()[1..] != b":\\"
@@ -57,8 +58,60 @@ pub fn description(path: &str) -> Option<String> {
     // SAFETY: the aligned, initialized buffer provides at least size writable bytes.
     unsafe { GetFileVersionInfoW(PCWSTR(path.as_ptr()), None, size, block.as_mut_ptr().cast()) }
         .ok()?;
-    // SAFETY: the first size bytes are initialized and live until block is dropped.
-    let bytes = unsafe { std::slice::from_raw_parts(block.as_ptr().cast::<u8>(), size as usize) };
+    block.truncate((size as usize).div_ceil(4));
+    Some(block)
+}
+
+fn block_bytes(block: &[u32]) -> &[u8] {
+    // SAFETY: every u32 of the block is initialized; u8 has no alignment needs.
+    unsafe { std::slice::from_raw_parts(block.as_ptr().cast::<u8>(), size_of_val(block)) }
+}
+
+/// What a version resource says about an image.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Metadata {
+    pub description: Option<String>,
+    /// `major.minor.build.revision` from the fixed file information.
+    pub version: Option<String>,
+}
+
+/// Description and file version, reading the image's resource once.
+pub fn metadata(path: &str) -> Metadata {
+    let Some(block) = version_block(path) else {
+        return Metadata::default();
+    };
+    let bytes = block_bytes(&block);
+    Metadata {
+        description: description_in(bytes),
+        version: query(bytes, "\\", 1).and_then(fixed_version),
+    }
+}
+
+pub fn description(path: &str) -> Option<String> {
+    description_in(block_bytes(&version_block(path)?))
+}
+
+/// `VS_FIXEDFILEINFO` file version, or `None` when the signature is wrong.
+fn fixed_version(info: &[u8]) -> Option<String> {
+    let word = |i: usize| -> Option<u32> {
+        Some(u32::from_le_bytes(
+            info.get(i * 4..i * 4 + 4)?.try_into().ok()?,
+        ))
+    };
+    if word(0)? != 0xFEEF_04BD {
+        return None;
+    }
+    let (ms, ls) = (word(2)?, word(3)?);
+    Some(format!(
+        "{}.{}.{}.{}",
+        ms >> 16,
+        ms & 0xffff,
+        ls >> 16,
+        ls & 0xffff
+    ))
+}
+
+fn description_in(bytes: &[u8]) -> Option<String> {
     let translations = query(bytes, r"\VarFileInfo\Translation", 1).unwrap_or_default();
     let candidates = translations
         .as_chunks::<4>()
@@ -96,7 +149,26 @@ pub fn description(path: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::description;
+    use super::{description, fixed_version, metadata};
+
+    #[test]
+    fn fixed_file_info_gives_four_part_version_and_checks_its_signature() {
+        let mut info = [0u8; 52];
+        info[..4].copy_from_slice(&0xFEEF_04BDu32.to_le_bytes());
+        info[8..12].copy_from_slice(&((10u32 << 16) | 2).to_le_bytes());
+        info[12..16].copy_from_slice(&((19041u32 << 16) | 3636).to_le_bytes());
+        assert_eq!(fixed_version(&info).as_deref(), Some("10.2.19041.3636"));
+        info[0] = 0;
+        assert_eq!(fixed_version(&info), None);
+        assert_eq!(fixed_version(&info[..8]), None);
+    }
+
+    #[test]
+    fn this_system_dll_reports_a_version() {
+        let dir = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let m = metadata(&format!(r"{dir}\System32\kernel32.dll"));
+        assert!(m.version.is_some_and(|v| v.split('.').count() == 4));
+    }
 
     #[test]
     fn rejects_relative_network_device_and_nul_paths() {

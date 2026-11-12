@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod about;
+mod ai_assistant;
 mod alert;
 mod app;
 mod backend;

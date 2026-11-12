@@ -10,7 +10,9 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use wtm_sys::control::{Access, ProcessHandle};
-pub use wtm_sys::control::{EcoQos, PriorityClass, enter_background_mode, raise_current_thread};
+pub use wtm_sys::control::{
+    Architecture, EcoQos, PriorityClass, enter_background_mode, raise_current_thread,
+};
 use wtm_sys::job::Job;
 
 use crate::ProcessInfo;
@@ -373,6 +375,26 @@ pub fn image_path(target: &ProcessRef) -> ControlResult<String> {
 pub fn command_line(target: &ProcessRef) -> ControlResult<String> {
     let h = open_verified(target, Access::QUERY)?;
     sys(target.pid, h.command_line())
+}
+
+/// Facts the process table shows that never change while a process runs.
+/// Each is `None` when it cannot be read with this program's rights.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProcessFacts {
+    /// Account the process runs as, `DOMAIN\user`.
+    pub user: Option<String>,
+    pub elevated: Option<bool>,
+    pub architecture: Option<Architecture>,
+}
+
+/// Opens the process once for its account, elevation and architecture.
+pub fn facts(target: &ProcessRef) -> ControlResult<ProcessFacts> {
+    let h = open_verified(target, Access::QUERY)?;
+    Ok(ProcessFacts {
+        user: h.user().ok(),
+        elevated: h.elevated().ok(),
+        architecture: h.architecture().ok(),
+    })
 }
 
 /// Read-only details; individual fields are `None` when access is denied.

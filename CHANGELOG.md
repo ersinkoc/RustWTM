@@ -6,6 +6,56 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-11-12
+
+### Added
+
+- AI assistant with your own API key. Right-click a process → *Diagnostics* →
+  *Ask AI about it*, or *Ask AI about this PC* in the system overview: RustWTM
+  gathers the facts (usage, path, command line, signature, parent and child
+  processes, hosted services, ports, startup entries, 24-hour history) and a
+  model explains what the process is, whether it looks legitimate, whether it
+  is safe to end, and what slows the PC down. Providers: Anthropic (Claude,
+  native Messages API), OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek,
+  Mistral, xAI, and local models through Ollama, LM Studio or any
+  OpenAI-compatible server. Set up in *Settings → AI* (with *List models* and
+  *Test connection*) or with `wtm ai setup`, `wtm ai key`, `wtm ai explain`,
+  `wtm ai advise`; `--dry-run` prints what would be sent.
+- Privacy and safety: off until you agree; API keys are sealed with DPAPI for
+  your Windows account; secrets in command lines (passwords, tokens, keys,
+  URL credentials) and your account name are masked before sending, command
+  lines can be left out entirely, and *Show what was sent* displays the exact
+  text. Facts are fenced as data so program-chosen names cannot instruct the
+  model, and the model only advises: it is never given control. Keys travel
+  only over HTTPS or to this PC, and redirects are never followed with a key.
+- The assistant can look things up: when the facts it was given do not settle a
+  question, the model may call RustWTM's read-only tools (another process, its
+  tree or modules, services, startup programs, connections, history). Bounded
+  to six rounds and five minutes, every result masked and fenced like the
+  facts, control tools refused, and *Stop* ends it. Models without tool
+  support answer from the facts. Turn it off in *Settings → AI assistant* or
+  with `wtm ai setup --lookups off`. Ready-made questions (what slows this PC
+  down, startup programs to disable, is it safe to end, could it be malware)
+  and *Ask AI about it* in the selected process's details.
+- MCP server: new read-only tools `process_report`, `process_tree`,
+  `process_modules`, `services`, `startup_items` and `app_history`, and the
+  prompts `explain_process`, `diagnose_slowdown` and `security_review`.
+- Processes: new optional User name, Architecture (x86/x64/ARM64), Elevated and
+  File version columns. The Diagnostics column profile includes them. Values
+  that this window's rights cannot read show as "—", never as "No".
+- Hide system processes: a toolbar switch hides Windows components and services
+  (core processes, session-0 programs from the Windows folder,
+  System32/SysWOW64/SystemApps helpers). Settings → Processes has editable
+  "Always show" and "Also hide" program lists. The selected process always
+  stays visible.
+- Process tree: nodes can be collapsed and expanded individually. The column
+  header menu has Expand all / Collapse all, and there is a "Start the process
+  tree collapsed" option.
+- Group processes by user: Settings → Processes offers Automatic / Always group
+  / Never group for the List view. Automatic groups only while more than one
+  person runs programs. A group's context menu offers Manage user accounts and
+  "Sign out…", which uses the existing sign-off confirmation.
+
 ### Changed
 
 - Verify and reuse complete published website image packages on repeated backfills,
@@ -15,6 +65,11 @@ All notable changes to this project are documented here. The format follows
   screenshot gallery can follow new stable releases automatically.
 - Refresh the product website after successful release publication, release-note
   edits and changelog changes through a repository-scoped GitHub App connection.
+- The CPU overload alert closes by itself 15 seconds after the load is back to
+  normal, with a visible countdown; *Keep it open* stops it.
+- Suspending a process, or every process of an app, now asks for confirmation
+  first and explains that its windows stop responding until it is resumed.
+  Core Windows processes and RustWTM itself stay protected as before.
 
 ## [0.30.0] - 2026-11-11
 
@@ -1286,7 +1341,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.1...HEAD
+[0.30.1]: https://github.com/rustwtm/rustwtm/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/rustwtm/rustwtm/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/rustwtm/rustwtm/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/rustwtm/rustwtm/compare/v0.27.2...v0.28.0

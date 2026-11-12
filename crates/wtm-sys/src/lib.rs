@@ -8,6 +8,7 @@ pub mod control;
 pub mod cpu;
 pub mod disk;
 pub mod disktrace;
+pub mod dpapi;
 pub mod ending;
 mod error;
 pub mod etw;

@@ -424,6 +424,8 @@ struct UiState {
     selected_service: Option<String>,
     config: crate::settings::ConfigView,
     telegram: crate::telegram_settings::TelegramView,
+    ai_settings: crate::ai_assistant::AiSettingsView,
+    ai: crate::ai_assistant::AiChat,
     limits: crate::limits_tab::LimitsView,
     kill: crate::kill_tab::KillView,
     ports: crate::ports_tab::PortsView,
@@ -546,6 +548,10 @@ struct Prefs {
     process_stripes: bool,
     process_descriptions: bool,
     process_hold_sorting: bool,
+    process_hide_system: bool,
+    process_system_filter: crate::processes::SystemFilter,
+    process_tree_collapsed: bool,
+    process_user_grouping: crate::processes::UserGrouping,
     chart_range_seconds: u32,
     chart_options: crate::charts::Options,
     cooling_profiles: HashMap<String, wtm_policy::CoolingProfile>,
@@ -635,6 +641,10 @@ impl UiState {
             process_stripes: p.stripes,
             process_descriptions: p.descriptive_names,
             process_hold_sorting: p.hold_sorting,
+            process_hide_system: p.hide_system,
+            process_system_filter: p.system.clone(),
+            process_tree_collapsed: p.tree_collapsed,
+            process_user_grouping: p.user_grouping,
             chart_range_seconds: self.charts.range_seconds(),
             chart_options: self.charts.options,
             cooling_profiles: self.sensors.profiles.clone(),
@@ -681,6 +691,10 @@ impl UiState {
         p.stripes = prefs.process_stripes;
         p.descriptive_names = prefs.process_descriptions;
         p.hold_sorting = prefs.process_hold_sorting;
+        p.hide_system = prefs.process_hide_system;
+        p.system = prefs.process_system_filter;
+        p.tree_collapsed = prefs.process_tree_collapsed;
+        p.user_grouping = prefs.process_user_grouping;
         self.sensors.profiles = prefs.cooling_profiles;
         self.alerts = prefs.alerts;
         self.tray_on_close = prefs.tray_on_close;
@@ -736,6 +750,8 @@ impl Default for UiState {
             selected_service: None,
             config: crate::settings::ConfigView::default(),
             telegram: crate::telegram_settings::TelegramView::default(),
+            ai_settings: Default::default(),
+            ai: Default::default(),
             limits: crate::limits_tab::LimitsView::default(),
             kill: crate::kill_tab::KillView::default(),
             ports: crate::ports_tab::PortsView::default(),
@@ -1128,7 +1144,9 @@ impl eframe::App for App {
                         if let Some(sel) = &selected {
                             details_panel(ui, &data, snap, sel, &mut intents);
                         } else {
-                            crate::workspace_inspector::show(ui, &data);
+                            if crate::workspace_inspector::show(ui, &data) {
+                                state.ai.open_system();
+                            }
                         }
                     });
                     let fill = ui.visuals().panel_fill;
@@ -1234,6 +1252,8 @@ impl eframe::App for App {
                                 descriptions: &data.descriptions,
                                 icons: &data.icons,
                                 hung: &data.hung,
+                                facts: &data.facts,
+                                versions: &data.versions,
                             };
                             crate::theme::panel(ui, |ui| {
                                 intents.extend(state.processes.ui_cached(
@@ -1422,6 +1442,9 @@ impl eframe::App for App {
                                 &mut state.telegram,
                             ));
                         }
+                        crate::settings::Page::Ai => {
+                            crate::ai_assistant::settings(ui, &mut state.ai_settings);
+                        }
                         crate::settings::Page::Service | crate::settings::Page::File => {
                             service_cmds.extend(crate::settings::settings(
                                 ui,
@@ -1524,20 +1547,27 @@ impl eframe::App for App {
         }
         quick_navigation(&ctx, state);
         state.installed_apps.dialog(&ctx);
+        if crate::ai_assistant::chat_window(&ctx, &mut state.ai) {
+            state.tab = Tab::Settings;
+            state.config.page = crate::settings::Page::Ai;
+        }
         if let Some((target, command)) = state.confirm.clone() {
             let modal = egui::Modal::new(egui::Id::unique("confirm")).show(&ctx, |ui| {
                 ui.heading(describe(command));
-                ui.label({
-                    let __wtm_i18n_0 = &(describe(command));
-                    let __wtm_i18n_1 = &(target.name);
-                    let __wtm_i18n_2 = &(target.pid);
+                let values = [
+                    describe(command),
+                    target.name.clone(),
+                    target.pid.to_string(),
+                ];
+                ui.label(if command == Command::Suspend {
+                    crate::i18n::format(
+                        "{0} \"{1}\" (PID {2})? Its windows stop responding and it does no work until it is resumed. Programs waiting for it may also stop responding.",
+                        &values,
+                    )
+                } else {
                     crate::i18n::format(
                         "{0} \"{1}\" (PID {2})? Unsaved data in that program will be lost.",
-                        &[
-                            __wtm_i18n_0.to_string(),
-                            __wtm_i18n_1.to_string(),
-                            format!("{}", __wtm_i18n_2),
-                        ],
+                        &values,
                     )
                 });
                 ui.add_space(0.0);
@@ -1694,7 +1724,13 @@ impl eframe::App for App {
             // One app's instances, or different programs (e.g. on one port).
             let same = targets.iter().all(|t| t.name == name);
             let modal = egui::Modal::new(egui::Id::unique("confirm_many")).show(&ctx, |ui| {
-                if same {
+                if same && command == Command::Suspend {
+                    ui.heading(format!("{} — {name}", describe(command)));
+                    ui.label(crate::i18n::format(
+                        "{0} all {1} processes of \"{2}\"? Its windows stop responding and it does no work until it is resumed. Programs waiting for it may also stop responding.",
+                        &[describe(command), targets.len().to_string(), name.clone()],
+                    ));
+                } else if same {
                     ui.heading(format!("{} — {name}", describe(command)));
                     ui.label({ let __wtm_i18n_0 = &(describe(command)); let __wtm_i18n_1 = &(targets.len()); crate::i18n::format("{0} all {1} processes of \"{2}\"? Unsaved data in that program will be lost.", &[__wtm_i18n_0.to_string(), format!("{}", __wtm_i18n_1), name.to_string()]) });
                 } else {
@@ -1833,6 +1869,14 @@ impl eframe::App for App {
                 Intent::ConfirmMany(targets, command) => {
                     state.confirm_many = Some((targets, command));
                 }
+                Intent::ManageAccounts => backend.send(UiCommand::Run {
+                    line: "ms-settings:otherusers".into(),
+                    elevated: false,
+                }),
+                Intent::SignOut(session, user) => {
+                    state.confirm_session =
+                        Some((session, user, crate::backend::SessionOp::SignOff));
+                }
                 Intent::OpenLocation(target) => backend.send(UiCommand::OpenLocation(target)),
                 Intent::Reveal(target) => {
                     backend.send(UiCommand::Inspect(target.clone()));
@@ -1854,6 +1898,7 @@ impl eframe::App for App {
                 Intent::WaitChain(target) => backend.send(UiCommand::WaitChain(target)),
                 Intent::WhyAlive(target) => backend.send(UiCommand::WhyAlive(target)),
                 Intent::Modules(target) => backend.send(UiCommand::Modules(target)),
+                Intent::AskAi(target) => state.ai.open_process(target),
                 Intent::Network(target, block) => {
                     let path = backend
                         .data()
@@ -2448,6 +2493,15 @@ fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Int
             .clicked()
         {
             intents.push(Intent::Modules(sel.clone()));
+        }
+        if ui
+            .button(crate::i18n::tr("Ask AI about it"))
+            .on_hover_text(crate::i18n::tr(
+                "What it is, whether it is safe and whether to end it, from your AI provider",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::AskAi(sel.clone()));
         }
     });
     match data
@@ -5935,6 +5989,8 @@ mod tests {
         assert!(h.state().state.processes.stripes);
         assert!(!h.state().state.processes.hold_sorting);
         assert_eq!(h.state().state.processes.sort, crate::processes::Col::Cpu);
+        h.get_by_label("Open process column editor").scroll_to_me();
+        h.run_steps(3);
         h.get_by_label("Open process column editor").click();
         h.run_steps(4);
         assert_eq!(h.state().state.tab, Tab::Processes);
@@ -6072,7 +6128,10 @@ mod tests {
             &restored.processes.column_order[..2],
             &[Col::Name, Col::Cpu]
         );
-        assert_eq!(restored.processes.column_order.len(), 17);
+        assert_eq!(
+            restored.processes.column_order.len(),
+            crate::processes::COLUMNS.len()
+        );
         assert!(restored.processes.visible.contains(&Col::Name));
         assert!(!restored.processes.visible.contains(&Col::Unknown));
         let saved = restored.prefs();
@@ -6126,6 +6185,7 @@ mod tests {
             UiCommand::ConfigureGuiStartup(change) => format!("gui startup {change:?}"),
             UiCommand::TaskManager(enabled) => format!("task manager {enabled:?}"),
             UiCommand::CloseAlert(quiet) => format!("close alert {}", quiet.as_secs()),
+            UiCommand::HoldAlert => "hold alert".into(),
             UiCommand::CheckUpdate => "check update".into(),
             UiCommand::InstallUpdate(r) => format!("install update {}", r.tag),
         }
@@ -7086,6 +7146,13 @@ mod tests {
         h.get_by_label("More actions").click();
         step(&mut h, &mut sent);
         h.get_by_label("Suspend").click();
+        step(&mut h, &mut sent);
+        // Suspending is confirmed in a dialog first.
+        h.run();
+        h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Suspend")
+            .last()
+            .unwrap()
+            .click();
         let s = step(&mut h, &mut sent);
         // A selection also loads the ports for the details panel.
         assert_eq!(
@@ -8025,6 +8092,25 @@ mod tests {
         action.click();
         h.run_steps(2);
         h.get_by_label("Suspend").click();
+        h.run_steps(2);
+        // Suspending freezes the program, so it is confirmed first.
+        assert!(!rx.try_iter().any(|c| matches!(
+            c,
+            UiCommand::Control {
+                command: Command::Suspend,
+                ..
+            }
+        )));
+        assert_eq!(
+            h.state().state.confirm.as_ref().map(|c| c.1),
+            Some(Command::Suspend)
+        );
+        // The dialog appears on the frame after the request.
+        h.run();
+        h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Suspend")
+            .last()
+            .unwrap()
+            .click();
         h.run_steps(2);
         assert!(rx.try_iter().any(|c| matches!(c, UiCommand::Control { target, command: Command::Suspend } if target == selected)));
     }
@@ -9316,6 +9402,7 @@ mod tests {
                                     "Telegram",
                                     "🔔 Telegram bot",
                                 ),
+                                (crate::settings::Page::Ai, "Ai", "Provider"),
                             ] {
                                 h.state_mut().state.config.page = page;
                                 h.run_steps(3);

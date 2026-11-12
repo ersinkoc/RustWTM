@@ -1,15 +1,17 @@
 //! Minimal HTTPS / HTTP GET and POST through WinHTTP (system proxy,
 //! redirects followed), and SHA-256 through CNG, for update checks,
-//! downloads and the Telegram bot.
+//! downloads, the Telegram bot and AI provider calls ([`call`]: extra
+//! headers, redirects refused so credentials never follow one).
 
 use core::ffi::c_void;
 
 use windows::Win32::Networking::WinHttp::{
     URL_COMPONENTS, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_FLAG_SECURE,
-    WINHTTP_OPEN_REQUEST_FLAGS, WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_QUERY_STATUS_CODE,
+    WINHTTP_OPEN_REQUEST_FLAGS, WINHTTP_OPTION_REDIRECT_POLICY,
+    WINHTTP_OPTION_REDIRECT_POLICY_NEVER, WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_QUERY_STATUS_CODE,
     WinHttpCloseHandle, WinHttpConnect, WinHttpCrackUrl, WinHttpOpen, WinHttpOpenRequest,
     WinHttpQueryHeaders, WinHttpReadData, WinHttpReceiveResponse, WinHttpSendRequest,
-    WinHttpSetTimeouts,
+    WinHttpSetOption, WinHttpSetTimeouts,
 };
 use windows::Win32::Security::Cryptography::{BCRYPT_SHA256_ALG_HANDLE, BCryptHash};
 use windows::core::PCWSTR;
@@ -60,7 +62,7 @@ pub fn get(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
         bytes: 512 << 20,
         time: std::time::Duration::from_secs(15 * 60),
     };
-    request("GET", url, None, user_agent, 30_000, limit)
+    request("GET", url, &[], None, user_agent, 30_000, limit, true)
 }
 
 /// Bounded update metadata: one MiB, with a 15-second overall deadline and
@@ -69,6 +71,7 @@ pub fn get_metadata(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
     request(
         "GET",
         url,
+        &[],
         None,
         user_agent,
         5_000,
@@ -76,6 +79,7 @@ pub fn get_metadata(url: &str, user_agent: &str) -> Result<(u16, Vec<u8>)> {
             bytes: 1 << 20,
             time: std::time::Duration::from_secs(15),
         },
+        true,
     )
 }
 
@@ -96,21 +100,61 @@ pub fn post(
     request(
         "POST",
         url,
+        &[],
         Some((content_type, body)),
         user_agent,
         timeout_ms,
         limit,
+        true,
     )
 }
 
+/// An API call that carries credentials in `headers` (name, value): a
+/// redirect is returned as its 3xx status, never followed, so a key sent to
+/// one host is never repeated to another. `body` is (content type, bytes).
+/// Waits up to `timeout_ms` for the answer; at most 8 MiB.
+pub fn call(
+    method: &str,
+    url: &str,
+    headers: &[(&str, &str)],
+    body: Option<(&str, &[u8])>,
+    user_agent: &str,
+    timeout_ms: i32,
+) -> Result<(u16, Vec<u8>)> {
+    let limit = Limit {
+        bytes: 8 << 20,
+        time: std::time::Duration::from_millis(timeout_ms.max(0) as u64 + 60_000),
+    };
+    request(
+        method, url, headers, body, user_agent, timeout_ms, limit, false,
+    )
+}
+
+/// A header line break would let a value start a header of its own.
+fn header_ok(name: &str, value: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().all(|b| b.is_ascii_graphic() && b != b':')
+        && !value.contains(['\r', '\n'])
+}
+
+#[allow(clippy::too_many_arguments)]
 fn request(
     method: &str,
     url: &str,
+    extra_headers: &[(&str, &str)],
     body: Option<(&str, &[u8])>,
     user_agent: &str,
     timeout_ms: i32,
     limit: Limit,
+    follow_redirects: bool,
 ) -> Result<(u16, Vec<u8>)> {
+    if let Some((name, _)) = extra_headers.iter().find(|(n, v)| !header_ok(n, v)) {
+        return Err(windows::core::Error::new(
+            windows::Win32::Foundation::ERROR_INVALID_PARAMETER.to_hresult(),
+            format!("header {name:?} is not valid"),
+        )
+        .into());
+    }
     let deadline = std::time::Instant::now() + limit.time;
     let url_w: Vec<u16> = url.encode_utf16().collect();
     // Null pointers with non-zero lengths: WinHTTP points into `url_w`.
@@ -139,11 +183,13 @@ fn request(
     let object = wide_z(&object);
     let agent: Vec<u16> = user_agent.encode_utf16().chain([0]).collect();
     let verb: Vec<u16> = method.encode_utf16().chain([0]).collect();
-    let headers: Vec<u16> = body
+    let mut header_text = body
         .map(|(t, _)| format!("Content-Type: {t}\r\n"))
-        .unwrap_or_default()
-        .encode_utf16()
-        .collect();
+        .unwrap_or_default();
+    for (name, value) in extra_headers {
+        header_text.push_str(&format!("{name}: {value}\r\n"));
+    }
+    let headers: Vec<u16> = header_text.encode_utf16().collect();
     let payload = body.map_or(&[][..], |(_, b)| b);
     let flags = if parts.nScheme.0 == SCHEME_HTTPS {
         WINHTTP_FLAG_SECURE
@@ -177,6 +223,14 @@ fn request(
             std::ptr::null(),
             flags,
         ))?;
+        if !follow_redirects {
+            let never = WINHTTP_OPTION_REDIRECT_POLICY_NEVER.to_ne_bytes();
+            WinHttpSetOption(
+                Some(request.0),
+                WINHTTP_OPTION_REDIRECT_POLICY,
+                Some(&never),
+            )?;
+        }
         WinHttpSendRequest(
             request.0,
             (!headers.is_empty()).then_some(headers.as_slice()),
@@ -302,7 +356,7 @@ Connection: close
             time: std::time::Duration::from_secs(60),
         };
         let url = format!("http://127.0.0.1:{port}/");
-        let e = request("GET", &url, None, "wtm-test", 30_000, limit).unwrap_err();
+        let e = request("GET", &url, &[], None, "wtm-test", 30_000, limit, true).unwrap_err();
         assert!(e.to_string().contains("larger than 1024 bytes"), "{e}");
         server.join().unwrap();
 
@@ -331,7 +385,7 @@ Content-Length: 100
             time: std::time::Duration::from_millis(300),
         };
         let url = format!("http://127.0.0.1:{port}/");
-        let e = request("GET", &url, None, "wtm-test", 30_000, limit).unwrap_err();
+        let e = request("GET", &url, &[], None, "wtm-test", 30_000, limit, true).unwrap_err();
         assert!(e.to_string().contains("took longer"), "{e}");
         trickle.join().unwrap();
     }
@@ -384,6 +438,59 @@ Content-Length: 100
             "{request}"
         );
         assert!(request.ends_with(r#"{"a":1}"#), "{request}");
+    }
+
+    #[test]
+    fn calls_send_their_headers_and_never_follow_a_redirect() {
+        let (port, server) = serve(vec![
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+            "HTTP/1.1 307 Temporary Redirect\r\nLocation: /elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ]);
+        let url = format!("http://127.0.0.1:{port}/v1/messages");
+        let headers = [
+            ("x-api-key", "sk-secret"),
+            ("anthropic-version", "2026-10-21"),
+        ];
+        let (status, body) = call(
+            "POST",
+            &url,
+            &headers,
+            Some(("application/json", b"{}")),
+            "wtm-test",
+            5_000,
+        )
+        .unwrap();
+        assert_eq!((status, body.as_slice()), (200, &b"ok"[..]));
+        // The redirect comes back as it is; the key goes nowhere else.
+        let (status, _) = call("GET", &url, &headers, None, "wtm-test", 5_000).unwrap();
+        assert_eq!(status, 307);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2, "no request followed the redirect");
+        assert!(
+            requests[0].contains("x-api-key: sk-secret"),
+            "{}",
+            requests[0]
+        );
+        assert!(requests[0].contains("anthropic-version: 2026-10-21"));
+        assert!(requests[0].contains("Content-Type: application/json"));
+        assert!(
+            requests[1].starts_with("GET /v1/messages "),
+            "{}",
+            requests[1]
+        );
+
+        // A value with a line break could add a header of its own.
+        let e = call(
+            "GET",
+            &url,
+            &[("x-api-key", "a\r\nHost: evil")],
+            None,
+            "t",
+            1_000,
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("not valid"), "{e}");
+        assert!(call("GET", &url, &[("bad name", "v")], None, "t", 1_000).is_err());
     }
 
     #[test]

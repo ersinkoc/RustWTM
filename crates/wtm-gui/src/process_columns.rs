@@ -74,7 +74,19 @@ impl Profile {
             Self::Memory => &[Name, Pid, Memory, Commit, WorkingSet, Handles],
             Self::Io => &[Name, Pid, Disk, Handles, CommandLine],
             Self::Network => &[Name, Pid, Network, CommandLine],
-            Self::Diagnostics => &[Name, Pid, Threads, Handles, Session, Started, CommandLine],
+            Self::Diagnostics => &[
+                Name,
+                Pid,
+                User,
+                Elevated,
+                Architecture,
+                FileVersion,
+                Threads,
+                Handles,
+                Session,
+                Started,
+                CommandLine,
+            ],
         };
         let mut order = cols.to_vec();
         normalize_order(&mut order);

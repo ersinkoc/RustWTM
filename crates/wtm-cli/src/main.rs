@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod actions;
+mod ai;
 mod config;
 mod kill;
 mod mcp;
@@ -75,6 +76,12 @@ enum Command {
         /// Also offer tools that end, suspend or deprioritize processes
         #[arg(long)]
         allow_control: bool,
+    },
+    /// Ask an AI provider (Claude, OpenAI, Gemini, local models...) to
+    /// explain a process or advise on this PC, with your own API key
+    Ai {
+        #[command(subcommand)]
+        action: ai::AiCommand,
     },
     /// Live, auto-refreshing process monitor
     Top {
@@ -410,6 +417,7 @@ fn main() -> anyhow::Result<ExitCode> {
             mcp::run(io::stdin().lock(), io::stdout().lock(), allow_control)?;
             Ok(ExitCode::SUCCESS)
         }
+        Command::Ai { action } => ai::run(action),
         Command::Top { sort, interval_ms } => {
             top::run(sort.into(), Duration::from_millis(interval_ms.max(100)))
                 .map(|()| ExitCode::SUCCESS)

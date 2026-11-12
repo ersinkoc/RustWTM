@@ -96,13 +96,17 @@ pub enum Col {
     Started,
     Limits,
     CommandLine,
+    User,
+    Architecture,
+    Elevated,
+    FileVersion,
     /// Forward-compatible saved preferences; never a rendered column.
     #[serde(other)]
     Unknown,
 }
 
 /// Column, header, initial width, numeric (sorts largest first), shown by default.
-pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 17] = [
+pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 21] = [
     (Col::Name, "Name", 240.0, false, true),
     (Col::Pid, "PID", 64.0, false, true),
     (Col::Cpu, "CPU", 64.0, true, true),
@@ -120,6 +124,10 @@ pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 17] = [
     (Col::Started, "Running for", 96.0, true, false),
     (Col::Limits, "Limits", 160.0, false, true),
     (Col::CommandLine, "Command line", 400.0, false, true),
+    (Col::User, "User name", 140.0, false, false),
+    (Col::Architecture, "Architecture", 84.0, false, false),
+    (Col::Elevated, "Elevated", 76.0, false, false),
+    (Col::FileVersion, "File version", 120.0, false, false),
 ];
 
 /// A 16 px program icon (or the same space when there is none). Textures are
@@ -154,6 +162,9 @@ pub struct Extra<'a> {
     pub icons: &'a HashMap<String, Option<std::sync::Arc<wtm_core::IconImage>>>,
     /// Processes whose window does not respond.
     pub hung: &'a crate::backend::HungMap,
+    pub facts: &'a crate::backend::FactsMap,
+    /// File version per image path.
+    pub versions: &'a HashMap<String, Option<String>>,
 }
 
 impl Extra<'_> {
@@ -188,6 +199,47 @@ impl Extra<'_> {
         self.command_lines
             .get(&(p.pid, p.create_time))
             .map_or("", String::as_str)
+    }
+
+    fn facts(&self, p: &ProcessInfo) -> Option<&wtm_core::control::ProcessFacts> {
+        self.facts.get(&(p.pid, p.create_time))
+    }
+
+    /// The account, `DOMAIN\user`, when it could be read.
+    pub fn user(&self, p: &ProcessInfo) -> Option<&str> {
+        self.facts(p)?.user.as_deref()
+    }
+
+    fn version(&self, p: &ProcessInfo) -> &str {
+        self.image_path(p)
+            .and_then(|path| self.versions.get(path)?.as_deref())
+            .unwrap_or("")
+    }
+
+    fn architecture(&self, p: &ProcessInfo) -> String {
+        self.facts(p)
+            .and_then(|f| f.architecture)
+            .map(wtm_core::control::Architecture::label)
+            .unwrap_or_default()
+    }
+
+    /// Sorts unknown before no before yes.
+    fn elevated(&self, p: &ProcessInfo) -> Option<bool> {
+        self.facts(p)?.elevated
+    }
+}
+
+/// `user` from `DOMAIN\user`, as Task Manager shows it.
+pub fn short_user(account: &str) -> &str {
+    account.rsplit('\\').next().unwrap_or(account)
+}
+
+/// Yes, No, or a dash when the token could not be read.
+fn elevated_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => crate::i18n::tr("Yes"),
+        Some(false) => crate::i18n::tr("No"),
+        None => "—",
     }
 }
 
@@ -224,6 +276,12 @@ pub enum Intent {
     Modules(ProcessRef),
     /// Block (`true`) or unblock the program's network access with Windows Firewall.
     Network(ProcessRef, bool),
+    /// Ask the AI assistant what the process is and what to do about it.
+    AskAi(ProcessRef),
+    /// Open the Windows settings page for other users' accounts.
+    ManageAccounts,
+    /// Ask before signing out the user of this session.
+    SignOut(u32, String),
 }
 
 /// How the process list is arranged.
@@ -299,6 +357,85 @@ impl MoreFilters {
 /// Minutes offered for "started in the last ...".
 const RECENT_PRESETS: [u32; 5] = [1, 5, 15, 60, 240];
 
+/// When the list shows one group per user account.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum UserGrouping {
+    Always,
+    Never,
+    /// Only while more than one person runs programs on this PC.
+    #[default]
+    #[serde(other)]
+    Auto,
+}
+
+/// Which processes "Hide system processes" hides.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct SystemFilter {
+    /// Image names never hidden, although they belong to Windows.
+    pub always_show: Vec<String>,
+    /// Image names hidden with the system processes.
+    pub also_hide: Vec<String>,
+}
+
+impl Default for SystemFilter {
+    fn default() -> Self {
+        Self {
+            always_show: [
+                "explorer.exe",
+                "cmd.exe",
+                "powershell.exe",
+                "notepad.exe",
+                "mmc.exe",
+                "regedit.exe",
+                "mstsc.exe",
+            ]
+            .map(String::from)
+            .to_vec(),
+            also_hide: Vec::new(),
+        }
+    }
+}
+
+impl SystemFilter {
+    /// Whether `p` is part of Windows: a core or kernel process, a service
+    /// session process from the Windows folder (or one whose image cannot be
+    /// read there), or a helper from System32, SysWOW64 or SystemApps.
+    pub fn is_system(&self, p: &ProcessInfo, image_path: Option<&str>) -> bool {
+        let listed =
+            |names: &[String]| names.iter().any(|n| n.trim().eq_ignore_ascii_case(&p.name));
+        if listed(&self.always_show) {
+            return false;
+        }
+        if listed(&self.also_hide)
+            || wtm_core::protection_reason(p.pid, &p.name).is_some_and(|r| r != "RustWTM itself")
+        {
+            return true;
+        }
+        let path = image_path.unwrap_or("").to_lowercase();
+        let root = windows_root();
+        let in_windows = !root.is_empty() && path.starts_with(&root);
+        if p.session_id == 0 && (path.is_empty() || in_windows) {
+            return true;
+        }
+        in_windows
+            && ["system32\\", "syswow64\\", "systemapps\\"]
+                .iter()
+                .any(|dir| path[root.len()..].starts_with(dir))
+    }
+}
+
+/// `c:\windows\` in lower case, or empty when unknown.
+fn windows_root() -> String {
+    static ROOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        std::env::var("SystemRoot")
+            .map(|r| format!("{}\\", r.trim_end_matches('\\').to_lowercase()))
+            .unwrap_or_default()
+    })
+    .clone()
+}
+
 pub struct ProcessView {
     pub search: String,
     pub mode: ViewMode,
@@ -320,6 +457,18 @@ pub struct ProcessView {
     fit_widths: bool,
     reset_widths: bool,
     pub hold_sorting: bool,
+    /// Hide processes that are part of Windows.
+    pub hide_system: bool,
+    pub system: SystemFilter,
+    /// Tree nodes start collapsed ("Collapse all") or expanded.
+    pub tree_collapsed: bool,
+    /// Tree nodes the user opened or closed against `tree_collapsed`.
+    tree_toggled: HashSet<(u32, i64)>,
+    pub user_grouping: UserGrouping,
+    /// User groups closed in the list (accounts in lower case).
+    collapsed_users: HashSet<String>,
+    /// Open the tree and user group down to this process on the next rows.
+    expand_to: Option<(u32, i64)>,
     pub filter: QuickFilter,
     pub more: MoreFilters,
     /// Minutes last chosen for the "started in the last" filter.
@@ -344,6 +493,8 @@ pub struct ProcessView {
 enum Row {
     Process(usize, usize),
     App(usize),
+    /// A user account (index into the groups).
+    User(usize),
 }
 
 /// Everything the rows are built from. `revision` stands for the data the
@@ -362,6 +513,13 @@ struct RowKey {
     filter: QuickFilter,
     more: MoreFilters,
     expanded: HashSet<String>,
+    hide_system: bool,
+    system: SystemFilter,
+    tree_collapsed: bool,
+    tree_toggled: HashSet<(u32, i64)>,
+    /// Effective: `Auto` already resolved.
+    by_user: bool,
+    collapsed_users: HashSet<String>,
     /// The "started in the last" filter moves with the clock.
     second: Option<u64>,
 }
@@ -370,6 +528,8 @@ struct RowCache {
     key: RowKey,
     rows: Vec<Row>,
     groups: Vec<AppGroup>,
+    /// Tree rows (snapshot indices) that have children.
+    parents: HashSet<usize>,
     /// Processes that match the filters.
     shown: usize,
 }
@@ -400,6 +560,13 @@ impl Default for ProcessView {
             fit_widths: false,
             reset_widths: false,
             hold_sorting: true,
+            hide_system: false,
+            system: SystemFilter::default(),
+            tree_collapsed: false,
+            tree_toggled: HashSet::new(),
+            user_grouping: UserGrouping::Auto,
+            collapsed_users: HashSet::new(),
+            expand_to: None,
             filter: QuickFilter::All,
             more: MoreFilters::default(),
             recent_minutes: 5,
@@ -556,6 +723,7 @@ impl ProcessView {
         if self.mode == ViewMode::Apps {
             self.expanded.insert(target.name.to_lowercase());
         }
+        self.expand_to = Some((target.pid, target.create_time));
         self.selected = Some(target);
         self.revealed = None;
         self.last_order = None;
@@ -728,6 +896,13 @@ fn compare(
         Col::Started => b.create_time.cmp(&a.create_time),
         Col::Limits => crate::sort::text(extra.label(a), extra.label(b)),
         Col::CommandLine => crate::sort::text(extra.command_line(a), extra.command_line(b)),
+        Col::User => crate::sort::text(
+            extra.user(a).map_or("", short_user),
+            extra.user(b).map_or("", short_user),
+        ),
+        Col::Architecture => crate::sort::text(&extra.architecture(a), &extra.architecture(b)),
+        Col::Elevated => extra.elevated(a).cmp(&extra.elevated(b)),
+        Col::FileVersion => crate::sort::text(extra.version(a), extra.version(b)),
     }
     .then(a.pid.cmp(&b.pid))
 }
@@ -769,21 +944,35 @@ fn tree_order(
     descending: bool,
     extra: &Extra<'_>,
 ) -> Vec<(usize, usize)> {
-    tree_order_by(procs, false, |a, b| {
-        let o = compare(a, b, col, extra, false);
-        if descending { o.reverse() } else { o }
-    })
+    let all: Vec<usize> = (0..procs.len()).collect();
+    tree_order_by(
+        procs,
+        &all,
+        false,
+        |a, b| {
+            let o = compare(a, b, col, extra, false);
+            if descending { o.reverse() } else { o }
+        },
+        |_| false,
+    )
+    .0
 }
 
+/// Depth-first rows of the processes at `members` (indices into `procs`),
+/// without the descendants of `collapsed` ones, and every member that has
+/// children. A member whose parent is not a member becomes a root.
 fn tree_order_by(
     procs: &[ProcessInfo],
+    members: &[usize],
     ordered_fallback: bool,
     order: impl Fn(&ProcessInfo, &ProcessInfo) -> Ordering,
-) -> Vec<(usize, usize)> {
-    let index: HashMap<u32, usize> = procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
+    collapsed: impl Fn(usize) -> bool,
+) -> (Vec<(usize, usize)>, HashSet<usize>) {
+    let index: HashMap<u32, usize> = members.iter().map(|&i| (procs[i].pid, i)).collect();
     let mut children: HashMap<usize, Vec<usize>> = HashMap::new();
     let mut roots = Vec::new();
-    for (i, p) in procs.iter().enumerate() {
+    for &i in members {
+        let p = &procs[i];
         match index.get(&p.parent_pid) {
             Some(&parent) if parent != i && procs[parent].create_time <= p.create_time => {
                 children.entry(parent).or_default().push(i);
@@ -797,28 +986,33 @@ fn tree_order_by(
     sort(&mut roots);
     children.values_mut().for_each(sort);
 
-    let mut out = Vec::with_capacity(procs.len());
+    let mut out = Vec::with_capacity(members.len());
     let mut seen = vec![false; procs.len()];
     let mut stack = Vec::new();
     // Processes that are only reachable through a parent cycle (same create
     // time, PIDs reused) are appended as extra roots so none goes missing.
-    let mut fallback: Vec<_> = (0..procs.len()).collect();
+    let mut fallback = members.to_vec();
     if ordered_fallback {
         sort(&mut fallback);
     }
     for start in roots.into_iter().chain(fallback) {
-        stack.push((start, 0));
-        while let Some((i, depth)) = stack.pop() {
+        stack.push((start, 0, false));
+        while let Some((i, depth, hidden)) = stack.pop() {
             if std::mem::replace(&mut seen[i], true) {
                 continue;
             }
-            out.push((i, depth));
+            // Hidden under a collapsed ancestor: seen, so the fallback does
+            // not show it as a root, but not listed.
+            if !hidden {
+                out.push((i, depth));
+            }
             if let Some(kids) = children.get(&i) {
-                stack.extend(kids.iter().rev().map(|&k| (k, depth + 1)));
+                let hide = hidden || collapsed(i);
+                stack.extend(kids.iter().rev().map(|&k| (k, depth + 1, hide)));
             }
         }
     }
-    out
+    (out, children.into_keys().collect())
 }
 
 /// Background of a heat-map cell for a share `load` (0..=1) of the machine;
@@ -846,7 +1040,16 @@ const NARROW_NAME: f32 = 180.0;
 
 /// Columns whose values (and so their headers) are aligned right.
 fn right_aligned(col: Col) -> bool {
-    !matches!(col, Col::Name | Col::Limits | Col::CommandLine)
+    !matches!(
+        col,
+        Col::Name
+            | Col::Limits
+            | Col::CommandLine
+            | Col::User
+            | Col::Architecture
+            | Col::Elevated
+            | Col::FileVersion
+    )
 }
 
 impl ProcessView {
@@ -873,7 +1076,7 @@ impl ProcessView {
             .iter()
             .filter_map(|r| match *r {
                 Row::Process(i, _) => Some(&all[i]),
-                Row::App(_) => None,
+                Row::App(_) | Row::User(_) => None,
             })
             .collect();
         let current = self.selected.as_ref().and_then(|s| {
@@ -1035,6 +1238,13 @@ impl ProcessView {
                 self.set_recent(recent);
             }
             self.more_filters_menu(ui);
+            ui.toggle_value(
+                &mut self.hide_system,
+                crate::i18n::tr("Hide system processes"),
+            )
+            .on_hover_text(crate::i18n::tr(
+                "Hide Windows components and services. Edit the program lists in Settings > Processes.",
+            ));
             self.filter_chips(ui);
             if paused.is_some() {
                 ui.label(
@@ -1053,6 +1263,9 @@ impl ProcessView {
                 || ui.memory(|m| m.top_modal_layer().is_some()));
         let cache = self.rows(snap, extra, revision);
         let (rows, groups, shown) = (&cache.rows, &cache.groups, cache.shown);
+        let parents = &cache.parents;
+        let has_user_rows = rows.iter().any(|r| matches!(r, Row::User(_)));
+        let mut toggled_node = None;
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new({
@@ -1234,6 +1447,16 @@ impl ProcessView {
                                         self.visible.remove(col);
                                         self.normalize_columns();
                                     }
+                                    if self.mode == ViewMode::Tree || has_user_rows {
+                                        crate::theme::divider(ui);
+                                        if crate::context_actions::action(ui, crate::i18n::tr("Expand all")) {
+                                            self.expand_all();
+                                        }
+                                        if crate::context_actions::action(ui, crate::i18n::tr("Collapse all")) {
+                                            self.collapse_all();
+                                            self.collapsed_users.extend(groups.iter().map(|g| g.key.clone()));
+                                        }
+                                    }
                                     crate::theme::divider(ui);
                                     self.columns_menu(ui, true);
                                 });
@@ -1244,9 +1467,10 @@ impl ProcessView {
                     .body(|mut body| {
                         self.inspection_rect = Some(body.max_rect().intersect(body.ui_mut().clip_rect()));
                         body.rows(row_height, rows.len(), |mut row| {
-                            let (p, depth, group) = match rows[row.index()] {
-                                Row::Process(i, depth) => (&snap.processes[i], depth, None),
-                                Row::App(i) => (&groups[i].total, 0, Some(&groups[i])),
+                            let (p, depth, group, user_row, index) = match rows[row.index()] {
+                                Row::Process(i, depth) => (&snap.processes[i], depth, None, false, Some(i)),
+                                Row::App(i) => (&groups[i].total, 0, Some(&groups[i]), false, None),
+                                Row::User(i) => (&groups[i].total, 0, Some(&groups[i]), true, None),
                             };
                             let key = (p.pid, p.create_time);
                             row.set_selected(group.is_none() && selected == Some(key));
@@ -1270,11 +1494,48 @@ impl ProcessView {
                                         );
                                     }
                                     match col {
+                                        Col::Name if user_row => {
+                                            let g = group.expect("user rows have a group");
+                                            let open = !self.collapsed_users.contains(&g.key);
+                                            ui.label(if open { "⏷" } else { "⏵" });
+                                            let account = g.members.first().and_then(|&i| extra.user(&snap.processes[i]));
+                                            let name = account.map_or_else(
+                                                || crate::i18n::tr("Unknown account").to_owned(),
+                                                |a| short_user(a).to_owned(),
+                                            );
+                                            let response = ui.add(
+                                                egui::Label::new(
+                                                    RichText::new(format!("{name} ({})", g.members.len())).strong(),
+                                                )
+                                                .truncate(),
+                                            );
+                                            if let Some(account) = account {
+                                                response.on_hover_text(account);
+                                            }
+                                        }
                                         Col::Name => {
                                             ui.add_space(depth as f32 * 14.0);
                                             if let Some(g) = group {
                                                 let open = self.expanded.contains(&g.key);
                                                 ui.label(if open { "⏷" } else { "⏵" });
+                                            } else if self.mode == ViewMode::Tree
+                                                && let Some(i) = index
+                                                && parents.contains(&i)
+                                            {
+                                                let open = self.tree_collapsed
+                                                    == self.tree_toggled.contains(&key);
+                                                let arrow = ui
+                                                    .add(egui::Button::new(if open { "⏷" } else { "⏵" }).frame(false).small())
+                                                    .on_hover_text(if open {
+                                                        crate::i18n::tr("Collapse")
+                                                    } else {
+                                                        crate::i18n::tr("Expand")
+                                                    });
+                                                if arrow.clicked() {
+                                                    toggled_node = Some(key);
+                                                }
+                                            } else if self.mode == ViewMode::Tree {
+                                                ui.add_space(14.0);
                                             }
                                             app_icon(ui, extra.icon(p));
                                             let description = self.descriptive_names.then(|| extra.description(p)).flatten();
@@ -1372,13 +1633,45 @@ impl ProcessView {
                                             ui.label(RichText::new(cmd).monospace().small())
                                                 .on_hover_text(cmd);
                                         }
+                                        Col::User => match extra.user(p) {
+                                            Some(account) => {
+                                                ui.label(short_user(account)).on_hover_text(account);
+                                            }
+                                            None => {
+                                                ui.weak("—").on_hover_text(crate::i18n::tr(
+                                                    "Not readable with this window's rights",
+                                                ));
+                                            }
+                                        },
+                                        Col::Architecture => {
+                                            let arch = extra.architecture(p);
+                                            if arch.is_empty() {
+                                                ui.weak("—");
+                                            } else {
+                                                ui.label(arch);
+                                            }
+                                        }
+                                        Col::Elevated => {
+                                            ui.label(elevated_label(extra.elevated(p)));
+                                        }
+                                        Col::FileVersion => {
+                                            ui.label(extra.version(p));
+                                        }
                                     }
                                 }));
                             }
 
                             let response = row.response();
                             let target = ProcessRef::from(p);
-                            if let Some(g) = group {
+                            if user_row {
+                                let g = group.expect("user rows have a group");
+                                if response.clicked() && !self.collapsed_users.remove(&g.key) {
+                                    self.collapsed_users.insert(g.key.clone());
+                                }
+                                crate::context_actions::menu(&response, (menu_id, "user", &g.key), |ui| {
+                                    user_menu(ui, g, &snap.processes, extra, &mut intents);
+                                });
+                            } else if let Some(g) = group {
                                 if response.clicked() && !self.expanded.remove(&g.key) {
                                     self.expanded.insert(g.key.clone());
                                 }
@@ -1413,6 +1706,10 @@ impl ProcessView {
                         });
                     });
             });
+        if let Some(key) = toggled_node {
+            self.toggle_node(key);
+            ui.ctx().request_repaint();
+        }
         self.keep(cache, revision);
         self.edit_columns(ui.ctx(), editor_was_open);
         intents
@@ -1444,10 +1741,31 @@ impl ProcessView {
             && key.more == self.more
             && key.second == second
             && (self.mode != ViewMode::Apps || key.expanded == self.expanded)
+            && key.hide_system == self.hide_system
+            && key.system == self.system
+            && (self.mode != ViewMode::Tree
+                || key.tree_collapsed == self.tree_collapsed
+                    && key.tree_toggled == self.tree_toggled)
+            && key.collapsed_users == self.collapsed_users
+            && self.expand_to.is_none()
+            && self.by_user_setting_unchanged(key)
+    }
+
+    /// Grouping by user depends on the data in `Auto`; the revision covers
+    /// that, so only the setting itself is compared here.
+    fn by_user_setting_unchanged(&self, key: &RowKey) -> bool {
+        match self.user_grouping {
+            UserGrouping::Auto => true,
+            UserGrouping::Always => key.by_user || self.mode != ViewMode::List,
+            UserGrouping::Never => !key.by_user,
+        }
     }
 
     fn same_order_settings(&self, key: &RowKey) -> bool {
         key.search == self.search
+            && key.hide_system == self.hide_system
+            && key.system == self.system
+            && self.by_user_setting_unchanged(key)
             && key.mode == self.mode
             && key.sort == self.sort
             && key.descending == self.descending
@@ -1473,7 +1791,17 @@ impl ProcessView {
         }
 
         let procs = &snap.processes;
+        if let Some(target) = self.expand_to.take() {
+            self.open_path_to(procs, extra, target);
+        }
         let filter = self.search.trim().to_lowercase();
+        let selected = self.selected.as_ref().map(|s| (s.pid, s.create_time));
+        // The selected process stays listed, so a reveal always shows it.
+        let shown_system = |p: &ProcessInfo| {
+            !self.hide_system
+                || selected == Some((p.pid, p.create_time))
+                || !self.system.is_system(p, extra.image_path(p))
+        };
         let matches = |p: &ProcessInfo| {
             let resource_matches = match self.filter {
                 QuickFilter::All => true,
@@ -1483,6 +1811,7 @@ impl ProcessView {
                 QuickFilter::NotResponding => extra.hung.contains_key(&p.pid),
             };
             resource_matches
+                && shown_system(p)
                 && self.more.matches(p, now)
                 && (filter.is_empty()
                     || p.name.to_lowercase().contains(&filter)
@@ -1517,13 +1846,53 @@ impl ProcessView {
             filter.is_empty() && self.filter == QuickFilter::All && self.more.is_empty();
         let matching = || (0..procs.len()).filter(|&i| matches(&procs[i]));
         let mut groups = Vec::new();
+        let mut parents = HashSet::new();
+        let by_user = self.mode == ViewMode::List
+            && match self.user_grouping {
+                UserGrouping::Always => true,
+                UserGrouping::Never => false,
+                UserGrouping::Auto => signed_in_users(procs, extra) > 1,
+            };
         let (rows, shown) = match self.mode {
             ViewMode::Tree if unfiltered => {
-                let rows = tree_order_by(procs, stable.is_some(), order)
+                let members: Vec<usize> = matching().collect();
+                let toggled = |i: usize| {
+                    self.tree_toggled
+                        .contains(&(procs[i].pid, procs[i].create_time))
+                };
+                let (order, with_children) =
+                    tree_order_by(procs, &members, stable.is_some(), order, |i| {
+                        self.tree_collapsed != toggled(i)
+                    });
+                parents = with_children;
+                let rows = order
                     .into_iter()
                     .map(|(i, depth)| Row::Process(i, depth))
                     .collect();
-                (rows, procs.len())
+                (rows, members.len())
+            }
+            ViewMode::List if by_user => {
+                let members: Vec<usize> = matching().collect();
+                groups = user_groups(procs, &members, extra);
+                groups.sort_by(|a, b| {
+                    let rank = |g: &AppGroup| {
+                        stable
+                            .and_then(|s| s.apps.get(&g.key))
+                            .copied()
+                            .unwrap_or(usize::MAX)
+                    };
+                    rank(a).cmp(&rank(b)).then_with(|| a.key.cmp(&b.key))
+                });
+                let mut rows = Vec::with_capacity(members.len() + groups.len());
+                for (i, g) in groups.iter().enumerate() {
+                    rows.push(Row::User(i));
+                    if !self.collapsed_users.contains(&g.key) {
+                        let mut members = g.members.clone();
+                        members.sort_by(|&a, &b| order(&procs[a], &procs[b]));
+                        rows.extend(members.into_iter().map(|i| Row::Process(i, 1)));
+                    }
+                }
+                (rows, members.len())
             }
             ViewMode::Apps => {
                 let members: Vec<usize> = matching().collect();
@@ -1575,10 +1944,17 @@ impl ProcessView {
                 } else {
                     HashSet::new()
                 },
+                hide_system: self.hide_system,
+                system: self.system.clone(),
+                tree_collapsed: self.tree_collapsed,
+                tree_toggled: self.tree_toggled.clone(),
+                by_user,
+                collapsed_users: self.collapsed_users.clone(),
                 second,
             },
             rows,
             groups,
+            parents,
             shown,
         };
         let mut processes = HashMap::new();
@@ -1588,7 +1964,7 @@ impl ProcessView {
                 Row::Process(i, _) => {
                     processes.insert((procs[i].pid, procs[i].create_time), rank);
                 }
-                Row::App(i) => {
+                Row::App(i) | Row::User(i) => {
                     apps.insert(cache.groups[i].key.clone(), rank);
                 }
             }
@@ -1600,6 +1976,120 @@ impl ProcessView {
         });
         cache
     }
+}
+
+impl ProcessView {
+    /// Opens every collapsed tree ancestor and the user group of `target`.
+    fn open_path_to(&mut self, procs: &[ProcessInfo], extra: &Extra<'_>, target: (u32, i64)) {
+        let Some(start) = procs.iter().position(|p| (p.pid, p.create_time) == target) else {
+            return;
+        };
+        if let Some(user) = extra.user(&procs[start]) {
+            self.collapsed_users.remove(&user.to_lowercase());
+        }
+        let index: HashMap<u32, usize> =
+            procs.iter().enumerate().map(|(i, p)| (p.pid, i)).collect();
+        let mut current = start;
+        // Bounded: a PID cycle cannot loop forever.
+        for _ in 0..procs.len() {
+            let Some(&parent) = index.get(&procs[current].parent_pid) else {
+                break;
+            };
+            if parent == current || procs[parent].create_time > procs[current].create_time {
+                break;
+            }
+            let key = (procs[parent].pid, procs[parent].create_time);
+            // Open: the toggled state must differ from "collapsed" by default.
+            if self.tree_collapsed {
+                self.tree_toggled.insert(key);
+            } else {
+                self.tree_toggled.remove(&key);
+            }
+            current = parent;
+        }
+    }
+
+    /// Opens or closes one tree node.
+    fn toggle_node(&mut self, key: (u32, i64)) {
+        if !self.tree_toggled.remove(&key) {
+            self.tree_toggled.insert(key);
+        }
+    }
+
+    pub fn expand_all(&mut self) {
+        self.tree_collapsed = false;
+        self.tree_toggled.clear();
+        self.collapsed_users.clear();
+    }
+
+    pub fn collapse_all(&mut self) {
+        self.tree_collapsed = true;
+        self.tree_toggled.clear();
+    }
+}
+
+/// Accounts that run programs in a signed-in session (not session 0).
+fn signed_in_users(procs: &[ProcessInfo], extra: &Extra<'_>) -> usize {
+    procs
+        .iter()
+        .filter(|p| p.session_id != 0)
+        .filter_map(|p| extra.user(p))
+        .filter(|u| !is_service_account(u))
+        .map(str::to_lowercase)
+        .collect::<HashSet<_>>()
+        .len()
+}
+
+/// Built-in accounts Windows runs its own programs as.
+fn is_service_account(account: &str) -> bool {
+    let name = short_user(account);
+    ["SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE"]
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(name))
+        || name.starts_with("DWM-")
+        || name.starts_with("UMFD-")
+}
+
+/// Groups the processes at `members` by account; unknown accounts share one
+/// group with an empty key.
+fn user_groups(procs: &[ProcessInfo], members: &[usize], extra: &Extra<'_>) -> Vec<AppGroup> {
+    let mut by_user: HashMap<String, Vec<usize>> = HashMap::new();
+    for &i in members {
+        let key = extra
+            .user(&procs[i])
+            .map(str::to_lowercase)
+            .unwrap_or_default();
+        by_user.entry(key).or_default().push(i);
+    }
+    by_user
+        .into_iter()
+        .map(|(key, members)| {
+            let mut group = app_groups(procs, &members)
+                .into_iter()
+                .reduce(|mut a, b| {
+                    let t = &mut a.total;
+                    let o = &b.total;
+                    t.cpu_percent += o.cpu_percent;
+                    t.cpu_time += o.cpu_time;
+                    t.working_set += o.working_set;
+                    t.private_working_set += o.private_working_set;
+                    t.private_bytes += o.private_bytes;
+                    t.thread_count += o.thread_count;
+                    t.handle_count += o.handle_count;
+                    t.gpu_percent += o.gpu_percent;
+                    t.gpu_memory += o.gpu_memory;
+                    t.io_read_rate += o.io_read_rate;
+                    t.io_write_rate += o.io_write_rate;
+                    t.net_rx_rate += o.net_rx_rate;
+                    t.net_tx_rate += o.net_tx_rate;
+                    a.members.extend(b.members);
+                    a
+                })
+                .expect("every group has a member");
+            group.key = key;
+            group
+        })
+        .collect()
 }
 
 /// All processes sharing an image name, with their totals.
@@ -1651,6 +2141,36 @@ fn app_groups(procs: &[ProcessInfo], members: &[usize]) -> Vec<AppGroup> {
         .collect()
 }
 
+/// Actions for the processes of one user account.
+fn user_menu(
+    ui: &mut Ui,
+    g: &AppGroup,
+    procs: &[ProcessInfo],
+    extra: &Extra<'_>,
+    intents: &mut Vec<Intent>,
+) {
+    let account = g.members.first().and_then(|&i| extra.user(&procs[i]));
+    if let Some(account) = account {
+        crate::context_actions::copy(ui, crate::i18n::tr("User name"), || account.to_owned());
+        crate::theme::divider(ui);
+    }
+    if crate::context_actions::action(ui, crate::i18n::tr("Manage user accounts")) {
+        intents.push(Intent::ManageAccounts);
+    }
+    // Only a person's own sign-in session can be signed out.
+    let session = g
+        .members
+        .iter()
+        .map(|&i| procs[i].session_id)
+        .find(|&s| s != 0);
+    if let (Some(session), Some(account)) = (session, account)
+        && !is_service_account(account)
+        && crate::context_actions::action(ui, crate::i18n::tr("Sign out…"))
+    {
+        intents.push(Intent::SignOut(session, short_user(account).to_owned()));
+    }
+}
+
 /// Actions for every process of an app.
 fn app_menu(ui: &mut Ui, g: &AppGroup, procs: &[ProcessInfo], intents: &mut Vec<Intent>) {
     let all: Vec<ProcessRef> = g
@@ -1660,7 +2180,12 @@ fn app_menu(ui: &mut Ui, g: &AppGroup, procs: &[ProcessInfo], intents: &mut Vec<
         .collect();
     let mut each = |ui: &mut Ui, label: &str, command: Command| {
         if ui.button(label).clicked() {
-            intents.extend(all.iter().map(|t| Intent::Command(t.clone(), command)));
+            if command == Command::Suspend {
+                // Freezing every window of an app is confirmed first.
+                intents.push(Intent::ConfirmMany(all.clone(), command));
+            } else {
+                intents.extend(all.iter().map(|t| Intent::Command(t.clone(), command)));
+            }
             ui.close();
         }
     };
@@ -1750,7 +2275,7 @@ pub fn context_menu(
         true,
     );
     crate::theme::divider(ui);
-    cmd(ui, crate::i18n::tr("Suspend"), Command::Suspend, false);
+    cmd(ui, crate::i18n::tr("Suspend"), Command::Suspend, true);
     cmd(ui, crate::i18n::tr("Resume"), Command::Resume, false);
     crate::theme::divider(ui);
     ui.menu_button(crate::i18n::tr("Priority"), |ui| {
@@ -1922,6 +2447,16 @@ pub fn context_menu(
             intents.push(Intent::Dump(t.clone()));
             ui.close();
         }
+        if ui
+            .button(crate::i18n::tr("Ask AI about it"))
+            .on_hover_text(crate::i18n::tr(
+                "What it is, whether it is safe and whether to end it, from your AI provider",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::AskAi(t.clone()));
+            ui.close();
+        }
         if ui.button(crate::i18n::tr("Search online")).clicked() {
             ui.ctx()
                 .open_url(egui::OpenUrl::new_tab(search_url(&t.name)));
@@ -2057,7 +2592,159 @@ mod tests {
             descriptions: Box::leak(Box::default()),
             icons: Box::leak(Box::default()),
             hung: Box::leak(Box::default()),
+            facts: Box::leak(Box::default()),
+            versions: Box::leak(Box::default()),
         }
+    }
+
+    fn with_facts(facts: &'static crate::backend::FactsMap) -> Extra<'static> {
+        Extra {
+            facts,
+            ..no_extra()
+        }
+    }
+
+    fn account(user: &str) -> wtm_core::control::ProcessFacts {
+        wtm_core::control::ProcessFacts {
+            user: Some(user.into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_collapsed_tree_node_hides_its_descendants_without_making_them_roots() {
+        let procs = vec![
+            p(10, 0, 0.0, 1),
+            p(11, 10, 0.0, 2),
+            p(12, 11, 0.0, 3),
+            p(13, 0, 0.0, 4),
+        ];
+        let all: Vec<usize> = (0..procs.len()).collect();
+        let by_pid = |a: &ProcessInfo, b: &ProcessInfo| a.pid.cmp(&b.pid);
+        let (open, parents) = tree_order_by(&procs, &all, false, by_pid, |_| false);
+        assert_eq!(open, [(0, 0), (1, 1), (2, 2), (3, 0)]);
+        assert_eq!(parents, HashSet::from([0, 1]));
+        let (closed, _) = tree_order_by(&procs, &all, false, by_pid, |i| i == 0);
+        assert_eq!(closed, [(0, 0), (3, 0)]);
+        // Without its parent among the members, a child becomes a root.
+        let (subset, _) = tree_order_by(&procs, &[1, 2, 3], false, by_pid, |_| false);
+        assert_eq!(subset, [(1, 0), (2, 1), (3, 0)]);
+    }
+
+    #[test]
+    fn expand_and_collapse_all_reset_individual_nodes() {
+        let mut view = ProcessView::default();
+        view.toggle_node((1, 1));
+        view.collapse_all();
+        assert!(view.tree_collapsed && view.tree_toggled.is_empty());
+        view.toggle_node((1, 1));
+        view.expand_all();
+        assert!(!view.tree_collapsed && view.tree_toggled.is_empty());
+    }
+
+    #[test]
+    fn system_processes_are_windows_components_and_the_lists_override() {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+        let filter = SystemFilter::default();
+        let proc = |name: &str, session: u32| {
+            let mut q = p(500, 4, 0.0, 1);
+            q.name = name.into();
+            q.session_id = session;
+            q
+        };
+        let svchost = proc("svchost.exe", 0);
+        assert!(filter.is_system(&svchost, Some(&format!(r"{root}\System32\svchost.exe"))));
+        // A service whose image cannot be read is a Windows one too.
+        assert!(filter.is_system(&svchost, None));
+        let helper = proc("sihost.exe", 1);
+        assert!(filter.is_system(&helper, Some(&format!(r"{root}\System32\sihost.exe"))));
+        assert!(filter.is_system(&proc("csrss.exe", 1), None));
+        let explorer = proc("explorer.exe", 1);
+        assert!(!filter.is_system(&explorer, Some(&format!(r"{root}\explorer.exe"))));
+        let app = proc("code.exe", 1);
+        let path = r"C:\Program Files\Code\code.exe";
+        assert!(!filter.is_system(&app, Some(path)));
+        // A third-party service in session 0 stays visible.
+        assert!(!filter.is_system(&proc("vendor.exe", 0), Some(path)));
+        let lists = SystemFilter {
+            always_show: vec!["SIHOST.EXE".into()],
+            also_hide: vec![" code.exe ".into()],
+        };
+        assert!(!lists.is_system(&helper, Some(&format!(r"{root}\System32\sihost.exe"))));
+        assert!(lists.is_system(&app, Some(path)));
+    }
+
+    #[test]
+    fn processes_group_by_user_only_when_asked_or_several_people_run_programs() {
+        let mut procs = vec![
+            p(10, 0, 1.0, 1),
+            p(11, 0, 2.0, 2),
+            p(12, 0, 3.0, 3),
+            p(13, 0, 0.0, 4),
+        ];
+        for q in &mut procs {
+            q.session_id = 1;
+        }
+        procs[3].session_id = 0;
+        let facts: &'static crate::backend::FactsMap = Box::leak(Box::new(
+            [
+                ((10, 1), account(r"PC\alice")),
+                ((11, 2), account(r"PC\alice")),
+                ((12, 3), account(r"PC\bob")),
+                ((13, 4), account(r"NT AUTHORITY\SYSTEM")),
+            ]
+            .into_iter()
+            .collect(),
+        ));
+        let extra = with_facts(facts);
+        let snap = Snapshot {
+            interval: None,
+            system: Default::default(),
+            processes: procs,
+            net_traced: false,
+            taken_at_ms: 0,
+        };
+        let users = |view: &mut ProcessView| {
+            let cache = view.rows(&snap, &extra, None);
+            cache
+                .rows
+                .iter()
+                .filter(|r| matches!(r, Row::User(_)))
+                .count()
+        };
+        let mut view = ProcessView::default();
+        // Alice and Bob both run programs; SYSTEM does not count as a person.
+        assert_eq!(users(&mut view), 3);
+        view.user_grouping = UserGrouping::Never;
+        assert_eq!(users(&mut view), 0);
+        view.user_grouping = UserGrouping::Always;
+        view.mode = ViewMode::Tree;
+        assert_eq!(users(&mut view), 0, "only the list is grouped");
+        assert_eq!(short_user(r"PC\alice"), "alice");
+        assert!(is_service_account(r"Font Driver Host\UMFD-0"));
+    }
+
+    #[test]
+    fn hiding_system_processes_keeps_the_selected_one() {
+        let mut procs = vec![p(10, 0, 0.0, 1), p(11, 0, 0.0, 2)];
+        procs[0].name = "csrss.exe".into();
+        procs[1].name = "app.exe".into();
+        procs[1].session_id = 1;
+        let snap = Snapshot {
+            interval: None,
+            system: Default::default(),
+            processes: procs,
+            net_traced: false,
+            taken_at_ms: 0,
+        };
+        let extra = no_extra();
+        let mut view = ProcessView {
+            hide_system: true,
+            ..Default::default()
+        };
+        assert_eq!(view.rows(&snap, &extra, None).shown, 1);
+        view.selected = Some(ProcessRef::from(&snap.processes[0]));
+        assert_eq!(view.rows(&snap, &extra, None).shown, 2);
     }
 
     #[test]
@@ -2105,7 +2792,7 @@ mod tests {
                 .iter()
                 .map(|r| match *r {
                     Row::Process(i, _) => snap.processes[i].pid,
-                    Row::App(g) => cache.groups[g].total.pid,
+                    Row::App(g) | Row::User(g) => cache.groups[g].total.pid,
                 })
                 .collect();
             view.keep(cache, revision);
