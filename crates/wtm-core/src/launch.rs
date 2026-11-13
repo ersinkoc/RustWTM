@@ -31,16 +31,40 @@ pub fn split_command(line: &str) -> Option<(String, String)> {
 /// with the user's standard rights, through the desktop's Explorer; only
 /// when no Explorer shows the desktop does it start with RustWTM's rights.
 pub fn run(line: &str, elevated: bool) -> Result<(), String> {
+    run_with(line, elevated, is_elevated(), |file, args| {
+        match wtm_sys::shell::launch_as_desktop_user(file, args) {
+            Ok(()) => Desktop::Started,
+            Err(e) if wtm_sys::shell::is_timeout(&e) => Desktop::NoAnswer,
+            Err(_) => Desktop::Unavailable,
+        }
+    })
+}
+
+/// What the desktop's Explorer did with a launch request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Desktop {
+    Started,
+    /// It did not answer in time and may still start the program.
+    NoAnswer,
+    /// No desktop shell could be asked.
+    Unavailable,
+}
+
+/// [`run`] with the desktop launch passed in, so tests need no desktop.
+fn run_with(
+    line: &str,
+    elevated: bool,
+    running_elevated: bool,
+    desktop: impl FnOnce(&str, &str) -> Desktop,
+) -> Result<(), String> {
     let (file, args) = split_command(line).ok_or("nothing to run")?;
-    if through_desktop(elevated, is_elevated()) {
-        match wtm_sys::shell::launch_as_desktop_user(&file, &args) {
-            Ok(()) => return Ok(()),
+    if through_desktop(elevated, running_elevated) {
+        match desktop(&file, &args) {
+            Desktop::Started => return Ok(()),
             // Explorer may still start it: starting it here too could run it twice.
-            Err(e) if wtm_sys::shell::is_timeout(&e) => {
-                return Err("Windows Explorer did not answer; try again".into());
-            }
-            // No desktop shell to ask: start it with this program's rights.
-            Err(_) => {}
+            Desktop::NoAnswer => return Err("Windows Explorer did not answer; try again".into()),
+            // Start it with this program's rights instead.
+            Desktop::Unavailable => {}
         }
     }
     wtm_sys::shell::launch(&file, &args, elevated).map_err(|e| describe(&file, e.is_cancelled(), e))
@@ -138,12 +162,35 @@ mod tests {
 
     #[test]
     fn run_reports_problems() {
-        assert_eq!(run(" ", false).unwrap_err(), "nothing to run");
-        let err = run(r"C:\definitely\missing-program.exe", false).unwrap_err();
-        assert!(
-            err.starts_with(r"cannot start C:\definitely\missing-program.exe: "),
-            "{err}"
+        const MISSING: &str = r"C:\definitely\missing-program.exe";
+        let unused = |_: &str, _: &str| -> Desktop { panic!("asked the desktop") };
+        assert_eq!(
+            run_with(" ", false, true, unused).unwrap_err(),
+            "nothing to run"
         );
+        let cannot_start = |err: String| {
+            assert!(
+                err.starts_with(&format!("cannot start {MISSING}: ")),
+                "{err}"
+            );
+        };
+        // Already running with standard rights: started here.
+        cannot_start(run_with(MISSING, false, false, unused).unwrap_err());
+        // From an elevated window the desktop is asked first.
+        let mut asked = None;
+        let started = run_with(&format!("\"{MISSING}\" -x"), false, true, |file, args| {
+            asked = Some((file.to_owned(), args.to_owned()));
+            Desktop::Started
+        });
+        assert_eq!(started, Ok(()));
+        assert_eq!(asked, Some((MISSING.to_owned(), "-x".to_owned())));
+        // No answer is not retried here: Explorer might still start it.
+        assert_eq!(
+            run_with(MISSING, false, true, |_, _| Desktop::NoAnswer).unwrap_err(),
+            "Windows Explorer did not answer; try again"
+        );
+        // Without a desktop shell it falls back to starting it here.
+        cannot_start(run_with(MISSING, false, true, |_, _| Desktop::Unavailable).unwrap_err());
         assert_eq!(
             describe("x", true, "The operation was canceled by the user."),
             "cancelled at the administrator prompt"
