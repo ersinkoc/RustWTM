@@ -85,11 +85,43 @@ fn launch_with(file: &str, parameters: &str, elevated: bool, show: SHOW_WINDOW_C
 /// rights even when this process runs as administrator. Fails when no
 /// Explorer shows the desktop. Explorer reports errors about the file itself
 /// (such as a missing program) in its own message box.
+///
+/// Explorer is asked from a thread of its own and given [`DESKTOP_TIMEOUT`]
+/// to answer; one that does not answer (or a session without a working
+/// shell) fails with [`is_timeout`] instead of blocking the caller.
 pub fn launch_as_desktop_user(file: &str, parameters: &str) -> Result<()> {
     desktop_shell_execute(file, parameters, SW_SHOWNORMAL)
 }
 
+/// How long Explorer may take to accept a program to start.
+pub const DESKTOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The error of a desktop launch Explorer did not answer in time. The
+/// program may still start later, so the caller must not start it again.
+pub fn is_timeout(error: &crate::Error) -> bool {
+    matches!(error, crate::Error::Win32(e) if e.code() == windows::Win32::Foundation::ERROR_TIMEOUT.to_hresult())
+}
+
 fn desktop_shell_execute(file: &str, parameters: &str, show: SHOW_WINDOW_CMD) -> Result<()> {
+    let (file, parameters) = (file.to_owned(), parameters.to_owned());
+    let (done, result) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("desktop-launch".into())
+        .spawn(move || {
+            let _ = done.send(ask_desktop_shell(&file, &parameters, show));
+        })
+        .map_err(|_| windows::core::Error::from(windows::Win32::Foundation::E_FAIL))?;
+    match result.recv_timeout(DESKTOP_TIMEOUT) {
+        Ok(outcome) => outcome,
+        // The thread stays blocked in Explorer's call and ends with it.
+        Err(_) => Err(windows::core::Error::from(
+            windows::Win32::Foundation::ERROR_TIMEOUT.to_hresult(),
+        )
+        .into()),
+    }
+}
+
+fn ask_desktop_shell(file: &str, parameters: &str, show: SHOW_WINDOW_CMD) -> Result<()> {
     use windows::Win32::System::Com::{
         CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
         CoUninitialize, IDispatch, IServiceProvider,
@@ -149,12 +181,26 @@ mod tests {
 
     #[test]
     fn the_desktop_shell_starts_a_hidden_command() {
-        // Hosted CI may run without a desktop; then there is nothing to ask.
-        if crate::explorer::desktop_pid().is_none() {
+        // Hosted CI runners have no interactive desktop shell to ask (its
+        // Explorer may not answer at all); this proof is for a desktop PC.
+        if std::env::var_os("CI").is_some() || crate::explorer::desktop_pid().is_none() {
             return;
         }
         let cmd = system_directory().unwrap().join("cmd.exe");
+        let started = std::time::Instant::now();
         desktop_shell_execute(&cmd.to_string_lossy(), "/d /c exit 0", SW_HIDE).unwrap();
+        assert!(started.elapsed() < DESKTOP_TIMEOUT);
+    }
+
+    #[test]
+    fn timeouts_are_recognised_and_other_errors_are_not() {
+        let timeout: crate::Error =
+            windows::core::Error::from(windows::Win32::Foundation::ERROR_TIMEOUT.to_hresult())
+                .into();
+        assert!(is_timeout(&timeout));
+        let denied: crate::Error =
+            windows::core::Error::from(windows::Win32::Foundation::E_ACCESSDENIED).into();
+        assert!(!is_timeout(&denied));
     }
 
     #[test]

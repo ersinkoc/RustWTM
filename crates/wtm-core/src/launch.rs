@@ -32,10 +32,16 @@ pub fn split_command(line: &str) -> Option<(String, String)> {
 /// when no Explorer shows the desktop does it start with RustWTM's rights.
 pub fn run(line: &str, elevated: bool) -> Result<(), String> {
     let (file, args) = split_command(line).ok_or("nothing to run")?;
-    if through_desktop(elevated, is_elevated())
-        && wtm_sys::shell::launch_as_desktop_user(&file, &args).is_ok()
-    {
-        return Ok(());
+    if through_desktop(elevated, is_elevated()) {
+        match wtm_sys::shell::launch_as_desktop_user(&file, &args) {
+            Ok(()) => return Ok(()),
+            // Explorer may still start it: starting it here too could run it twice.
+            Err(e) if wtm_sys::shell::is_timeout(&e) => {
+                return Err("Windows Explorer did not answer; try again".into());
+            }
+            // No desktop shell to ask: start it with this program's rights.
+            Err(_) => {}
+        }
     }
     wtm_sys::shell::launch(&file, &args, elevated).map_err(|e| describe(&file, e.is_cancelled(), e))
 }

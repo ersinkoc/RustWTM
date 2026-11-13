@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.3] - 2026-11-13
+
+0.30.2 was tagged but never published: its build stopped in the test step.
+0.30.3 contains everything listed under 0.30.2, plus this fix.
+
+### Fixed
+
+- Run new task from a window running as administrator no longer waits
+  without end when Windows Explorer does not answer: after five seconds it
+  reports that Explorer did not answer instead of starting the program twice.
+  The proof that asks the real desktop shell is skipped on build servers,
+  which have no interactive desktop.
+
 ## [0.30.2] - 2026-11-13
 
 ### Added
@@ -1420,7 +1433,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.2...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.3...HEAD
+[0.30.3]: https://github.com/rustwtm/rustwtm/compare/v0.30.2...v0.30.3
 [0.30.2]: https://github.com/rustwtm/rustwtm/compare/v0.30.1...v0.30.2
 [0.30.1]: https://github.com/rustwtm/rustwtm/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/rustwtm/rustwtm/compare/v0.29.0...v0.30.0
