@@ -141,70 +141,89 @@ impl View {
     }
 
     pub fn settings(&mut self, ui: &mut Ui) {
-        crate::theme::card(
-            ui,
-            crate::i18n::tr("Interface activity and shortcuts"),
-            |ui| {
-                ui.weak(crate::i18n::tr("These intervals affect window refresh requests, not service protection or sampling."));
-                for (label, value, max) in [
-                    ("Visible window refresh", &mut self.prefs.active_seconds, 5),
-                    (
-                        "Minimized window refresh",
-                        &mut self.prefs.minimized_seconds,
-                        60,
-                    ),
-                    ("Tray window refresh", &mut self.prefs.tray_seconds, 60),
-                ] {
-                    crate::theme::setting_row(ui, crate::i18n::tr(label), |ui, id| {
-                        ui.add(egui::Slider::new(value, 1..=max).suffix(" s"))
-                            .labelled_by(id);
-                    });
-                }
-                ui.checkbox(
-                    &mut self.prefs.network_bits,
-                    crate::i18n::tr("Show Mbps in network device charts"),
-                );
-                ui.checkbox(
-                    &mut self.prefs.background_memory,
-                    crate::i18n::tr("Yield memory when hidden"),
-                )
-                .on_hover_text(crate::i18n::tr(
-                    "After the window stays minimized or in the tray, Windows may reclaim its memory first. Sampling, history and protection continue.",
-                ));
-                let enabled = self.prefs.background_memory;
-                crate::theme::setting_row(ui, crate::i18n::tr("Yield memory after"), |ui, id| {
-                    ui.add_enabled(
-                        enabled,
-                        egui::Slider::new(&mut self.prefs.background_memory_minutes, 1..=120)
-                            .suffix(" min"),
-                    )
+        use crate::theme::{
+            icon, option_group, option_labelled, option_named_by_control, option_switch,
+        };
+        option_group(ui, crate::i18n::tr("Interface activity and shortcuts"));
+        ui.weak(crate::i18n::tr(
+            "These intervals affect window refresh requests, not service protection or sampling.",
+        ));
+        for (label, value, max) in [
+            ("Visible window refresh", &mut self.prefs.active_seconds, 5),
+            (
+                "Minimized window refresh",
+                &mut self.prefs.minimized_seconds,
+                60,
+            ),
+            ("Tray window refresh", &mut self.prefs.tray_seconds, 60),
+        ] {
+            option_labelled(ui, icon::SYNC, crate::i18n::tr(label), "", |ui, id| {
+                ui.add(egui::Slider::new(value, 1..=max).suffix(" s"))
                     .labelled_by(id);
-                });
-                ui.horizontal_wrapped(|ui| {
-                    ui.checkbox(
-                        &mut self.prefs.global_shortcut,
-                        crate::i18n::tr("Global show / hide shortcut"),
-                    );
-                    let key_label = ui.label("Ctrl + Alt + F");
-                    ui.add(egui::DragValue::new(&mut self.prefs.function_key).range(2..=12))
-                        .labelled_by(key_label.id);
-                });
-                if let Some(e) = &self.error {
-                    crate::theme::colored(ui, crate::theme::WARN, e);
-                }
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button(crate::i18n::tr("Quick setup")).clicked() {
-                        self.quick_setup = true;
-                    }
-                    if ui.button(crate::i18n::tr("Open welcome guide")).clicked() {
-                        self.guide = true;
-                    }
-                    if ui.button(crate::i18n::tr("Keyboard shortcuts")).clicked() {
-                        self.help = true;
-                    }
-                });
+            });
+        }
+        option_switch(
+            ui,
+            icon::CHART,
+            crate::i18n::tr("Show Mbps in network device charts"),
+            "",
+            &mut self.prefs.network_bits,
+        );
+        option_switch(
+            ui,
+            icon::MINIMIZE,
+            crate::i18n::tr("Yield memory when hidden"),
+            crate::i18n::tr(
+                "After the window stays minimized or in the tray, Windows may reclaim its memory first. Sampling, history and protection continue.",
+            ),
+            &mut self.prefs.background_memory,
+        );
+        let enabled = self.prefs.background_memory;
+        option_labelled(
+            ui,
+            icon::HISTORY,
+            crate::i18n::tr("Yield memory after"),
+            "",
+            |ui, id| {
+                ui.add_enabled(
+                    enabled,
+                    egui::Slider::new(&mut self.prefs.background_memory_minutes, 1..=120)
+                        .suffix(" min"),
+                )
+                .labelled_by(id);
             },
         );
+        let title = crate::i18n::tr("Global show / hide shortcut");
+        option_named_by_control(ui, icon::SETTINGS, title, "", |ui| {
+            let key_label = ui.label("Ctrl + Alt + F");
+            ui.add_enabled(
+                self.prefs.global_shortcut,
+                egui::DragValue::new(&mut self.prefs.function_key).range(2..=12),
+            )
+            .labelled_by(key_label.id);
+            ui.add_space(8.0);
+            ui.label(crate::i18n::tr(if self.prefs.global_shortcut {
+                "On"
+            } else {
+                "Off"
+            }));
+            crate::theme::switch(ui, &mut self.prefs.global_shortcut, title);
+        });
+        if let Some(e) = &self.error {
+            crate::theme::colored(ui, crate::theme::WARN, e);
+        }
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button(crate::i18n::tr("Quick setup")).clicked() {
+                self.quick_setup = true;
+            }
+            if ui.button(crate::i18n::tr("Open welcome guide")).clicked() {
+                self.guide = true;
+            }
+            if ui.button(crate::i18n::tr("Keyboard shortcuts")).clicked() {
+                self.help = true;
+            }
+        });
     }
     pub fn overlays(&mut self, ctx: &egui::Context) -> Option<Destination> {
         let mut destination = None;

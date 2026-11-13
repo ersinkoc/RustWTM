@@ -87,15 +87,28 @@ pub fn show(ui: &mut Ui, data: &Data, band: crate::preferences::Band) -> Option<
     };
     let width = ui.available_width();
     let columns = if width >= 650.0 { 5 } else { 3 };
-    let gap = 4.0;
+    // The cards of a row form one band: no gaps, a shared outline with
+    // rounded ends and a hairline between neighbours.
+    let gap = 0.0;
     let mut clicked = None;
     for chunk in metrics.chunks(columns) {
+        let mut cards = Vec::with_capacity(chunk.len());
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
             let weighted = columns == 5 && width >= 1000.0;
             let unit = (width - gap * (columns - 1) as f32)
                 / (columns as f32 + if weighted { 0.4 } else { 0.0 });
-            for m in chunk {
+            for (index, m) in chunk.iter().enumerate() {
+                let ends = |first: bool, last: bool| {
+                    let r = |on: bool| if on { 8 } else { 0 };
+                    egui::CornerRadius {
+                        nw: r(first),
+                        sw: r(first),
+                        ne: r(last),
+                        se: r(last),
+                    }
+                };
+                let radius = ends(index == 0, index + 1 == chunk.len());
                 let w = if weighted && m.resource == Resource::Cpu {
                     unit * 1.4
                 } else {
@@ -119,25 +132,8 @@ pub fn show(ui: &mut Ui, data: &Data, band: crate::preferences::Band) -> Option<
                     } else {
                         theme::card_fill(ui)
                     };
-                    painter.rect_filled(rect, 0.0, fill);
-                    painter.rect_stroke(
-                        rect,
-                        0.0,
-                        egui::Stroke::new(
-                            1.0,
-                            if response.hovered() || response.has_focus() {
-                                m.color
-                            } else {
-                                ui.visuals()
-                                    .widgets
-                                    .noninteractive
-                                    .bg_stroke
-                                    .color
-                                    .gamma_multiply(0.75)
-                            },
-                        ),
-                        egui::StrokeKind::Inside,
-                    );
+                    painter.rect_filled(rect, radius, fill);
+                    cards.push(rect);
                     let inner = rect.shrink2(egui::vec2(10.0, 6.0));
                     let color = theme::text_color(ui, m.color);
                     painter.circle_filled(inner.left_top() + egui::vec2(3.0, 7.0), 2.5, color);
@@ -175,9 +171,17 @@ pub fn show(ui: &mut Ui, data: &Data, band: crate::preferences::Band) -> Option<
                             ui.visuals().weak_text_color(),
                         );
                     }
+                    // Kept inside the band's rounded ends and outline.
+                    let inset = |end: bool| if end { 6.0 } else { 1.0 };
                     let chart = egui::Rect::from_min_max(
-                        egui::pos2(rect.left(), rect.bottom() - if short { 18.0 } else { 34.0 }),
-                        rect.right_bottom(),
+                        egui::pos2(
+                            rect.left() + inset(index == 0),
+                            rect.bottom() - if short { 18.0 } else { 34.0 },
+                        ),
+                        egui::pos2(
+                            rect.right() - inset(index + 1 == chunk.len()),
+                            rect.bottom() - 1.0,
+                        ),
                     );
                     let max = m.ceiling.unwrap_or_else(|| {
                         m.series
@@ -211,9 +215,42 @@ pub fn show(ui: &mut Ui, data: &Data, band: crate::preferences::Band) -> Option<
                     if open {
                         clicked = Some(m.resource);
                     }
+                    if response.hovered() || response.has_focus() {
+                        ui.painter().rect_stroke(
+                            rect,
+                            radius,
+                            egui::Stroke::new(1.5, m.color),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
                 });
             }
         });
+        let line = ui
+            .visuals()
+            .widgets
+            .noninteractive
+            .bg_stroke
+            .color
+            .gamma_multiply(0.75);
+        if let (Some(first), Some(last)) = (cards.first(), cards.last()) {
+            ui.painter().rect_stroke(
+                first.union(*last),
+                egui::CornerRadius::same(8),
+                egui::Stroke::new(1.0, line),
+                egui::StrokeKind::Inside,
+            );
+        }
+        for card in cards.iter().skip(1) {
+            let x = card.left().round() + 0.5;
+            ui.painter().line_segment(
+                [
+                    egui::pos2(x, card.top() + 10.0),
+                    egui::pos2(x, card.bottom() - 10.0),
+                ],
+                egui::Stroke::new(1.0, line),
+            );
+        }
     }
     ui.add_space(0.0);
     clicked

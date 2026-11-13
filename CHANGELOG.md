@@ -6,6 +6,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-11-13
+
+A visual redesign after the Windows 11 (Fluent) look. No setting, default or
+policy changes; IPC remains protocol 16.
+
+### Changed
+
+- Controls and surfaces are rounded (4 and 8 points); the square geometry
+  rule is retired. Selected segmented choices are raised chips with a short
+  accent underline, and flyouts have soft shadows.
+- Every settings page lists one option per row: a Windows icon, the title, an
+  optional description and the control at the right edge. On/off options are
+  switches showing their state. Service policies use one column with a
+  heading per policy; Telegram and AI assistant settings follow the same rows.
+- Tables draw no row or column lines by default; both can be switched on under
+  Settings → Process workspace. The process table has no outline.
+- Charts draw no axes or tick labels: a tinted outline and grid, the top of the
+  scale above and the visible time span below. Rate scales move in 1-2-5 steps.
+- Performance lists the resources in a rail with their latest reading and a
+  one-minute sparkline when the window is wide, and the timeline toolbar is one
+  row with icon buttons for sample, zoom and live actions.
+- The Processes resource cards form one continuous band; inspector tiles and
+  Overview cards are rounded. The Limits and Kill list forms use option rows.
+  Plot grids are faint.
+
+### Fixed
+
+- An option's title sits level with its control, and text fields in rows with
+  a description keep their full width.
+
 ## [0.30.4] - 2026-11-13
 
 0.30.3 was tagged but never published: its build stopped at a test that
@@ -1446,7 +1476,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.4...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/rustwtm/rustwtm/compare/v0.30.4...v0.31.0
 [0.30.4]: https://github.com/rustwtm/rustwtm/compare/v0.30.3...v0.30.4
 [0.30.3]: https://github.com/rustwtm/rustwtm/compare/v0.30.2...v0.30.3
 [0.30.2]: https://github.com/rustwtm/rustwtm/compare/v0.30.1...v0.30.2

@@ -1,7 +1,9 @@
 # Desktop visual language
 
-RustWTM uses square geometry, quiet neutral surfaces and resource colours that
-identify data. A selected control, a warning and a chart should stand out for
+RustWTM follows the Windows 11 (Fluent) look: softly rounded geometry, quiet
+neutral surfaces and resource colours that identify data. The earlier square
+geometry rule was retired at the maintainer's request; controls use a 4-point
+radius and surfaces an 8-point radius. A selected control, a warning and a chart should stand out for
 different reasons. Routine controls should remain easy to find without competing
 with the readings.
 
@@ -17,8 +19,11 @@ with the readings.
 - Sidebar boundaries are subdued. Group labels have their own inset and spacing.
 - All pages use one workspace gutter, rather than a per-tab padding allowlist.
   Cards have internal padding and zero outer margins; their parent owns section
-  spacing. Table cells remain joined with fine separators and square corners.
-- Selected tabs and segmented choices share an accent underline. Primary save,
+  spacing. Tables draw no row or column lines by default (both can be switched
+  on in Settings); large working surfaces such as the process table have a
+  raised fill without an outline.
+- Selected tabs and segmented choices are raised chips with a short accent
+  underline. Primary save,
   add and analyze actions have a distinct brand treatment; utility buttons stay
   neutral. Settings tabs and forms share the full workspace width and gutters.
 - User sessions and governor-managed processes use the same resizable, padded
@@ -33,15 +38,29 @@ smaller text and spaced middle dots instead of crowded vertical bars.
 Heat-map cells retain their ordering and thresholds with less opaque fills so
 process names and numeric values remain the primary content. Enabled switches
 use the brand colour with a white thumb; disabled switches stay neutral.
+Charts draw no axes or tick labels: a tinted outline and grid, the top of the
+scale above the chart and the visible time span below it. Rate scales move in
+1-2-5 steps so they do not jump with every sample.
 
 ## Settings
 
-Settings span the available workspace width. Related options remain grouped, with
-aligned control columns on wide screens. At narrow widths labels and controls
-stack, preserving the whole interactive area. The raw configuration editor keeps
+Settings span the available workspace width. Each option is a row of its own:
+a Windows icon, the title and an optional muted description on the left, the
+control at the right edge. On/off options are switches with their state written
+beside them. Related rows sit under a group heading. Below 560 points the
+control moves under the text, preserving the whole interactive area. The raw configuration editor keeps
 the available width. Percentage controls remain directly editable sliders. Settings
 use short tab captions below 820 points, with full accessible names and tooltips.
 Below 620 points, the seven tabs use balanced rows of four and three.
+
+## Performance
+
+At 860 points of content width and wider, resources are listed in a rail on the
+left: each with its latest reading and a sparkline of the last minute, the
+selected one raised and marked with the accent. Narrower windows keep the row of
+tabs. The timeline toolbar is one row: the range, the live or inspecting state
+(its tooltip gives the recorded span) and the sample time on the left; sample,
+zoom and live actions on the right as icon buttons with full accessible names.
 
 ## Validation
 
@@ -94,9 +113,9 @@ GPUI runtime dependency or renderer migration is included in this pass.
   High load retains warning/error colours. Cards still open resource details.
 - Cards have 12 x 10 internal padding and explicit section dividers. Page
   gutters are 16 x 12; short windows use 12 x 8 and tighter status-strip padding to
-  preserve selected details and actions. Corners remain square.
-- Settings rows retain aligned control columns with separators. Service policy
-  cards form two columns at 860 points of content width and stack below that.
+  preserve selected details and actions.
+- Settings rows keep their controls flush right without separators. Service policies use
+  the same single column of option rows, under one heading per policy.
   No configuration semantics or defaults change with the layout.
 - Compact container selection reserves more room for its details and actions.
 

@@ -50,8 +50,8 @@ fn fact(
             1.0,
             ui.visuals().widgets.noninteractive.bg_stroke.color,
         ))
-        .corner_radius(0.0)
-        .inner_margin(egui::Margin::symmetric(8, 6))
+        .corner_radius(6)
+        .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 crate::navigation::badge(ui, icon, color);
@@ -88,12 +88,12 @@ fn fact(
                             egui::Sense::hover(),
                         );
                         ui.painter()
-                            .rect_filled(track, 0.0, crate::theme::track_color(ui));
+                            .rect_filled(track, 2.0, crate::theme::track_color(ui));
                         let filled = egui::Rect::from_min_size(
                             track.min,
                             egui::vec2(track.width() * percent / 100.0, track.height()),
                         );
-                        ui.painter().rect_filled(filled, 0.0, color);
+                        ui.painter().rect_filled(filled, 2.0, color);
                     }
                 });
             });

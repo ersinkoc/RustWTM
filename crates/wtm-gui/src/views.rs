@@ -1176,9 +1176,12 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow], height:
             &[app.to_string()],
         )
     });
+    let grid = ui.visuals().weak_text_color().gamma_multiply(0.20);
     ui.columns(2, |cols| {
         Plot::new("hist_cpu")
             .height(height)
+            .show_background(false)
+            .grid_color(grid)
             .include_y(0.0)
             .y_axis_label("%")
             .allow_drag(false)
@@ -1191,6 +1194,8 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow], height:
             });
         Plot::new("hist_mem")
             .height(height)
+            .show_background(false)
+            .grid_color(grid)
             .include_y(0.0)
             .y_axis_label(crate::i18n::tr("MiB"))
             .allow_drag(false)

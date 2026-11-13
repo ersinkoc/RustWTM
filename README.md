@@ -43,7 +43,27 @@ usage history.
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
-## New in 0.30.4
+## New in 0.31.0
+
+[Release scope and validation](docs/0.31.0-review.md)
+
+- **A Windows 11 look:** rounded controls and surfaces, raised selection
+  chips, soft flyouts and no needless lines: tables have no row or column
+  lines unless you switch them on, and the process table has no outline.
+- **Settings as option rows:** every settings page lists one option per row
+  with an icon, a short description and the control at the right; on/off
+  options are switches. Service policies read top to bottom.
+- **Calmer charts:** no axes or tick labels, a tinted grid, the scale above
+  and the time span below; rate scales move in steady steps.
+- **Performance at a glance:** wide windows list the resources in a rail with
+  their latest reading and a one-minute sparkline, and the timeline toolbar
+  fits on one row.
+- **Processes:** the resource cards form one band and the inspector tiles are
+  rounded; the Limits and Kill list forms match the settings.
+
+No settings, defaults or policies change. IPC remains protocol 16.
+
+## Included since 0.30.4
 
 [Release scope and validation](docs/0.30.2-review.md) · 0.30.2 and 0.30.3
 were not published; 0.30.4 ships their changes with a Run new task fix.
@@ -406,8 +426,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.30.4-x64.msi            # interactive
-msiexec /i RustWTM-0.30.4-x64.msi /qn        # silent
+msiexec /i RustWTM-0.31.0-x64.msi            # interactive
+msiexec /i RustWTM-0.31.0-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc

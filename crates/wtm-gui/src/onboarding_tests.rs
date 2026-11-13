@@ -239,7 +239,8 @@ fn onboarding_finish_applies_selected_settings_and_update_retains_them() {
         h.state().state.display.density,
         crate::preferences::Density::Comfortable
     );
-    assert!(!crate::theme::TableLines::load_context(&h.ctx).rows);
+    // Separators are off by default; the guide turned row separators on.
+    assert!(crate::theme::TableLines::load_context(&h.ctx).rows);
     assert_eq!(
         h.state().state.onboarding.seen_version.as_deref(),
         Some(env!("CARGO_PKG_VERSION"))

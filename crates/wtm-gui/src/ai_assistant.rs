@@ -13,7 +13,7 @@ use wtm_ai::{AiConfig, KeySource, ProviderKind, Topic};
 use wtm_core::control::ProcessRef;
 
 use crate::background::Task;
-use crate::theme::{BAD, GOOD, WARN, card};
+use crate::theme::{BAD, GOOD, WARN, icon};
 
 /// The saved settings; defaults in tests, which never read the user's file.
 fn load_config() -> Result<AiConfig, String> {
@@ -152,8 +152,9 @@ pub fn settings(ui: &mut Ui, view: &mut AiSettingsView) {
     if let Some(result) = view.test_task.poll() {
         view.status = Some(result);
     }
-    card(ui, crate::i18n::tr("AI assistant"), |ui| {
-        ui.label(crate::i18n::tr(
+    crate::theme::option_group(ui, crate::i18n::tr("AI assistant"));
+    ui.scope(|ui| {
+        ui.weak(crate::i18n::tr(
             "Ask an AI model what a process is, whether it is safe, and how to make this PC faster. You bring the API key; requests go straight from this window to the provider you choose.",
         ));
         if let Some(e) = &view.load_error {
@@ -163,126 +164,111 @@ pub fn settings(ui: &mut Ui, view: &mut AiSettingsView) {
         let Some(form) = view.form.as_mut() else {
             return;
         };
-        ui.add_space(4.0);
-        ui.checkbox(
-            &mut form.enabled,
+        crate::theme::option_switch(
+            ui,
+            icon::CHAT,
             crate::i18n::tr("Send process facts to the AI provider when I ask"),
-        );
-        ui.label(
-            RichText::new(crate::i18n::tr(
+            crate::i18n::tr(
                 "When you ask, the provider receives facts about the processes concerned: names, paths, command lines, user names, resource use, signatures, services, startup entries and network endpoints. If you let it look things up, it can also read any process, the network connections, services, startup programs and history of this PC. Secrets and your account name are masked (best effort). The AI only advises: it cannot change anything on this PC.",
-            ))
-            .small()
-            .weak(),
+            ),
+            &mut form.enabled,
         );
-        ui.add_space(4.0);
-        let field = (ui.available_width() - 200.0).clamp(160.0, 420.0);
         let mut provider_changed = false;
-        egui::Grid::new("ai_form")
-            .num_columns(2)
-            .spacing([8.0, 6.0])
-            .show(ui, |ui| {
-                let label = ui.label(crate::i18n::tr("Provider"));
-                egui::ComboBox::from_id_salt("ai_provider")
-                    .width(field)
-                    .selected_text(form.provider.label())
+        crate::theme::option_labelled(ui, icon::LINK, crate::i18n::tr("Provider"), "", |ui, id| {
+            egui::ComboBox::from_id_salt("ai_provider")
+                .width(300.0)
+                .selected_text(form.provider.label())
+                .show_ui(ui, |ui| {
+                    for p in ProviderKind::ALL {
+                        if ui.selectable_label(form.provider == p, p.label()).clicked()
+                            && form.provider != p
+                        {
+                            form.provider = p;
+                            provider_changed = true;
+                        }
+                    }
+                })
+                .response
+                .labelled_by(id);
+        });
+        let models = &view.models;
+        crate::theme::option_labelled(ui, icon::CODE, crate::i18n::tr("Model"), "", |ui, id| {
+            ui.add_sized([if models.is_empty() { 300.0 } else { 190.0 }, ui.spacing().interact_size.y],
+                egui::TextEdit::singleline(&mut form.model)
+                    .hint_text(form.provider.default_model()),
+            )
+            .labelled_by(id);
+            if !models.is_empty() {
+                egui::ComboBox::from_id_salt("ai_models")
+                    .width(100.0)
+                    .selected_text(crate::i18n::tr("Choose"))
                     .show_ui(ui, |ui| {
-                        for p in ProviderKind::ALL {
-                            if ui.selectable_label(form.provider == p, p.label()).clicked()
-                                && form.provider != p
-                            {
-                                form.provider = p;
-                                provider_changed = true;
+                        for m in models {
+                            if ui.selectable_label(form.model == *m, m).clicked() {
+                                form.model = m.clone();
                             }
                         }
                     })
                     .response
-                    .labelled_by(label.id);
-                ui.end_row();
-
-                let label = ui.label(crate::i18n::tr("Model"));
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut form.model)
-                            .desired_width(field - 110.0)
-                            .hint_text(form.provider.default_model()),
-                    )
-                    .labelled_by(label.id);
-                    if !view.models.is_empty() {
-                        egui::ComboBox::from_id_salt("ai_models")
-                            .width(100.0)
-                            .selected_text(crate::i18n::tr("Choose"))
-                            .show_ui(ui, |ui| {
-                                for m in &view.models {
-                                    if ui.selectable_label(form.model == *m, m).clicked() {
-                                        form.model = m.clone();
-                                    }
-                                }
-                            })
-                            .response
-                            .labelled_by(label.id);
-                    }
-                });
-                ui.end_row();
-
-                let label = ui.label(crate::i18n::tr("API address"));
-                ui.add(
-                    egui::TextEdit::singleline(&mut form.base_url)
-                        .desired_width(field)
-                        .hint_text(form.provider.default_base_url()),
-                )
-                .labelled_by(label.id);
-                ui.end_row();
-
-                let key_label = ui.label(crate::i18n::tr("API key"));
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut view.key)
-                            .password(!view.show_key)
-                            .desired_width(field - 70.0)
-                            .hint_text(key_hint(form)),
-                    )
-                    .labelled_by(key_label.id);
-                    let eye = if view.show_key { "🙈" } else { "👁" };
-                    if ui
-                        .small_button(eye)
-                        .on_hover_text(crate::i18n::tr("Show or hide the key"))
-                        .clicked()
-                    {
-                        view.show_key = !view.show_key;
-                    }
-                });
-                ui.end_row();
-
-                if form.provider.wire() == wtm_ai::Wire::Anthropic {
-                    let label = ui.label(crate::i18n::tr("Effort"));
-                    egui::ComboBox::from_id_salt("ai_effort")
-                        .width(field)
-                        .selected_text(effort_label(&form.effort))
-                        .show_ui(ui, |ui| {
-                            for e in ["", "low", "medium", "high", "xhigh", "max"] {
-                                if ui
-                                    .selectable_label(form.effort == e, effort_label(e))
-                                    .clicked()
-                                {
-                                    form.effort = e.to_owned();
-                                }
+                    .labelled_by(id);
+            }
+        });
+        crate::theme::option_labelled(ui, icon::GLOBE, crate::i18n::tr("API address"), "", |ui, id| {
+            ui.add_sized([300.0, ui.spacing().interact_size.y],
+                egui::TextEdit::singleline(&mut form.base_url)
+                    .hint_text(form.provider.default_base_url()),
+            )
+            .labelled_by(id);
+        });
+        let (key, show_key) = (&mut view.key, &mut view.show_key);
+        crate::theme::option_labelled(ui, icon::KEY, crate::i18n::tr("API key"), "", |ui, id| {
+            ui.add_sized([256.0, ui.spacing().interact_size.y],
+                egui::TextEdit::singleline(key)
+                    .password(!*show_key)
+                    .hint_text(key_hint(form)),
+            )
+            .labelled_by(id);
+            let eye = if *show_key { "🙈" } else { "👁" };
+            if ui
+                .button(eye)
+                .on_hover_text(crate::i18n::tr("Show or hide the key"))
+                .clicked()
+            {
+                *show_key = !*show_key;
+            }
+        });
+        if form.provider.wire() == wtm_ai::Wire::Anthropic {
+            crate::theme::option_labelled(ui, icon::SPEED, crate::i18n::tr("Effort"), "", |ui, id| {
+                egui::ComboBox::from_id_salt("ai_effort")
+                    .width(300.0)
+                    .selected_text(effort_label(&form.effort))
+                    .show_ui(ui, |ui| {
+                        for e in ["", "low", "medium", "high", "xhigh", "max"] {
+                            if ui
+                                .selectable_label(form.effort == e, effort_label(e))
+                                .clicked()
+                            {
+                                form.effort = e.to_owned();
                             }
-                        })
-                        .response
-                        .labelled_by(label.id);
-                    ui.end_row();
-                }
-
-                let label = ui.label(crate::i18n::tr("Answer language"));
-                ui.add(
+                        }
+                    })
+                    .response
+                    .labelled_by(id);
+            });
+        }
+        crate::theme::option_labelled(
+            ui,
+            icon::GLOBE,
+            crate::i18n::tr("Answer language"),
+            "",
+            |ui, id| {
+                ui.add_sized([300.0, ui.spacing().interact_size.y],
                     egui::TextEdit::singleline(&mut form.language)
-                        .desired_width(field)
                         .hint_text(ui_language()),
                 )
-                .labelled_by(label.id);
-                ui.end_row();
-            });
+                .labelled_by(id);
+            },
+        );
         if provider_changed {
             // Another provider's model and address mean nothing here.
             form.model.clear();
@@ -290,13 +276,19 @@ pub fn settings(ui: &mut Ui, view: &mut AiSettingsView) {
             view.models.clear();
             view.key.clear();
         }
-        ui.checkbox(
-            &mut form.send_command_lines,
+        crate::theme::option_switch(
+            ui,
+            icon::LIST,
             crate::i18n::tr("Send command lines (secrets in them are masked)"),
+            "",
+            &mut form.send_command_lines,
         );
-        ui.checkbox(
-            &mut form.use_tools,
+        crate::theme::option_switch(
+            ui,
+            icon::ZOOM,
             crate::i18n::tr("Let the AI look up more details when it needs them (read-only)"),
+            "",
+            &mut form.use_tools,
         );
         let which = (form.provider, form.keys.get(form.provider.id()).cloned());
         if view.key_status.as_ref().is_none_or(|(w, _)| *w != which) {
@@ -362,10 +354,8 @@ pub fn settings(ui: &mut Ui, view: &mut AiSettingsView) {
             None => {}
         }
     });
-    card(
-        ui,
-        crate::i18n::tr("Use it from other AI apps (MCP)"),
-        |ui| {
+    crate::theme::option_group(ui, crate::i18n::tr("Use it from other AI apps (MCP)"));
+    ui.scope(|ui| {
             ui.label(crate::i18n::tr(
             "Claude Desktop, Claude Code and other MCP clients can query RustWTM directly. Add this command as a stdio MCP server:",
         ));
@@ -388,8 +378,7 @@ pub fn settings(ui: &mut Ui, view: &mut AiSettingsView) {
             .small()
             .weak(),
         );
-        },
-    );
+    });
 }
 
 fn key_hint(cfg: &AiConfig) -> String {

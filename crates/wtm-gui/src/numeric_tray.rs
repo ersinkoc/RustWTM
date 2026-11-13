@@ -233,75 +233,99 @@ pub fn settings(ui: &mut Ui, prefs: &mut Preferences, data: &crate::backend::Dat
         std::time::Instant::now(),
         wtm_core::hardware::unix_ms(),
     );
-    let mut sensors = false;
-    crate::theme::card(ui, crate::i18n::tr("Numeric tray icons"), |ui| {
-        ui.weak(crate::i18n::tr("Show resource readings as separate number icons, including while the window is hidden."));
-        for (kind, label) in LABELS.iter().enumerate() {
-            ui.horizontal_wrapped(|ui| {
-                preview(ui, kind, readings[kind].value);
-                let enabled = match kind {
-                    0 => &mut prefs.cpu,
-                    1 => &mut prefs.memory,
-                    _ => &mut prefs.temperature,
-                };
-                ui.checkbox(enabled, crate::i18n::tr(label));
-                ui.weak(&readings[kind].tooltip);
-            });
-        }
-        ui.checkbox(
-            &mut prefs.show_logo,
-            crate::i18n::tr("Keep the RustWTM logo icon"),
-        );
-        ui.weak(crate::i18n::tr("The logo stays available if no number icon is active. Windows controls which icons are pinned."));
-        crate::theme::setting_row(ui, crate::i18n::tr("Tray numbers refresh"), |ui, id| {
+    use crate::theme::{
+        icon, option_group, option_labelled, option_named_by_control, option_switch,
+    };
+    option_group(ui, crate::i18n::tr("Numeric tray icons"));
+    ui.weak(crate::i18n::tr(
+        "Show resource readings as separate number icons, including while the window is hidden.",
+    ));
+    for (kind, label) in LABELS.iter().enumerate() {
+        let title = crate::i18n::tr(label);
+        let enabled = match kind {
+            0 => &mut prefs.cpu,
+            1 => &mut prefs.memory,
+            _ => &mut prefs.temperature,
+        };
+        option_named_by_control(ui, icon::CHART, title, &readings[kind].tooltip, |ui| {
+            preview(ui, kind, readings[kind].value);
+            ui.add_space(8.0);
+            ui.label(crate::i18n::tr(if *enabled { "On" } else { "Off" }));
+            crate::theme::switch(ui, enabled, title);
+        });
+    }
+    option_switch(
+        ui,
+        icon::MONITOR,
+        crate::i18n::tr("Keep the RustWTM logo icon"),
+        crate::i18n::tr(
+            "The logo stays available if no number icon is active. Windows controls which icons are pinned.",
+        ),
+        &mut prefs.show_logo,
+    );
+    option_labelled(
+        ui,
+        icon::SYNC,
+        crate::i18n::tr("Tray numbers refresh"),
+        "",
+        |ui, id| {
             ui.add(egui::Slider::new(&mut prefs.seconds, 1..=30).suffix(" s"))
                 .labelled_by(id);
-        });
-        let label = ui.label(crate::i18n::tr("Temperature source"));
-        let selected = if prefs.sensor.is_empty() {
-            crate::i18n::tr("Automatic CPU temperature").into()
-        } else {
-            data.hardware
-                .sensors
-                .iter()
-                .find(|s| s.id == prefs.sensor)
-                .map(|s| format!("{} · {}", s.device, s.name))
-                .unwrap_or_else(|| crate::i18n::tr("Saved sensor unavailable").into())
-        };
-        egui::ComboBox::from_id_salt("tray-temperature-source")
-            .selected_text(selected)
-            .width(ui.available_width().min(480.0))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut prefs.sensor,
-                    String::new(),
-                    crate::i18n::tr("Automatic CPU temperature"),
-                );
-                for s in data
-                    .hardware
-                    .sensors
-                    .iter()
-                    .filter(|s| s.kind == SensorKind::Temperature)
-                    .take(128)
-                {
+        },
+    );
+    let selected = if prefs.sensor.is_empty() {
+        crate::i18n::tr("Automatic CPU temperature").into()
+    } else {
+        data.hardware
+            .sensors
+            .iter()
+            .find(|s| s.id == prefs.sensor)
+            .map(|s| format!("{} · {}", s.device, s.name))
+            .unwrap_or_else(|| crate::i18n::tr("Saved sensor unavailable").into())
+    };
+    option_labelled(
+        ui,
+        icon::SETTINGS,
+        crate::i18n::tr("Temperature source"),
+        crate::i18n::tr(
+            "Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value.",
+        ),
+        |ui, id| {
+            egui::ComboBox::from_id_salt("tray-temperature-source")
+                .selected_text(selected)
+                .width(260.0)
+                .show_ui(ui, |ui| {
                     ui.selectable_value(
                         &mut prefs.sensor,
-                        s.id.clone(),
-                        format!("{} · {}", s.device, s.name),
+                        String::new(),
+                        crate::i18n::tr("Automatic CPU temperature"),
                     );
-                }
-            })
-            .response
-            .labelled_by(label.id);
-        ui.weak(crate::i18n::tr("Temperature requires a supported sensor. Missing or stale readings show dashes, never a guessed value."));
-        sensors = ui.button(crate::i18n::tr("Open sensors")).clicked();
-        if let Some(error) = ui
-            .ctx()
-            .data(|d| d.get_temp::<String>(egui::Id::unique("numeric-tray-error")))
-        {
-            crate::theme::colored(ui, crate::theme::WARN, error);
-        }
-    });
+                    for s in data
+                        .hardware
+                        .sensors
+                        .iter()
+                        .filter(|s| s.kind == SensorKind::Temperature)
+                        .take(128)
+                    {
+                        ui.selectable_value(
+                            &mut prefs.sensor,
+                            s.id.clone(),
+                            format!("{} · {}", s.device, s.name),
+                        );
+                    }
+                })
+                .response
+                .labelled_by(id);
+        },
+    );
+    ui.add_space(4.0);
+    let sensors = ui.button(crate::i18n::tr("Open sensors")).clicked();
+    if let Some(error) = ui
+        .ctx()
+        .data(|d| d.get_temp::<String>(egui::Id::unique("numeric-tray-error")))
+    {
+        crate::theme::colored(ui, crate::theme::WARN, error);
+    }
     sensors
 }
 

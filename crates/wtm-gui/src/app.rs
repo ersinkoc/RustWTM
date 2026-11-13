@@ -1266,7 +1266,7 @@ impl eframe::App for App {
                                 versions: &data.versions,
                                 services: &data.hosted_services,
                             };
-                            crate::theme::panel(ui, |ui| {
+                            crate::theme::work_surface(ui, |ui| {
                                 intents.extend(state.processes.ui_cached(
                                     ui,
                                     snap,
@@ -1444,10 +1444,9 @@ impl eframe::App for App {
                     }
                     Tab::Settings => match state.config.page {
                         crate::settings::Page::Appearance => {
-                            crate::theme::card(ui, crate::i18n::tr("Language and theme"), |ui| {
-                                language_settings(ui, state, crate::i18n::save);
-                                theme_settings(ui);
-                            });
+                            crate::theme::option_group(ui, crate::i18n::tr("Language and theme"));
+                            language_settings(ui, state, crate::i18n::save);
+                            theme_settings(ui);
                             crate::preferences::appearance(
                                 ui,
                                 &mut state.display,
@@ -2103,34 +2102,46 @@ fn language_settings(
     state: &mut UiState,
     save: impl Fn(crate::i18n::Language) -> std::io::Result<()>,
 ) {
-    ui.horizontal_wrapped(|ui| {
-        let label = ui.label(crate::i18n::tr("Language"));
-        let previous = state.language;
-        egui::ComboBox::from_id_salt("language")
-            .selected_text(state.language.name())
-            .show_ui(ui, |ui| {
-                for language in crate::i18n::Language::ALL {
-                    crate::theme::choice(ui, &mut state.language, language, language.name());
-                }
-            })
-            .response
-            .labelled_by(label.id);
-        if previous != state.language {
-            match save(state.language) {
-                Ok(()) => {
-                    state.language_error = None;
-                    // The frame still runs in the old language's scope.
-                    let _language = crate::i18n::scope(state.language);
-                    crate::theme::install_fonts(ui.ctx());
-                    ui.ctx().request_repaint();
-                }
-                Err(e) => {
-                    state.language = previous;
-                    state.language_error = Some(e.to_string());
-                }
+    let previous = state.language;
+    crate::theme::option_named_by_control(
+        ui,
+        crate::theme::icon::GLOBE,
+        crate::i18n::tr("Language"),
+        "",
+        |ui| {
+            egui::ComboBox::from_id_salt("language")
+                .selected_text(state.language.name())
+                .width(180.0)
+                .show_ui(ui, |ui| {
+                    for language in crate::i18n::Language::ALL {
+                        crate::theme::choice(ui, &mut state.language, language, language.name());
+                    }
+                })
+                .response
+                .widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::Role::ComboBox,
+                        true,
+                        crate::i18n::tr("Language"),
+                    )
+                });
+        },
+    );
+    if previous != state.language {
+        match save(state.language) {
+            Ok(()) => {
+                state.language_error = None;
+                // The frame still runs in the old language's scope.
+                let _language = crate::i18n::scope(state.language);
+                crate::theme::install_fonts(ui.ctx());
+                ui.ctx().request_repaint();
+            }
+            Err(e) => {
+                state.language = previous;
+                state.language_error = Some(e.to_string());
             }
         }
-    });
+    }
     if let Some(error) = &state.language_error {
         crate::theme::colored(
             ui,
@@ -2141,19 +2152,24 @@ fn language_settings(
 }
 
 fn theme_settings(ui: &mut Ui) {
-    ui.horizontal(|ui| {
-        ui.label(crate::i18n::tr("Theme"));
-        let mut preference = ui.ctx().options(|o| o.theme_preference);
-        for (value, label) in [
-            (egui::ThemePreference::System, crate::i18n::tr("System")),
-            (egui::ThemePreference::Light, crate::i18n::tr("Light")),
-            (egui::ThemePreference::Dark, crate::i18n::tr("Dark")),
-        ] {
-            if crate::theme::choice(ui, &mut preference, value, label).changed() {
-                ui.ctx().set_theme(preference);
+    crate::theme::option(
+        ui,
+        crate::theme::icon::COLOR,
+        crate::i18n::tr("Theme"),
+        "",
+        |ui| {
+            let mut preference = ui.ctx().options(|o| o.theme_preference);
+            for (value, label) in [
+                (egui::ThemePreference::System, crate::i18n::tr("System")),
+                (egui::ThemePreference::Light, crate::i18n::tr("Light")),
+                (egui::ThemePreference::Dark, crate::i18n::tr("Dark")),
+            ] {
+                if crate::theme::choice(ui, &mut preference, value, label).changed() {
+                    ui.ctx().set_theme(preference);
+                }
             }
-        }
-    });
+        },
+    );
 }
 
 /// Preferences of this window (the service's settings follow below them).
@@ -2169,50 +2185,63 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
         state.startup_error = status.error.clone();
     }
     let mut command = None;
-    crate::theme::card(ui, crate::i18n::tr("Language and theme"), |ui| {
-        language_settings(ui, state, crate::i18n::save);
-        ui.checkbox(
-            &mut state.resource_strip,
-            crate::i18n::tr("Show resource cards above processes"),
-        );
-        theme_settings(ui);
-    });
-    crate::theme::card(ui, crate::i18n::tr("Window behavior"), |ui| {
+    crate::theme::option_group(ui, crate::i18n::tr("Language and theme"));
+    language_settings(ui, state, crate::i18n::save);
+    theme_settings(ui);
+    crate::theme::option_switch(
+        ui,
+        crate::theme::icon::MONITOR,
+        crate::i18n::tr("Show resource cards above processes"),
+        "",
+        &mut state.resource_strip,
+    );
+    crate::theme::option_group(ui, crate::i18n::tr("Window behavior"));
+    {
         let a = &mut state.alerts;
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(
-                &mut a.enabled,
-                crate::i18n::tr("Pop up when the CPU stays above"),
-            );
-            ui.add_enabled(
-                a.enabled,
-                egui::Slider::new(&mut a.threshold, 50.0..=100.0)
-                    .suffix("%")
-                    .text("CPU"),
-            );
-            ui.label(crate::i18n::tr("for"));
-            ui.add_enabled(
-                a.enabled,
-                egui::DragValue::new(&mut a.seconds)
-                    .range(1..=120)
-                    .suffix(" s"),
-            );
-        })
-        .response
-        .on_hover_text(crate::i18n::tr(
-            "Shows the busiest apps with one-click fixes before the PC becomes unusable",
-        ));
-        ui.checkbox(
-            &mut state.tray_on_close,
-            crate::i18n::tr("Keep running in the tray when the window is closed"),
+        crate::theme::option_named_by_control(
+            ui,
+            crate::theme::icon::WARNING,
+            crate::i18n::tr("Pop up when the CPU stays above"),
+            crate::i18n::tr(
+                "Shows the busiest apps with one-click fixes before the PC becomes unusable",
+            ),
+            |ui| {
+                ui.add_enabled(
+                    a.enabled,
+                    egui::Slider::new(&mut a.threshold, 50.0..=100.0)
+                        .suffix("%")
+                        .text("CPU"),
+                );
+                ui.label(crate::i18n::tr("for"));
+                ui.add_enabled(
+                    a.enabled,
+                    egui::DragValue::new(&mut a.seconds)
+                        .range(1..=120)
+                        .suffix(" s"),
+                );
+                ui.add_space(8.0);
+                ui.label(crate::i18n::tr(if a.enabled { "On" } else { "Off" }));
+                crate::theme::switch(
+                    ui,
+                    &mut a.enabled,
+                    crate::i18n::tr("Pop up when the CPU stays above"),
+                );
+            },
         );
-        ui.checkbox(
-            &mut state.check_updates,
+        crate::theme::option_switch(
+            ui,
+            crate::theme::icon::MINIMIZE,
+            crate::i18n::tr("Keep running in the tray when the window is closed"),
+            "",
+            &mut state.tray_on_close,
+        );
+        crate::theme::option_switch(
+            ui,
+            crate::theme::icon::SYNC,
             crate::i18n::tr("Check for updates automatically"),
-        )
-        .on_hover_text(crate::i18n::tr(
-            "Asks GitHub for a newer release at start and twice a day",
-        ));
+            crate::i18n::tr("Asks GitHub for a newer release at start and twice a day"),
+            &mut state.check_updates,
+        );
         let mut on = *state
             .autostart
             .get_or_insert_with(crate::backend::autostart_enabled);
@@ -2222,18 +2251,22 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
         let busy = data.gui_startup.as_ref().is_some_and(|s| s.busy);
         let mut changed = false;
         ui.add_enabled_ui(!busy, |ui| {
-            changed |= ui
-                .checkbox(
-                    &mut administrator,
-                    crate::i18n::tr("Always open RustWTM as administrator"),
-                )
-                .changed();
-            changed |= ui
-                .checkbox(
-                    &mut on,
-                    crate::i18n::tr("Start RustWTM in the tray when I sign in"),
-                )
-                .changed();
+            changed |= crate::theme::option_switch(
+                ui,
+                crate::theme::icon::ADMIN,
+                crate::i18n::tr("Always open RustWTM as administrator"),
+                "",
+                &mut administrator,
+            )
+            .changed();
+            changed |= crate::theme::option_switch(
+                ui,
+                crate::theme::icon::PLAY,
+                crate::i18n::tr("Start RustWTM in the tray when I sign in"),
+                "",
+                &mut on,
+            )
+            .changed();
         });
         if changed {
             if administrator && !data.elevated {
@@ -2262,51 +2295,70 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
                 ),
             );
         }
-    });
-    crate::theme::card(ui, crate::i18n::tr("Windows Task Manager"), |ui| {
-        if ui
-            .add_enabled(
-                !data.task_manager_busy,
-                egui::Button::new(crate::i18n::tr("Refresh")),
-            )
-            .clicked()
-        {
-            command = Some(UiCommand::TaskManager(None));
-        }
-        ui.label(crate::i18n::tr(
-            "Open RustWTM whenever Windows starts Task Manager. Applies to all users.",
-        ));
-        use wtm_core::task_manager::State as TaskManager;
-        match &data.task_manager {
-            Some(Ok(status)) => {
-                let mut enabled = *status == TaskManager::RustWTM;
-                if ui
-                    .add_enabled(
-                        data.elevated && !data.task_manager_busy && *status != TaskManager::Other,
-                        egui::Checkbox::new(
-                            &mut enabled,
-                            crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc"),
-                        ),
-                    )
-                    .changed()
-                {
-                    command = Some(UiCommand::TaskManager(Some(enabled)));
+    }
+    use wtm_core::task_manager::State as TaskManager;
+    crate::theme::option_group(ui, crate::i18n::tr("Windows Task Manager"));
+    let title = crate::i18n::tr("Use RustWTM for Ctrl+Shift+Esc");
+    crate::theme::option_named_by_control(
+        ui,
+        crate::theme::icon::CHART,
+        title,
+        crate::i18n::tr("Open RustWTM whenever Windows starts Task Manager. Applies to all users."),
+        |ui| {
+            let status = data.task_manager.as_ref().and_then(|s| s.as_ref().ok());
+            let mut enabled = status == Some(&TaskManager::RustWTM);
+            let allowed = data.elevated
+                && !data.task_manager_busy
+                && status.is_some_and(|s| *s != TaskManager::Other);
+            ui.label(crate::i18n::tr(if enabled { "On" } else { "Off" }));
+            if ui
+                .add_enabled_ui(allowed, |ui| crate::theme::switch(ui, &mut enabled, title))
+                .inner
+                .changed()
+            {
+                command = Some(UiCommand::TaskManager(Some(enabled)));
+            }
+        },
+    );
+    // Notes and actions sit under the row, without a box of their own.
+    egui::Frame::new()
+        .inner_margin(egui::Margin { left: 14, right: 14, top: 2, bottom: 6 })
+        .show(ui, |ui| {
+            match &data.task_manager {
+                Some(Ok(status)) => {
+                    if *status == TaskManager::Other {
+                        ui.weak(crate::i18n::tr(
+                            "Another application currently replaces Task Manager. Restore it there first.",
+                        ));
+                    }
+                    ui.weak(crate::i18n::tr("Requires an administrator-protected installation. Turn this off to restore Windows Task Manager."));
                 }
-                if *status == TaskManager::Other {
-                    ui.weak(crate::i18n::tr(
-                    "Another application currently replaces Task Manager. Restore it there first.",
-                ));
+                Some(Err(error)) => {
+                    crate::theme::colored(ui, BAD, error);
                 }
+                None => {
+                    ui.weak(crate::i18n::tr("Checking Task Manager integration…"));
+                }
+            }
+            if data.task_manager_busy {
+                ui.weak(crate::i18n::tr("Saving Task Manager settings…"));
+            }
+            if let Some(error) = &data.task_manager_error {
+                crate::theme::colored(ui, BAD, crate::i18n::message(error));
+            }
+            ui.horizontal_wrapped(|ui| {
+                let failed = matches!(data.task_manager, Some(Err(_)));
+                let other = matches!(data.task_manager, Some(Ok(TaskManager::Other)));
                 if !data.elevated
-                    && *status != TaskManager::Other
+                    && data.task_manager.is_some()
+                    && !other
                     && ui
                         .button(crate::i18n::tr("Restart as administrator"))
                         .clicked()
                 {
                     command = Some(UiCommand::RestartElevated);
                 }
-                ui.weak(crate::i18n::tr("Requires an administrator-protected installation. Turn this off to restore Windows Task Manager."));
-                if *status == TaskManager::RustWTM
+                if matches!(data.task_manager, Some(Ok(TaskManager::RustWTM)))
                     && ui
                         .button(crate::i18n::tr("Open Windows Task Manager once"))
                         .on_hover_text(crate::i18n::tr(
@@ -2316,37 +2368,17 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
                 {
                     command = Some(UiCommand::OpenWindowsTaskManager);
                 }
-            }
-            Some(Err(error)) => {
-                crate::theme::colored(ui, BAD, error);
-                if !data.elevated
-                    && ui
-                        .button(crate::i18n::tr("Restart as administrator"))
-                        .clicked()
-                {
-                    command = Some(UiCommand::RestartElevated);
-                }
                 if ui
                     .add_enabled(
                         !data.task_manager_busy,
-                        egui::Button::new(crate::i18n::tr("Retry")),
+                        egui::Button::new(crate::i18n::tr(if failed { "Retry" } else { "Refresh" })),
                     )
                     .clicked()
                 {
                     command = Some(UiCommand::TaskManager(None));
                 }
-            }
-            None => {
-                ui.weak(crate::i18n::tr("Checking Task Manager integration…"));
-            }
-        }
-        if data.task_manager_busy {
-            ui.weak(crate::i18n::tr("Saving Task Manager settings…"));
-        }
-        if let Some(error) = &data.task_manager_error {
-            crate::theme::colored(ui, BAD, crate::i18n::message(error));
-        }
-    });
+            });
+        });
     state.experience.settings(ui);
     command
 }
@@ -3182,6 +3214,8 @@ fn process_plot(
     let latest = values.back().map_or(0.0, |v| f64::from(*v));
     Plot::new(id)
         .height(80.0)
+        .show_background(false)
+        .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.20))
         .include_y(0.0)
         .include_y(if bytes { 1024.0 * 1024.0 } else { 5.0 })
         .include_x(-(crate::backend::PROCESS_HISTORY_LEN as f64))
@@ -3433,12 +3467,31 @@ fn performance_focused(
         return;
     };
     let s = &snap.system;
-    use crate::performance_view::Page;
     let focused = focus.is_some();
     if let Some(resource) = focus {
         selection.page = resource.into();
     }
-    let changed = selection.navigation(ui) || focused;
+    if ui.available_width() >= crate::performance_view::RAIL_FROM {
+        ui.horizontal_top(|ui| {
+            let changed = selection.rail(ui, &data.history) || focused;
+            ui.add_space(12.0);
+            ui.vertical(|ui| performance_content(ui, data, s, changed, view, selection));
+        });
+    } else {
+        let changed = selection.navigation(ui) || focused;
+        performance_content(ui, data, s, changed, view, selection);
+    }
+}
+
+fn performance_content(
+    ui: &mut Ui,
+    data: &Data,
+    s: &wtm_core::SystemStats,
+    changed: bool,
+    view: &mut crate::charts::State,
+    selection: &mut crate::performance_view::State,
+) {
+    use crate::performance_view::Page;
     view.plot_height = match selection.page {
         Page::All => 128.0,
         Page::Memory | Page::Network => (ui.available_height() - 240.0).clamp(128.0, 600.0),
@@ -6175,10 +6228,11 @@ mod tests {
             .with_context_setup(move |ctx| ctx.memory_mut(|memory| *memory = saved))
             .build_ui(crate::theme::TableLines::controls);
         restored.run_steps(2);
+        // Both were off by default; the choice to turn them on is kept.
         for label in ["Row separators", "Column separators"] {
             assert_eq!(
                 restored.get_by_label(label).accesskit_node().toggled(),
-                Some(Toggled::False)
+                Some(Toggled::True)
             );
         }
     }

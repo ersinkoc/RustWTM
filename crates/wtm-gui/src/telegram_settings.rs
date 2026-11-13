@@ -4,7 +4,7 @@ use eframe::egui::{self, Ui};
 use wtm_policy::{TelegramConfig, parse_chats, token_looks_valid};
 
 use crate::backend::{Data, Mode, Panel, UiCommand};
-use crate::theme::{BAD, GOOD, WARN, card};
+use crate::theme::{BAD, GOOD, WARN, icon};
 
 #[derive(Debug, Default)]
 pub struct TelegramView {
@@ -35,8 +35,9 @@ impl TelegramView {
 /// Returns the commands to send (load, save, test).
 pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiCommand> {
     let mut commands = Vec::new();
-    card(ui, crate::i18n::tr("🔔 Telegram bot"), |ui| {
-        ui.label(crate::i18n::tr(
+    crate::theme::option_group(ui, crate::i18n::tr("🔔 Telegram bot"));
+    ui.scope(|ui| {
+        ui.weak(crate::i18n::tr(
             "Check on this PC and control it from your phone: status, busiest processes, ports \
              and services; end, suspend and resume processes; get alerts when the CPU is \
              overloaded or a program runs hundreds of copies.",
@@ -110,56 +111,63 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
         let Some(form) = view.form.as_mut() else {
             return;
         };
-        ui.checkbox(&mut form.enabled, crate::i18n::tr("Enabled"));
-        let field_width = (ui.available_width() - 200.0).clamp(120.0, 340.0);
-        egui::Grid::new("telegram_form")
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                ui.label(crate::i18n::tr("Bot token"));
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut form.token)
-                            .password(!view.show_token)
-                            .hint_text(crate::i18n::tr("123456789:ABC… from @BotFather"))
-                            .desired_width(field_width),
-                    );
-                    let eye = if view.show_token {
-                        crate::i18n::tr("Hide")
-                    } else {
-                        crate::i18n::tr("Show")
-                    };
-                    if ui
-                        .small_button(eye)
-                        .on_hover_text(crate::i18n::tr("Show or hide the token"))
-                        .clicked()
-                    {
-                        view.show_token = !view.show_token;
-                    }
-                });
-                crate::theme::end_row(ui);
-                ui.label(crate::i18n::tr("Allowed chat IDs"));
-                ui.add(
+        crate::theme::option_switch(
+            ui,
+            icon::POWER,
+            crate::i18n::tr("Enabled"),
+            "",
+            &mut form.enabled,
+        );
+        let show_token = &mut view.show_token;
+        crate::theme::option_labelled(ui, icon::KEY, crate::i18n::tr("Bot token"), "", |ui, id| {
+            ui.add_sized([300.0, ui.spacing().interact_size.y],
+                egui::TextEdit::singleline(&mut form.token)
+                    .password(!*show_token)
+                    .hint_text(crate::i18n::tr("123456789:ABC… from @BotFather"))
+            )
+            .labelled_by(id);
+            let eye = if *show_token {
+                crate::i18n::tr("Hide")
+            } else {
+                crate::i18n::tr("Show")
+            };
+            if ui
+                .button(eye)
+                .on_hover_text(crate::i18n::tr("Show or hide the token"))
+                .clicked()
+            {
+                *show_token = !*show_token;
+            }
+        });
+        crate::theme::option_labelled(
+            ui,
+            icon::CHAT,
+            crate::i18n::tr("Allowed chat IDs"),
+            crate::i18n::tr("Only these chats may use the bot; separate several with commas"),
+            |ui, id| {
+                ui.add_sized([300.0, ui.spacing().interact_size.y],
                     egui::TextEdit::singleline(&mut view.chats)
                         .hint_text(crate::i18n::tr("e.g. 123456789, 987654321"))
-                        .desired_width(field_width),
                 )
-                .on_hover_text(crate::i18n::tr(
-                    "Only these chats may use the bot; separate several with commas",
-                ));
-                crate::theme::end_row(ui);
-            });
-        ui.checkbox(
-            &mut form.notify,
-            crate::i18n::tr("Send alerts (CPU overload, swarms, programs ended by the kill list)"),
+                .labelled_by(id);
+            },
         );
-        ui.checkbox(
-            &mut form.control,
+        crate::theme::option_switch(
+            ui,
+            icon::BELL,
+            crate::i18n::tr("Send alerts (CPU overload, swarms, programs ended by the kill list)"),
+            "",
+            &mut form.notify,
+        );
+        crate::theme::option_switch(
+            ui,
+            icon::ADMIN,
             crate::i18n::tr("Allow ending, suspending and resuming processes and services"),
-        )
-        .on_hover_text(crate::i18n::tr(
-            "Without it the bot only reports; protected Windows processes are never ended",
-        ));
+            crate::i18n::tr(
+                "Without it the bot only reports; protected Windows processes are never ended",
+            ),
+            &mut form.control,
+        );
         if !form.token.trim().is_empty() && !token_looks_valid(form.token.trim()) {
             crate::theme::colored(
                 ui,
@@ -172,8 +180,8 @@ pub fn telegram(ui: &mut Ui, data: &Data, view: &mut TelegramView) -> Vec<UiComm
             Some(Ok(cfg)) => view.original.as_ref() != Some(cfg),
             _ => true,
         };
-        ui.add_space(0.0);
-        ui.horizontal(|ui| {
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
             let valid = matches!(edited, Some(Ok(_)));
             if ui
                 .add_enabled(valid && dirty, egui::Button::new(crate::i18n::tr("Save")))

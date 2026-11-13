@@ -46,7 +46,7 @@ impl Display {
         self.scale = self.scale.clamp(75, 150);
         let zoom = f32::from(self.scale) / 100.0;
         if *applied != Some(*self) || (ctx.zoom_factor() - zoom).abs() > 0.001 {
-            crate::theme::sharp_geometry(ctx);
+            crate::theme::geometry(ctx);
             ctx.all_styles_mut(|style| {
                 style.spacing.interact_size.y = match self.density {
                     Density::Compact => 22.0,
@@ -67,34 +67,51 @@ impl Display {
 }
 
 pub fn appearance(ui: &mut Ui, display: &mut Display, nav: &mut Option<bool>) {
-    crate::theme::card(ui, crate::i18n::tr("Display and accessibility"), |ui| {
-        ui.weak(crate::i18n::tr(
-            "Changes apply immediately and are remembered for this window.",
-        ));
-        crate::theme::setting_row(ui, crate::i18n::tr("Interface scale"), |ui, label| {
+    use crate::theme::icon;
+    crate::theme::option_group(ui, crate::i18n::tr("Display and accessibility"));
+    ui.weak(crate::i18n::tr(
+        "Changes apply immediately and are remembered for this window.",
+    ));
+    crate::theme::option(
+        ui,
+        icon::ZOOM,
+        crate::i18n::tr("Interface scale"),
+        "",
+        |ui| {
             ui.add(egui::Slider::new(&mut display.scale, 75..=150).suffix("%"))
-                .labelled_by(label);
-        });
-        crate::theme::setting_row(ui, crate::i18n::tr("Control and row height"), |ui, _| {
-            ui.horizontal_wrapped(|ui| {
-                for (value, label) in [
-                    (Density::Compact, "Compact"),
-                    (Density::Standard, "Standard"),
-                    (Density::Comfortable, "Comfortable"),
-                ] {
-                    crate::theme::choice(ui, &mut display.density, value, crate::i18n::tr(label));
-                }
-            });
-        });
-        ui.checkbox(
-            &mut display.reduced_motion,
-            crate::i18n::tr("Reduce interface animation"),
-        );
-        crate::theme::divider(ui);
-        crate::theme::TableLines::controls(ui);
-    });
-    crate::theme::card(ui, crate::i18n::tr("Sidebar layout"), |ui| {
-        ui.horizontal_wrapped(|ui| {
+                .on_hover_text(crate::i18n::tr("Interface scale"));
+        },
+    );
+    crate::theme::option(
+        ui,
+        icon::LIST,
+        crate::i18n::tr("Control and row height"),
+        "",
+        |ui| {
+            for (value, label) in [
+                (Density::Compact, "Compact"),
+                (Density::Standard, "Standard"),
+                (Density::Comfortable, "Comfortable"),
+            ] {
+                crate::theme::choice(ui, &mut display.density, value, crate::i18n::tr(label));
+            }
+        },
+    );
+    crate::theme::option_switch(
+        ui,
+        icon::VIEW,
+        crate::i18n::tr("Reduce interface animation"),
+        "",
+        &mut display.reduced_motion,
+    );
+    crate::theme::TableLines::options(ui);
+    crate::theme::option_group(ui, crate::i18n::tr("Sidebar layout"));
+    crate::theme::option(
+        ui,
+        icon::VIEW,
+        crate::i18n::tr("Sidebar layout"),
+        "",
+        |ui| {
             for (value, label) in [
                 (None, "Automatic"),
                 (Some(false), "Expanded"),
@@ -102,8 +119,8 @@ pub fn appearance(ui: &mut Ui, display: &mut Display, nav: &mut Option<bool>) {
             ] {
                 crate::theme::choice(ui, nav, value, crate::i18n::tr(label));
             }
-        });
-    });
+        },
+    );
     if ui
         .button(crate::i18n::tr("Reset display preferences"))
         .clicked()
@@ -122,13 +139,21 @@ pub fn processes(
     inspector: &mut crate::workspace_inspector::Mode,
     view: &mut crate::processes::ProcessView,
 ) -> bool {
-    crate::theme::card(ui, crate::i18n::tr("Resource cards and inspector"), |ui| {
-        ui.checkbox(
-            strip,
-            crate::i18n::tr("Show resource cards above processes"),
-        );
-        ui.label(crate::i18n::tr("Resource card height"));
-        ui.horizontal_wrapped(|ui| {
+    use crate::theme::{icon, option, option_group, option_switch};
+    option_group(ui, crate::i18n::tr("Resource cards and inspector"));
+    option_switch(
+        ui,
+        icon::MONITOR,
+        crate::i18n::tr("Show resource cards above processes"),
+        "",
+        strip,
+    );
+    option(
+        ui,
+        icon::MONITOR,
+        crate::i18n::tr("Resource card height"),
+        "",
+        |ui| {
             for (value, label) in [
                 (Band::Adaptive, "Adaptive"),
                 (Band::Compact, "Compact"),
@@ -136,9 +161,16 @@ pub fn processes(
             ] {
                 crate::theme::choice(ui, &mut display.band, value, crate::i18n::tr(label));
             }
-        });
-        crate::theme::divider(ui);
-        ui.horizontal_wrapped(|ui| {
+        },
+    );
+    option(
+        ui,
+        icon::VIEW,
+        crate::i18n::tr("Inspector"),
+        crate::i18n::tr(
+            "Adaptive mode shows system facts in wide windows and process details on selection.",
+        ),
+        |ui| {
             for (value, label) in [
                 (crate::workspace_inspector::Mode::Auto, "Adaptive inspector"),
                 (
@@ -149,39 +181,56 @@ pub fn processes(
             ] {
                 crate::theme::choice(ui, inspector, value, crate::i18n::tr(label));
             }
-        });
+        },
+    );
+    option_group(ui, crate::i18n::tr("Process table behavior"));
+    option(ui, icon::LIST, crate::i18n::tr("Processes"), "", |ui| {
+        for (value, label) in [
+            (crate::processes::ViewMode::List, "List"),
+            (crate::processes::ViewMode::Tree, "Tree"),
+            (crate::processes::ViewMode::Apps, "Apps"),
+        ] {
+            crate::theme::choice(ui, &mut view.mode, value, crate::i18n::tr(label));
+        }
     });
-    crate::theme::card(ui, crate::i18n::tr("Process table behavior"), |ui| {
-        crate::theme::TableLines::controls(ui);
-        ui.checkbox(
-            &mut view.descriptive_names,
-            crate::i18n::tr("Show process descriptions"),
-        );
-        ui.checkbox(&mut view.heat, crate::i18n::tr("Heat map"));
-        ui.checkbox(
-            &mut view.stripes,
-            crate::i18n::tr("Alternating row backgrounds"),
-        );
-        ui.checkbox(
-            &mut view.hold_sorting,
-            crate::i18n::tr("Hold live row order during inspection"),
-        );
-        ui.weak(crate::i18n::tr(
-            "Values stay live. F6 remains a separate frozen snapshot.",
-        ));
-        ui.horizontal_wrapped(|ui| {
-            for (value, label) in [
-                (crate::processes::ViewMode::List, "List"),
-                (crate::processes::ViewMode::Tree, "Tree"),
-                (crate::processes::ViewMode::Apps, "Apps"),
-            ] {
-                crate::theme::choice(ui, &mut view.mode, value, crate::i18n::tr(label));
-            }
-        });
-    });
-    crate::theme::card(ui, crate::i18n::tr("Grouping and system processes"), |ui| {
-        ui.label(crate::i18n::tr("Group processes by user"));
-        ui.horizontal_wrapped(|ui| {
+    option_switch(
+        ui,
+        icon::LIST,
+        crate::i18n::tr("Show process descriptions"),
+        "",
+        &mut view.descriptive_names,
+    );
+    option_switch(
+        ui,
+        icon::CHART,
+        crate::i18n::tr("Heat map"),
+        "",
+        &mut view.heat,
+    );
+    option_switch(
+        ui,
+        icon::LIST,
+        crate::i18n::tr("Alternating row backgrounds"),
+        "",
+        &mut view.stripes,
+    );
+    crate::theme::TableLines::options(ui);
+    option_switch(
+        ui,
+        icon::HISTORY,
+        crate::i18n::tr("Hold live row order during inspection"),
+        crate::i18n::tr("Values stay live. F6 remains a separate frozen snapshot."),
+        &mut view.hold_sorting,
+    );
+    option_group(ui, crate::i18n::tr("Grouping and system processes"));
+    option(
+        ui,
+        icon::PEOPLE,
+        crate::i18n::tr("Group processes by user"),
+        crate::i18n::tr(
+            "Applies to the List view. Automatic groups only while more than one user runs programs.",
+        ),
+        |ui| {
             for (value, label) in [
                 (crate::processes::UserGrouping::Auto, "Automatic"),
                 (crate::processes::UserGrouping::Always, "Always group"),
@@ -189,19 +238,23 @@ pub fn processes(
             ] {
                 crate::theme::choice(ui, &mut view.user_grouping, value, crate::i18n::tr(label));
             }
-        });
-        ui.weak(crate::i18n::tr(
-            "Applies to the List view. Automatic groups only while more than one user runs programs.",
-        ));
-        crate::theme::divider(ui);
-        ui.checkbox(
-            &mut view.hide_system,
-            crate::i18n::tr("Hide system processes"),
-        );
-        ui.checkbox(
-            &mut view.tree_collapsed,
-            crate::i18n::tr("Start the process tree collapsed"),
-        );
+        },
+    );
+    option_switch(
+        ui,
+        icon::FILTER,
+        crate::i18n::tr("Hide system processes"),
+        "",
+        &mut view.hide_system,
+    );
+    option_switch(
+        ui,
+        icon::LIST,
+        crate::i18n::tr("Start the process tree collapsed"),
+        "",
+        &mut view.tree_collapsed,
+    );
+    crate::theme::panel(ui, |ui| {
         name_list(
             ui,
             crate::i18n::tr("Always show these programs"),
@@ -216,15 +269,20 @@ pub fn processes(
             "One program file name per line, for example notepad.exe.",
         ));
     });
-    crate::theme::card(ui, crate::i18n::tr("Column layouts"), |ui| {
-        ui.horizontal_wrapped(|ui| {
+    option_group(ui, crate::i18n::tr("Column layouts"));
+    option(
+        ui,
+        icon::SETTINGS,
+        crate::i18n::tr("Column profiles"),
+        "",
+        |ui| {
             for profile in crate::process_columns::Profile::ALL {
                 if ui.button(profile.label()).clicked() {
                     view.apply_profile(profile);
                 }
             }
-        });
-    });
+        },
+    );
     ui.button(crate::i18n::tr("Open process column editor"))
         .clicked()
 }
@@ -259,34 +317,30 @@ fn name_list(ui: &mut Ui, label: &str, names: &mut Vec<String>) {
 }
 
 pub fn charts(ui: &mut Ui, view: &mut crate::charts::State) {
-    crate::theme::card(ui, crate::i18n::tr("Timeline preferences"), |ui| {
-        ui.label(crate::i18n::tr("Remembered time range"));
-        let mut seconds = view.range_seconds();
-        ui.horizontal_wrapped(|ui| {
+    use crate::theme::icon;
+    crate::theme::option_group(ui, crate::i18n::tr("Timeline preferences"));
+    let mut seconds = view.range_seconds();
+    crate::theme::option(
+        ui,
+        icon::HISTORY,
+        crate::i18n::tr("Remembered time range"),
+        crate::i18n::tr("Uses recorded samples only; selecting a range returns charts to live."),
+        |ui| {
             for (value, label) in [(60, "1 min"), (120, "2 min"), (300, "5 min")] {
                 if crate::theme::choice(ui, &mut seconds, value, crate::i18n::tr(label)).changed() {
                     view.set_range(seconds);
                 }
             }
-        });
-        ui.weak(crate::i18n::tr(
-            "Uses recorded samples only; selecting a range returns charts to live.",
-        ));
-        crate::theme::divider(ui);
-        ui.checkbox(&mut view.options.grid, crate::i18n::tr("Show chart grid"));
-        ui.checkbox(
-            &mut view.options.fill,
-            crate::i18n::tr("Fill area below chart lines"),
-        );
-        ui.checkbox(
-            &mut view.options.events,
-            crate::i18n::tr("Show recent event markers"),
-        );
-        ui.checkbox(
-            &mut view.options.link_hover,
-            crate::i18n::tr("Synchronize hover cursors"),
-        );
-    });
+        },
+    );
+    for (value, label) in [
+        (&mut view.options.grid, "Show chart grid"),
+        (&mut view.options.fill, "Fill area below chart lines"),
+        (&mut view.options.events, "Show recent event markers"),
+        (&mut view.options.link_hover, "Synchronize hover cursors"),
+    ] {
+        crate::theme::option_switch(ui, icon::CHART, crate::i18n::tr(label), "", value);
+    }
     if ui
         .button(crate::i18n::tr("Reset chart preferences"))
         .clicked()
@@ -327,7 +381,7 @@ mod tests {
         assert_eq!(style.spacing.button_padding, crate::theme::CONTROL_PADDING);
         assert_eq!(
             style.visuals.widgets.inactive.corner_radius,
-            egui::CornerRadius::ZERO
+            crate::theme::CONTROL_RADIUS
         );
         h.get_by_label("Reset display preferences").click();
         h.run_steps(2);

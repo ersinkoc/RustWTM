@@ -579,21 +579,33 @@ impl View {
             if !points.is_empty() {
                 segments.push(points);
             }
+            // The top of the scale, now that the axis has no tick labels.
+            let top = segments
+                .iter()
+                .flatten()
+                .map(|p| p[1])
+                .fold(m.ceiling.unwrap_or(0.0) * factor, f64::max);
+            let scale = match m.unit.as_str() {
+                "bytes" => wtm_core::format_bytes(top.max(0.0)),
+                "B/s" if bits => format!("{top:.1} Mbps"),
+                "B/s" => format!("{}/s", wtm_core::format_bytes(top.max(0.0))),
+                unit => format!("{top:.0} {unit}"),
+            };
+            crate::theme::chart_scale(ui, "", &scale);
+            let backdrop = egui::Rect::from_min_size(
+                ui.cursor().min,
+                egui::vec2(ui.available_width(), height),
+            );
+            crate::theme::chart_backdrop(ui, backdrop, color, true);
             egui_plot::Plot::new(("device-chart", &d.id, &m.id))
                 .height(height)
                 .show_background(false)
-                .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.20))
+                .show_grid(false)
+                .show_axes(false)
                 .allow_drag(false)
                 .allow_scroll(false)
                 .allow_zoom(false)
                 .allow_boxed_zoom(false)
-                .y_axis_min_width(64.0)
-                .y_axis_formatter(|mark, _| match m.unit.as_str() {
-                    "bytes" => wtm_core::format_bytes(mark.value.max(0.0)),
-                    "B/s" if bits => format!("{:.1} Mbps", mark.value),
-                    "B/s" => format!("{}/s", wtm_core::format_bytes(mark.value.max(0.0))),
-                    unit => format!("{:.0} {unit}", mark.value),
-                })
                 .include_y(0.0)
                 .include_y(m.ceiling.unwrap_or(0.0) * factor)
                 .show(ui, |plot| {

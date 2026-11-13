@@ -319,14 +319,22 @@ impl State {
             .fold(0.0, f32::max)
         }) + 2.0 * ui.spacing().button_padding.x
             + 4.0;
+        let inspecting = self.window.is_some();
+        let count = self.timeline.times.len();
+        let span = extent.map_or(0, |e| (e.end - e.start) / 1000);
+        let at = self
+            .cursor
+            .or_else(|| self.timeline.times.last().copied())
+            .unwrap_or_default();
+        let requested = self.cursor.or_else(|| self.timeline.times.last().copied());
+        let actual = requested.map(|at| self.timeline.nearest(at).map_or(at, |(_, t)| t));
+        let zoomable = self.bounds().map_or(0, |w| w.end - w.start) > 1000;
+        let has_previous = inspecting && self.timeline.times.iter().any(|t| *t < at);
+        let has_next = inspecting && self.timeline.times.iter().any(|t| *t > at);
+        // One quiet row: range and state on the left, actions at the right
+        // edge. Every piece keeps its width between live and inspecting, so
+        // pinning a sample never rewraps the row or moves a plot.
         ui.horizontal_wrapped(|ui| {
-            ui.strong(crate::i18n::tr("Timeline"));
-            if self.held_by_ctrl() {
-                ui.label(
-                    egui::RichText::new(crate::i18n::tr("Paused while Ctrl is held"))
-                        .color(crate::theme::text_color(ui, crate::theme::WARN)),
-                );
-            }
             for (secs, label) in [(60, "1 min"), (120, "2 min"), (300, "5 min")] {
                 let recorded = extent.is_some_and(|e| {
                     e.end - e.start + self.timeline.cadence >= u64::from(secs) * 1000
@@ -346,114 +354,109 @@ impl State {
                     self.live();
                 }
             }
-            let was_live = self.window.is_none();
-            let label = crate::i18n::tr(if was_live {
-                "Inspect timeline"
-            } else {
-                "Back to live"
-            });
-            if ui
-                .add_enabled_ui(extent.is_some(), |ui| {
-                    ui.add_sized(
-                        [toggle_width, ui.spacing().interact_size.y],
-                        egui::Button::new(label),
-                    )
-                })
-                .inner
-                .clicked()
-            {
-                if was_live {
-                    self.inspect();
-                } else {
-                    self.live();
-                }
-            }
-            let width = self.bounds().map_or(0, |w| w.end - w.start);
-            if ui
-                .add_enabled(width > 1000, egui::Button::new(crate::i18n::tr("Zoom in")))
-                .clicked()
-            {
-                self.zoom(true);
-            }
-            if ui
-                .add_enabled(
-                    self.window.is_some(),
-                    egui::Button::new(crate::i18n::tr("Zoom out")),
-                )
-                .clicked()
-            {
-                self.zoom(false);
-            }
-            if ui
-                .add_enabled(
-                    self.window.is_some(),
-                    egui::Button::new(crate::i18n::tr("Reset zoom")),
-                )
-                .clicked()
-            {
-                self.window = self.live_window();
-                self.cursor = self.window.map(|w| w.end);
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            let count = self.timeline.times.len();
-            let span = extent.map_or(0, |e| (e.end - e.start) / 1000);
-            ui.weak(crate::i18n::format(
-                "Recorded: {0}s · {1} samples",
-                &[span.to_string(), count.to_string()],
-            ));
-            let inspecting = self.window.is_some();
-            // Reserve the same mode-label width so pinning does not move a plot.
+            ui.add_space(8.0);
+            let state = crate::i18n::tr(if inspecting { "Inspecting" } else { "Live" });
             ui.add_sized(
                 [90.0, ui.spacing().interact_size.y],
                 egui::Label::new(
-                    RichText::new(crate::i18n::tr(if inspecting {
-                        "Inspecting"
-                    } else {
-                        "Live"
-                    }))
-                    .small()
-                    .color(crate::theme::text_color(
-                        ui,
-                        if inspecting {
-                            crate::theme::ACCENT
-                        } else {
-                            crate::theme::GOOD
-                        },
-                    )),
+                    RichText::new(format!("● {state}"))
+                        .small()
+                        .color(crate::theme::text_color(
+                            ui,
+                            if inspecting {
+                                crate::theme::ACCENT
+                            } else {
+                                crate::theme::GOOD
+                            },
+                        )),
                 ),
-            );
-            let at = self
-                .cursor
-                .or_else(|| self.timeline.times.last().copied())
-                .unwrap_or_default();
-            if ui
-                .add_enabled(
-                    inspecting && self.timeline.times.iter().any(|t| *t < at),
-                    egui::Button::new(crate::i18n::tr("Previous sample")),
-                )
-                .clicked()
-            {
-                self.step(false);
-            }
-            if ui
-                .add_enabled(
-                    inspecting && self.timeline.times.iter().any(|t| *t > at),
-                    egui::Button::new(crate::i18n::tr("Next sample")),
-                )
-                .clicked()
-            {
-                self.step(true);
-            }
-            let requested = self.cursor.or_else(|| self.timeline.times.last().copied());
-            let actual = requested.map(|at| self.timeline.nearest(at).map_or(at, |(_, t)| t));
+            )
+            .on_hover_text(format!(
+                "{}\n{}",
+                crate::i18n::format(
+                    "Recorded: {0}s · {1} samples",
+                    &[span.to_string(), count.to_string()],
+                ),
+                crate::i18n::tr("Headers and device details show current readings. Values below charts follow the selected sample."),
+            ));
             ui.label(
                 RichText::new(actual.map_or_else(|| "—".into(), timestamp))
                     .small()
-                    .monospace(),
+                    .monospace()
+                    .weak(),
             );
+            if self.held_by_ctrl() {
+                ui.label(
+                    egui::RichText::new(crate::i18n::tr("Paused while Ctrl is held"))
+                        .small()
+                        .color(crate::theme::text_color(ui, crate::theme::WARN)),
+                );
+            }
+            let width_id = ui.make_persistent_id("timeline-actions");
+            let width = ui.data(|d| d.get_temp::<f32>(width_id)).unwrap_or(0.0);
+            // A wrapping row reports its whole width as available and does not
+            // move a nested group to the next line: measure what is left on
+            // this line from the cursor, and start a new line when needed.
+            let spacing = ui.spacing().item_spacing.x;
+            let mut left = ui.max_rect().right() - ui.cursor().left();
+            if left < width + spacing {
+                ui.end_row();
+                left = ui.max_rect().width();
+            }
+            let room = left - width - spacing - 1.0;
+            if room > 0.0 {
+                ui.add_space(room);
+            }
+            let actions = ui.horizontal(|ui| {
+                use crate::theme::{icon, icon_button};
+                if icon_button(ui, has_previous, icon::PREVIOUS, crate::i18n::tr("Previous sample"))
+                    .clicked()
+                {
+                    self.step(false);
+                }
+                if icon_button(ui, has_next, icon::NEXT, crate::i18n::tr("Next sample")).clicked() {
+                    self.step(true);
+                }
+                ui.add_space(6.0);
+                if icon_button(ui, inspecting, icon::ZOOM_OUT, crate::i18n::tr("Zoom out")).clicked() {
+                    self.zoom(false);
+                }
+                if icon_button(ui, zoomable, icon::ZOOM_IN, crate::i18n::tr("Zoom in")).clicked() {
+                    self.zoom(true);
+                }
+                if icon_button(ui, inspecting, icon::RESET, crate::i18n::tr("Reset zoom")).clicked() {
+                    self.window = self.live_window();
+                    self.cursor = self.window.map(|w| w.end);
+                }
+                ui.add_space(6.0);
+                let label = crate::i18n::tr(if inspecting {
+                    "Back to live"
+                } else {
+                    "Inspect timeline"
+                });
+                if ui
+                    .add_enabled_ui(extent.is_some(), |ui| {
+                        ui.add_sized(
+                            [toggle_width, ui.spacing().interact_size.y],
+                            egui::Button::new(label),
+                        )
+                    })
+                    .inner
+                    .clicked()
+                {
+                    if inspecting {
+                        self.live();
+                    } else {
+                        self.inspect();
+                    }
+                }
+            });
+            let measured = actions.response.rect.width();
+            if (measured - width).abs() > 0.5 {
+                ui.data_mut(|d| d.insert_temp(width_id, measured));
+                ui.ctx().request_repaint();
+            }
         });
-        ui.add(egui::Label::new(RichText::new(crate::i18n::tr("Headers and device details show current readings. Values below charts follow the selected sample.")).small().weak()).wrap());
         let warning = if self.timeline.restarted {
             crate::i18n::tr("Only the latest increasing timestamp sequence is shown.")
         } else if self.window.is_some()
@@ -552,12 +555,40 @@ impl State {
         };
         let start = window.start as f64 / 1000.0;
         let end = (window.end as f64 / 1000.0).max(start + 0.001);
+        let tint = series.first().map_or(crate::theme::CPU, |s| s.2);
+        // Rates get a calm 1-2-5 scale from the busiest sample in view.
+        let ceiling = match unit {
+            Unit::Percent => 100.0,
+            Unit::Rate => crate::theme::rate_ceiling(
+                series
+                    .iter()
+                    .flat_map(|(_, values, _)| {
+                        segments(&self.timeline, times, values, window, unit)
+                            .into_iter()
+                            .flatten()
+                    })
+                    .map(|p| p[1])
+                    .fold(0.0, f64::max),
+            ),
+        };
+        crate::theme::chart_scale(
+            ui,
+            "",
+            &match unit {
+                Unit::Percent => "100%".to_owned(),
+                Unit::Rate => format!("{}/s", wtm_core::format_bytes(ceiling)),
+            },
+        );
+        let backdrop = egui::Rect::from_min_size(
+            ui.cursor().min,
+            egui::vec2(ui.available_width(), self.plot_height),
+        );
+        crate::theme::chart_backdrop(ui, backdrop, tint, self.options.grid);
         let mut plot = Plot::new(id)
             .height(self.plot_height)
             .show_background(false)
-            .show_grid([self.options.grid, self.options.grid])
-            .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.35))
-            .y_axis_min_width(64.0)
+            .show_grid(false)
+            .show_axes(false)
             .allow_drag(false)
             .allow_zoom(false)
             .allow_scroll(false)
@@ -586,14 +617,11 @@ impl State {
             Unit::Rate => plot
                 .include_y(0.0)
                 .include_y(1024.0)
-                .y_axis_formatter(|m, _| format!("{}/s", wtm_core::format_bytes(m.value.max(0.0))))
                 .label_formatter(crate::app::rate_label),
         };
         let result = plot.show(ui, |plot| {
             plot.set_plot_bounds_x(start..=end);
-            if matches!(unit, Unit::Percent) {
-                plot.set_plot_bounds_y(0.0..=100.0);
-            }
+            plot.set_plot_bounds_y(0.0..=ceiling);
             for &(label, values, color) in series {
                 for points in segments(&self.timeline, times, values, window, unit) {
                     if points.len() == 1 {
@@ -674,6 +702,7 @@ impl State {
         result.response.on_hover_text(crate::i18n::tr(
             "Click a chart to inspect. Double-click to follow live.",
         ));
+        crate::theme::chart_scale(ui, &short_time(start), &short_time(end));
         ui.horizontal(|ui| {
             ui.set_min_height(18.0);
             if self.window.is_some() {

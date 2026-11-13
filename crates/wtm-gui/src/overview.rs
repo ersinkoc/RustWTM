@@ -72,7 +72,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                 .color
                 .gamma_multiply(0.75),
         ))
-        .corner_radius(0.0)
+        .corner_radius(crate::theme::SURFACE_RADIUS)
         .inner_margin(crate::theme::CONTENT_PADDING)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -154,11 +154,6 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
                 crate::theme::sparkline(ui.painter(), rect, &tail, max, STAT_SECONDS, *color);
             }
         });
-    let top = frame.response.rect.shrink(1.0);
-    ui.painter().line_segment(
-        [top.left_top(), top.right_top()],
-        egui::Stroke::new(2.0, s.accent.gamma_multiply(0.65)),
-    );
     // A distinct id keeps the frame's hover-only response from relinquishing
     // the button's keyboard focus at the beginning of the next frame.
     let response = ui.interact(
@@ -179,7 +174,7 @@ fn stat_card(ui: &mut Ui, s: &Stat<'_>) -> egui::Response {
     let color = if response.hovered() || response.has_focus() {
         ui.painter().rect_stroke(
             response.rect,
-            0.0,
+            crate::theme::SURFACE_RADIUS,
             egui::Stroke::new(1.5, s.accent),
             egui::StrokeKind::Inside,
         );

@@ -413,6 +413,8 @@ pub fn sensors(ui: &mut Ui, data: &Data, view: &mut SensorsView) -> Vec<UiComman
                         ui.weak(crate::i18n::tr("Temperature (°C) → Fan duty (%)"));
                         let plot = egui_plot::Plot::new(("fan_curve", &channel.id))
                             .height(120.0)
+                            .show_background(false)
+                            .grid_color(ui.visuals().weak_text_color().gamma_multiply(0.20))
                             .include_y(0.0)
                             .include_y(100.0)
                             .allow_drag(false)
