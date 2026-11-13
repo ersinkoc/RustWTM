@@ -1,6 +1,5 @@
 # Historical release provenance after transfer
 
-RustWTM is an MIT-licensed oxog.net project maintained by OXOGNET OÜ, Estonia.
 The active repository is [rustwtm/rustwtm](https://github.com/rustwtm/rustwtm).
 
 Release **0.28.0** was built before the repository transfer. Its original source

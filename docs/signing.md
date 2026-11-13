@@ -77,7 +77,7 @@ with Microsoft before step 1.
 
 ## Corporate metadata
 
-RustWTM is maintained by OXOGNET OÜ, Estonia, as an oxog.net project. Windows
+RustWTM is maintained by OXOGNET OÜ, Estonia. Windows
 CompanyName and MSI Manufacturer identify that maintainer. Authenticode publisher
 verification still uses the exact subject of the configured signing certificate;
 metadata alone does not issue or change a certificate. Use the actual-case

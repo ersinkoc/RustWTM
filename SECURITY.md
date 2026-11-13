@@ -1,7 +1,5 @@
 # Security policy
 
-RustWTM is an MIT-licensed oxog.net project maintained by **OXOGNET OÜ, Estonia**.
-
 RustWTM's service runs as LocalSystem and can change or terminate processes,
 so security issues are taken seriously.
 

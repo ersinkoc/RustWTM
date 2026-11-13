@@ -1,13 +1,13 @@
 # Project identity and maintenance
 
-**RustWTM** is an **MIT-licensed oxog.net project**, maintained by
-**OXOGNET OÜ, Estonia**.
+RustWTM is maintained by OXOGNET OÜ, Estonia, and distributed under the
+[MIT license](LICENSE).
 
 - Product website: [rustwtm.com](https://rustwtm.com)
 - Source and issues: [github.com/rustwtm/rustwtm](https://github.com/rustwtm/rustwtm)
 - Organization: [oxog.net](https://oxog.net)
-- Maintainer: **OXOGNET OÜ**, **Estonia**
-- Contact: **info@oxog.net**
+- Maintainer: OXOGNET OÜ, Estonia
+- Contact: info@oxog.net
 - License: [MIT](LICENSE)
 - Security reports: [SECURITY.md](SECURITY.md)
 

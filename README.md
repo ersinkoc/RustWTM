@@ -5,9 +5,7 @@
 <h1 align="center">RustWTM</h1>
 
 <p align="center">
-  <b>The Windows task manager that keeps your PC responsive.</b><br>
-  An <a href="https://oxog.net">oxog.net</a> project.<br>
-  Maintained by <b>OXOGNET OÜ</b>, Estonia. · MIT licensed.
+  <b>The Windows task manager that keeps your PC responsive.</b>
 </p>
 
 A Windows task manager written in Rust, with a background governor that keeps
@@ -132,12 +130,9 @@ The [0.28.0 foundation](docs/0.28.0-review.md) remains available:
 [Uninstall confirmation](screenshots/installed-apps-confirmation.png) ·
 [Quick navigation](screenshots/quick-navigation.png)
 
-RustWTM is an MIT-licensed [oxog.net](https://oxog.net) project maintained by
-**OXOGNET OÜ, Estonia**. The official website is [rustwtm.com](https://rustwtm.com)
-and the source is [rustwtm/rustwtm](https://github.com/rustwtm/rustwtm).
 The repository transfer retained ID 1425760656 and the 0.28.0 release. Existing
 clients can still discover it through the original redirect; new clients use the
-stable identity. [Maintainers](MAINTAINERS.md) · [Transfer verification](docs/repository-migration.md).
+stable identity. [Transfer verification](docs/repository-migration.md).
 
 ## Features
 
@@ -606,5 +601,5 @@ surfaces, responsive policy settings and screen review process.
 
 ## License
 
-[MIT](LICENSE). An [oxog.net](https://oxog.net) project maintained by **OXOGNET OÜ, Estonia**.
+[MIT](LICENSE). Maintained by [OXOGNET OÜ](https://oxog.net), Estonia.
 See [MAINTAINERS.md](MAINTAINERS.md) for project identity and contact details.
