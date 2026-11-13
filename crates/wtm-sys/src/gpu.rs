@@ -560,6 +560,11 @@ pub struct Adapter {
     pub name: String,
     pub dedicated_bytes: u64,
     pub shared_bytes: u64,
+    /// PCI vendor and device IDs, matching the driver's hardware ID.
+    pub vendor_id: u32,
+    pub device_id: u32,
+    /// The LUID as one number, as DirectX records it in the registry.
+    pub luid_value: u64,
 }
 
 pub fn adapters() -> Result<Vec<Adapter>> {
@@ -586,14 +591,19 @@ pub fn adapters() -> Result<Vec<Adapter>> {
             .iter()
             .position(|c| *c == 0)
             .unwrap_or(desc.Description.len());
+        let luid = format!(
+            "{:08x}_{:08x}",
+            desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart
+        );
         result.push(Adapter {
-            luid: format!(
-                "{:08x}_{:08x}",
-                desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart
-            ),
+            luid,
+            luid_value: (u64::from(desc.AdapterLuid.HighPart as u32) << 32)
+                | u64::from(desc.AdapterLuid.LowPart),
             name: String::from_utf16_lossy(&desc.Description[..end]),
             dedicated_bytes: desc.DedicatedVideoMemory as u64,
             shared_bytes: desc.SharedSystemMemory as u64,
+            vendor_id: desc.VendorId,
+            device_id: desc.DeviceId,
         });
     }
     Ok(result)

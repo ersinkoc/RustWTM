@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use wtm_sys::control::{Access, ProcessHandle};
 pub use wtm_sys::control::{
-    Architecture, EcoQos, PriorityClass, enter_background_mode, raise_current_thread,
+    Architecture, EcoQos, Integrity, PriorityClass, enter_background_mode, raise_current_thread,
 };
 use wtm_sys::job::Job;
 
@@ -385,15 +385,18 @@ pub struct ProcessFacts {
     pub user: Option<String>,
     pub elevated: Option<bool>,
     pub architecture: Option<Architecture>,
+    pub integrity: Option<Integrity>,
 }
 
-/// Opens the process once for its account, elevation and architecture.
+/// Opens the process once for its account, elevation, architecture and
+/// integrity level.
 pub fn facts(target: &ProcessRef) -> ControlResult<ProcessFacts> {
     let h = open_verified(target, Access::QUERY)?;
     Ok(ProcessFacts {
         user: h.user().ok(),
         elevated: h.elevated().ok(),
         architecture: h.architecture().ok(),
+        integrity: h.integrity().ok(),
     })
 }
 

@@ -271,6 +271,59 @@ fn blocked_programs(ui: &mut Ui, data: &Data, action: &mut Option<NetworkAction>
     });
 }
 
+/// Which connections the Network list shows; remembered across restarts.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ConnectionKind {
+    Listening,
+    Established,
+    Udp,
+    /// Also any value saved by a later version.
+    #[default]
+    #[serde(other)]
+    All,
+}
+
+impl ConnectionKind {
+    const ID: &str = "network_connection_kind";
+
+    fn load(ui: &Ui) -> Self {
+        ui.data_mut(|d| d.get_persisted(egui::Id::unique(Self::ID)))
+            .unwrap_or_default()
+    }
+
+    fn store(self, ui: &Ui) {
+        ui.data_mut(|d| d.insert_persisted(egui::Id::unique(Self::ID), self));
+    }
+
+    pub fn matches(self, c: &wtm_core::Connection) -> bool {
+        use wtm_sys::net::TcpState;
+        let tcp = c.protocol == wtm_core::Protocol::Tcp;
+        match self {
+            Self::All => true,
+            Self::Listening => tcp && c.state == Some(TcpState::Listen),
+            Self::Established => tcp && c.state == Some(TcpState::Established),
+            Self::Udp => !tcp,
+        }
+    }
+}
+
+/// A search that is only a number finds that port (local or remote) or PID
+/// exactly, so "80" does not also list 8080. Anything else is a substring
+/// of the program name or an address.
+pub fn connection_matches(c: &wtm_core::Connection, name: &str, remote: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    if let Ok(number) = query.parse::<u32>() {
+        return u32::from(c.local.port()) == number
+            || c.remote.is_some_and(|r| u32::from(r.port()) == number)
+            || c.pid == number;
+    }
+    name.to_lowercase().contains(query)
+        || c.local.to_string().contains(query)
+        || remote.contains(query)
+}
+
 /// Returns what the user asked for, if anything. `only` narrows the list to
 /// one process while it still runs: its PID may have gone to another one.
 pub fn network(
@@ -296,6 +349,16 @@ pub fn network(
             crate::i18n::tr("process, address or port"),
             240.0,
         );
+        let mut kind = ConnectionKind::load(ui);
+        for (value, label) in [
+            (ConnectionKind::All, "All connections"),
+            (ConnectionKind::Listening, "Listening"),
+            (ConnectionKind::Established, "Established"),
+            (ConnectionKind::Udp, "UDP"),
+        ] {
+            crate::theme::choice(ui, &mut kind, value, crate::i18n::tr(label));
+        }
+        kind.store(ui);
         if let Some(pid) = only_pid {
             ui.label(crate::i18n::format(
                 "(selected process {0} only)",
@@ -328,19 +391,33 @@ pub fn network(
         .map(|p| (p.pid, p))
         .collect();
     let f = filter.trim().to_lowercase();
+    let kind = ConnectionKind::load(ui);
+    let mut marks = crate::marks::Marks::load(ui, "connections");
+    let served: std::collections::HashSet<(u32, u16)> = conns
+        .iter()
+        .filter(|c| {
+            c.protocol == wtm_core::Protocol::Udp || c.state == Some(wtm_sys::net::TcpState::Listen)
+        })
+        .map(|c| (c.pid, c.local.port()))
+        .collect();
     let mut rows: Vec<_> = conns
         .iter()
-        .filter(|c| only_pid.is_none_or(|pid| c.pid == pid))
+        .filter(|c| only_pid.is_none_or(|pid| c.pid == pid) && kind.matches(c))
         .map(|c| {
-            let name = owners.get(&c.pid).map_or("?", |p| p.name.as_str());
+            let name = match owners.get(&c.pid) {
+                // TIME_WAIT sockets and some UDP endpoints report PID 0, which
+                // is the idle process, not their owner.
+                _ if c.pid == 0 => crate::i18n::tr("No owning process"),
+                Some(p) => p.name.as_str(),
+                None => crate::i18n::tr("Exited"),
+            };
             let remote = c.remote.map(|r| r.to_string()).unwrap_or_default();
-            (c, name, remote)
+            let key =
+                crate::marks::connection_key(name, c, served.contains(&(c.pid, c.local.port())));
+            (c, name, remote, key)
         })
-        .filter(|(c, name, remote)| {
-            f.is_empty()
-                || name.to_lowercase().contains(&f)
-                || c.local.to_string().contains(&f)
-                || remote.contains(&f)
+        .filter(|(c, name, remote, key)| {
+            connection_matches(c, name, remote, &f) || marks.note_matches(key, &f)
         })
         .collect();
     let mut sort = Sort::load(ui, "network", Sort::new(0, false));
@@ -351,19 +428,29 @@ pub fn network(
             c.state.map(crate::i18n::debug).unwrap_or_default()
         });
     } else {
-        sort.apply(&mut rows, |(a, an, ar), (b, bn, br), col| match col {
+        sort.apply(&mut rows, |(a, an, ar, _), (b, bn, br, _), col| match col {
             0 => text(an, bn),
             1 => a.pid.cmp(&b.pid),
             3 => a.local.cmp(&b.local),
             _ => text(ar, br),
         });
     }
-    if rows.is_empty() && !f.is_empty() {
-        crate::theme::empty_state(
-            ui,
-            crate::i18n::tr("No matching connections"),
-            crate::i18n::tr("Try another process name, address or port."),
-        );
+    marks.pinned_first(&mut rows, |(.., key)| key.clone());
+    let mut marks_changed = false;
+    if rows.is_empty() && (!f.is_empty() || kind != ConnectionKind::All) {
+        if f.parse::<u16>().is_ok() {
+            crate::theme::empty_state(
+                ui,
+                &crate::i18n::format("No program uses port {0}", std::slice::from_ref(&f)),
+                crate::i18n::tr("Nothing listens on it or connects through it right now."),
+            );
+        } else {
+            crate::theme::empty_state(
+                ui,
+                crate::i18n::tr("No matching connections"),
+                crate::i18n::tr("Try another process name, address or port."),
+            );
+        }
         if ui.button(crate::i18n::tr("Clear search")).clicked() {
             filter.clear();
         }
@@ -416,9 +503,20 @@ pub fn network(
         })
         .body(|body| {
             body.rows(row_height, rows.len(), |mut row| {
-                let (c, name, remote) = &rows[row.index()];
+                let (c, name, remote, key) = &rows[row.index()];
+                let owner = owners.get(&c.pid).copied().filter(|_| c.pid != 0);
                 row.col(|ui| crate::theme::table_cell(ui, |ui| {
-                    ui.label(*name);
+                    if owner.is_some() {
+                        marks.name(ui, key, name);
+                    } else if c.pid == 0 {
+                        ui.weak(*name).on_hover_text(crate::i18n::tr(
+                            "Closing connections and some UDP endpoints belong to no process.",
+                        ));
+                    } else {
+                        ui.weak(*name).on_hover_text(crate::i18n::tr(
+                            "The program that owned this connection has ended.",
+                        ));
+                    }
                 }));
                 row.col(|ui| crate::theme::table_cell(ui, |ui| {right(ui, c.pid.to_string()); }));
                 row.col(|ui| crate::theme::table_cell(ui, |ui| {
@@ -445,7 +543,11 @@ pub fn network(
                         close = Some(NetworkAction::Close(pair.0, pair.1));
                     }
                 }));
-                let owner = owners.get(&c.pid).copied();
+                if let Some(owner) = owner
+                    && row.response().double_clicked()
+                {
+                    close = Some(NetworkAction::Reveal(wtm_core::control::ProcessRef::from(owner)));
+                }
                 menu(&row.response(), ("connection", c.protocol == wtm_core::Protocol::Tcp, c.local, c.remote, c.pid, owner.map(|p| p.create_time)), |ui| {
                     copy(ui, crate::i18n::tr("Local"), || c.local.to_string());
                     if let Some(remote) = c.remote {
@@ -457,11 +559,18 @@ pub fn network(
                     if let Some((local, remote)) = closable(c) && action(ui, crate::i18n::tr("Close")) {
                         close = Some(NetworkAction::Close(local, remote));
                     }
+                    if owner.is_some() {
+                        crate::theme::divider(ui);
+                        marks_changed |= marks.menu_items(ui, "connections", key, name);
+                    }
                 });
             });
         });
     });
     sort.store(ui, "network");
+    if marks.editor(ui, "connections") || marks_changed {
+        marks.store(ui, "connections");
+    }
     close
 }
 
@@ -550,12 +659,14 @@ pub fn services(
         Some(Ok(l)) => l,
     };
     let f = filter.trim().to_lowercase();
+    let mut marks = crate::marks::Marks::load(ui, "services");
     let mut rows: Vec<_> = list
         .iter()
         .filter(|s| {
             f.is_empty()
                 || s.name.to_lowercase().contains(&f)
                 || s.display_name.to_lowercase().contains(&f)
+                || marks.note_matches(&s.name, &f)
         })
         .collect();
     rows.retain(|s| match group {
@@ -577,6 +688,7 @@ pub fn services(
             ),
         }),
     }
+    marks.pinned_first(&mut rows, |s| s.name.clone());
 
     ui.weak(crate::i18n::format(
         "{0} of {1} services",
@@ -594,6 +706,7 @@ pub fn services(
         return None;
     }
     let mut clicked = None;
+    let mut marks_changed = false;
     let row_height = ui.spacing().interact_size.y;
     ui.style_mut().interaction.selectable_labels = false;
     // Every header fits at first; narrow windows scroll sideways.
@@ -645,7 +758,7 @@ pub fn services(
                     let s = rows[row.index()];
                     row.col(|ui| {
                         crate::theme::table_cell(ui, |ui| {
-                            ui.label(&s.name);
+                            marks.name(ui, &s.name, &s.name);
                         })
                     });
                     row.col(|ui| {
@@ -698,11 +811,16 @@ pub fn services(
                             });
                             ui.close();
                         }
+                        crate::theme::divider(ui);
+                        marks_changed |= marks.menu_items(ui, "services", &s.name, &s.display_name);
                     });
                 });
             });
     });
     sort.store(ui, "services");
+    if marks.editor(ui, "services") || marks_changed {
+        marks.store(ui, "services");
+    }
     clicked
 }
 
@@ -1083,6 +1201,11 @@ fn series_charts(ui: &mut Ui, app: &str, rows: &[wtm_policy::MinuteRow], height:
     });
 }
 
+/// A startup entry's marks follow where it is registered and its name.
+fn startup_key(e: &wtm_core::startup::StartupEntry) -> String {
+    format!("{:?}|{:?}|{}", e.scope, e.source, e.name)
+}
+
 fn startup_scope_label(scope: wtm_core::startup::StartupScope) -> &'static str {
     crate::i18n::tr(match scope {
         wtm_core::startup::StartupScope::CurrentUser => "Current user",
@@ -1124,11 +1247,13 @@ pub fn startup(
     crate::theme::divider(ui);
 
     let query = filter.trim().to_lowercase();
+    let mut marks = crate::marks::Marks::load(ui, "startup");
     let mut rows: Vec<_> = entries
         .iter()
         .filter(|entry| {
             (group == 0 || entry.enabled == (group == 1))
                 && (query.is_empty()
+                    || marks.note_matches(&startup_key(entry), &query)
                     || entry.name.to_lowercase().contains(&query)
                     || entry.command.to_lowercase().contains(&query)
                     || startup_scope_label(entry.scope)
@@ -1145,6 +1270,8 @@ pub fn startup(
         3 => text(source_label(a.source), source_label(b.source)),
         _ => text(&a.command, &b.command),
     });
+    marks.pinned_first(&mut rows, |e| startup_key(e));
+    let mut marks_changed = false;
 
     if let Some(entry) = selected.as_ref().and_then(|selected| {
         rows.iter().copied().find(|entry| {
@@ -1248,9 +1375,10 @@ pub fn startup(
                     row.set_selected(selected.as_ref().is_some_and(|s| {
                         s.name == e.name && s.scope == e.scope && s.source == e.source
                     }));
+                    let key = startup_key(e);
                     row.col(|ui| {
                         crate::theme::table_cell(ui, |ui| {
-                            ui.label(&e.name);
+                            marks.name(ui, &key, &e.name);
                         })
                     });
                     row.col(|ui| {
@@ -1318,11 +1446,16 @@ pub fn startup(
                                     enabled: !e.enabled,
                                 });
                             }
+                            crate::theme::divider(ui);
+                            marks_changed |= marks.menu_items(ui, "startup", &key, &e.name);
                         },
                     );
                 });
             });
     });
     sort.store(ui, "startup");
+    if marks.editor(ui, "startup") || marks_changed {
+        marks.store(ui, "startup");
+    }
     command
 }

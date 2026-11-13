@@ -306,11 +306,14 @@ fn esc(s: &str) -> String {
 fn pre(lines: &[String]) -> String {
     let mut out = String::new();
     for (i, line) in lines.iter().enumerate() {
-        if out.len() + line.len() > MAX_TEXT - 200 {
+        // Cut by the escaped length: `&` grows fivefold, so the raw line's
+        // size says nothing about what the message will weigh.
+        let escaped = esc(line);
+        if out.len() + escaped.len() > MAX_TEXT - 200 {
             out.push_str(&format!("… {} more\n", lines.len() - i));
             break;
         }
-        out.push_str(&esc(line));
+        out.push_str(&escaped);
         out.push('\n');
     }
     format!("<pre>{}</pre>", out.trim_end())
@@ -1754,6 +1757,23 @@ mod tests {
 
     /// Every API call: method and body.
     type Calls = Rc<RefCell<Vec<(String, Value)>>>;
+
+    /// `pre` must cut lines by their escaped length: `&` grows 5x under
+    /// `esc`, so a long path or command line full of it (both legal in
+    /// Windows) must not push the message past Telegram's 4096 limit.
+    #[test]
+    fn pre_counts_the_escaped_length_when_cutting() {
+        let lines = vec![format!("Path     {}", "&".repeat(3000))];
+        let out = pre(&lines);
+        assert!(
+            out.chars().count() <= 4096,
+            "escaped text overflows one message: {} chars",
+            out.chars().count()
+        );
+        // Control: ordinary lines still render in full.
+        let lines = vec!["app.exe 12%".to_string(); 20];
+        assert_eq!(pre(&lines).matches("app.exe 12%").count(), 20);
+    }
 
     #[derive(Default)]
     struct FakeApi {

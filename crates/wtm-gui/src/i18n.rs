@@ -177,8 +177,8 @@ impl Language {
     pub fn current() -> Self {
         BY_INDEX[index()]
     }
-    /// Short language tag, e.g. for naming review captures.
-    #[cfg(test)]
+    /// Short language tag, e.g. for naming review captures and in
+    /// diagnostic reports.
     pub fn code(self) -> &'static str {
         match self.index() as usize {
             0 => "en",
@@ -740,6 +740,10 @@ mod tests {
             include_str!("ports_tab.rs"),
             include_str!("power_controls.rs"),
             include_str!("processes.rs"),
+            include_str!("memory_view.rs"),
+            include_str!("diagnostics.rs"),
+            include_str!("marks.rs"),
+            include_str!("release_notes.rs"),
             include_str!("process_columns.rs"),
             include_str!("resource_strip.rs"),
             include_str!("workspace_inspector.rs"),

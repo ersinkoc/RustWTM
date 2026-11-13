@@ -100,6 +100,13 @@ impl View {
                                 if !locker.service.is_empty() {
                                     ui.label(&locker.service);
                                 }
+                                if locker.reason == wtm_sys::file_locks::Hold::WorkingDirectory {
+                                    ui.weak(crate::i18n::tr("Working directory")).on_hover_text(
+                                        crate::i18n::tr(
+                                            "It works in this folder or one inside it, so the folder cannot be removed or renamed until it moves elsewhere or ends.",
+                                        ),
+                                    );
+                                }
                                 if ui.button(crate::i18n::tr("Inspect process")).clicked() {
                                     selected = Some(ProcessRef {
                                         pid: locker.pid,
@@ -132,6 +139,7 @@ impl View {
                     create_time: 1000,
                     name: "Example spreadsheet".into(),
                     service: String::new(),
+                    reason: wtm_sys::file_locks::Hold::OpenFile,
                 }],
             })),
             ..Default::default()

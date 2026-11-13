@@ -105,6 +105,8 @@ pub struct Options {
     pub fill: bool,
     pub events: bool,
     pub link_hover: bool,
+    /// Draw kernel time in each logical processor's graph.
+    pub kernel_time: bool,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -113,6 +115,7 @@ impl Default for Options {
             fill: true,
             events: true,
             link_hover: true,
+            kernel_time: true,
         }
     }
 }
@@ -125,6 +128,9 @@ pub struct State {
     pub cursor: Option<u64>,
     timeline: Timeline,
     markers: Vec<(u64, Color32)>,
+    /// The view Ctrl froze. Letting go returns to live only if the user did
+    /// not move or zoom it meanwhile.
+    ctrl_hold: Option<Window>,
 }
 
 impl Default for State {
@@ -137,6 +143,7 @@ impl Default for State {
             cursor: None,
             timeline: Timeline::default(),
             markers: Vec::new(),
+            ctrl_hold: None,
         }
     }
 }
@@ -195,6 +202,28 @@ impl State {
         self.window = None;
         self.cursor = None;
     }
+    /// Holding Ctrl freezes a live chart where it is; letting go follows live
+    /// again. A chart already being inspected is left alone.
+    fn hold_with_ctrl(&mut self, held: bool) {
+        match (held, self.ctrl_hold) {
+            (true, None) if self.window.is_none() => {
+                self.inspect();
+                self.ctrl_hold = self.window;
+            }
+            (false, Some(frozen)) => {
+                self.ctrl_hold = None;
+                if self.window == Some(frozen) {
+                    self.live();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn held_by_ctrl(&self) -> bool {
+        self.ctrl_hold.is_some() && self.window == self.ctrl_hold
+    }
+
     fn inspect(&mut self) {
         self.window = self.bounds();
         self.cursor = self.window.map(|w| w.end);
@@ -258,6 +287,7 @@ impl State {
 
     pub fn controls(&mut self, ui: &mut Ui, data: &Data) {
         self.timeline = Timeline::read(&data.history.times);
+        self.hold_with_ctrl(crate::hold::ctrl_held(ui.ctx()));
         let extent = self.timeline.extent();
         if self.window.is_some()
             && !ui.ctx().text_edit_focused()
@@ -291,6 +321,12 @@ impl State {
             + 4.0;
         ui.horizontal_wrapped(|ui| {
             ui.strong(crate::i18n::tr("Timeline"));
+            if self.held_by_ctrl() {
+                ui.label(
+                    egui::RichText::new(crate::i18n::tr("Paused while Ctrl is held"))
+                        .color(crate::theme::text_color(ui, crate::theme::WARN)),
+                );
+            }
             for (secs, label) in [(60, "1 min"), (120, "2 min"), (300, "5 min")] {
                 let recorded = extent.is_some_and(|e| {
                     e.end - e.start + self.timeline.cadence >= u64::from(secs) * 1000
@@ -705,6 +741,48 @@ fn segments(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn holding_ctrl_freezes_a_live_chart_until_it_is_released() {
+        let mut state = State {
+            timeline: Timeline::read(&VecDeque::from([1000, 2000, 3000])),
+            ..State::default()
+        };
+        state.hold_with_ctrl(true);
+        let frozen = state.window.expect("Ctrl freezes the live view");
+        assert!(state.held_by_ctrl());
+        // New samples arrive while Ctrl stays down: the view does not move.
+        state.timeline = Timeline::read(&VecDeque::from([1000, 2000, 3000, 4000]));
+        state.hold_with_ctrl(true);
+        assert_eq!(state.window, Some(frozen));
+        state.hold_with_ctrl(false);
+        assert!(state.window.is_none() && state.cursor.is_none());
+        assert!(!state.held_by_ctrl());
+    }
+
+    #[test]
+    fn letting_go_of_ctrl_keeps_a_view_the_user_moved_or_was_already_inspecting() {
+        let times = VecDeque::from([1000, 2000, 3000, 4000]);
+        let mut state = State {
+            timeline: Timeline::read(&times),
+            ..State::default()
+        };
+        state.hold_with_ctrl(true);
+        state.zoom(true);
+        state.hold_with_ctrl(false);
+        assert!(state.window.is_some(), "a zoom while holding Ctrl is kept");
+
+        let mut inspecting = State {
+            timeline: Timeline::read(&times),
+            ..State::default()
+        };
+        inspecting.inspect();
+        let before = inspecting.window;
+        inspecting.hold_with_ctrl(true);
+        assert!(!inspecting.held_by_ctrl());
+        inspecting.hold_with_ctrl(false);
+        assert_eq!(inspecting.window, before);
+    }
 
     #[test]
     fn histories_preserve_real_times_break_gaps_and_reject_missing_values() {

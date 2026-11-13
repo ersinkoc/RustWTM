@@ -2,6 +2,7 @@
 $ErrorActionPreference='Stop'
 $ProgressPreference='SilentlyContinue'
 $devices=@(); $warnings=@()
+$request=$null; try { $request=[Console]::In.ReadToEnd() | ConvertFrom-Json } catch {}
 function Field($name,$value) { if ($null -ne $value -and [string]$value -ne '') { @{name=$name;value=[string]$value} } }
 function Metric($id,$name,$unit,$value,$ceiling=$null,$counter=$false) {
  @{id=$id;name=$name;unit=$unit;value=$(if ($null -ne $value) {[double]$value} else {$null});ceiling=$ceiling;counter=$counter}
@@ -11,8 +12,21 @@ function UsedMemory($total,$available) { [math]::Max([double]0,([double]$total-[
 # Native providers
 try {
  $physical=@(); try { $physical=@(Get-PhysicalDisk -ErrorAction Stop | Select-Object -First 32) } catch { $warnings+='Physical disk health access unavailable' }
- $perf=@(Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk -OperationTimeoutSec 8 | Where-Object Name -ne '_Total' | Select-Object -First 32)
- foreach($disk in @(Get-Disk -ErrorAction Stop | Select-Object -First 32)) {
+ # A slow performance or SMART query must not take the disk list with it.
+ $perf=@(); try { $perf=@(Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk -OperationTimeoutSec 8 -ErrorAction Stop | Where-Object Name -ne '_Total' | Select-Object -First 32) } catch { $warnings+='Disk performance counters: '+$_.Exception.Message }
+ $disks=@(Get-Disk -ErrorAction Stop | Select-Object -First 32)
+ # ATA SMART attribute tables, for administrators only. The query reaches every
+ # disk's driver, so it is skipped on PCs with a RAID controller (some Intel RST
+ # drivers stop responding to such requests) and only runs when asked, which
+ # the caller does every few minutes, not on every refresh.
+ $smart=$null; $smartState='skipped'
+ $sata=@($disks | Where-Object { @('SATA','ATA') -contains [string]$_.BusType }).Count -gt 0
+ $raid=@($disks | Where-Object { [string]$_.BusType -eq 'RAID' }).Count -gt 0
+ if ($sata -and $raid) { $smartState='raid' }
+ elseif ($sata -and $request -and $request.smart) {
+  try { $smart=@(Get-CimInstance -Namespace root/wmi -ClassName MSStorageDriver_FailurePredictData -OperationTimeoutSec 8 -ErrorAction Stop | Select-Object -First 32); $smartState='read' } catch { $smartState='denied' }
+ }
+ foreach($disk in $disks) {
   $id=[string]$disk.UniqueId
   if (-not $id) { $id='session-disk-'+$disk.Number }
   $fields=@((Field 'Disk number' $disk.Number),(Field 'Model' $disk.FriendlyName),(Field 'Capacity (bytes)' $disk.Size),(Field 'Bus' $disk.BusType),(Field 'Partition style' $disk.PartitionStyle),(Field 'Firmware' $disk.FirmwareVersion)) | Where-Object {$_}
@@ -22,6 +36,16 @@ try {
    $fields+=Field 'Storage health' $matched[0].HealthStatus
    try {$reliability=$matched[0] | Get-StorageReliabilityCounter -ErrorAction Stop} catch {$warning='Reliability counters unavailable or access denied'}
   } else {$warning='Health identity could not be matched uniquely'}
+  # Only directly attached SATA/ATA disks: RAID controllers and USB bridges are skipped.
+  if (@('SATA','ATA') -contains [string]$disk.BusType) {
+   if ($smartState -eq 'denied') { $fields+=Field 'SMART attributes' 'Requires administrator rights' }
+   elseif ($smartState -eq 'raid') { $fields+=Field 'SMART attributes' 'Not read on PCs with a RAID controller' }
+   elseif ($smartState -eq 'read' -and $disk.Path) {
+    $path=([string]$disk.Path).ToLowerInvariant()
+    $s=@($smart | Where-Object { $_.InstanceName -and $path.Contains(((([string]$_.InstanceName) -replace '_\d+$','').ToLowerInvariant()).Replace('\','#')) })
+    if ($s.Count -eq 1 -and $s[0].VendorSpecific) { $fields+=Field 'ATA SMART table' ((@($s[0].VendorSpecific | Select-Object -First 362) | ForEach-Object { ([byte]$_).ToString('x2') }) -join '') }
+   }
+  }
   $p=@($perf | Where-Object {($_.Name -split ' ')[0] -eq [string]$disk.Number})
   $p=if($p.Count -eq 1){$p[0]}else{$null}
   $metrics=@((Metric 'active' 'Active time' '%' $(if($p){[math]::Max(0.0,[math]::Min(100.0,100.0-[double]$p.PercentIdleTime))}else{$null}) 100),

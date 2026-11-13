@@ -13,6 +13,10 @@ pub struct Preferences {
     pub global_shortcut: bool,
     pub function_key: u8,
     pub network_bits: bool,
+    /// Let Windows take this window's memory first once it has been
+    /// minimized or in the tray for `background_memory_minutes`.
+    pub background_memory: bool,
+    pub background_memory_minutes: u16,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -23,6 +27,8 @@ impl Default for Preferences {
             global_shortcut: false,
             function_key: 10,
             network_bits: false,
+            background_memory: false,
+            background_memory_minutes: 10,
         }
     }
 }
@@ -42,6 +48,9 @@ pub struct View {
     hotkey: Option<wtm_sys::hotkey::Hotkey>,
     requested: Option<(bool, u8)>,
     error: Option<String>,
+    /// Since when the window is minimized or hidden, and whether its memory
+    /// priority is lowered for that time.
+    hidden_since: Option<(std::time::Instant, bool)>,
 }
 pub fn cadence(ctx: &egui::Context, window: isize) -> u64 {
     let p = ctx
@@ -69,7 +78,17 @@ impl View {
         self.prefs.minimized_seconds = self.prefs.minimized_seconds.clamp(1, 60);
         self.prefs.tray_seconds = self.prefs.tray_seconds.clamp(1, 60);
         self.prefs.function_key = self.prefs.function_key.clamp(2, 12);
+        self.prefs.background_memory_minutes = self.prefs.background_memory_minutes.clamp(1, 120);
         ctx.data_mut(|d| d.insert_temp(egui::Id::unique("experience-preferences"), self.prefs));
+        let raw = window.load(Ordering::Relaxed);
+        let hidden =
+            raw != 0 && (!wtm_core::window::is_visible(raw) || wtm_sys::window::is_minimized(raw));
+        if let Some(low) = self.memory_priority_change(hidden, std::time::Instant::now()) {
+            #[cfg(not(test))]
+            let _ = wtm_sys::control::set_own_memory_priority(low);
+            #[cfg(test)]
+            let _ = low;
+        }
         let requested = (self.prefs.global_shortcut, self.prefs.function_key);
         if self.requested != Some(requested) {
             self.hotkey = None;
@@ -103,6 +122,24 @@ impl View {
         #[cfg(test)]
         let _ = (&window, Ordering::Relaxed);
     }
+    /// `Some(true)` when this tick should lower the memory priority (the
+    /// window stayed hidden for the chosen minutes), `Some(false)` when it
+    /// should restore it, `None` when nothing changes.
+    fn memory_priority_change(&mut self, hidden: bool, now: std::time::Instant) -> Option<bool> {
+        if !hidden || !self.prefs.background_memory {
+            let lowered = self.hidden_since.take().is_some_and(|(_, low)| low);
+            return lowered.then_some(false);
+        }
+        let (since, lowered) = self.hidden_since.get_or_insert((now, false));
+        let wait =
+            std::time::Duration::from_secs(u64::from(self.prefs.background_memory_minutes) * 60);
+        if *lowered || now.duration_since(*since) < wait {
+            return None;
+        }
+        *lowered = true;
+        Some(true)
+    }
+
     pub fn settings(&mut self, ui: &mut Ui) {
         crate::theme::card(
             ui,
@@ -127,6 +164,22 @@ impl View {
                     &mut self.prefs.network_bits,
                     crate::i18n::tr("Show Mbps in network device charts"),
                 );
+                ui.checkbox(
+                    &mut self.prefs.background_memory,
+                    crate::i18n::tr("Yield memory when hidden"),
+                )
+                .on_hover_text(crate::i18n::tr(
+                    "After the window stays minimized or in the tray, Windows may reclaim its memory first. Sampling, history and protection continue.",
+                ));
+                let enabled = self.prefs.background_memory;
+                crate::theme::setting_row(ui, crate::i18n::tr("Yield memory after"), |ui, id| {
+                    ui.add_enabled(
+                        enabled,
+                        egui::Slider::new(&mut self.prefs.background_memory_minutes, 1..=120)
+                            .suffix(" min"),
+                    )
+                    .labelled_by(id);
+                });
                 ui.horizontal_wrapped(|ui| {
                     ui.checkbox(
                         &mut self.prefs.global_shortcut,
@@ -201,5 +254,33 @@ impl View {
             }
         }
         destination
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn memory_priority_drops_once_after_the_delay_and_returns_when_shown() {
+        let mut view = View::default();
+        // Off unless chosen: a lowered priority can make the window slower to
+        // come back exactly when the PC is short of memory.
+        assert_eq!(view.memory_priority_change(true, Instant::now()), None);
+        view.prefs.background_memory = true;
+        let start = Instant::now();
+        let minutes = |m: u64| start + Duration::from_secs(m * 60);
+        assert_eq!(view.memory_priority_change(true, start), None);
+        assert_eq!(view.memory_priority_change(true, minutes(9)), None);
+        assert_eq!(view.memory_priority_change(true, minutes(10)), Some(true));
+        assert_eq!(view.memory_priority_change(true, minutes(30)), None, "once");
+        assert_eq!(view.memory_priority_change(false, minutes(31)), Some(false));
+        assert_eq!(view.memory_priority_change(false, minutes(32)), None);
+        // Shown before the delay: nothing to restore.
+        assert_eq!(view.memory_priority_change(true, minutes(33)), None);
+        assert_eq!(view.memory_priority_change(false, minutes(34)), None);
+        view.prefs.background_memory = false;
+        assert_eq!(view.memory_priority_change(true, minutes(100)), None);
     }
 }

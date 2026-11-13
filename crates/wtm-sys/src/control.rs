@@ -11,8 +11,9 @@ use windows::Win32::Foundation::{
     E_FAIL, FILETIME, HANDLE, NTSTATUS, S_FALSE, UNICODE_STRING, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows::Win32::Security::{
-    GetTokenInformation, LookupAccountSidW, SID_NAME_USE, TOKEN_ELEVATION, TOKEN_QUERY, TOKEN_USER,
-    TokenElevation, TokenUser,
+    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, LookupAccountSidW,
+    SID_NAME_USE, TOKEN_ELEVATION, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER, TokenElevation,
+    TokenIntegrityLevel, TokenUser,
 };
 use windows::Win32::System::Diagnostics::Debug::{
     CONTEXT_FLAGS, IsProcessSnapshotCallback, MINIDUMP_CALLBACK_INFORMATION,
@@ -48,7 +49,7 @@ use windows::Win32::System::Threading::{
     GetCurrentProcess, PROCESS_CREATE_PROCESS, PROCESS_DUP_HANDLE,
 };
 use windows::Win32::System::Threading::{
-    GetCurrentThread, GetProcessDefaultCpuSets, MEMORY_PRIORITY_INFORMATION,
+    GetCurrentThread, GetProcessDefaultCpuSets, MEMORY_PRIORITY_INFORMATION, MEMORY_PRIORITY_LOW,
     MEMORY_PRIORITY_NORMAL, PROCESS_SET_LIMITED_INFORMATION, ProcessMemoryPriority,
     SetProcessDefaultCpuSets, SetThreadPriority, THREAD_MODE_BACKGROUND_BEGIN,
     THREAD_PRIORITY_ABOVE_NORMAL,
@@ -86,6 +87,10 @@ impl Access {
     /// Required (with TERMINATE) to assign the process to a job object.
     pub const SET_QUOTA: Self = Self(PROCESS_SET_QUOTA);
     pub const SYNCHRONIZE: Self = Self(PROCESS_SYNCHRONIZE);
+    /// Enough to read the working directory from the process's memory.
+    pub const READ_PARAMETERS: Self = Self(PROCESS_ACCESS_RIGHTS(
+        PROCESS_QUERY_LIMITED_INFORMATION.0 | PROCESS_VM_READ.0,
+    ));
     /// Required to write a memory dump.
     pub const DUMP: Self = Self(PROCESS_ACCESS_RIGHTS(
         PROCESS_QUERY_INFORMATION.0 | PROCESS_VM_READ.0,
@@ -154,6 +159,30 @@ pub enum EcoQos {
     Off,
 }
 
+/// Lowers (`true`) or restores this process's memory priority. With a low
+/// priority, Windows repurposes its standby pages before other programs'.
+/// Nothing is freed or paged out by this call itself.
+pub fn set_own_memory_priority(low: bool) -> Result<()> {
+    let info = MEMORY_PRIORITY_INFORMATION {
+        MemoryPriority: if low {
+            MEMORY_PRIORITY_LOW
+        } else {
+            MEMORY_PRIORITY_NORMAL
+        },
+    };
+    // SAFETY: the current-process pseudo handle needs no closing, and `info`
+    // is a correctly sized MEMORY_PRIORITY_INFORMATION.
+    unsafe {
+        SetProcessInformation(
+            GetCurrentProcess(),
+            ProcessMemoryPriority,
+            (&raw const info).cast(),
+            size_of::<MEMORY_PRIORITY_INFORMATION>() as u32,
+        )?
+    };
+    Ok(())
+}
+
 /// The instruction set a process runs as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Architecture {
@@ -183,6 +212,38 @@ impl Architecture {
             Self::Arm => "ARM".into(),
             Self::Arm64 => "ARM64".into(),
             Self::Other(m) => format!("0x{m:04x}"),
+        }
+    }
+}
+
+/// The mandatory integrity level of a process's token: what it may write to.
+/// Sandboxed browsers run Low or Untrusted, ordinary programs Medium,
+/// programs run as administrator High, services System.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Integrity {
+    Untrusted,
+    Low,
+    Medium,
+    MediumPlus,
+    High,
+    System,
+    Protected,
+    /// A level between the well-known ones, as its relative identifier.
+    Other(u32),
+}
+
+impl Integrity {
+    /// From the last relative identifier of the token's mandatory label.
+    pub fn from_rid(rid: u32) -> Self {
+        match rid {
+            0x0000 => Self::Untrusted,
+            0x1000 => Self::Low,
+            0x2000 => Self::Medium,
+            0x2100 => Self::MediumPlus,
+            0x3000 => Self::High,
+            0x4000 => Self::System,
+            0x5000 => Self::Protected,
+            other => Self::Other(other),
         }
     }
 }
@@ -299,6 +360,81 @@ impl ProcessHandle {
         Ok(crate::utf16_lossy(text))
     }
 
+    /// The process's current (working) directory, read from its process
+    /// parameters. Needs [`Access::READ_PARAMETERS`]. 32-bit processes keep
+    /// theirs in a separate block and are reported as unsupported.
+    pub fn current_directory(&self) -> Result<String> {
+        use windows::Win32::System::Diagnostics::Debug::ReadProcessMemory;
+        let unsupported = || -> Error { windows::core::Error::from(E_FAIL).into() };
+        if self
+            .architecture()
+            .is_ok_and(|a| a == Architecture::X86 || a == Architecture::Arm)
+        {
+            return Err(unsupported());
+        }
+        let read = |address: usize, out: &mut [u8]| -> Result<()> {
+            let mut done = 0usize;
+            // SAFETY: `out` is writable for its length; the remote address
+            // is only read through the system call, which validates it.
+            unsafe {
+                ReadProcessMemory(
+                    self.raw(),
+                    address as *const core::ffi::c_void,
+                    out.as_mut_ptr().cast(),
+                    out.len(),
+                    Some(&mut done),
+                )?
+            };
+            if done == out.len() {
+                Ok(())
+            } else {
+                Err(unsupported())
+            }
+        };
+        let word = |address: usize| -> Result<usize> {
+            let mut bytes = [0u8; 8];
+            read(address, &mut bytes)?;
+            Ok(u64::from_le_bytes(bytes) as usize)
+        };
+        // PROCESS_BASIC_INFORMATION: the PEB address is its second field.
+        let mut basic = [0usize; 6];
+        let mut len = 0u32;
+        // SAFETY: `basic` is writable for its full size.
+        let status = unsafe {
+            NtQueryInformationProcess(
+                self.raw(),
+                0,
+                basic.as_mut_ptr().cast(),
+                size_of_val(&basic) as u32,
+                &mut len,
+            )
+        };
+        nt_ok("NtQueryInformationProcess", status)?;
+        let peb = basic[1];
+        if peb == 0 {
+            return Err(unsupported());
+        }
+        // 64-bit layouts: PEB.ProcessParameters at 0x20, and
+        // RTL_USER_PROCESS_PARAMETERS.CurrentDirectory.DosPath at 0x38.
+        let parameters = word(peb + 0x20)?;
+        let mut header = [0u8; 16];
+        read(parameters + 0x38, &mut header)?;
+        let length = usize::from(u16::from_le_bytes([header[0], header[1]]));
+        let buffer = u64::from_le_bytes(header[8..16].try_into().expect("8 bytes")) as usize;
+        if length == 0 || buffer == 0 || length > 2 * 32_767 {
+            return Err(unsupported());
+        }
+        let mut text = vec![0u8; length];
+        read(buffer, &mut text)?;
+        let units: Vec<u16> = text
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
+            .collect();
+        Ok(crate::utf16_lossy(&units))
+    }
+
     /// The account the process runs as, e.g. NT AUTHORITY\SYSTEM.
     pub fn user(&self) -> Result<String> {
         let mut raw = HANDLE::default();
@@ -368,6 +504,39 @@ impl ProcessHandle {
             )?
         };
         Ok(elevation.TokenIsElevated != 0)
+    }
+
+    /// The integrity level of the process's token.
+    pub fn integrity(&self) -> Result<Integrity> {
+        let mut raw = HANDLE::default();
+        // SAFETY: `raw` receives a token handle that OwnedHandle closes.
+        unsafe { OpenProcessToken(self.raw(), TOKEN_QUERY, &mut raw)? };
+        let token = OwnedHandle::new(raw);
+        let mut len = 0u32;
+        // SAFETY: a null buffer only reports the required size.
+        let _ = unsafe { GetTokenInformation(token.raw(), TokenIntegrityLevel, None, 0, &mut len) };
+        let mut buf = vec![0u64; (len as usize).div_ceil(8).max(1)];
+        // SAFETY: buf is writable for len bytes and aligned for the label.
+        unsafe {
+            GetTokenInformation(
+                token.raw(),
+                TokenIntegrityLevel,
+                Some(buf.as_mut_ptr().cast()),
+                len,
+                &mut len,
+            )?
+        };
+        // SAFETY: on success the buffer holds a TOKEN_MANDATORY_LABEL whose
+        // SID points into the same buffer, which outlives these reads.
+        let rid = unsafe {
+            let sid = (*buf.as_ptr().cast::<TOKEN_MANDATORY_LABEL>()).Label.Sid;
+            let count = *GetSidSubAuthorityCount(sid);
+            if count == 0 {
+                return Err(windows::core::Error::from(E_FAIL).into());
+            }
+            *GetSidSubAuthority(sid, u32::from(count) - 1)
+        };
+        Ok(Integrity::from_rid(rid))
     }
 
     /// The instruction set the process runs as.
@@ -758,6 +927,43 @@ fn nt_ok(call: &'static str, status: NTSTATUS) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn integrity_levels_come_from_the_label_rid_and_order_by_trust() {
+        assert_eq!(Integrity::from_rid(0x2000), Integrity::Medium);
+        assert_eq!(Integrity::from_rid(0x2100), Integrity::MediumPlus);
+        assert_eq!(Integrity::from_rid(0x4000), Integrity::System);
+        assert_eq!(Integrity::from_rid(0x2500), Integrity::Other(0x2500));
+        assert!(Integrity::Low < Integrity::Medium && Integrity::High < Integrity::System);
+    }
+
+    #[test]
+    fn this_test_process_reports_its_working_directory() {
+        let me = ProcessHandle::open(std::process::id(), Access::READ_PARAMETERS).unwrap();
+        let read = me.current_directory().unwrap();
+        let expected = std::env::current_dir().unwrap();
+        assert_eq!(
+            read.trim_end_matches(std::path::MAIN_SEPARATOR)
+                .to_lowercase(),
+            expected
+                .to_string_lossy()
+                .trim_end_matches(std::path::MAIN_SEPARATOR)
+                .to_lowercase()
+        );
+    }
+
+    #[test]
+    fn this_test_process_has_a_readable_integrity_level() {
+        let me = ProcessHandle::open(std::process::id(), Access::QUERY).unwrap();
+        let level = me.integrity().unwrap();
+        assert!(
+            matches!(
+                level,
+                Integrity::Medium | Integrity::High | Integrity::System
+            ),
+            "{level:?}"
+        );
+    }
     use std::process::{Child, Command, Stdio};
 
     /// Kills the child if a test fails half-way.

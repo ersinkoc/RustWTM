@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <Version>0.30.1</Version>
+    <Version>0.30.2</Version>
     <Company>OXOGNET OÜ</Company>
     <Authors>OXOGNET OÜ</Authors>
     <Product>RustWTM hardware provider</Product>

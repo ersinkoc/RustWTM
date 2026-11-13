@@ -342,6 +342,7 @@ struct ProcState {
     managed: ManagedMap,
     hung: crate::backend::HungMap,
     descriptions: HashMap<String, Option<String>>,
+    services: crate::backend::HostedServices,
 }
 
 fn describe_intent(i: &Intent) -> String {
@@ -366,6 +367,8 @@ fn describe_intent(i: &Intent) -> String {
         Intent::AskAi(t) => format!("ask ai {}", t.pid),
         Intent::ManageAccounts => "manage accounts".into(),
         Intent::SignOut(session, user) => format!("sign out {session} {user}"),
+        Intent::Details(t) => format!("details {}", t.pid),
+        Intent::RestartExplorer => "restart explorer".into(),
     }
 }
 
@@ -378,6 +381,7 @@ fn process_harness() -> Harness<'static, ProcState> {
                 let snap = st.snap.clone();
                 let mut extra = extra_with(&st.managed, &st.hung);
                 extra.descriptions = &st.descriptions;
+                extra.services = &st.services;
                 let intents = st.view.ui(ui, &snap, &extra);
                 st.intents.extend(intents.iter().map(describe_intent));
             },
@@ -388,6 +392,7 @@ fn process_harness() -> Harness<'static, ProcState> {
                 managed: ManagedMap::new(),
                 hung: HashMap::new(),
                 descriptions: HashMap::new(),
+                services: HashMap::new(),
             },
         )
 }
@@ -460,6 +465,7 @@ fn keyboard_selection_stays_visible_in_a_long_process_list() {
                     managed: ManagedMap::new(),
                     hung: HashMap::new(),
                     descriptions: HashMap::new(),
+                    services: HashMap::new(),
                 },
             );
         h.run_steps(3);
@@ -1165,6 +1171,119 @@ fn read_only_views_render() {
     });
     h.run_steps(2);
     assert!(h.query_by_label("boom").is_some());
+}
+
+#[test]
+fn services_can_be_pinned_and_annotated_and_found_by_their_note() {
+    let d = data();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1200.0, 700.0])
+        .build_ui_state(
+            |ui, filter: &mut String| {
+                let _ = views::services(ui, &d, filter, &mut None);
+            },
+            String::new(),
+        );
+    h.run_steps(2);
+    let y =
+        |h: &Harness<'_, String>, name: &str| h.get_all_by_label(name).next().unwrap().rect().min.y;
+    assert!(
+        y(&h, "Fax") < y(&h, "Print Spooler"),
+        "sorted by name at first"
+    );
+    h.get_by_label("Spooler").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Pin to top").click();
+    h.run_steps(2);
+    assert!(
+        y(&h, "Print Spooler") < y(&h, "Fax"),
+        "the pinned service leads"
+    );
+    assert!(h.query_by_label("📌").is_some());
+
+    h.get_by_label("Spooler").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Add note…").click();
+    h.run_steps(2);
+    h.get_by_label("Note").type_text("label printer");
+    h.run_steps(2);
+    h.get_by_label("Save").click();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("label printer").is_some());
+
+    // Search finds a service by its note.
+    *h.state_mut() = "label".into();
+    h.run_steps(2);
+    assert!(h.query_by_label("Print Spooler").is_some());
+    assert!(h.query_all_by_label("Fax").next().is_none());
+
+    // Unpinning and removing the note restore the plain row.
+    h.state_mut().clear();
+    h.run_steps(2);
+    h.get_by_label("Spooler").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Remove note").click();
+    h.run_steps(2);
+    h.get_by_label("Spooler").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Unpin").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("📌").is_none());
+    assert!(h.query_by_label_contains("label printer").is_none());
+}
+
+#[test]
+fn connections_filter_by_state_and_name_missing_owners() {
+    let mut d = data();
+    if let Some(Ok(conns)) = &mut d.connections {
+        conns.push(Connection {
+            protocol: Protocol::Tcp,
+            local: "10.0.0.2:50000".parse().unwrap(),
+            remote: Some("93.184.216.34:80".parse().unwrap()),
+            state: Some(TcpState::TimeWait),
+            pid: 0,
+        });
+    }
+    let mut filter = String::new();
+    let mut h = Harness::builder()
+        .allow_missing_glyphs()
+        .with_size([1200.0, 700.0])
+        .build_ui(|ui| {
+            let _ = views::network(ui, &d, &mut filter, None);
+        });
+    h.run_steps(2);
+    assert!(h.query_by_label("No owning process").is_some(), "PID 0");
+    assert!(
+        h.query_by_label("Exited").is_some(),
+        "PID 999 is not running"
+    );
+    h.get_by_label("UDP").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("[::1]:53").is_some());
+    assert!(h.query_by_label("127.0.0.1:8080").is_none());
+    h.get_by_label("Listening").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("127.0.0.1:8080").is_some());
+    assert!(h.query_by_label("[::1]:53").is_none());
+    h.get_by_label("All connections").click();
+    h.run_steps(2);
+
+    // A number is an exact port: 80 finds the remote :80, not :8080.
+    let conn = |local: &str, remote: Option<&str>| Connection {
+        protocol: Protocol::Tcp,
+        local: local.parse().unwrap(),
+        remote: remote.map(|r| r.parse().unwrap()),
+        state: Some(TcpState::Established),
+        pid: 7,
+    };
+    let web = conn("10.0.0.2:50001", Some("1.2.3.4:80"));
+    let dev = conn("127.0.0.1:8080", None);
+    assert!(views::connection_matches(&web, "x", "1.2.3.4:80", "80"));
+    assert!(!views::connection_matches(&dev, "x", "", "80"));
+    assert!(views::connection_matches(&dev, "x", "", "8080"));
+    assert!(views::connection_matches(&dev, "x", "", "7"), "or the PID");
+    assert!(views::connection_matches(&dev, "node.exe", "", "node"));
 }
 
 #[test]
@@ -1886,6 +2005,11 @@ fn extra_with<'a>(
                 std::sync::LazyLock::new(Default::default);
             &EMPTY
         },
+        services: {
+            static EMPTY: std::sync::LazyLock<crate::backend::HostedServices> =
+                std::sync::LazyLock::new(Default::default);
+            &EMPTY
+        },
     }
 }
 
@@ -2079,6 +2203,196 @@ fn paused_process_list_keeps_its_snapshot_and_resumes_live_data() {
     h.key_press(eframe::egui::Key::F6);
     h.run();
     assert!(h.state().view.paused.is_some());
+}
+
+#[test]
+fn list_keys_move_end_and_open_details_for_the_selected_process() {
+    use eframe::egui::{Key, Modifiers};
+    let mut h = process_harness();
+    h.run();
+    let alpha = h
+        .state()
+        .snap
+        .processes
+        .iter()
+        .find(|p| p.pid == 100)
+        .unwrap()
+        .clone();
+    h.state_mut().view.selected = Some(ProcessRef::from(&alpha));
+    h.run();
+    let pressed = |h: &mut Harness<'static, ProcState>, modifiers, key| {
+        h.state_mut().intents.clear();
+        h.key_press_modifiers(modifiers, key);
+        h.run();
+        h.state().intents.clone()
+    };
+    assert_eq!(
+        pressed(&mut h, Modifiers::NONE, Key::Delete),
+        ["confirm 100 Kill"]
+    );
+    assert_eq!(
+        pressed(&mut h, Modifiers::ALT, Key::E),
+        ["confirm 100 Kill"]
+    );
+    assert_eq!(
+        pressed(&mut h, Modifiers::SHIFT, Key::Delete),
+        ["command 100 Kill"]
+    );
+    assert_eq!(
+        pressed(&mut h, Modifiers::NONE, Key::Enter),
+        ["details 100"]
+    );
+    let first = pressed(&mut h, Modifiers::NONE, Key::Home);
+    let last = pressed(&mut h, Modifiers::NONE, Key::End);
+    assert_eq!(first.len(), 1);
+    assert_eq!(last.len(), 1);
+    assert_ne!(first, last, "Home and End reach opposite ends");
+    let page = pressed(&mut h, Modifiers::NONE, Key::PageDown);
+    assert!(page.iter().all(|i| i.starts_with("select ")));
+    assert!(
+        pressed(&mut h, Modifiers::CTRL, Key::Delete).is_empty(),
+        "Ctrl+Delete is not a list key"
+    );
+}
+
+#[test]
+fn typing_on_the_process_list_starts_a_search_and_slash_focuses_it() {
+    use eframe::egui::{Event, Key, Modifiers};
+    let mut h = process_harness();
+    h.run();
+    h.event(Event::Text("al".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().view.search, "al");
+    h.event(Event::Text("p".into()));
+    h.run_steps(2);
+    assert_eq!(
+        h.state().view.search,
+        "alp",
+        "typing goes on in the focused search"
+    );
+    // Keys typed into the search do not act on the list.
+    let alpha = h
+        .state()
+        .snap
+        .processes
+        .iter()
+        .find(|p| p.pid == 100)
+        .unwrap()
+        .clone();
+    h.state_mut().view.selected = Some(ProcessRef::from(&alpha));
+    h.state_mut().intents.clear();
+    h.key_press_modifiers(Modifiers::NONE, Key::Delete);
+    h.run();
+    assert!(h.state().intents.iter().all(|i| !i.starts_with("confirm")));
+
+    let mut h = process_harness();
+    h.run();
+    h.event(Event::Text("/".into()));
+    h.run_steps(2);
+    assert!(
+        h.state().view.search.is_empty(),
+        "the slash itself is not searched for"
+    );
+    h.event(Event::Text("x".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().view.search, "x");
+    // Spaces and punctuation alone do not start a search.
+    let mut h = process_harness();
+    h.run();
+    h.event(Event::Text(" ".into()));
+    h.run_steps(2);
+    assert!(h.state().view.search.is_empty());
+}
+
+#[test]
+fn service_hosts_name_their_services_and_are_found_by_them() {
+    let mut h = process_harness();
+    h.state_mut().services.insert(
+        100,
+        vec![
+            "DCOM Server".into(),
+            "Remote Procedure Call".into(),
+            "Time".into(),
+        ],
+    );
+    h.run();
+    assert!(
+        h.query_by_label_contains("Services: DCOM Server, Remote Procedure Call and 1 more")
+            .is_some()
+    );
+    h.state_mut().view.search = "procedure".into();
+    h.run();
+    assert!(
+        h.query_all_by_label_contains("alpha.exe").next().is_some(),
+        "found by a service name"
+    );
+    assert!(h.query_by_label("No matching processes").is_none());
+    assert_eq!(
+        crate::processes::services_summary(&["Spooler".into()]),
+        "Service: Spooler"
+    );
+}
+
+#[test]
+fn explorer_rows_offer_a_restart_of_the_desktop() {
+    let mut h = process_harness();
+    h.state_mut()
+        .snap
+        .processes
+        .push(proc(4242, 4, "explorer.exe", 0.0));
+    h.run();
+    h.get_by_label("explorer.exe").click_secondary();
+    h.run();
+    h.get_by_label("Restart Windows Explorer").click();
+    h.run();
+    assert!(h.state().intents.iter().any(|i| i == "restart explorer"));
+    // Other programs do not offer it.
+    h.get_by_label("alpha.exe").click_secondary();
+    h.run();
+    assert!(h.query_by_label("Restart Windows Explorer").is_none());
+}
+
+#[test]
+fn holding_ctrl_freezes_the_process_list_and_letting_go_resumes() {
+    use eframe::egui::{Event, Modifiers};
+    let mut h = process_harness();
+    h.run();
+    h.event(Event::ModifiersChanged(Modifiers::CTRL));
+    h.run();
+    h.state_mut().snap.processes.retain(|p| p.pid != 100);
+    h.state_mut()
+        .snap
+        .processes
+        .push(proc(300, 4, "new.exe", 30.0));
+    h.run();
+    assert!(
+        h.query_by_label("alpha.exe").is_some(),
+        "the held list stays"
+    );
+    assert!(h.query_by_label("new.exe").is_none());
+    assert!(h.query_by_label("Paused while Ctrl is held").is_some());
+    assert!(h.state().view.paused.is_none(), "not a lasting pause");
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.run();
+    assert!(h.query_by_label("alpha.exe").is_none());
+    assert!(h.query_by_label("new.exe").is_some());
+    assert!(h.query_by_label("Paused while Ctrl is held").is_none());
+
+    // Pressing Pause while Ctrl is held keeps the list Ctrl froze.
+    h.event(Event::ModifiersChanged(Modifiers::CTRL));
+    h.run();
+    h.state_mut()
+        .snap
+        .processes
+        .push(proc(301, 4, "later.exe", 1.0));
+    h.run();
+    h.get_by_label("Pause updates").click();
+    h.run();
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    h.run();
+    assert!(h.state().view.paused.is_some());
+    assert!(h.query_by_label("later.exe").is_none());
+    assert!(h.query_by_label("Paused · monitoring continues").is_some());
 }
 
 #[test]

@@ -406,6 +406,8 @@ struct UiState {
     confirm: Option<(ProcessRef, Command)>,
     /// A session to disconnect or sign out, once confirmed: (id, user, op).
     confirm_session: Option<(u32, String, crate::backend::SessionOp)>,
+    /// Asking before the desktop's Explorer restarts.
+    confirm_explorer: bool,
     /// A destructive command for every process of an app.
     confirm_many: Option<(Vec<ProcessRef>, Command)>,
     /// A service or firewall change that is easy to make by mistake.
@@ -457,6 +459,9 @@ struct UiState {
     update_release_page: Option<String>,
     last_update_check: Option<Instant>,
     last_load: HashMap<Panel, Instant>,
+    /// When the Processes tab last asked for the service list (service host
+    /// names); apart from `last_load`, so opening Services still loads it.
+    hosted_services_loaded: Option<Instant>,
     /// The Limits column of the process table, for this data revision and
     /// language.
     limit_labels: Option<((u64, crate::i18n::Language), ManagedMap)>,
@@ -552,6 +557,7 @@ struct Prefs {
     process_system_filter: crate::processes::SystemFilter,
     process_tree_collapsed: bool,
     process_user_grouping: crate::processes::UserGrouping,
+    device_layout: crate::devices::Layout,
     chart_range_seconds: u32,
     chart_options: crate::charts::Options,
     cooling_profiles: HashMap<String, wtm_policy::CoolingProfile>,
@@ -645,6 +651,7 @@ impl UiState {
             process_system_filter: p.system.clone(),
             process_tree_collapsed: p.tree_collapsed,
             process_user_grouping: p.user_grouping,
+            device_layout: self.devices.layout.clone(),
             chart_range_seconds: self.charts.range_seconds(),
             chart_options: self.charts.options,
             cooling_profiles: self.sensors.profiles.clone(),
@@ -695,6 +702,7 @@ impl UiState {
         p.system = prefs.process_system_filter;
         p.tree_collapsed = prefs.process_tree_collapsed;
         p.user_grouping = prefs.process_user_grouping;
+        self.devices.layout = prefs.device_layout;
         self.sensors.profiles = prefs.cooling_profiles;
         self.alerts = prefs.alerts;
         self.tray_on_close = prefs.tray_on_close;
@@ -737,6 +745,7 @@ impl Default for UiState {
             containers: crate::containers::View::default(),
             confirm: None,
             confirm_session: None,
+            confirm_explorer: false,
             confirm_many: None,
             confirm_change: None,
             network_filter: String::new(),
@@ -773,6 +782,7 @@ impl Default for UiState {
             update_release_page: None,
             last_update_check: None,
             last_load: HashMap::new(),
+            hosted_services_loaded: None,
             limit_labels: None,
         }
     }
@@ -1254,6 +1264,7 @@ impl eframe::App for App {
                                 hung: &data.hung,
                                 facts: &data.facts,
                                 versions: &data.versions,
+                                services: &data.hosted_services,
                             };
                             crate::theme::panel(ui, |ui| {
                                 intents.extend(state.processes.ui_cached(
@@ -1380,7 +1391,38 @@ impl eframe::App for App {
                         intents.extend(more);
                     }
                     Tab::About => {
-                        if crate::about::about(ui, &data.update, frames.summary()) {
+                        let ctx = ui.ctx().clone();
+                        let diagnostics = || {
+                            let snapshot = data.snapshot.as_deref();
+                            crate::diagnostics::Facts {
+                                version: env!("CARGO_PKG_VERSION").into(),
+                                windows: crate::diagnostics::windows_version(),
+                                elevated: data.elevated,
+                                engine: match data.mode {
+                                    crate::backend::Mode::Starting => "starting",
+                                    crate::backend::Mode::Service {
+                                        admin: true,
+                                        verified: true,
+                                    } => "service",
+                                    crate::backend::Mode::Service { admin: false, .. } => {
+                                        "service (read-only)"
+                                    }
+                                    crate::backend::Mode::Service {
+                                        verified: false, ..
+                                    } => "console engine",
+                                    crate::backend::Mode::Local => "local",
+                                }
+                                .into(),
+                                installed: crate::diagnostics::installed(),
+                                language: crate::i18n::Language::current().code().into(),
+                                logical_cpus: snapshot.map_or(0, |s| s.system.logical_cpus),
+                                memory: snapshot.map_or(0, |s| s.system.memory_total),
+                                scale: ctx.pixels_per_point(),
+                                window: ctx.content_rect().size().into(),
+                            }
+                            .report()
+                        };
+                        if crate::about::about(ui, &data.update, frames.summary(), &diagnostics) {
                             state.last_update_check = Some(Instant::now());
                             service_cmds.push(UiCommand::CheckUpdate);
                         }
@@ -1638,6 +1680,28 @@ impl eframe::App for App {
             }
         }
 
+        if state.confirm_explorer {
+            let modal = egui::Modal::new(egui::Id::unique("confirm_explorer")).show(&ctx, |ui| {
+                ui.heading(crate::i18n::tr("Restart Windows Explorer?"));
+                ui.label(crate::i18n::tr(
+                    "The taskbar, desktop and open folder windows close for a moment and come back. Programs keep running.",
+                ));
+                ui.add_space(0.0);
+                ui.horizontal(|ui| {
+                    if ui.button(crate::i18n::tr("Restart")).clicked() {
+                        service_cmds.push(UiCommand::RestartExplorer);
+                        state.confirm_explorer = false;
+                    }
+                    if ui.button(crate::i18n::tr("Cancel")).clicked() {
+                        state.confirm_explorer = false;
+                    }
+                });
+            });
+            if modal.should_close() {
+                state.confirm_explorer = false;
+            }
+        }
+
         if ctx.input(|i| i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::K)) {
             state.panic = true;
         }
@@ -1852,6 +1916,15 @@ impl eframe::App for App {
             state.last_load.insert(Panel::Network, Instant::now());
             backend.send(UiCommand::Load(Panel::Network));
         }
+        // Service host rows name the services they run.
+        if state.tab == Tab::Processes
+            && state
+                .hosted_services_loaded
+                .is_none_or(|t| t.elapsed() >= Duration::from_secs(15))
+        {
+            state.hosted_services_loaded = Some(Instant::now());
+            backend.send(UiCommand::Load(Panel::Services));
+        }
         for intent in intents {
             match intent {
                 Intent::ShowResource(resource) => {
@@ -1861,6 +1934,17 @@ impl eframe::App for App {
                 Intent::Select(t) => {
                     backend.send(UiCommand::Inspect(t.clone()));
                     state.processes.selected = Some(t);
+                }
+                Intent::Details(t) => {
+                    // A hidden inspector comes back in adaptive mode, which
+                    // shows the selected process.
+                    if state.inspector_mode == crate::workspace_inspector::Mode::Hidden {
+                        state.inspector_mode = crate::workspace_inspector::Mode::Auto;
+                    }
+                    if state.processes.selected.as_ref() != Some(&t) {
+                        backend.send(UiCommand::Inspect(t.clone()));
+                        state.processes.selected = Some(t);
+                    }
                 }
                 Intent::Command(target, command) => {
                     backend.send(UiCommand::Control { target, command });
@@ -1873,6 +1957,7 @@ impl eframe::App for App {
                     line: "ms-settings:otherusers".into(),
                     elevated: false,
                 }),
+                Intent::RestartExplorer => state.confirm_explorer = true,
                 Intent::SignOut(session, user) => {
                     state.confirm_session =
                         Some((session, user, crate::backend::SessionOp::SignOff));
@@ -2221,6 +2306,16 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
                     command = Some(UiCommand::RestartElevated);
                 }
                 ui.weak(crate::i18n::tr("Requires an administrator-protected installation. Turn this off to restore Windows Task Manager."));
+                if *status == TaskManager::RustWTM
+                    && ui
+                        .button(crate::i18n::tr("Open Windows Task Manager once"))
+                        .on_hover_text(crate::i18n::tr(
+                            "Starts the real Task Manager this time; Ctrl+Shift+Esc still opens RustWTM.",
+                        ))
+                        .clicked()
+                {
+                    command = Some(UiCommand::OpenWindowsTaskManager);
+                }
             }
             Some(Err(error)) => {
                 crate::theme::colored(ui, BAD, error);
@@ -2975,6 +3070,21 @@ fn details_panel(
             );
             row(crate::i18n::tr("Threads"), p.thread_count.to_string());
             row(crate::i18n::tr("Handles"), p.handle_count.to_string());
+            if let Some(names) = data.hosted_services.get(&sel.pid)
+                && !names.is_empty()
+            {
+                row(crate::i18n::tr("Services"), names.join(", "));
+            }
+            if let Some(level) = data
+                .facts
+                .get(&(sel.pid, sel.create_time))
+                .and_then(|f| f.integrity)
+            {
+                row(
+                    crate::i18n::tr("Integrity"),
+                    crate::processes::integrity_label(level),
+                );
+            }
 
             match &data.details {
                 Some((r, Ok(d))) if r == sel => {
@@ -3190,6 +3300,7 @@ fn core_grid(
     ui: &mut Ui,
     cores: &[f32],
     history: &[std::collections::VecDeque<f32>],
+    kernel: Option<&[std::collections::VecDeque<f32>]>,
     topology: Option<&wtm_core::cpu::Topology>,
     class: Option<u8>,
 ) {
@@ -3244,6 +3355,22 @@ fn core_grid(
                     100.0,
                     crate::backend::CORE_HISTORY_LEN,
                     crate::theme::CPU,
+                );
+            }
+            // Kernel time, darker, under the total as Task Manager draws it.
+            if let Some(k) = kernel.and_then(|k| k.get(i)) {
+                crate::theme::sparkline(
+                    &painter,
+                    graph,
+                    k,
+                    100.0,
+                    crate::backend::CORE_HISTORY_LEN,
+                    {
+                        // An opaque, darker shade of the CPU colour in both themes.
+                        let c = crate::theme::CPU;
+                        let dim = |v: u8| (f32::from(v) * 0.55) as u8;
+                        egui::Color32::from_rgb(dim(c.r()), dim(c.g()), dim(c.b()))
+                    },
                 );
             }
             painter.text(
@@ -3449,10 +3576,22 @@ fn perf_cpu(
                         s.core_percent.len(),
                     );
                 }
+                let kernel = &data.history.core_kernel;
+                ui.horizontal_wrapped(|ui| {
+                    ui.checkbox(
+                        &mut view.options.kernel_time,
+                        crate::i18n::tr("Show kernel time"),
+                    )
+                    .on_hover_text(crate::i18n::tr(
+                        "The darker area of each graph is time the processor spent in Windows kernel code, drivers and interrupts.",
+                    ));
+                });
                 core_grid(
                     ui,
                     &s.core_percent,
                     &data.history.cores,
+                    (view.options.kernel_time && kernel.len() == s.core_percent.len())
+                        .then_some(&kernel[..]),
                     data.cpu_topology.as_ref(),
                     filter.as_deref().copied().flatten(),
                 );
@@ -3515,6 +3654,7 @@ fn perf_memory(
                     )
                 });
             });
+            crate::memory_view::show(ui, data.memory_composition.as_ref());
         },
     );
 }
@@ -4881,6 +5021,18 @@ mod tests {
                 State::Other => assert!(h.state().2.is_none()),
             }
             h.state_mut().2 = None;
+            // While RustWTM replaces it, the real one can still be opened once.
+            let once = h.query_by_label("Open Windows Task Manager once");
+            assert_eq!(once.is_some(), current == State::RustWTM, "{current:?}");
+            if let Some(once) = once {
+                once.click();
+                h.run();
+                assert!(matches!(
+                    h.state().2,
+                    Some(UiCommand::OpenWindowsTaskManager)
+                ));
+                h.state_mut().2 = None;
+            }
             h.state_mut().1.task_manager_busy = true;
             h.run();
             h.get_by_label("Use RustWTM for Ctrl+Shift+Esc").click();
@@ -6066,6 +6218,7 @@ mod tests {
             fill: false,
             events: false,
             link_hover: false,
+            kernel_time: false,
         };
         eframe::set_value(&mut storage, PREFS_KEY, &state.prefs());
 
@@ -6179,6 +6332,8 @@ mod tests {
             UiCommand::CreateDump(t) => format!("dump {}", t.pid),
             UiCommand::WatchExit(t) => format!("watch exit {}", t.pid),
             UiCommand::Session { id, op } => format!("session {id} {op:?}"),
+            UiCommand::RestartExplorer => "restart explorer".into(),
+            UiCommand::OpenWindowsTaskManager => "open windows task manager".into(),
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
             UiCommand::Run { line, elevated } => format!("run {line} {elevated}"),
             UiCommand::RestartElevated => "restart elevated".into(),
@@ -6885,6 +7040,54 @@ mod tests {
     }
 
     #[test]
+    fn restarting_explorer_is_confirmed_first() {
+        let mut d = data();
+        let mut snap = (**d.snapshot.as_ref().unwrap()).clone();
+        snap.processes
+            .push(crate::ui_tests::proc(4242, 4, "explorer.exe", 0.0));
+        d.snapshot = Some(std::sync::Arc::new(snap));
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Processes,
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        h.get_by_label("explorer.exe").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Restart Windows Explorer").click();
+        h.run_steps(2);
+        assert!(h.state().state.confirm_explorer, "asked first");
+        h.run_steps(2);
+        assert!(h.query_by_label("Restart Windows Explorer?").is_some());
+        assert!(
+            !rx.try_iter()
+                .map(describe_command)
+                .any(|c| c == "restart explorer")
+        );
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        assert!(!h.state().state.confirm_explorer);
+        h.state_mut().state.confirm_explorer = true;
+        h.run_steps(2);
+        h.get_by_label("Restart").click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .map(describe_command)
+                .any(|c| c == "restart explorer")
+        );
+    }
+
+    #[test]
     fn programs_are_blocked_from_and_given_back_the_network() {
         let mut d = data();
         let alpha = crate::ui_tests::proc(100, 0, "alpha.exe", 20.0);
@@ -6924,8 +7127,9 @@ mod tests {
         h.run_steps(3);
         h.get_by_label("Block network access").click();
         h.run_steps(3);
-        // Asked first: the program stays offline until unblocked.
-        assert!(rx.try_iter().next().is_none());
+        // Asked first: the program stays offline until unblocked. Only data
+        // loads (service names for the process list) may be sent meanwhile.
+        assert!(rx.try_iter().all(|c| matches!(c, UiCommand::Load(_))));
         assert!(
             h.query_by_label_contains("Block network access for alpha.exe?")
                 .is_some()
@@ -7154,10 +7358,12 @@ mod tests {
             .unwrap()
             .click();
         let s = step(&mut h, &mut sent);
-        // A selection also loads the ports for the details panel.
+        // A selection also loads the ports for the details panel; the
+        // process list loads the services that service hosts name.
         assert_eq!(
             s,
             [
+                "load Services",
                 "inspect 100",
                 "load Network",
                 "inspect 100",
@@ -8880,6 +9086,12 @@ mod tests {
                                     .collect()
                             })
                             .collect();
+                        d.history.core_kernel = d
+                            .history
+                            .cores
+                            .iter()
+                            .map(|series| series.iter().map(|load| load * 0.3).collect())
+                            .collect();
                         d.snapshot = Some(std::sync::Arc::new(snap));
                         // Give every graph a full, deterministic history for review.
                         d.history.times.clear();
@@ -8988,6 +9200,17 @@ mod tests {
                         let path = out.join(format!("{theme_name}-{size_name}-{tab:?}.png"));
                         capture(&mut h, &path);
                         println!("Rendered {}", path.display());
+                        if tab == Tab::Performance {
+                            h.state_mut().state.performance.page =
+                                crate::performance_view::Page::Cpu;
+                            h.run_steps(3);
+                            capture(
+                                &mut h,
+                                &out.join(format!("{theme_name}-{size_name}-PerformanceCpu.png")),
+                            );
+                            h.state_mut().state.performance.page =
+                                crate::performance_view::Page::All;
+                        }
                         if tab == Tab::InstalledApps {
                             h.get_by_label("Example Editor").click();
                             h.run_steps(3);

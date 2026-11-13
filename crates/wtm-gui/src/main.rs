@@ -12,12 +12,14 @@ mod charts;
 mod containers;
 mod context_actions;
 mod devices;
+mod diagnostics;
 mod disk_details;
 mod disks_tab;
 mod docker_worker;
 mod experience;
 mod file_locks;
 mod frames;
+mod hold;
 mod i18n;
 mod incidents;
 mod installed_apps;
@@ -25,6 +27,8 @@ mod inventory;
 mod kill_tab;
 mod limits_tab;
 mod logo;
+mod marks;
+mod memory_view;
 mod navigation;
 mod numeric_tray;
 mod onboarding;
@@ -36,6 +40,7 @@ mod power_controls;
 mod preferences;
 mod process_columns;
 mod processes;
+mod release_notes;
 mod resource_strip;
 mod rules;
 mod sensors;
@@ -123,6 +128,10 @@ fn harden() {
 fn main() -> eframe::Result {
     i18n::initialize();
     let args = launch_arguments(std::env::args().skip(1).collect());
+    // A helper copy started through UAC only to open the real Task Manager.
+    if args.iter().any(|a| a == wtm_core::task_manager::NATIVE_ARG) {
+        std::process::exit(i32::from(wtm_core::task_manager::open_native().is_err()));
+    }
     if let Some(name) = blocked_program(args.clone().into_iter()) {
         backend::register_app_id();
         backend::notify_blocked(&name);

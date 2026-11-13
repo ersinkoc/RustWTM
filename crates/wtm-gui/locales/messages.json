@@ -1985,11 +1985,11 @@
     "fr": "Suspendre les actualisations",
     "es": "Pausar actualizaciones"
   },
-  "Freeze this process list for inspection (F6). Monitoring, alerts and protection continue.": {
-    "tr": "İncelemek için listeyi dondurur (F6). İzleme, uyarılar ve koruma sürer.",
-    "de": "Liste zur Prüfung einfrieren (F6). Überwachung, Warnungen und Schutz laufen weiter.",
-    "fr": "Figer la liste pour l'examiner (F6). Surveillance, alertes et protection continuent.",
-    "es": "Congelar la lista para examinarla (F6). La supervisión, alertas y protección continúan."
+  "Freeze this process list for inspection (F6), or hold Ctrl for a quick look. Monitoring, alerts and protection continue.": {
+    "tr": "İşlem listesini incelemek için dondurun (F6) veya hızlı bir bakış için Ctrl tuşunu basılı tutun. İzleme, uyarılar ve koruma sürer.",
+    "de": "Diese Prozessliste zur Prüfung einfrieren (F6) oder für einen kurzen Blick Strg gedrückt halten. Überwachung, Warnungen und Schutz laufen weiter.",
+    "fr": "Figer la liste des processus pour l'examiner (F6), ou maintenir Ctrl pour un coup d'œil rapide. Surveillance, alertes et protection continuent.",
+    "es": "Congelar esta lista de procesos para examinarla (F6) o mantener Ctrl para un vistazo rápido. La supervisión, las alertas y la protección continúan."
   },
   "All processes": {
     "tr": "Tüm işlemler",
@@ -9142,5 +9142,569 @@
     "de": "{0} alle {1} Prozesse von \"{2}\"? Seine Fenster reagieren nicht mehr, und er arbeitet nicht, bis er fortgesetzt wird. Programme, die auf ihn warten, reagieren eventuell ebenfalls nicht.",
     "fr": "{0} les {1} processus de \"{2}\" ? Ses fenêtres cessent de répondre et il ne fait rien jusqu'à sa reprise. Les programmes qui l'attendent peuvent aussi cesser de répondre.",
     "es": "¿{0} todos los {1} procesos de \"{2}\"? Sus ventanas dejan de responder y no hace nada hasta que se reanude. Los programas que lo esperan también pueden dejar de responder."
+  },
+  "Added": {
+    "tr": "Eklenenler",
+    "de": "Hinzugefügt",
+    "fr": "Ajouts",
+    "es": "Añadido"
+  },
+  "Changed": {
+    "tr": "Değişenler",
+    "de": "Geändert",
+    "fr": "Modifications",
+    "es": "Cambiado"
+  },
+  "Deprecated": {
+    "tr": "Kullanımdan kalkanlar",
+    "de": "Veraltet",
+    "fr": "Obsolète",
+    "es": "Obsoleto"
+  },
+  "Fixed": {
+    "tr": "Düzeltilenler",
+    "de": "Behoben",
+    "fr": "Corrections",
+    "es": "Corregido"
+  },
+  "Removed": {
+    "tr": "Kaldırılanlar",
+    "de": "Entfernt",
+    "fr": "Suppressions",
+    "es": "Eliminado"
+  },
+  "Security": {
+    "tr": "Güvenlik",
+    "de": "Sicherheit",
+    "fr": "Sécurité",
+    "es": "Seguridad"
+  },
+  "Full changelog": {
+    "tr": "Tüm değişiklik günlüğü",
+    "de": "Vollständiges Änderungsprotokoll",
+    "fr": "Journal complet des modifications",
+    "es": "Registro de cambios completo"
+  },
+  "What's new in {0}": {
+    "tr": "{0} sürümündeki yenilikler",
+    "de": "Neu in {0}",
+    "fr": "Nouveautés de la version {0}",
+    "es": "Novedades de {0}"
+  },
+  "Yield memory when hidden": {
+    "tr": "Gizliyken belleği bırak",
+    "de": "Speicher im Hintergrund freigeben",
+    "fr": "Céder la mémoire en arrière-plan",
+    "es": "Ceder memoria al estar oculto"
+  },
+  "After the window stays minimized or in the tray, Windows may reclaim its memory first. Sampling, history and protection continue.": {
+    "tr": "Pencere küçültülmüş veya tepside kaldıktan sonra Windows önce onun belleğini geri alabilir. Örnekleme, geçmiş ve koruma sürer.",
+    "de": "Bleibt das Fenster minimiert oder im Infobereich, kann Windows seinen Speicher zuerst zurückholen. Messung, Verlauf und Schutz laufen weiter.",
+    "fr": "Lorsque la fenêtre reste réduite ou dans la zone de notification, Windows peut récupérer sa mémoire en premier. L'échantillonnage, l'historique et la protection continuent.",
+    "es": "Cuando la ventana permanece minimizada o en la bandeja, Windows puede recuperar primero su memoria. El muestreo, el historial y la protección continúan."
+  },
+  "Disk order": {
+    "tr": "Disk sırası",
+    "de": "Datenträgerreihenfolge",
+    "fr": "Ordre des disques",
+    "es": "Orden de discos"
+  },
+  "By disk number": {
+    "tr": "Disk numarasına göre",
+    "de": "Nach Datenträgernummer",
+    "fr": "Par numéro de disque",
+    "es": "Por número de disco"
+  },
+  "Custom order": {
+    "tr": "Özel sıra",
+    "de": "Eigene Reihenfolge",
+    "fr": "Ordre personnalisé",
+    "es": "Orden personalizado"
+  },
+  "Every device is hidden. Choose the ones to show under Shown devices.": {
+    "tr": "Tüm cihazlar gizli. Gösterilecekleri Gösterilen cihazlar menüsünden seçin.",
+    "de": "Alle Geräte sind ausgeblendet. Wählen Sie unter „Angezeigte Geräte“, welche angezeigt werden.",
+    "fr": "Tous les appareils sont masqués. Choisissez ceux à afficher dans Appareils affichés.",
+    "es": "Todos los dispositivos están ocultos. Elija cuáles mostrar en Dispositivos mostrados."
+  },
+  "Hide this device": {
+    "tr": "Bu cihazı gizle",
+    "de": "Dieses Gerät ausblenden",
+    "fr": "Masquer cet appareil",
+    "es": "Ocultar este dispositivo"
+  },
+  "Move up": {
+    "tr": "Yukarı taşı",
+    "de": "Nach oben",
+    "fr": "Monter",
+    "es": "Subir"
+  },
+  "Move down": {
+    "tr": "Aşağı taşı",
+    "de": "Nach unten",
+    "fr": "Descendre",
+    "es": "Bajar"
+  },
+  "Restore the reported order": {
+    "tr": "Bildirilen sırayı geri yükle",
+    "de": "Gemeldete Reihenfolge wiederherstellen",
+    "fr": "Rétablir l'ordre signalé",
+    "es": "Restaurar el orden informado"
+  },
+  "Show all devices": {
+    "tr": "Tüm cihazları göster",
+    "de": "Alle Geräte anzeigen",
+    "fr": "Afficher tous les appareils",
+    "es": "Mostrar todos los dispositivos"
+  },
+  "Shown devices": {
+    "tr": "Gösterilen cihazlar",
+    "de": "Angezeigte Geräte",
+    "fr": "Appareils affichés",
+    "es": "Dispositivos mostrados"
+  },
+  "Shown devices ({0} hidden)": {
+    "tr": "Gösterilen cihazlar ({0} gizli)",
+    "de": "Angezeigte Geräte ({0} ausgeblendet)",
+    "fr": "Appareils affichés ({0} masqués)",
+    "es": "Dispositivos mostrados ({0} ocultos)"
+  },
+  "Show kernel time": {
+    "tr": "Çekirdek zamanını göster",
+    "de": "Kernelzeit anzeigen",
+    "fr": "Afficher le temps noyau",
+    "es": "Mostrar tiempo de kernel"
+  },
+  "The darker area of each graph is time the processor spent in Windows kernel code, drivers and interrupts.": {
+    "tr": "Her grafikteki koyu alan, işlemcinin Windows çekirdek kodunda, sürücülerde ve kesmelerde geçirdiği süredir.",
+    "de": "Der dunklere Bereich jedes Diagramms ist die Zeit, die der Prozessor in Windows-Kernelcode, Treibern und Interrupts verbracht hat.",
+    "fr": "La zone plus sombre de chaque graphique correspond au temps passé par le processeur dans le noyau Windows, les pilotes et les interruptions.",
+    "es": "El área más oscura de cada gráfico es el tiempo que el procesador pasó en código del kernel de Windows, controladores e interrupciones."
+  },
+  "Driver date": {
+    "tr": "Sürücü tarihi",
+    "de": "Treiberdatum",
+    "fr": "Date du pilote",
+    "es": "Fecha del controlador"
+  },
+  "DirectX feature level": {
+    "tr": "DirectX özellik düzeyi",
+    "de": "DirectX-Featurelevel",
+    "fr": "Niveau de fonctionnalités DirectX",
+    "es": "Nivel de características de DirectX"
+  },
+  "SMART attributes": {
+    "tr": "SMART öznitelikleri",
+    "de": "SMART-Attribute",
+    "fr": "Attributs SMART",
+    "es": "Atributos SMART"
+  },
+  "SMART power-on hours": {
+    "tr": "SMART çalışma saati",
+    "de": "SMART-Betriebsstunden",
+    "fr": "Heures de fonctionnement SMART",
+    "es": "Horas de encendido SMART"
+  },
+  "Start/stop count": {
+    "tr": "Başlatma/durdurma sayısı",
+    "de": "Start/Stopp-Zähler",
+    "fr": "Nombre de démarrages/arrêts",
+    "es": "Recuento de arranques/paradas"
+  },
+  "Power cycle count": {
+    "tr": "Güç döngüsü sayısı",
+    "de": "Einschaltzyklen",
+    "fr": "Nombre de cycles d'alimentation",
+    "es": "Recuento de ciclos de encendido"
+  },
+  "Total host writes (vendor units)": {
+    "tr": "Toplam ana bilgisayar yazması (üretici birimi)",
+    "de": "Gesamte Host-Schreibvorgänge (Herstellereinheiten)",
+    "fr": "Écritures hôte totales (unités du fabricant)",
+    "es": "Escrituras totales del host (unidades del fabricante)"
+  },
+  "Total host reads (vendor units)": {
+    "tr": "Toplam ana bilgisayar okuması (üretici birimi)",
+    "de": "Gesamte Host-Lesevorgänge (Herstellereinheiten)",
+    "fr": "Lectures hôte totales (unités du fabricant)",
+    "es": "Lecturas totales del host (unidades del fabricante)"
+  },
+  "Reallocated sectors": {
+    "tr": "Yeniden atanan sektörler",
+    "de": "Neu zugewiesene Sektoren",
+    "fr": "Secteurs réalloués",
+    "es": "Sectores reasignados"
+  },
+  "Pending sectors": {
+    "tr": "Bekleyen sektörler",
+    "de": "Ausstehende Sektoren",
+    "fr": "Secteurs en attente",
+    "es": "Sectores pendientes"
+  },
+  "Offline uncorrectable sectors": {
+    "tr": "Çevrimdışı düzeltilemeyen sektörler",
+    "de": "Offline nicht korrigierbare Sektoren",
+    "fr": "Secteurs non corrigeables hors ligne",
+    "es": "Sectores no corregibles sin conexión"
+  },
+  "Remaining life (SMART)": {
+    "tr": "Kalan ömür (SMART)",
+    "de": "Verbleibende Lebensdauer (SMART)",
+    "fr": "Durée de vie restante (SMART)",
+    "es": "Vida útil restante (SMART)"
+  },
+  "Yield memory after": {
+    "tr": "Belleği bırakma süresi",
+    "de": "Speicher freigeben nach",
+    "fr": "Céder la mémoire après",
+    "es": "Ceder memoria después de"
+  },
+  "Paused while Ctrl is held": {
+    "tr": "Ctrl basılıyken duraklatıldı",
+    "de": "Pausiert, solange Strg gedrückt ist",
+    "fr": "En pause tant que Ctrl est maintenu",
+    "es": "En pausa mientras se mantiene Ctrl"
+  },
+  "Image path": {
+    "tr": "Görüntü yolu",
+    "de": "Abbildpfad",
+    "fr": "Chemin d'accès de l'image",
+    "es": "Ruta de acceso de la imagen"
+  },
+  "Start time": {
+    "tr": "Başlangıç zamanı",
+    "de": "Startzeit",
+    "fr": "Heure de début",
+    "es": "Hora de inicio"
+  },
+  "Integrity": {
+    "tr": "Bütünlük",
+    "de": "Integrität",
+    "fr": "Intégrité",
+    "es": "Integridad"
+  },
+  "Untrusted": {
+    "tr": "Güvenilmeyen",
+    "de": "Nicht vertrauenswürdig",
+    "fr": "Non approuvée",
+    "es": "No confiable"
+  },
+  "Low": {
+    "tr": "Düşük",
+    "de": "Niedrig",
+    "fr": "Faible",
+    "es": "Baja"
+  },
+  "Medium": {
+    "tr": "Orta",
+    "de": "Mittel",
+    "fr": "Moyenne",
+    "es": "Media"
+  },
+  "Medium plus": {
+    "tr": "Orta artı",
+    "de": "Mittel plus",
+    "fr": "Moyenne plus",
+    "es": "Media plus"
+  },
+  "Service: {0}": {
+    "tr": "Servis: {0}",
+    "de": "Dienst: {0}",
+    "fr": "Service : {0}",
+    "es": "Servicio: {0}"
+  },
+  "Services: {0}, {1}": {
+    "tr": "Servisler: {0}, {1}",
+    "de": "Dienste: {0}, {1}",
+    "fr": "Services : {0}, {1}",
+    "es": "Servicios: {0}, {1}"
+  },
+  "Services: {0}, {1} and {2} more": {
+    "tr": "Servisler: {0}, {1} ve {2} tane daha",
+    "de": "Dienste: {0}, {1} und {2} weitere",
+    "fr": "Services : {0}, {1} et {2} autres",
+    "es": "Servicios: {0}, {1} y {2} más"
+  },
+  "All connections": {
+    "tr": "Tüm bağlantılar",
+    "de": "Alle Verbindungen",
+    "fr": "Toutes les connexions",
+    "es": "Todas las conexiones"
+  },
+  "Listening": {
+    "tr": "Dinleyen",
+    "de": "Lauschend",
+    "fr": "En écoute",
+    "es": "En escucha"
+  },
+  "Established": {
+    "tr": "Kurulmuş",
+    "de": "Hergestellt",
+    "fr": "Établies",
+    "es": "Establecidas"
+  },
+  "UDP": {
+    "tr": "UDP",
+    "de": "UDP",
+    "fr": "UDP",
+    "es": "UDP"
+  },
+  "No owning process": {
+    "tr": "Sahip işlem yok",
+    "de": "Kein zugehöriger Prozess",
+    "fr": "Aucun processus propriétaire",
+    "es": "Sin proceso propietario"
+  },
+  "Exited": {
+    "tr": "Sonlandı",
+    "de": "Beendet",
+    "fr": "Terminé",
+    "es": "Terminado"
+  },
+  "No program uses port {0}": {
+    "tr": "{0} portunu kullanan program yok",
+    "de": "Kein Programm verwendet Port {0}",
+    "fr": "Aucun programme n'utilise le port {0}",
+    "es": "Ningún programa usa el puerto {0}"
+  },
+  "Nothing listens on it or connects through it right now.": {
+    "tr": "Şu anda bu portu dinleyen veya bu port üzerinden bağlanan yok.",
+    "de": "Derzeit lauscht nichts darauf und nichts verbindet sich darüber.",
+    "fr": "Rien n'écoute sur ce port ni ne s'y connecte pour le moment.",
+    "es": "Ahora mismo nada escucha en él ni se conecta a través de él."
+  },
+  "Closing connections and some UDP endpoints belong to no process.": {
+    "tr": "Kapanmakta olan bağlantılar ve bazı UDP uç noktaları hiçbir işleme ait değildir.",
+    "de": "Schließende Verbindungen und einige UDP-Endpunkte gehören zu keinem Prozess.",
+    "fr": "Les connexions en cours de fermeture et certains points de terminaison UDP n'appartiennent à aucun processus.",
+    "es": "Las conexiones en cierre y algunos extremos UDP no pertenecen a ningún proceso."
+  },
+  "The program that owned this connection has ended.": {
+    "tr": "Bu bağlantının sahibi olan program sonlandı.",
+    "de": "Das Programm, dem diese Verbindung gehörte, wurde beendet.",
+    "fr": "Le programme propriétaire de cette connexion s'est terminé.",
+    "es": "El programa propietario de esta conexión ha terminado."
+  },
+  "Standby": {
+    "tr": "Bekleme",
+    "de": "Standby",
+    "fr": "En attente",
+    "es": "En espera"
+  },
+  "Used by programs, drivers and Windows.": {
+    "tr": "Programlar, sürücüler ve Windows tarafından kullanılıyor.",
+    "de": "Von Programmen, Treibern und Windows verwendet.",
+    "fr": "Utilisée par les programmes, les pilotes et Windows.",
+    "es": "En uso por programas, controladores y Windows."
+  },
+  "Changed data that must be written to disk before the memory can be reused.": {
+    "tr": "Bellek yeniden kullanılmadan önce diske yazılması gereken değiştirilmiş veriler.",
+    "de": "Geänderte Daten, die auf den Datenträger geschrieben werden müssen, bevor der Speicher wiederverwendet werden kann.",
+    "fr": "Données modifiées qui doivent être écrites sur le disque avant que la mémoire puisse être réutilisée.",
+    "es": "Datos modificados que deben escribirse en el disco antes de poder reutilizar la memoria."
+  },
+  "Cached data that is not in active use and is given to programs as soon as they need it.": {
+    "tr": "Etkin olarak kullanılmayan, programlar ihtiyaç duyar duymaz onlara verilen önbellekteki veriler.",
+    "de": "Zwischengespeicherte Daten, die nicht aktiv genutzt werden und Programmen sofort überlassen werden, sobald sie sie brauchen.",
+    "fr": "Données en cache non utilisées activement, cédées aux programmes dès qu'ils en ont besoin.",
+    "es": "Datos en caché que no se usan activamente y se ceden a los programas en cuanto los necesitan."
+  },
+  "Memory holding nothing, ready at once.": {
+    "tr": "Hiçbir şey tutmayan, hemen kullanıma hazır bellek.",
+    "de": "Leerer Speicher, sofort verfügbar.",
+    "fr": "Mémoire vide, disponible immédiatement.",
+    "es": "Memoria vacía, lista al instante."
+  },
+  "Paged pool": {
+    "tr": "Sayfalanan havuz",
+    "de": "Ausgelagerter Pool",
+    "fr": "Réserve paginée",
+    "es": "Bloque paginado"
+  },
+  "Non-paged pool": {
+    "tr": "Sayfalanmayan havuz",
+    "de": "Nicht ausgelagerter Pool",
+    "fr": "Réserve non paginée",
+    "es": "Bloque no paginado"
+  },
+  "Cached": {
+    "tr": "Önbelleğe alınan",
+    "de": "Im Cache",
+    "fr": "En cache",
+    "es": "En caché"
+  },
+  "Hardware reserved": {
+    "tr": "Donanıma ayrılmış",
+    "de": "Für Hardware reserviert",
+    "fr": "Réservée au matériel",
+    "es": "Reservada para hardware"
+  },
+  "Kernel memory that Windows may move to disk.": {
+    "tr": "Windows'un diske taşıyabileceği çekirdek belleği.",
+    "de": "Kernelspeicher, den Windows auf den Datenträger auslagern kann.",
+    "fr": "Mémoire du noyau que Windows peut déplacer sur le disque.",
+    "es": "Memoria del kernel que Windows puede mover al disco."
+  },
+  "Kernel memory that must stay in RAM. Steady growth points to a driver leak.": {
+    "tr": "RAM'de kalması gereken çekirdek belleği. Sürekli artış bir sürücü sızıntısına işaret eder.",
+    "de": "Kernelspeicher, der im RAM bleiben muss. Stetiges Wachstum deutet auf ein Treiberleck hin.",
+    "fr": "Mémoire du noyau qui doit rester en RAM. Une croissance continue indique une fuite dans un pilote.",
+    "es": "Memoria del kernel que debe permanecer en la RAM. Un crecimiento constante indica una fuga en un controlador."
+  },
+  "Standby and modified pages together.": {
+    "tr": "Bekleme ve değiştirilmiş sayfaların toplamı.",
+    "de": "Standby- und geänderte Seiten zusammen.",
+    "fr": "Pages en attente et modifiées réunies.",
+    "es": "Páginas en espera y modificadas en conjunto."
+  },
+  "Installed memory kept by firmware, integrated graphics or devices; Windows cannot use it.": {
+    "tr": "Bellenim, tümleşik grafik veya aygıtlar tarafından ayrılan kurulu bellek; Windows bunu kullanamaz.",
+    "de": "Installierter Speicher, den Firmware, integrierte Grafik oder Geräte belegen; Windows kann ihn nicht nutzen.",
+    "fr": "Mémoire installée retenue par le microprogramme, la carte graphique intégrée ou des périphériques ; Windows ne peut pas l'utiliser.",
+    "es": "Memoria instalada que retienen el firmware, los gráficos integrados o los dispositivos; Windows no puede usarla."
+  },
+  "Restart Windows Explorer": {
+    "tr": "Windows Gezgini'ni yeniden başlat",
+    "de": "Windows-Explorer neu starten",
+    "fr": "Redémarrer l'Explorateur Windows",
+    "es": "Reiniciar el Explorador de Windows"
+  },
+  "Closes the desktop and taskbar and starts them again with the same account and rights.": {
+    "tr": "Masaüstünü ve görev çubuğunu kapatır, aynı hesap ve haklarla yeniden başlatır.",
+    "de": "Schließt Desktop und Taskleiste und startet sie mit demselben Konto und denselben Rechten neu.",
+    "fr": "Ferme le bureau et la barre des tâches, puis les relance avec le même compte et les mêmes droits.",
+    "es": "Cierra el escritorio y la barra de tareas y los vuelve a iniciar con la misma cuenta y los mismos derechos."
+  },
+  "Restart Windows Explorer?": {
+    "tr": "Windows Gezgini yeniden başlatılsın mı?",
+    "de": "Windows-Explorer neu starten?",
+    "fr": "Redémarrer l'Explorateur Windows ?",
+    "es": "¿Reiniciar el Explorador de Windows?"
+  },
+  "The taskbar, desktop and open folder windows close for a moment and come back. Programs keep running.": {
+    "tr": "Görev çubuğu, masaüstü ve açık klasör pencereleri kısa bir süre kapanıp geri gelir. Programlar çalışmaya devam eder.",
+    "de": "Taskleiste, Desktop und geöffnete Ordnerfenster schließen sich kurz und kehren zurück. Programme laufen weiter.",
+    "fr": "La barre des tâches, le bureau et les fenêtres de dossiers ouvertes se ferment un instant puis reviennent. Les programmes continuent de fonctionner.",
+    "es": "La barra de tareas, el escritorio y las ventanas de carpetas abiertas se cierran un momento y vuelven. Los programas siguen ejecutándose."
+  },
+  "Windows Explorer restarted": {
+    "tr": "Windows Gezgini yeniden başlatıldı",
+    "de": "Windows-Explorer neu gestartet",
+    "fr": "Explorateur Windows redémarré",
+    "es": "Explorador de Windows reiniciado"
+  },
+  "Windows Explorer did not close when asked; it was ended and started again": {
+    "tr": "Windows Gezgini istendiğinde kapanmadı; sonlandırılıp yeniden başlatıldı",
+    "de": "Windows-Explorer hat sich auf Anforderung nicht geschlossen; er wurde beendet und neu gestartet",
+    "fr": "L'Explorateur Windows ne s'est pas fermé sur demande ; il a été arrêté puis relancé",
+    "es": "El Explorador de Windows no se cerró cuando se le pidió; se finalizó y se volvió a iniciar"
+  },
+  "Windows brought the desktop back by itself": {
+    "tr": "Windows masaüstünü kendiliğinden geri getirdi",
+    "de": "Windows hat den Desktop selbst wiederhergestellt",
+    "fr": "Windows a rétabli le bureau de lui-même",
+    "es": "Windows restauró el escritorio por sí mismo"
+  },
+  "Cannot restart Windows Explorer: {0}": {
+    "tr": "Windows Gezgini yeniden başlatılamadı: {0}",
+    "de": "Windows-Explorer kann nicht neu gestartet werden: {0}",
+    "fr": "Impossible de redémarrer l'Explorateur Windows : {0}",
+    "es": "No se puede reiniciar el Explorador de Windows: {0}"
+  },
+  "Cannot open Windows Task Manager: {0}": {
+    "tr": "Windows Görev Yöneticisi açılamadı: {0}",
+    "de": "Windows-Task-Manager kann nicht geöffnet werden: {0}",
+    "fr": "Impossible d'ouvrir le Gestionnaire des tâches Windows : {0}",
+    "es": "No se puede abrir el Administrador de tareas de Windows: {0}"
+  },
+  "Open Windows Task Manager once": {
+    "tr": "Windows Görev Yöneticisi'ni bir kez aç",
+    "de": "Windows-Task-Manager einmal öffnen",
+    "fr": "Ouvrir une fois le Gestionnaire des tâches Windows",
+    "es": "Abrir una vez el Administrador de tareas de Windows"
+  },
+  "Starts the real Task Manager this time; Ctrl+Shift+Esc still opens RustWTM.": {
+    "tr": "Bu kez gerçek Görev Yöneticisi'ni başlatır; Ctrl+Shift+Esc yine RustWTM'i açar.",
+    "de": "Startet diesmal den echten Task-Manager; Strg+Umschalt+Esc öffnet weiterhin RustWTM.",
+    "fr": "Lance cette fois le vrai Gestionnaire des tâches ; Ctrl+Maj+Échap ouvre toujours RustWTM.",
+    "es": "Inicia esta vez el Administrador de tareas real; Ctrl+Mayús+Esc sigue abriendo RustWTM."
+  },
+  "Copy diagnostic information": {
+    "tr": "Tanılama bilgilerini kopyala",
+    "de": "Diagnoseinformationen kopieren",
+    "fr": "Copier les informations de diagnostic",
+    "es": "Copiar información de diagnóstico"
+  },
+  "Version, Windows build, rights and display settings for a problem report. No process names, command lines, account names, paths or addresses.": {
+    "tr": "Sorun bildirimi için sürüm, Windows derlemesi, haklar ve ekran ayarları. İşlem adları, komut satırları, hesap adları, yollar veya adresler içermez.",
+    "de": "Version, Windows-Build, Rechte und Anzeigeeinstellungen für einen Problembericht. Keine Prozessnamen, Befehlszeilen, Kontonamen, Pfade oder Adressen.",
+    "fr": "Version, build de Windows, droits et paramètres d'affichage pour un rapport de problème. Aucun nom de processus, ligne de commande, nom de compte, chemin ni adresse.",
+    "es": "Versión, compilación de Windows, derechos y configuración de pantalla para un informe de problemas. Sin nombres de procesos, líneas de comandos, nombres de cuenta, rutas ni direcciones."
+  },
+  "Pin to top": {
+    "tr": "Üste sabitle",
+    "de": "Oben anheften",
+    "fr": "Épingler en haut",
+    "es": "Anclar arriba"
+  },
+  "Unpin": {
+    "tr": "Sabitlemeyi kaldır",
+    "de": "Lösen",
+    "fr": "Détacher",
+    "es": "Desanclar"
+  },
+  "Edit note…": {
+    "tr": "Notu düzenle…",
+    "de": "Notiz bearbeiten…",
+    "fr": "Modifier la note…",
+    "es": "Editar nota…"
+  },
+  "Add note…": {
+    "tr": "Not ekle…",
+    "de": "Notiz hinzufügen…",
+    "fr": "Ajouter une note…",
+    "es": "Añadir nota…"
+  },
+  "Remove note": {
+    "tr": "Notu kaldır",
+    "de": "Notiz entfernen",
+    "fr": "Supprimer la note",
+    "es": "Quitar nota"
+  },
+  "Pinned to the top": {
+    "tr": "Üste sabitlendi",
+    "de": "Oben angeheftet",
+    "fr": "Épinglé en haut",
+    "es": "Anclado arriba"
+  },
+  "Note for {0}": {
+    "tr": "{0} için not",
+    "de": "Notiz zu {0}",
+    "fr": "Note pour {0}",
+    "es": "Nota para {0}"
+  },
+  "Note": {
+    "tr": "Not",
+    "de": "Notiz",
+    "fr": "Note",
+    "es": "Nota"
+  },
+  "Only on this PC, for your own reference": {
+    "tr": "Yalnızca bu bilgisayarda, kendi kullanımınız için",
+    "de": "Nur auf diesem PC, für Ihren eigenen Gebrauch",
+    "fr": "Uniquement sur ce PC, pour votre usage personnel",
+    "es": "Solo en este equipo, para su propia referencia"
+  },
+  "Working directory": {
+    "tr": "Çalışma dizini",
+    "de": "Arbeitsverzeichnis",
+    "fr": "Répertoire de travail",
+    "es": "Directorio de trabajo"
+  },
+  "It works in this folder or one inside it, so the folder cannot be removed or renamed until it moves elsewhere or ends.": {
+    "tr": "Bu klasörde veya içindeki bir klasörde çalışıyor; başka bir yere geçene veya sonlanana kadar klasör silinemez ya da yeniden adlandırılamaz.",
+    "de": "Der Prozess arbeitet in diesem Ordner oder einem Unterordner; der Ordner kann daher erst entfernt oder umbenannt werden, wenn er woandershin wechselt oder beendet wird.",
+    "fr": "Le processus travaille dans ce dossier ou l'un de ses sous-dossiers ; le dossier ne peut donc être ni supprimé ni renommé tant qu'il n'en sort pas ou ne se termine pas.",
+    "es": "El proceso trabaja en esta carpeta o en una subcarpeta, así que la carpeta no se puede eliminar ni cambiar de nombre hasta que se mueva a otra parte o termine."
   }
 }

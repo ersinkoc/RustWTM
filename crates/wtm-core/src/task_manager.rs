@@ -172,6 +172,62 @@ fn protected_installation(exe: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Starts this program to open the real Windows Task Manager once (see
+/// [`open_windows_task_manager`]); used when that needs administrator rights.
+pub const NATIVE_ARG: &str = "--open-windows-task-manager";
+
+/// Opens the real Windows Task Manager once, even while RustWTM replaces it:
+/// it is started past the redirect, which stays as it is. Task Manager wants
+/// administrator rights when the user has them; without them here, a copy
+/// of RustWTM is started through the UAC prompt to open it.
+pub fn open_windows_task_manager() -> Result<(), String> {
+    match open_native() {
+        Err(e) if e.code() == Some(ELEVATION_REQUIRED) => {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            wtm_sys::shell::launch(&exe.to_string_lossy(), NATIVE_ARG, true).map_err(|e| {
+                if e.is_cancelled() {
+                    "Cancelled at the administrator prompt".to_owned()
+                } else {
+                    e.to_string()
+                }
+            })
+        }
+        other => other.map_err(|e| e.to_string()),
+    }
+}
+
+/// The step [`NATIVE_ARG`] runs: start Task Manager past the redirect.
+pub fn open_native() -> Result<(), NativeError> {
+    let taskmgr = wtm_sys::shell::system_directory()
+        .map_err(NativeError)?
+        .join("Taskmgr.exe");
+    wtm_sys::spawn::bypassing_debugger(&taskmgr, "")
+        .map(drop)
+        .map_err(NativeError)
+}
+
+/// Why Task Manager could not be started directly.
+#[derive(Debug)]
+pub struct NativeError(wtm_sys::Error);
+
+impl NativeError {
+    fn code(&self) -> Option<u32> {
+        match &self.0 {
+            wtm_sys::Error::Win32(e) => Some(e.code().0 as u32),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for NativeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// `ERROR_ELEVATION_REQUIRED` (740) as an HRESULT.
+const ELEVATION_REQUIRED: u32 = 0x8007_02E4;
+
 /// Full uninstall only: preserve other debuggers and unrelated IFEO values.
 pub fn cleanup(exe: &Path) -> Result<(), String> {
     cleanup_in(&RegKey::predef(HKEY_LOCAL_MACHINE), KEY, exe)
@@ -191,6 +247,16 @@ fn cleanup_in(root: &RegKey, path: &str, exe: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_elevation_error_is_recognised() {
+        // HRESULT_FROM_WIN32(ERROR_ELEVATION_REQUIRED = 740).
+        assert_eq!(ELEVATION_REQUIRED, 0x8007_0000 | 740);
+        assert_ne!(
+            NativeError(wtm_sys::Error::Reused { pid: 1 }).code(),
+            Some(ELEVATION_REQUIRED)
+        );
+    }
     use winreg::enums::HKEY_CURRENT_USER;
 
     struct Scratch {

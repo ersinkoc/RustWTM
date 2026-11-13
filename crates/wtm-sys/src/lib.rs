@@ -4,6 +4,7 @@
 
 #![cfg(windows)]
 
+pub mod collate;
 pub mod control;
 pub mod cpu;
 pub mod disk;
@@ -12,6 +13,7 @@ pub mod dpapi;
 pub mod ending;
 mod error;
 pub mod etw;
+pub mod explorer;
 mod fasthash;
 pub mod file_locks;
 pub mod firewall;
@@ -22,6 +24,7 @@ pub mod http;
 pub mod icon;
 pub mod image_metadata;
 pub mod job;
+pub mod memory;
 pub mod modules;
 pub mod net;
 pub mod nettrace;
@@ -37,6 +40,7 @@ pub mod security;
 pub mod services;
 pub mod sessions;
 pub mod shell;
+pub mod spawn;
 pub mod system;
 pub mod volumes;
 pub mod waits;

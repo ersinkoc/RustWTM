@@ -80,9 +80,82 @@ fn launch_with(file: &str, parameters: &str, elevated: bool, show: SHOW_WINDOW_C
     Ok(())
 }
 
+/// Opens `file` with `parameters` through the desktop's own Explorer, the
+/// way the Run dialog does, so it runs with the signed-in user's standard
+/// rights even when this process runs as administrator. Fails when no
+/// Explorer shows the desktop. Explorer reports errors about the file itself
+/// (such as a missing program) in its own message box.
+pub fn launch_as_desktop_user(file: &str, parameters: &str) -> Result<()> {
+    desktop_shell_execute(file, parameters, SW_SHOWNORMAL)
+}
+
+fn desktop_shell_execute(file: &str, parameters: &str, show: SHOW_WINDOW_CMD) -> Result<()> {
+    use windows::Win32::System::Com::{
+        CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+        CoUninitialize, IDispatch, IServiceProvider,
+    };
+    use windows::Win32::System::Variant::VARIANT;
+    use windows::Win32::UI::Shell::{
+        CSIDL_DESKTOP, IShellBrowser, IShellDispatch2, IShellFolderViewDual, IShellView,
+        IShellWindows, SID_STopLevelBrowser, SVGIO_BACKGROUND, SWC_DESKTOP, SWFO_NEEDDISPATCH,
+        ShellWindows,
+    };
+    use windows::core::{BSTR, Interface};
+
+    // SAFETY: balanced below; a thread already in another apartment mode
+    // keeps it and must not be uninitialised by us.
+    let initialised = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_ok();
+    let result = (|| -> windows::core::Result<()> {
+        // SAFETY: COM calls on interfaces obtained from the calls before
+        // them; every out-value is owned by the returned smart pointers.
+        unsafe {
+            let windows: IShellWindows =
+                CoCreateInstance(&ShellWindows, None, CLSCTX_LOCAL_SERVER)?;
+            let desktop = VARIANT::from(CSIDL_DESKTOP as i32);
+            let root = VARIANT::default();
+            let mut window = 0i32;
+            let found: IDispatch = windows.FindWindowSW(
+                &desktop,
+                &root,
+                SWC_DESKTOP,
+                &mut window,
+                SWFO_NEEDDISPATCH,
+            )?;
+            let provider: IServiceProvider = found.cast()?;
+            let browser: IShellBrowser = provider.QueryService(&SID_STopLevelBrowser)?;
+            let view: IShellView = browser.QueryActiveShellView()?;
+            let background: IDispatch = view.GetItemObject(SVGIO_BACKGROUND)?;
+            let folder: IShellFolderViewDual = background.cast()?;
+            let shell: IShellDispatch2 = folder.Application()?.cast()?;
+            shell.ShellExecute(
+                &BSTR::from(file),
+                &VARIANT::from(BSTR::from(parameters)),
+                &VARIANT::from(BSTR::new()),
+                &VARIANT::from(BSTR::new()),
+                &VARIANT::from(show.0),
+            )
+        }
+    })();
+    if initialised {
+        // SAFETY: pairs the successful CoInitializeEx above.
+        unsafe { CoUninitialize() };
+    }
+    Ok(result?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_desktop_shell_starts_a_hidden_command() {
+        // Hosted CI may run without a desktop; then there is nothing to ask.
+        if crate::explorer::desktop_pid().is_none() {
+            return;
+        }
+        let cmd = system_directory().unwrap().join("cmd.exe");
+        desktop_shell_execute(&cmd.to_string_lossy(), "/d /c exit 0", SW_HIDE).unwrap();
+    }
 
     #[test]
     fn elevation_can_be_queried() {

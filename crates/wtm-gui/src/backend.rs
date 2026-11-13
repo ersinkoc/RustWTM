@@ -22,6 +22,25 @@ pub type FactsMap = std::collections::HashMap<(u32, i64), wtm_core::control::Pro
 pub type ModuleList = Vec<(wtm_core::Module, wtm_core::Signature)>;
 /// Processes with a window Windows marks as not responding, and its title.
 pub type HungMap = std::collections::HashMap<u32, String>;
+/// Running services by the PID that hosts them.
+pub type HostedServices = std::collections::HashMap<u32, Vec<String>>;
+
+/// Groups running services by their host process, names sorted.
+pub fn hosted_services(services: &[ServiceEntry]) -> HostedServices {
+    let mut hosted = HostedServices::new();
+    for s in services.iter().filter(|s| s.pid != 0) {
+        let name = if s.display_name.is_empty() {
+            &s.name
+        } else {
+            &s.display_name
+        };
+        hosted.entry(s.pid).or_default().push(name.clone());
+    }
+    for names in hosted.values_mut() {
+        names.sort_by(|a, b| crate::sort::text(a, b));
+    }
+    hosted
+}
 
 /// Per-app summaries plus the service's current long-term findings.
 pub type AppHistory = (Vec<AppStats>, Vec<Finding>);
@@ -140,6 +159,36 @@ pub struct History {
     pub io_write: VecDeque<f32>,
     /// Load of every logical processor, last `CORE_HISTORY_LEN` samples.
     pub cores: Vec<VecDeque<f32>>,
+    /// Kernel-mode share of every logical processor, measured by this
+    /// window (the service does not send it); same length as `cores`.
+    pub core_kernel: Vec<VecDeque<f32>>,
+    /// The per-processor times of the previous sample.
+    core_times: Vec<wtm_sys::system::CpuTimes>,
+}
+
+/// Percent of each processor's time spent in kernel mode (DPCs and
+/// interrupts included) between two samples of the same processors.
+pub fn kernel_percent(
+    before: &[wtm_sys::system::CpuTimes],
+    after: &[wtm_sys::system::CpuTimes],
+) -> Option<Vec<f32>> {
+    (before.len() == after.len() && !after.is_empty()).then(|| {
+        before
+            .iter()
+            .zip(after)
+            .map(|(a, b)| {
+                // Kernel time includes idle time.
+                let kernel = b.kernel.saturating_sub(a.kernel);
+                let idle = b.idle.saturating_sub(a.idle);
+                let total = kernel + b.user.saturating_sub(a.user);
+                if total == 0 {
+                    0.0
+                } else {
+                    (kernel.saturating_sub(idle) as f64 / total as f64 * 100.0) as f32
+                }
+            })
+            .collect()
+    })
 }
 
 /// Recent samples of one process, oldest first.
@@ -192,6 +241,11 @@ pub struct Data {
     pub details: Option<(ProcessRef, Result<ProcessDetails, String>)>,
     /// Processes whose window does not respond, refreshed every sample.
     pub hung: HungMap,
+    /// Display names of the running services each process hosts, from the
+    /// last service list (refreshed while Processes or Services is open).
+    pub hosted_services: HostedServices,
+    /// Where physical memory goes, measured by this window with each sample.
+    pub memory_composition: Option<wtm_sys::memory::Composition>,
     /// Counts the updates of the snapshot, status, command lines, image
     /// paths and hung windows, so the window can keep what it derives from
     /// them until the next one instead of redoing it every frame.
@@ -339,6 +393,10 @@ pub enum UiCommand {
     CreateDump(ProcessRef),
     /// Notify when the process exits; again to stop watching.
     WatchExit(ProcessRef),
+    /// Close and start again the Explorer that shows the desktop.
+    RestartExplorer,
+    /// Open the real Windows Task Manager once, past RustWTM's replacement.
+    OpenWindowsTaskManager,
     /// Disconnect or sign out a logon session.
     Session {
         id: u32,
@@ -492,6 +550,8 @@ impl Backend {
             open: open_location,
             launch: wtm_core::launch::run,
             restart: wtm_core::launch::restart_elevated,
+            restart_explorer: wtm_sys::explorer::restart,
+            native_task_manager: wtm_core::task_manager::open_windows_task_manager,
             foreground: wtm_core::foreground_fullscreen,
             sampler: local_sampler(),
             disk_trace: None,
@@ -568,6 +628,10 @@ struct Worker {
     launch: fn(&str, bool) -> Result<(), String>,
     /// Starts RustWTM elevated.
     restart: fn() -> Result<(), String>,
+    /// Restarts the desktop's Explorer.
+    restart_explorer: fn() -> Result<wtm_sys::explorer::Restarted, String>,
+    /// Opens the real Windows Task Manager.
+    native_task_manager: fn() -> Result<(), String>,
     /// The process owning the foreground window, and whether that window
     /// covers its monitor (game mode).
     foreground: fn() -> Option<(u32, bool)>,
@@ -1133,6 +1197,47 @@ impl Worker {
                     })),
                 });
             }
+            UiCommand::RestartExplorer => {
+                let restart = self.restart_explorer;
+                self.in_background(move || {
+                    use wtm_sys::explorer::Restarted;
+                    Some(match restart() {
+                        Ok(Restarted::Closed) => (
+                            EventLevel::Info,
+                            crate::i18n::tr("Windows Explorer restarted").to_owned(),
+                        ),
+                        Ok(Restarted::Ended) => (
+                            EventLevel::Info,
+                            crate::i18n::tr("Windows Explorer did not close when asked; it was ended and started again").to_owned(),
+                        ),
+                        Ok(Restarted::RestoredByWindows) => (
+                            EventLevel::Info,
+                            crate::i18n::tr("Windows brought the desktop back by itself").to_owned(),
+                        ),
+                        Err(e) => (
+                            EventLevel::Error,
+                            crate::i18n::format(
+                                "Cannot restart Windows Explorer: {0}",
+                                std::slice::from_ref(&e),
+                            ),
+                        ),
+                    })
+                });
+            }
+            UiCommand::OpenWindowsTaskManager => {
+                let open = self.native_task_manager;
+                self.in_background(move || {
+                    open().err().map(|e| {
+                        (
+                            EventLevel::Error,
+                            crate::i18n::format(
+                                "Cannot open Windows Task Manager: {0}",
+                                std::slice::from_ref(&e),
+                            ),
+                        )
+                    })
+                });
+            }
             UiCommand::RestartElevated => {
                 let (restart, ctx) = (self.restart, self.ctx.clone());
                 self.in_background(move || match restart() {
@@ -1524,7 +1629,11 @@ impl Worker {
             }
             Panel::Services => {
                 let r = wtm_core::list_services().map_err(|e| e.to_string());
-                self.data().services = Some(r);
+                let mut data = self.data();
+                if let Ok(services) = &r {
+                    data.hosted_services = hosted_services(services);
+                }
+                data.services = Some(r);
             }
             Panel::Users => {
                 let r = wtm_core::sessions().map_err(|e| e.to_string());
@@ -1963,6 +2072,21 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
             series.push_back(load);
             trim(series, CORE_HISTORY_LEN);
         }
+        // Read here, in this window, so it needs no service protocol change.
+        let times = wtm_sys::system::per_cpu_times().unwrap_or_default();
+        match kernel_percent(&h.core_times, &times).filter(|k| k.len() == s.core_percent.len()) {
+            Some(kernel) => {
+                h.core_kernel.resize_with(kernel.len(), VecDeque::new);
+                for (series, value) in h.core_kernel.iter_mut().zip(kernel) {
+                    series.push_back(value);
+                    trim(series, CORE_HISTORY_LEN);
+                }
+            }
+            // Another processor layout (or none yet): start over.
+            None => h.core_kernel.clear(),
+        }
+        h.core_times = times;
+        data.memory_composition = wtm_sys::memory::composition().ok();
         update_process_history(&mut data.process_history, &snapshot.processes, at_ms);
     }
     trim(&mut data.events, EVENTS_KEPT);
@@ -2391,6 +2515,8 @@ mod tests {
             open: |_| Ok(()),
             launch: |_, _| Ok(()),
             restart: || Ok(()),
+            restart_explorer: || Ok(wtm_sys::explorer::Restarted::Closed),
+            native_task_manager: || Ok(()),
             foreground: || None,
             sampler: Sampler::new(),
             disk_trace: None,
@@ -2472,6 +2598,32 @@ mod tests {
             now.duration_since(measured_at(now, 10_000, 7_500)),
             Duration::from_millis(2500)
         );
+    }
+
+    #[test]
+    fn running_services_are_grouped_by_their_host_process() {
+        let service = |name: &str, display: &str, pid| ServiceEntry {
+            name: name.into(),
+            display_name: display.into(),
+            state: wtm_sys::services::ServiceState::Running,
+            pid,
+            start_type: None,
+            binary_path: None,
+            account: None,
+        };
+        let hosted = hosted_services(&[
+            service("RpcSs", "Remote Procedure Call", 900),
+            service("DcomLaunch", "DCOM Server", 900),
+            service("Spooler", "", 1200),
+            service("Stopped", "Stopped one", 0),
+        ]);
+        assert_eq!(hosted[&900], ["DCOM Server", "Remote Procedure Call"]);
+        assert_eq!(
+            hosted[&1200],
+            ["Spooler"],
+            "the key name stands in for a missing display name"
+        );
+        assert!(!hosted.contains_key(&0));
     }
 
     #[test]
@@ -2744,6 +2896,39 @@ mod tests {
             assert!(Instant::now() < deadline, "no message from the job");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn explorer_restarts_and_the_real_task_manager_report_their_outcome() {
+        use wtm_sys::explorer::Restarted;
+        let mut w = worker();
+        w.handle(UiCommand::RestartExplorer);
+        assert_eq!(
+            background_message(&w),
+            (EventLevel::Info, "Windows Explorer restarted".into())
+        );
+        w.restart_explorer = || Ok(Restarted::RestoredByWindows);
+        w.handle(UiCommand::RestartExplorer);
+        assert_eq!(
+            background_message(&w),
+            (
+                EventLevel::Info,
+                "Windows brought the desktop back by itself".into()
+            )
+        );
+        w.restart_explorer = || Err("No Explorer is showing the desktop".into());
+        w.handle(UiCommand::RestartExplorer);
+        assert_eq!(background_message(&w).0, EventLevel::Error);
+
+        w.native_task_manager = || Err("Cancelled at the administrator prompt".into());
+        w.handle(UiCommand::OpenWindowsTaskManager);
+        assert_eq!(
+            background_message(&w),
+            (
+                EventLevel::Error,
+                "Cannot open Windows Task Manager: Cancelled at the administrator prompt".into()
+            )
+        );
     }
 
     #[test]
@@ -3895,6 +4080,25 @@ mod tests {
             assert!(n.summary.contains("çğİıöşü.exe (5)"));
             assert_ne!(n.body, event.message);
             assert!(n.body.contains("çğİıöşü.exe"));
+        }
+    }
+
+    #[test]
+    fn kernel_share_per_processor_excludes_idle_and_needs_matching_samples() {
+        use wtm_sys::system::CpuTimes;
+        let t = |idle, kernel, user| CpuTimes { idle, kernel, user };
+        let before = [t(100, 200, 100), t(0, 0, 0)];
+        // CPU 0: 100 kernel (75 idle) + 100 user -> 25 of 200 in kernel mode.
+        // CPU 1: no time passed.
+        let after = [t(175, 300, 200), t(0, 0, 0)];
+        assert_eq!(kernel_percent(&before, &after), Some(vec![12.5, 0.0]));
+        assert_eq!(kernel_percent(&before, &after[..1]), None);
+        assert_eq!(kernel_percent(&[], &[]), None);
+        // This machine's own counters give sane shares.
+        let a = wtm_sys::system::per_cpu_times().unwrap();
+        let b = wtm_sys::system::per_cpu_times().unwrap();
+        for k in kernel_percent(&a, &b).unwrap() {
+            assert!((0.0..=100.0).contains(&k));
         }
     }
 

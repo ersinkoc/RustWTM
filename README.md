@@ -43,7 +43,28 @@ usage history.
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
-## New in 0.30.1
+## New in 0.30.2
+
+[Release scope and validation](docs/0.30.2-review.md)
+
+- **Quicker process work:** hold Ctrl to freeze the list and charts for a look;
+  Enter, Alt+E, Delete / Shift+Delete, Page Up/Down, Home/End and
+  type-to-search on the list; names sort naturally ("app2" before "app10").
+- **More to see:** service hosts name their services; Parent PID, Image path,
+  Start time and Integrity columns; a memory breakdown (in use, modified,
+  standby, free, kernel pools, hardware reserved); disk SMART readings, GPU
+  driver details and per-core kernel time.
+- **Network and lists:** Listening/Established/UDP filters, exact port search,
+  owner-less and exited rows named, and pins and notes on Services, Startup and
+  Network rows.
+- **Windows integration:** restart Windows Explorer with the same rights; Run
+  new task keeps standard rights from an elevated window; open the real Task
+  Manager once while RustWTM replaces it; folder owners include programs
+  working inside the folder; *Copy diagnostic information* in About.
+
+IPC remains protocol 16.
+
+## Included since 0.30.1
 
 [Release scope and validation](docs/0.30.1-review.md)
 
@@ -384,8 +405,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.30.1-x64.msi            # interactive
-msiexec /i RustWTM-0.30.1-x64.msi /qn        # silent
+msiexec /i RustWTM-0.30.2-x64.msi            # interactive
+msiexec /i RustWTM-0.30.2-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc

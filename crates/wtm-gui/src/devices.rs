@@ -73,8 +73,102 @@ fn metric_card(
     }
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
+/// How disks are ordered among themselves.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum DiskOrder {
+    /// By Windows disk number.
+    Number,
+    /// As arranged with Move up / Move down.
+    #[default]
+    #[serde(other)]
+    Custom,
+}
+
+/// Which devices the rail shows and in which order. Remembered by ID.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Layout {
+    pub hidden: Vec<String>,
+    /// Devices moved by hand, in their chosen order; others follow as reported.
+    pub order: Vec<String>,
+    pub disks: DiskOrder,
+}
+
+fn disk_number(d: &Device) -> Option<u32> {
+    d.fields
+        .iter()
+        .find(|f| f.name == "Disk number")
+        .and_then(|f| f.value.parse().ok())
+}
+
+impl Layout {
+    /// The shown devices in display order.
+    pub fn arrange(&self, devices: &[Device]) -> Vec<Device> {
+        let rank = |d: &Device| {
+            self.order
+                .iter()
+                .position(|id| id == &d.id)
+                .unwrap_or(usize::MAX)
+        };
+        let mut shown: Vec<(usize, &Device)> = devices
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| !self.hidden.contains(&d.id))
+            .collect();
+        // Stable: unmoved devices keep the reported order.
+        shown.sort_by_key(|(i, d)| (rank(d), *i));
+        if self.disks == DiskOrder::Number {
+            // Disks keep their slots but are refilled in disk-number order.
+            let mut disks: Vec<&Device> = shown
+                .iter()
+                .map(|(_, d)| *d)
+                .filter(|d| d.kind == "Disk")
+                .collect();
+            disks.sort_by_key(|d| disk_number(d).unwrap_or(u32::MAX));
+            let mut disks = disks.into_iter();
+            for slot in shown.iter_mut().filter(|(_, d)| d.kind == "Disk") {
+                slot.1 = disks.next().expect("same number of disks");
+            }
+        }
+        shown.into_iter().map(|(_, d)| d.clone()).collect()
+    }
+
+    /// Moves `id` one place up (`-1`) or down (`1`) among `shown`.
+    pub fn shift(&mut self, shown: &[Device], id: &str, step: isize) {
+        let mut ids: Vec<String> = shown.iter().map(|d| d.id.clone()).collect();
+        let Some(at) = ids.iter().position(|d| d == id) else {
+            return;
+        };
+        let to = at
+            .saturating_add_signed(step)
+            .min(ids.len().saturating_sub(1));
+        ids.swap(at, to);
+        // Hidden devices keep their remembered place behind the shown ones.
+        let rest: Vec<String> = self
+            .order
+            .iter()
+            .filter(|o| !ids.contains(o))
+            .cloned()
+            .collect();
+        ids.extend(rest);
+        self.order = ids;
+        if shown.get(at).is_some_and(|d| d.kind == "Disk") {
+            self.disks = DiskOrder::Custom;
+        }
+    }
+
+    pub fn set_hidden(&mut self, id: &str, hidden: bool) {
+        self.hidden.retain(|h| h != id);
+        if hidden {
+            self.hidden.push(id.to_owned());
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct View {
+    /// Shown devices and their order; saved with the window preferences.
+    pub layout: Layout,
     task: crate::background::Task<Report>,
     report: Option<Result<Report, String>>,
     selected: Option<String>,
@@ -179,10 +273,23 @@ impl View {
                 return;
             }
         };
-        let devices = report.devices.clone();
+        let all = report.devices.clone();
+        let devices = self.layout.arrange(&all);
         let warnings = report.warnings.clone();
-        if devices.is_empty() {
+        if !devices
+            .iter()
+            .any(|d| Some(&d.id) == self.selected.as_ref())
+        {
+            self.selected = devices.first().map(|d| d.id.clone());
+            self.metric = None;
+        }
+        self.shown_devices_menu(ui, &all);
+        if all.is_empty() {
             ui.weak(crate::i18n::tr("No supported devices were reported."));
+        } else if devices.is_empty() {
+            ui.weak(crate::i18n::tr(
+                "Every device is hidden. Choose the ones to show under Shown devices.",
+            ));
         }
         if ui.available_width() >= 940.0 {
             let height = (ui.ctx().content_rect().height() - 200.0).max(160.0);
@@ -232,8 +339,53 @@ impl View {
             ui.weak(warning);
         }
     }
+    /// Choose the devices the rail lists, and how disks are ordered.
+    fn shown_devices_menu(&mut self, ui: &mut Ui, all: &[Device]) {
+        ui.horizontal_wrapped(|ui| {
+            let hidden = all
+                .iter()
+                .filter(|d| self.layout.hidden.contains(&d.id))
+                .count();
+            let title = if hidden == 0 {
+                crate::i18n::tr("Shown devices").to_owned()
+            } else {
+                crate::i18n::format("Shown devices ({0} hidden)", &[hidden.to_string()])
+            };
+            ui.menu_button(title, |ui| {
+                for d in all {
+                    let mut shown = !self.layout.hidden.contains(&d.id);
+                    let label = format!("{} · {}", crate::i18n::tr(&d.kind), d.name);
+                    if ui.checkbox(&mut shown, label).changed() {
+                        self.layout.set_hidden(&d.id, !shown);
+                    }
+                }
+                crate::theme::divider(ui);
+                if ui.button(crate::i18n::tr("Show all devices")).clicked() {
+                    self.layout.hidden.clear();
+                    ui.close();
+                }
+                if ui
+                    .button(crate::i18n::tr("Restore the reported order"))
+                    .clicked()
+                {
+                    self.layout.order.clear();
+                    ui.close();
+                }
+            });
+            ui.label(crate::i18n::tr("Disk order"));
+            for (value, label) in [
+                (DiskOrder::Number, "By disk number"),
+                (DiskOrder::Custom, "Custom order"),
+            ] {
+                crate::theme::choice(ui, &mut self.layout.disks, value, crate::i18n::tr(label));
+            }
+        });
+    }
+
     fn navigation(&mut self, ui: &mut Ui, devices: &[Device]) {
         ui.spacing_mut().item_spacing.y = 4.0;
+        let mut moved: Option<(String, isize)> = None;
+        let mut hidden: Option<String> = None;
         for d in devices {
             let selected = Some(&d.id) == self.selected.as_ref();
             let color = device_color(&d.kind);
@@ -344,6 +496,17 @@ impl View {
             let mut open = response.clicked();
             crate::context_actions::menu(&response, ("hardware-device", &d.id), |ui| {
                 open |= crate::context_actions::action(ui, crate::i18n::tr("Details"));
+                crate::theme::divider(ui);
+                if crate::context_actions::action(ui, crate::i18n::tr("Move up")) {
+                    moved = Some((d.id.clone(), -1));
+                }
+                if crate::context_actions::action(ui, crate::i18n::tr("Move down")) {
+                    moved = Some((d.id.clone(), 1));
+                }
+                if crate::context_actions::action(ui, crate::i18n::tr("Hide this device")) {
+                    hidden = Some(d.id.clone());
+                }
+                crate::theme::divider(ui);
                 crate::context_actions::copy(ui, crate::i18n::tr("Specifications"), || {
                     std::iter::once(d.name.clone())
                         .chain(d.fields.iter().map(|field| {
@@ -357,6 +520,12 @@ impl View {
                 self.selected = Some(d.id.clone());
                 self.metric = None;
             }
+        }
+        if let Some((id, step)) = moved {
+            self.layout.shift(devices, &id, step);
+        }
+        if let Some(id) = hidden {
+            self.layout.set_hidden(&id, true);
         }
     }
     fn chart(&self, ui: &mut Ui, d: &Device, m: &wtm_core::devices::Metric, height: f32) {
@@ -845,6 +1014,78 @@ impl View {
 mod tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
+
+    fn device(id: &str, kind: &str, number: Option<u32>) -> Device {
+        Device {
+            id: id.into(),
+            kind: kind.into(),
+            name: id.into(),
+            at: 0,
+            warning: String::new(),
+            fields: number
+                .map(|n| wtm_core::devices::Field {
+                    name: "Disk number".into(),
+                    value: n.to_string(),
+                })
+                .into_iter()
+                .collect(),
+            metrics: Vec::new(),
+        }
+    }
+
+    fn ids(devices: &[Device]) -> Vec<&str> {
+        devices.iter().map(|d| d.id.as_str()).collect()
+    }
+
+    #[test]
+    fn device_layout_hides_moves_and_orders_disks_by_number() {
+        let all = [
+            device("cpu", "CPU", None),
+            device("d2", "Disk", Some(2)),
+            device("net", "Network", None),
+            device("d0", "Disk", Some(0)),
+        ];
+        let mut layout = Layout::default();
+        assert_eq!(ids(&layout.arrange(&all)), ["cpu", "d2", "net", "d0"]);
+        layout.disks = DiskOrder::Number;
+        // Disks keep their places in the list, refilled by disk number.
+        assert_eq!(ids(&layout.arrange(&all)), ["cpu", "d0", "net", "d2"]);
+        layout.set_hidden("net", true);
+        let shown = layout.arrange(&all);
+        assert_eq!(ids(&shown), ["cpu", "d0", "d2"]);
+        // Moving a disk by hand switches disks to the custom order.
+        layout.shift(&shown, "d2", -1);
+        assert_eq!(layout.disks, DiskOrder::Custom);
+        assert_eq!(ids(&layout.arrange(&all)), ["cpu", "d2", "d0"]);
+        layout.shift(&layout.arrange(&all), "cpu", -1);
+        assert_eq!(
+            ids(&layout.arrange(&all)),
+            ["cpu", "d2", "d0"],
+            "already first"
+        );
+        layout.set_hidden("net", false);
+        // A shown-again device follows the moved ones.
+        assert_eq!(ids(&layout.arrange(&all)), ["cpu", "d2", "d0", "net"]);
+    }
+
+    #[test]
+    fn a_hidden_device_can_be_shown_again_from_the_menu() {
+        let mut view = View::fixture_for("Disk");
+        let id = view.report.as_ref().unwrap().as_ref().unwrap().devices[0]
+            .id
+            .clone();
+        view.layout.set_hidden(&id, true);
+        let mut h = egui_kittest::Harness::builder()
+            .with_size([1200.0, 900.0])
+            .build_ui_state(|ui, v: &mut View| v.show(ui), view);
+        h.run();
+        h.get_by_label_contains("Shown devices").click();
+        h.run();
+        h.get_by_label("Show all devices").click();
+        h.run();
+        assert!(h.state().layout.hidden.is_empty());
+    }
+
     #[test]
     fn memory_composition_requires_both_reported_values() {
         let mut h = egui_kittest::Harness::builder()

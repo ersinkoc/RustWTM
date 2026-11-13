@@ -100,13 +100,17 @@ pub enum Col {
     Architecture,
     Elevated,
     FileVersion,
+    ParentPid,
+    ImagePath,
+    StartTime,
+    Integrity,
     /// Forward-compatible saved preferences; never a rendered column.
     #[serde(other)]
     Unknown,
 }
 
 /// Column, header, initial width, numeric (sorts largest first), shown by default.
-pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 21] = [
+pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 25] = [
     (Col::Name, "Name", 240.0, false, true),
     (Col::Pid, "PID", 64.0, false, true),
     (Col::Cpu, "CPU", 64.0, true, true),
@@ -128,6 +132,10 @@ pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 21] = [
     (Col::Architecture, "Architecture", 84.0, false, false),
     (Col::Elevated, "Elevated", 76.0, false, false),
     (Col::FileVersion, "File version", 120.0, false, false),
+    (Col::ParentPid, "Parent PID", 76.0, false, false),
+    (Col::ImagePath, "Image path", 320.0, false, false),
+    (Col::StartTime, "Start time", 150.0, false, false),
+    (Col::Integrity, "Integrity", 96.0, false, false),
 ];
 
 /// A 16 px program icon (or the same space when there is none). Textures are
@@ -165,6 +173,8 @@ pub struct Extra<'a> {
     pub facts: &'a crate::backend::FactsMap,
     /// File version per image path.
     pub versions: &'a HashMap<String, Option<String>>,
+    /// Services each process hosts.
+    pub services: &'a crate::backend::HostedServices,
 }
 
 impl Extra<'_> {
@@ -180,6 +190,11 @@ impl Extra<'_> {
             .get(self.image_path(p)?)?
             .as_deref()
             .filter(|name| !name.eq_ignore_ascii_case(&p.name))
+    }
+
+    /// The services `p` hosts, by display name.
+    pub fn hosted(&self, p: &ProcessInfo) -> &[String] {
+        self.services.get(&p.pid).map_or(&[], Vec::as_slice)
     }
 
     fn label(&self, p: &ProcessInfo) -> &str {
@@ -227,6 +242,50 @@ impl Extra<'_> {
     fn elevated(&self, p: &ProcessInfo) -> Option<bool> {
         self.facts(p)?.elevated
     }
+
+    /// Sorts unknown before the least trusted level.
+    fn integrity(&self, p: &ProcessInfo) -> Option<wtm_core::control::Integrity> {
+        self.facts(p)?.integrity
+    }
+}
+
+/// The integrity level in words, as Windows names it.
+pub fn integrity_label(level: wtm_core::control::Integrity) -> String {
+    use wtm_core::control::Integrity;
+    match level {
+        Integrity::Untrusted => crate::i18n::tr("Untrusted").into(),
+        Integrity::Low => crate::i18n::tr("Low").into(),
+        Integrity::Medium => crate::i18n::tr("Medium").into(),
+        Integrity::MediumPlus => crate::i18n::tr("Medium plus").into(),
+        Integrity::High => crate::i18n::tr("High").into(),
+        Integrity::System => crate::i18n::tr("System").into(),
+        Integrity::Protected => crate::i18n::tr("Protected").into(),
+        Integrity::Other(rid) => format!("0x{rid:04x}"),
+    }
+}
+
+/// A process's services in a few words: up to two names, then how many more.
+pub fn services_summary(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => crate::i18n::format("Service: {0}", std::slice::from_ref(one)),
+        [a, b] => crate::i18n::format("Services: {0}, {1}", &[a.clone(), b.clone()]),
+        [a, b, rest @ ..] => crate::i18n::format(
+            "Services: {0}, {1} and {2} more",
+            &[a.clone(), b.clone(), rest.len().to_string()],
+        ),
+    }
+}
+
+/// The local date and time a process started, to the second.
+fn start_clock(p: &ProcessInfo) -> String {
+    p.start_time()
+        .map(|t| {
+            chrono::DateTime::<chrono::Local>::from(t)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+        })
+        .unwrap_or_default()
 }
 
 /// `user` from `DOMAIN\user`, as Task Manager shows it.
@@ -278,6 +337,10 @@ pub enum Intent {
     Network(ProcessRef, bool),
     /// Ask the AI assistant what the process is and what to do about it.
     AskAi(ProcessRef),
+    /// Select the process and make sure its details are on screen (Enter).
+    Details(ProcessRef),
+    /// Ask before restarting the desktop's Explorer.
+    RestartExplorer,
     /// Open the Windows settings page for other users' accounts.
     ManageAccounts,
     /// Ask before signing out the user of this session.
@@ -475,6 +538,8 @@ pub struct ProcessView {
     pub recent_minutes: u32,
     /// Only the process table is frozen. Sampling, protection and alerts continue.
     pub paused: Option<std::sync::Arc<Snapshot>>,
+    /// The list as it was when Ctrl was pressed; dropped when Ctrl is let go.
+    ctrl_hold: Option<std::sync::Arc<Snapshot>>,
     /// Last selection revealed automatically. Sampling must not keep pulling
     /// the table back after the user scrolls away to inspect another row.
     revealed: Option<(u32, i64)>,
@@ -571,6 +636,7 @@ impl Default for ProcessView {
             more: MoreFilters::default(),
             recent_minutes: 5,
             paused: None,
+            ctrl_hold: None,
             revealed: None,
             cache: None,
             inspection_held: false,
@@ -720,6 +786,7 @@ impl ProcessView {
         self.filter = QuickFilter::All;
         self.more = MoreFilters::default();
         self.paused = None;
+        self.ctrl_hold = None;
         if self.mode == ViewMode::Apps {
             self.expanded.insert(target.name.to_lowercase());
         }
@@ -903,6 +970,14 @@ fn compare(
         Col::Architecture => crate::sort::text(&extra.architecture(a), &extra.architecture(b)),
         Col::Elevated => extra.elevated(a).cmp(&extra.elevated(b)),
         Col::FileVersion => crate::sort::text(extra.version(a), extra.version(b)),
+        Col::ParentPid => a.parent_pid.cmp(&b.parent_pid),
+        Col::ImagePath => crate::sort::text(
+            extra.image_path(a).unwrap_or(""),
+            extra.image_path(b).unwrap_or(""),
+        ),
+        // Earliest first when ascending.
+        Col::StartTime => a.create_time.cmp(&b.create_time),
+        Col::Integrity => extra.integrity(a).cmp(&extra.integrity(b)),
     }
     .then(a.pid.cmp(&b.pid))
 }
@@ -1038,6 +1113,104 @@ use crate::theme::right;
 const NARROW_TABLE: f32 = 1000.0;
 const NARROW_NAME: f32 = 180.0;
 
+#[derive(Clone, Copy)]
+enum Step {
+    By(isize),
+    First,
+    Last,
+}
+
+#[derive(Clone, Copy)]
+enum End {
+    /// Delete or Alt+E: confirm first.
+    Ask,
+    /// Shift+Delete: no confirmation.
+    Now,
+}
+
+/// The list keys pressed this frame.
+#[derive(Default)]
+struct ListKeys {
+    step: Option<Step>,
+    end: Option<End>,
+    details: bool,
+    focus_search: bool,
+    /// Letters and digits typed onto the list, which start a search.
+    typed: String,
+}
+
+/// How far Page Up/Down move.
+const PAGE: isize = 10;
+
+impl ListKeys {
+    fn read(i: &egui::InputState) -> Self {
+        let m = i.modifiers;
+        let plain = !m.ctrl && !m.alt && !m.command;
+        let pressed = |key| i.key_pressed(key);
+        let step = [
+            (egui::Key::ArrowUp, Step::By(-1)),
+            (egui::Key::ArrowDown, Step::By(1)),
+            (egui::Key::PageUp, Step::By(-PAGE)),
+            (egui::Key::PageDown, Step::By(PAGE)),
+            (egui::Key::Home, Step::First),
+            (egui::Key::End, Step::Last),
+        ]
+        .into_iter()
+        .find(|(key, _)| plain && !m.shift && pressed(*key))
+        .map(|(_, step)| step);
+        let end = if plain && pressed(egui::Key::Delete) {
+            Some(if m.shift { End::Now } else { End::Ask })
+        } else if m.alt && !m.ctrl && !m.shift && pressed(egui::Key::E) {
+            Some(End::Ask)
+        } else {
+            None
+        };
+        let mut keys = Self {
+            step,
+            end,
+            details: plain && !m.shift && pressed(egui::Key::Enter),
+            ..Self::default()
+        };
+        if plain {
+            for event in &i.events {
+                if let egui::Event::Text(text) = event {
+                    if text == "/" {
+                        keys.focus_search = true;
+                    } else if keys.focus_search || text.chars().any(char::is_alphanumeric) {
+                        keys.typed.push_str(text);
+                    }
+                }
+            }
+        }
+        keys
+    }
+}
+
+/// The process rows of the table, without app and user group headings.
+fn process_rows<'a>(rows: &[Row], all: &'a [ProcessInfo]) -> Vec<&'a ProcessInfo> {
+    rows.iter()
+        .filter_map(|r| match *r {
+            Row::Process(i, _) => Some(&all[i]),
+            Row::App(_) | Row::User(_) => None,
+        })
+        .collect()
+}
+
+pub(crate) const SEARCH_ID: &str = "process_search";
+
+/// Focuses the process search with the cursor after `text`, so typing goes on
+/// where the list left off.
+fn focus_search_at_end(ctx: &egui::Context, text: &str) {
+    let id = egui::Id::unique(SEARCH_ID);
+    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+    let end = egui::text::CCursor::new(text.chars().count());
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::one(end)));
+    state.store(ctx, id);
+    ctx.memory_mut(|m| m.request_focus(id));
+}
+
 /// Columns whose values (and so their headers) are aligned right.
 fn right_aligned(col: Col) -> bool {
     !matches!(
@@ -1049,54 +1222,78 @@ fn right_aligned(col: Col) -> bool {
             | Col::Architecture
             | Col::Elevated
             | Col::FileVersion
+            | Col::ImagePath
+            | Col::StartTime
+            | Col::Integrity
     )
 }
 
 impl ProcessView {
-    /// Up / Down move the selection, Delete asks to end the selected process.
-    /// Ignored while a text field (the search), a menu or a dialog has the
-    /// keyboard.
-    fn keyboard(&self, ui: &Ui, rows: &[Row], all: &[ProcessInfo], intents: &mut Vec<Intent>) {
-        let (up, down, delete) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::ArrowUp),
-                i.key_pressed(egui::Key::ArrowDown),
-                i.key_pressed(egui::Key::Delete),
-            )
-        });
+    /// List keys, ignored while a text field (the search), a menu or a
+    /// dialog has the keyboard:
+    /// - Up/Down, Page Up/Down, Home/End move the selection.
+    /// - Enter shows the selected process's details.
+    /// - Delete or Alt+E ask to end it; Shift+Delete ends it without asking.
+    /// - `/` moves to the search; typing a letter or digit starts a search
+    ///   with it.
+    fn keyboard(&mut self, ui: &Ui, rows: &[Row], all: &[ProcessInfo], intents: &mut Vec<Intent>) {
         let ctx = ui.ctx();
-        if !(up || down || delete)
-            || ctx.text_edit_focused()
+        if ctx.text_edit_focused()
             || egui::Popup::is_any_open(ctx)
             || ctx.memory(|m| m.top_modal_layer().is_some())
         {
             return;
         }
-        let procs: Vec<&ProcessInfo> = rows
-            .iter()
-            .filter_map(|r| match *r {
-                Row::Process(i, _) => Some(&all[i]),
-                Row::App(_) | Row::User(_) => None,
-            })
-            .collect();
-        let current = self.selected.as_ref().and_then(|s| {
-            procs
-                .iter()
-                .position(|p| p.pid == s.pid && p.create_time == s.create_time)
-        });
-        let next = match (current, up, down) {
-            (Some(i), true, _) => Some(i.saturating_sub(1)),
-            (Some(i), _, true) => Some((i + 1).min(procs.len().saturating_sub(1))),
-            (None, true, _) | (None, _, true) => (!procs.is_empty()).then_some(0),
-            _ => None,
-        };
-        if let Some(i) = next
-            && current != Some(i)
-        {
-            intents.push(Intent::Select(ProcessRef::from(procs[i])));
+        let keys = ui.input(ListKeys::read);
+        if keys.focus_search || !keys.typed.is_empty() {
+            self.search.push_str(&keys.typed);
+            focus_search_at_end(ctx, &self.search);
         }
-        if delete && let Some(i) = current {
-            intents.push(Intent::Confirm(ProcessRef::from(procs[i]), Command::Kill));
+        let Some(step) = keys.step else {
+            return self.act_on_selection(rows, all, keys, intents);
+        };
+        let procs = process_rows(rows, all);
+        let current = self.position_in(&procs);
+        let last = procs.len().saturating_sub(1);
+        let next = match (current, step) {
+            (_, Step::First) => 0,
+            (_, Step::Last) => last,
+            (Some(i), Step::By(delta)) => i.saturating_add_signed(delta).min(last),
+            (None, _) => 0,
+        };
+        if !procs.is_empty() && current != Some(next) {
+            intents.push(Intent::Select(ProcessRef::from(procs[next])));
+        }
+    }
+
+    fn position_in(&self, procs: &[&ProcessInfo]) -> Option<usize> {
+        let s = self.selected.as_ref()?;
+        procs
+            .iter()
+            .position(|p| p.pid == s.pid && p.create_time == s.create_time)
+    }
+
+    fn act_on_selection(
+        &self,
+        rows: &[Row],
+        all: &[ProcessInfo],
+        keys: ListKeys,
+        intents: &mut Vec<Intent>,
+    ) {
+        if keys.end.is_none() && !keys.details {
+            return;
+        }
+        let procs = process_rows(rows, all);
+        let Some(target) = self.position_in(&procs).map(|i| ProcessRef::from(procs[i])) else {
+            return;
+        };
+        if keys.details {
+            intents.push(Intent::Details(target.clone()));
+        }
+        match keys.end {
+            Some(End::Ask) => intents.push(Intent::Confirm(target, Command::Kill)),
+            Some(End::Now) => intents.push(Intent::Command(target, Command::Kill)),
+            None => {}
         }
     }
 
@@ -1142,7 +1339,7 @@ impl ProcessView {
         ui.horizontal_wrapped(|ui| {
             crate::theme::search_bar(
                 ui,
-                egui::Id::unique("process_search"),
+                egui::Id::unique(SEARCH_ID),
                 &mut self.search,
                 crate::i18n::tr("name, PID, path or command line"),
                 if ui.available_width() < 600.0 { 150.0 } else { 240.0 },
@@ -1164,14 +1361,29 @@ impl ProcessView {
                 && !ui.ctx().text_edit_focused()
                 && !egui::Popup::is_any_open(ui.ctx())
                 && !ui.memory(|m| m.top_modal_layer().is_some());
+            if crate::hold::ctrl_held(ui.ctx()) && self.paused.is_none() {
+                self.ctrl_hold
+                    .get_or_insert_with(|| std::sync::Arc::new(snap.clone()));
+            } else {
+                self.ctrl_hold = None;
+            }
             if ui.button(if self.paused.is_some() { crate::i18n::tr("Resume updates") } else { crate::i18n::tr("Pause updates") })
-                .on_hover_text(crate::i18n::tr("Freeze this process list for inspection (F6). Monitoring, alerts and protection continue."))
+                .on_hover_text(crate::i18n::tr("Freeze this process list for inspection (F6), or hold Ctrl for a quick look. Monitoring, alerts and protection continue."))
                 .clicked() || toggle_key {
-                self.paused = if self.paused.is_some() { None } else { Some(std::sync::Arc::new(snap.clone())) };
+                // Pausing while Ctrl is held keeps the list Ctrl froze.
+                self.paused = match self.paused.take() {
+                    Some(_) => None,
+                    None => Some(
+                        self.ctrl_hold
+                            .take()
+                            .unwrap_or_else(|| std::sync::Arc::new(snap.clone())),
+                    ),
+                };
             }
         });
         self.normalize_columns();
-        let paused = self.paused.clone();
+        let ctrl_held = self.paused.is_none() && self.ctrl_hold.is_some();
+        let paused = self.paused.clone().or_else(|| self.ctrl_hold.clone());
         let snap = paused.as_deref().unwrap_or(snap);
         let compact_filters = ui.available_width() < 600.0;
         ui.horizontal_wrapped(|ui| {
@@ -1248,7 +1460,11 @@ impl ProcessView {
             self.filter_chips(ui);
             if paused.is_some() {
                 ui.label(
-                    RichText::new(crate::i18n::tr("Paused · monitoring continues"))
+                    RichText::new(crate::i18n::tr(if ctrl_held {
+                        "Paused while Ctrl is held"
+                    } else {
+                        "Paused · monitoring continues"
+                    }))
                         .color(crate::theme::text_color(ui, crate::theme::WARN)),
                 );
             }
@@ -1386,7 +1602,7 @@ impl ProcessView {
                     table = table.column(if fit_widths {
                         let maximum: f32 = match col {
                             Col::Name => 540.0,
-                            Col::CommandLine => 640.0,
+                            Col::CommandLine | Col::ImagePath => 640.0,
                             _ => 280.0,
                         };
                         column.at_most(maximum.max(*width)).auto_size_this_frame(true)
@@ -1551,6 +1767,11 @@ impl ProcessView {
                                                 RichText::new(format!("  {}", p.name)).weak().small()
                                                     .append_to(&mut job, ui.style(), egui::FontSelection::Default, Align::Center);
                                             }
+                                            let hosted = if group.is_none() { extra.hosted(p) } else { &[] };
+                                            if !hosted.is_empty() {
+                                                RichText::new(format!("  {}", services_summary(hosted))).weak().small()
+                                                    .append_to(&mut job, ui.style(), egui::FontSelection::Default, Align::Center);
+                                            }
                                             let label = egui::Label::new(job);
                                             let label = if ui.is_sizing_pass() { label.extend() } else { label.truncate() };
                                             ui.add(label);
@@ -1657,6 +1878,29 @@ impl ProcessView {
                                         Col::FileVersion => {
                                             ui.label(extra.version(p));
                                         }
+                                        Col::ParentPid => right(ui, p.parent_pid.to_string()),
+                                        Col::ImagePath => match extra.image_path(p) {
+                                            Some(path) => {
+                                                ui.label(RichText::new(path).small())
+                                                    .on_hover_text(path);
+                                            }
+                                            None => {
+                                                ui.weak("—");
+                                            }
+                                        },
+                                        Col::StartTime => {
+                                            ui.label(start_clock(p));
+                                        }
+                                        Col::Integrity => match extra.integrity(p) {
+                                            Some(level) => {
+                                                ui.label(integrity_label(level));
+                                            }
+                                            None => {
+                                                ui.weak("—").on_hover_text(crate::i18n::tr(
+                                                    "Not readable with this window's rights",
+                                                ));
+                                            }
+                                        },
                                     }
                                 }));
                             }
@@ -1820,6 +2064,10 @@ impl ProcessView {
                         .is_some_and(|name| name.to_lowercase().contains(&filter))
                     || p.pid.to_string().contains(&filter)
                     || extra.command_line(p).to_lowercase().contains(&filter)
+                    || extra
+                        .hosted(p)
+                        .iter()
+                        .any(|s| s.to_lowercase().contains(&filter))
                     || extra
                         .image_paths
                         .get(&(p.pid, p.create_time))
@@ -2256,6 +2504,17 @@ pub fn context_menu(
     topology: Option<&wtm_core::cpu::Topology>,
     intents: &mut Vec<Intent>,
 ) {
+    if t.name.eq_ignore_ascii_case("explorer.exe")
+        && ui
+            .button(crate::i18n::tr("Restart Windows Explorer"))
+            .on_hover_text(crate::i18n::tr(
+                "Closes the desktop and taskbar and starts them again with the same account and rights.",
+            ))
+            .clicked()
+    {
+        intents.push(Intent::RestartExplorer);
+        ui.close();
+    }
     let mut cmd = |ui: &mut Ui, label: &str, command: Command, confirm: bool| {
         if ui.button(label).clicked() {
             intents.push(if confirm {
@@ -2594,6 +2853,7 @@ mod tests {
             hung: Box::leak(Box::default()),
             facts: Box::leak(Box::default()),
             versions: Box::leak(Box::default()),
+            services: Box::leak(Box::default()),
         }
     }
 
@@ -2609,6 +2869,52 @@ mod tests {
             user: Some(user.into()),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn new_identity_columns_sort_by_trust_start_and_parent() {
+        use wtm_core::control::{Integrity, ProcessFacts};
+        let mut low = p(10, 7, 0.0, 300);
+        low.create_time = 300;
+        let mut system = p(11, 4, 0.0, 100);
+        system.create_time = 100;
+        let unknown = p(12, 9, 0.0, 200);
+        let facts: &'static crate::backend::FactsMap = Box::leak(Box::new(
+            [
+                (
+                    (10, low.create_time),
+                    ProcessFacts {
+                        integrity: Some(Integrity::Low),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    (11, system.create_time),
+                    ProcessFacts {
+                        integrity: Some(Integrity::System),
+                        ..Default::default()
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ));
+        let extra = with_facts(facts);
+        let order = |col| {
+            let mut v = [&low, &system, &unknown];
+            v.sort_by(|a, b| compare(a, b, col, &extra, false));
+            v.map(|q| q.pid)
+        };
+        assert_eq!(
+            order(Col::Integrity),
+            [12, 10, 11],
+            "unknown, then least trusted"
+        );
+        assert_eq!(order(Col::StartTime), [11, 12, 10], "earliest first");
+        assert_eq!(order(Col::ParentPid), [11, 10, 12]);
+        assert_eq!(integrity_label(Integrity::MediumPlus), "Medium plus");
+        assert_eq!(integrity_label(Integrity::Other(0x2500)), "0x2500");
+        assert!(start_clock(&low).is_empty() || start_clock(&low).len() == 19);
     }
 
     #[test]

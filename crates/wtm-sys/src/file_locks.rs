@@ -1,4 +1,5 @@
-//! Read-only Restart Manager queries. Never shutdown, restart or close handles.
+//! Read-only Restart Manager queries, plus the working directories of
+//! processes for folders. Never shutdown, restart or close handles.
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS};
@@ -10,6 +11,75 @@ pub struct Locker {
     pub create_time: i64,
     pub name: String,
     pub service: String,
+    /// How the process holds the path.
+    #[serde(default)]
+    pub reason: Hold,
+}
+
+/// Why a process keeps a file or folder busy.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Hold {
+    /// The process works in the folder or one inside it (a console sitting
+    /// there, for example): the folder cannot be removed or renamed.
+    WorkingDirectory,
+    /// Windows reports a file in use (Restart Manager); also any reason a
+    /// later version adds.
+    #[default]
+    #[serde(other)]
+    OpenFile,
+}
+
+/// Whether `candidate` is `folder` or lies inside it: compared without case
+/// and by whole names, so `C:\Data` does not contain `C:\Database`.
+pub fn inside(folder: &str, candidate: &str) -> bool {
+    const SEP: char = std::path::MAIN_SEPARATOR;
+    let trim = |p: &str| {
+        p.replace('/', std::path::MAIN_SEPARATOR_STR)
+            .trim_end_matches(SEP)
+            .to_lowercase()
+    };
+    let (folder, candidate) = (trim(folder), trim(candidate));
+    !folder.is_empty()
+        && (candidate == folder
+            || candidate
+                .strip_prefix(&folder)
+                .is_some_and(|rest| rest.starts_with(SEP)))
+}
+
+/// Processes whose working directory is `folder` or inside it, within
+/// `budget`. Processes this program may not read are skipped and counted.
+fn working_in(folder: &Path, budget: Duration) -> (Vec<Locker>, usize) {
+    let started = Instant::now();
+    let folder = folder.to_string_lossy();
+    let mut found = Vec::new();
+    let mut unreadable = 0;
+    let processes = crate::process::ProcessSnapshotter::new()
+        .snapshot()
+        .unwrap_or_default();
+    for p in processes
+        .into_iter()
+        .filter(|p| p.pid > 4 && p.pid != std::process::id())
+    {
+        if started.elapsed() > budget {
+            unreadable += 1;
+            continue;
+        }
+        let directory =
+            crate::control::ProcessHandle::open(p.pid, crate::control::Access::READ_PARAMETERS)
+                .and_then(|h| h.current_directory());
+        match directory {
+            Ok(dir) if inside(&folder, &dir) => found.push(Locker {
+                pid: p.pid,
+                create_time: p.create_time,
+                name: p.name,
+                service: String::new(),
+                reason: Hold::WorkingDirectory,
+            }),
+            Ok(_) => {}
+            Err(_) => unreadable += 1,
+        }
+    }
+    (found, unreadable)
 }
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Report {
@@ -86,6 +156,7 @@ fn lockers(paths: &[PathBuf]) -> Result<Vec<Locker>, String> {
                 | r.Process.ProcessStartTime.dwLowDateTime as u64) as i64,
             name: text(&r.strAppName),
             service: text(&r.strServiceShortName),
+            reason: Hold::OpenFile,
         })
         .collect())
 }
@@ -166,6 +237,23 @@ pub fn scan(path: &Path) -> Result<Report, String> {
     if !files.is_empty() {
         report.lockers = lockers(&files)?;
     }
+    if path.is_dir() {
+        let (working, unreadable) = working_in(path, Duration::from_secs(3));
+        if unreadable > 0 {
+            report.warnings.push(format!(
+                "{unreadable} processes could not be checked for working in this folder (32-bit or no access)"
+            ));
+        }
+        for locker in working {
+            if !report
+                .lockers
+                .iter()
+                .any(|l| l.pid == locker.pid && l.create_time == locker.create_time)
+            {
+                report.lockers.push(locker);
+            }
+        }
+    }
     if report.partial {
         report
             .warnings
@@ -176,6 +264,44 @@ pub fn scan(path: &Path) -> Result<Report, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn folders_contain_whole_names_only() {
+        assert!(inside(r"C:\Data", r"C:\Data"));
+        assert!(inside(r"C:\Data\", r"c:\data\logs"));
+        assert!(inside(r"C:\Data", r"C:/Data/logs/"));
+        assert!(!inside(r"C:\Data", r"C:\Database"));
+        assert!(!inside(r"C:\Data\logs", r"C:\Data"));
+        assert!(!inside("", r"C:\Data"));
+    }
+
+    #[test]
+    fn a_child_working_in_a_folder_is_reported_as_its_owner() {
+        // One short-lived program waits inside a fresh temporary folder; it
+        // is the child itself, so ending the child frees the folder.
+        let dir = std::env::temp_dir().join(format!("wtm-cwd-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("inner")).unwrap();
+        let mut child =
+            std::process::Command::new(crate::shell::system_directory().unwrap().join("PING.EXE"))
+                .args(["-n", "30", "127.0.0.1"])
+                .current_dir(dir.join("inner"))
+                .stdout(std::process::Stdio::null())
+                .spawn()
+                .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let report = scan(&dir);
+        let _ = child.kill();
+        let _ = child.wait();
+        std::fs::remove_dir_all(&dir).expect("the ended child no longer holds the folder");
+        let report = report.unwrap();
+        assert!(
+            report
+                .lockers
+                .iter()
+                .any(|l| l.pid == child.id() && l.reason == Hold::WorkingDirectory),
+            "{report:?}"
+        );
+    }
+
     #[test]
     fn invalid_and_remote_paths_are_rejected_before_native_queries() {
         for path in ["relative.txt", r"\\server\share\file", "C:\\bad\0path"] {

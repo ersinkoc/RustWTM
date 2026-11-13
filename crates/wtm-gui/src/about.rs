@@ -37,10 +37,12 @@ const HIGHLIGHTS: [(&str, &str); 6] = [
 ];
 
 /// Returns whether the user asked to check for updates.
+/// `diagnostics` makes the text "Copy diagnostic information" copies.
 pub fn about(
     ui: &mut Ui,
     update: &crate::backend::UpdateState,
     frames: Option<crate::frames::Summary>,
+    diagnostics: &dyn Fn() -> String,
 ) -> bool {
     use crate::backend::UpdateState;
     let mut check = false;
@@ -175,6 +177,8 @@ pub fn about(
             });
         });
         ui.add_space(0.0);
+        crate::release_notes::show(ui);
+        ui.add_space(0.0);
         crate::theme::divider(ui);
 
         let feature = |ui: &mut Ui, title: &str, text: &str| {
@@ -207,6 +211,16 @@ pub fn about(
                 crate::i18n::tr("Report a problem or request a feature"),
                 format!("{REPO}/issues"),
             );
+            ui.label("·");
+            if ui
+                .link(crate::i18n::tr("Copy diagnostic information"))
+                .on_hover_text(crate::i18n::tr(
+                    "Version, Windows build, rights and display settings for a problem report. No process names, command lines, account names, paths or addresses.",
+                ))
+                .clicked()
+            {
+                ui.ctx().copy_text(diagnostics());
+            }
             ui.label("·");
             ui.hyperlink_to(
                 crate::i18n::tr("Configuration reference"),
@@ -249,7 +263,9 @@ mod tests {
             .allow_missing_glyphs()
             .with_size([1100.0, 900.0])
             .build_ui(|ui| {
-                about(ui, &crate::backend::UpdateState::UpToDate, None);
+                about(ui, &crate::backend::UpdateState::UpToDate, None, &|| {
+                    "diagnostics".into()
+                });
             });
         h.run();
         assert!(h.query_by_label("An oxog.net project.").is_some());
@@ -262,11 +278,24 @@ mod tests {
         assert!(h.query_by_label("oxog.net").is_some());
         assert!(h.query_by_label_contains("Ersin").is_none());
         assert!(
-            h.query_by_label_contains(env!("CARGO_PKG_VERSION"))
+            h.query_all_by_label_contains(env!("CARGO_PKG_VERSION"))
+                .next()
+                .is_some()
+        );
+        // The running version's release notes are built in.
+        assert!(
+            h.query_by_label(&format!("What's new in {}", env!("CARGO_PKG_VERSION")))
                 .is_some()
         );
         assert!(h.query_by_label_contains("Budgets per app").is_some());
         assert!(h.query_by_label("You have the latest version.").is_some());
+        h.get_by_label("Copy diagnostic information").scroll_to_me();
+        h.run();
+        h.get_by_label("Copy diagnostic information").click();
+        h.step();
+        assert!(h.output().platform_output.commands.iter().any(|command| {
+            matches!(command, egui::OutputCommand::CopyText(text) if text == "diagnostics")
+        }));
     }
 
     #[test]
@@ -283,7 +312,7 @@ mod tests {
                 .allow_missing_glyphs()
                 .with_size([1100.0, 900.0])
                 .build_ui(|ui| {
-                    about(ui, &state, None);
+                    about(ui, &state, None, &String::new);
                 });
             h.run();
             assert!(h.query_by_label(text).is_some(), "{text}");
@@ -291,7 +320,7 @@ mod tests {
         let mut h = egui_kittest::Harness::builder()
             .allow_missing_glyphs()
             .build_ui(|ui| {
-                about(ui, &UpdateState::Unknown, None);
+                about(ui, &UpdateState::Unknown, None, &String::new);
             });
         h.run();
         assert!(h.query_by_label("Check for updates").is_some());

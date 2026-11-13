@@ -166,10 +166,10 @@ pub fn width(ui: &Ui, label: &str, width: f32) -> f32 {
 }
 
 /// Case-insensitive text order.
+/// Text columns sort the way people read lists: "app2" before "app10", and
+/// case and accents do not split names apart.
 pub fn text(a: &str, b: &str) -> Ordering {
-    a.chars()
-        .flat_map(char::to_lowercase)
-        .cmp(b.chars().flat_map(char::to_lowercase))
+    wtm_sys::collate::natural(a, b)
 }
 
 pub fn num(a: f64, b: f64) -> Ordering {

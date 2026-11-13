@@ -410,7 +410,8 @@ mod tests {
                 grid: false,
                 fill: false,
                 events: false,
-                link_hover: false
+                link_hover: false,
+                kernel_time: true,
             }
         );
         h.get_by_label("Reset chart preferences").click();

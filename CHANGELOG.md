@@ -6,6 +6,85 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-11-13
+
+### Added
+
+- About shows what changed in the running version, read from the changelog
+  built into the program. Groups expand and collapse one by one or all at once.
+  Entries are in English.
+- Devices and health: hide devices from the list or move them up and down from
+  a device's context menu. *Shown devices* brings hidden ones back. Disks can
+  follow their Windows disk number or a custom order. The choice is remembered.
+  Devices are moved with menu actions, not by dragging. A GPU is remembered by
+  its adapter LUID, which can change after a restart.
+- CPU performance: each logical processor's graph also shows kernel time as a
+  darker line. *Show kernel time* turns it off. This window measures it itself,
+  so the service and its protocol are unchanged.
+- GPU devices show the driver version, the driver date and the highest
+  Direct3D 12 feature level. These are read from the registry, so no Direct3D
+  device is created and no graphics driver is loaded into RustWTM.
+- SATA/ATA disks show SMART readings: reallocated, pending and offline
+  uncorrectable sectors, remaining life, power-on hours, start/stop and power
+  cycle counts, and total host reads and writes in vendor units. The temperature
+  also comes from SMART when Windows does not report one. Windows grants these
+  readings to administrators only. They are read at most every ten minutes and
+  never on PCs with a RAID controller. USB and NVMe disks are not queried.
+  Not yet validated on real SATA hardware.
+- *Yield memory when hidden* (Settings, off by default): after the window stays
+  minimized or in the tray for the chosen minutes, RustWTM lowers its own memory
+  priority, so Windows reclaims its memory before other programs' memory.
+  Nothing is freed at that moment, and the priority returns to normal when the
+  window is shown.
+- Hold Ctrl to freeze the process list and the performance charts for a quick
+  look; letting go follows live data again. Pressing *Pause updates* while Ctrl
+  is held keeps the list Ctrl froze.
+- Process list keys: Enter shows the details (a hidden inspector comes back),
+  Alt+E or Delete asks to end the selected process, Shift+Delete ends it without
+  asking, and Page Up/Down, Home and End move the selection. Typing a letter or
+  digit on the list starts a search with it; `/` moves to the search.
+- Lists sort names the way people read them: "app2" before "app10", and
+  capitals and accents no longer split names apart.
+- Service host processes name the services they run after their name
+  ("Services: DCOM Server, Remote Procedure Call and 3 more"), the details list
+  them all, and searching for a service name finds its host.
+- New process columns: Parent PID, Image path, Start time and Integrity (Low,
+  Medium, High, System…). The details panel shows the integrity level too.
+- Network connections: All, Listening, Established and UDP filters (remembered).
+  A number in the search is an exact port or PID, so 80 no longer lists 8080.
+  Rows without an owner read *No owning process*, rows whose program ended read
+  *Exited*, and double-clicking a row shows its program in Processes.
+- Memory performance: a bar of in-use, modified, standby and free memory, plus
+  paged and non-paged pool, cached and hardware-reserved memory. This window
+  reads them itself without administrator rights; parts Windows does not report
+  are left out, not estimated.
+- *Restart Windows Explorer* on an explorer.exe row, after a confirmation. The
+  new Explorer is created under the old one, so it keeps the same account and
+  rights even when RustWTM runs as administrator; a stuck Explorer is ended
+  after six seconds, and a desktop Windows brings back by itself is kept.
+- Run new task without *as administrator* now starts the program with the
+  user's standard rights even when RustWTM runs elevated, through the desktop's
+  Explorer, as the Run dialog does. Without a desktop it starts as before.
+- *Open Windows Task Manager once* in the Task Manager replacement settings
+  starts the real Task Manager past the redirect; Ctrl+Shift+Esc still opens
+  RustWTM. Without administrator rights it asks through UAC first.
+- Pins and notes on Services, Startup apps and Network connections: right-click
+  a row to keep it at the top or write a note beside it. Searches include notes.
+  Connections are remembered by program and port, not by PID.
+- About → *Copy diagnostic information* copies the version, Windows build,
+  rights, engine, language and display settings for a problem report. Process
+  names, command lines, account and computer names, paths and addresses are
+  never included.
+- Folder owners also lists programs working inside the folder (a console
+  sitting in it, for example), which keep it from being removed or renamed.
+  32-bit programs and processes this window may not read are not checked.
+
+### Fixed
+
+- A slow disk performance-counter query no longer removes every disk from
+  Devices and health. The disks are still listed, and the timeout appears as a
+  warning.
+
 ## [0.30.1] - 2026-11-12
 
 ### Added
@@ -1341,7 +1420,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.2...HEAD
+[0.30.2]: https://github.com/rustwtm/rustwtm/compare/v0.30.1...v0.30.2
 [0.30.1]: https://github.com/rustwtm/rustwtm/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/rustwtm/rustwtm/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/rustwtm/rustwtm/compare/v0.28.0...v0.29.0

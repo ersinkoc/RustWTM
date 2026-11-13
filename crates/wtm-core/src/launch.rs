@@ -27,9 +27,23 @@ pub fn split_command(line: &str) -> Option<(String, String)> {
 }
 
 /// Starts `line` like the Run dialog, optionally elevated (UAC prompt).
+/// Without "as administrator", a RustWTM that runs elevated still starts it
+/// with the user's standard rights, through the desktop's Explorer; only
+/// when no Explorer shows the desktop does it start with RustWTM's rights.
 pub fn run(line: &str, elevated: bool) -> Result<(), String> {
     let (file, args) = split_command(line).ok_or("nothing to run")?;
+    if through_desktop(elevated, is_elevated())
+        && wtm_sys::shell::launch_as_desktop_user(&file, &args).is_ok()
+    {
+        return Ok(());
+    }
     wtm_sys::shell::launch(&file, &args, elevated).map_err(|e| describe(&file, e.is_cancelled(), e))
+}
+
+/// A standard-rights request from an elevated RustWTM goes through the
+/// desktop's Explorer; everything else is started directly.
+fn through_desktop(as_administrator: bool, running_elevated: bool) -> bool {
+    !as_administrator && running_elevated
 }
 
 /// Starts this program again with administrator rights. The caller exits
@@ -84,6 +98,17 @@ fn describe(file: &str, cancelled: bool, e: impl std::fmt::Display) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_standard_requests_from_an_elevated_window_go_through_the_desktop() {
+        assert!(through_desktop(false, true));
+        assert!(
+            !through_desktop(true, true),
+            "administrator requests keep UAC"
+        );
+        assert!(!through_desktop(false, false), "already standard rights");
+        assert!(!through_desktop(true, false));
+    }
 
     fn split(line: &str) -> Option<(&str, &str)> {
         // Leaks are fine in a test and keep the assertions short.
