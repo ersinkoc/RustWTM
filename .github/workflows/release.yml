@@ -59,6 +59,8 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
       - name: Test
+        # A normal run takes minutes; a stuck test must not hold the job for hours.
+        timeout-minutes: 30
         run: cargo test --locked --workspace
 
       - name: Transfer-safe release discovery controls
