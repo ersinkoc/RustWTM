@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.30.4] - 2026-11-13
+
+0.30.3 was tagged but never published: its build stopped at a test that
+depended on the build server's desktop. 0.30.4 contains everything listed
+under 0.30.3 and 0.30.2.
+
+### Changed
+
+- The release and CI test steps stop after 30 minutes instead of holding a
+  build for hours when a test hangs.
+- The Run new task tests no longer ask the real desktop shell; every outcome
+  of the Explorer request is exercised directly.
+
 ## [0.30.3] - 2026-11-13
 
 0.30.2 was tagged but never published: its build stopped in the test step.
@@ -1433,7 +1446,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.3...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.30.4...HEAD
+[0.30.4]: https://github.com/rustwtm/rustwtm/compare/v0.30.3...v0.30.4
 [0.30.3]: https://github.com/rustwtm/rustwtm/compare/v0.30.2...v0.30.3
 [0.30.2]: https://github.com/rustwtm/rustwtm/compare/v0.30.1...v0.30.2
 [0.30.1]: https://github.com/rustwtm/rustwtm/compare/v0.30.0...v0.30.1

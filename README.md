@@ -43,10 +43,10 @@ usage history.
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
-## New in 0.30.3
+## New in 0.30.4
 
-[Release scope and validation](docs/0.30.2-review.md) · 0.30.2 was not
-published; 0.30.3 ships its changes with a Run new task fix.
+[Release scope and validation](docs/0.30.2-review.md) · 0.30.2 and 0.30.3
+were not published; 0.30.4 ships their changes with a Run new task fix.
 
 - **Quicker process work:** hold Ctrl to freeze the list and charts for a look;
   Enter, Alt+E, Delete / Shift+Delete, Page Up/Down, Home/End and
@@ -406,8 +406,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.30.3-x64.msi            # interactive
-msiexec /i RustWTM-0.30.3-x64.msi /qn        # silent
+msiexec /i RustWTM-0.30.4-x64.msi            # interactive
+msiexec /i RustWTM-0.30.4-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc
