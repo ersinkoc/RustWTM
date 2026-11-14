@@ -45,7 +45,7 @@ pub struct RawProcess {
 
 /// Takes process snapshots, reusing its buffer between calls.
 /// One thread as the system snapshot reports it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ThreadInfo {
     pub tid: u32,
     /// `KTHREAD_STATE`; 5 is Waiting.
@@ -53,6 +53,17 @@ pub struct ThreadInfo {
     /// `KWAIT_REASON` while waiting.
     pub wait_reason: u32,
     pub context_switches: u32,
+    /// FILETIME of the thread's creation; with `tid` it identifies the
+    /// thread across ID reuse.
+    pub create_time: i64,
+    /// Processor time in 100 ns units.
+    pub kernel_time: u64,
+    pub user_time: u64,
+    pub priority: i32,
+    pub base_priority: i32,
+    /// Where the kernel started the thread; for user threads this is the
+    /// same loader thunk in every thread.
+    pub start_address: u64,
 }
 
 impl ThreadInfo {
@@ -117,7 +128,9 @@ impl ProcessSnapshotter {
                 // cannot be. Stops at the first running thread.
                 raw.suspended = raw.pid > 4
                     && info.number_of_threads > 0
-                    && self.threads_of(len, offset, info).all(|t| t.suspended());
+                    && self
+                        .thread_entries(len, offset, info)
+                        .all(|t| t.suspended());
                 out.push(raw);
             }
         }
@@ -167,12 +180,26 @@ impl ProcessSnapshotter {
         else {
             return Ok(Vec::new());
         };
-        Ok(self.threads_of(len, offset, info).collect())
+        Ok(self.thread_entries(len, offset, info).collect())
+    }
+
+    /// The threads of `pid` if it is still the process created at
+    /// `create_time` (0 skips that check); empty when it is gone or its ID
+    /// now belongs to another process.
+    pub fn threads_of(&mut self, pid: u32, create_time: i64) -> Result<Vec<ThreadInfo>> {
+        let len = self.query()?;
+        let Some((offset, info)) = self.entries_at(len).find(|(_, info)| {
+            info.unique_process_id as usize as u32 == pid
+                && (create_time == 0 || info.create_time == create_time)
+        }) else {
+            return Ok(Vec::new());
+        };
+        Ok(self.thread_entries(len, offset, info).collect())
     }
 
     /// The thread entries that follow the process entry at `offset`, within
     /// the first `len` valid bytes.
-    fn threads_of(
+    fn thread_entries(
         &self,
         len: usize,
         offset: usize,
@@ -196,6 +223,12 @@ impl ProcessSnapshotter {
                 state: t.thread_state,
                 wait_reason: t.wait_reason,
                 context_switches: t.context_switches,
+                create_time: t.create_time,
+                kernel_time: t.kernel_time.max(0) as u64,
+                user_time: t.user_time.max(0) as u64,
+                priority: t.priority,
+                base_priority: t.base_priority,
+                start_address: t.start_address as usize as u64,
             }
         })
     }

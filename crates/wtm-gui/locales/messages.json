@@ -10462,5 +10462,131 @@
     "de": "Hintergrund",
     "fr": "Arrière-plan",
     "es": "Segundo plano"
+  },
+  "Each thread's CPU, start address, priority and state, updated every second": {
+    "tr": "Her iş parçacığının CPU kullanımı, başlangıç adresi, önceliği ve durumu; her saniye güncellenir",
+    "de": "CPU, Startadresse, Priorität und Zustand jedes Threads, jede Sekunde aktualisiert",
+    "fr": "Processeur, adresse de départ, priorité et état de chaque thread, mis à jour chaque seconde",
+    "es": "CPU, dirección de inicio, prioridad y estado de cada subproceso, actualizados cada segundo"
+  },
+  "Threads ({0})": {
+    "tr": "İş parçacıkları ({0})",
+    "de": "Threads ({0})",
+    "fr": "Threads ({0})",
+    "es": "Subprocesos ({0})"
+  },
+  "Hide threads": {
+    "tr": "İş parçacıklarını gizle",
+    "de": "Threads ausblenden",
+    "fr": "Masquer les threads",
+    "es": "Ocultar subprocesos"
+  },
+  "Reading threads…": {
+    "tr": "İş parçacıkları okunuyor…",
+    "de": "Threads werden gelesen…",
+    "fr": "Lecture des threads…",
+    "es": "Leyendo subprocesos…"
+  },
+  "The process has ended.": {
+    "tr": "İşlem sona erdi.",
+    "de": "Der Prozess wurde beendet.",
+    "fr": "Le processus s'est terminé.",
+    "es": "El proceso ha finalizado."
+  },
+  "Start address": {
+    "tr": "Başlangıç adresi",
+    "de": "Startadresse",
+    "fr": "Adresse de départ",
+    "es": "Dirección de inicio"
+  },
+  "Initialized": {
+    "tr": "Başlatıldı",
+    "de": "Initialisiert",
+    "fr": "Initialisé",
+    "es": "Inicializado"
+  },
+  "Ready": {
+    "tr": "Hazır",
+    "de": "Bereit",
+    "fr": "Prêt",
+    "es": "Listo"
+  },
+  "Terminated": {
+    "tr": "Sonlandı",
+    "de": "Beendet",
+    "fr": "Terminé",
+    "es": "Terminado"
+  },
+  "Waiting": {
+    "tr": "Bekliyor",
+    "de": "Wartend",
+    "fr": "En attente",
+    "es": "En espera"
+  },
+  "Transition": {
+    "tr": "Geçişte",
+    "de": "Übergang",
+    "fr": "Transition",
+    "es": "Transición"
+  },
+  "Deferred ready": {
+    "tr": "Ertelenmiş hazır",
+    "de": "Verzögert bereit",
+    "fr": "Prêt différé",
+    "es": "Listo diferido"
+  },
+  "Gate wait": {
+    "tr": "Kapı beklemesi",
+    "de": "Gate-Wartezustand",
+    "fr": "Attente de porte",
+    "es": "Espera de puerta"
+  },
+  "Waiting for swap-in": {
+    "tr": "Belleğe alınmayı bekliyor",
+    "de": "Wartet auf Einlagerung",
+    "fr": "En attente de chargement",
+    "es": "Esperando carga en memoria"
+  },
+  "Current priority (base priority)": {
+    "tr": "Geçerli öncelik (temel öncelik)",
+    "de": "Aktuelle Priorität (Basispriorität)",
+    "fr": "Priorité actuelle (priorité de base)",
+    "es": "Prioridad actual (prioridad base)"
+  },
+  "Showing the {0} busiest of {1} threads.": {
+    "tr": "En yoğun {0} iş parçacığı gösteriliyor (toplam {1}).",
+    "de": "Die {0} aktivsten von {1} Threads werden angezeigt.",
+    "fr": "Affichage des {0} threads les plus actifs sur {1}.",
+    "es": "Se muestran los {0} subprocesos más activos de {1}."
+  },
+  "Switches": {
+    "tr": "Geçişler",
+    "de": "Wechsel",
+    "fr": "Changements",
+    "es": "Cambios"
+  },
+  "Context switches since the last read": {
+    "tr": "Son okumadan beri bağlam geçişleri",
+    "de": "Kontextwechsel seit dem letzten Lesen",
+    "fr": "Changements de contexte depuis la dernière lecture",
+    "es": "Cambios de contexto desde la última lectura"
+  },
+  "Processor time: {0}": {
+    "tr": "İşlemci süresi: {0}",
+    "de": "Prozessorzeit: {0}",
+    "fr": "Temps processeur : {0}",
+    "es": "Tiempo de procesador: {0}"
+  },
+  "Wait reason: {0}": {
+    "tr": "Bekleme nedeni: {0}",
+    "de": "Wartegrund: {0}",
+    "fr": "Raison de l'attente : {0}",
+    "es": "Motivo de espera: {0}"
+  },
+  "Total: {0}": {
+    "tr": "Toplam: {0}",
+    "de": "Gesamt: {0}",
+    "fr": "Total : {0}",
+    "es": "Total: {0}"
   }
 }

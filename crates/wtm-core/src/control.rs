@@ -691,7 +691,7 @@ mod tests {
             tid: 1,
             state,
             wait_reason,
-            context_switches: 0,
+            ..Default::default()
         };
         assert!(!all_suspended(&[]));
         assert!(all_suspended(&[thread(5, 5), thread(5, 12)]));

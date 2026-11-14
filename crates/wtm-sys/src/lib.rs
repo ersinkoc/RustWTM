@@ -48,6 +48,7 @@ pub mod shell;
 pub mod smbios;
 pub mod spawn;
 pub mod system;
+pub mod threads;
 pub mod volumes;
 pub mod waits;
 pub mod window;

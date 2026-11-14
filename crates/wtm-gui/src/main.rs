@@ -50,6 +50,7 @@ mod settings;
 mod sort;
 mod telegram_settings;
 mod theme;
+mod threads_view;
 mod tray;
 #[cfg(test)]
 mod ui_tests;

@@ -287,6 +287,10 @@ pub struct Data {
     /// The loaded modules of a process with their signatures; `None`
     /// inside while they are read.
     pub modules: Option<(ProcessRef, Option<Result<ModuleList, String>>)>,
+    /// The threads of a process, read each tick while the panel is drawn
+    /// (`threads_wanted_ms`, Unix ms).
+    pub threads: Option<crate::threads_view::ThreadsPanel>,
+    pub threads_wanted_ms: AtomicU64,
     /// Programs blocked from the network with Windows Firewall.
     pub firewall: Option<Result<Vec<String>, String>>,
     /// Disk bytes per process and file over a few seconds.
@@ -399,6 +403,8 @@ pub enum UiCommand {
     WhyAlive(ProcessRef),
     /// The modules a process has loaded, with their signatures.
     Modules(ProcessRef),
+    /// Shows (or with `None` hides) the threads of a process.
+    Threads(Option<ProcessRef>),
     /// Blocks (`true`) or unblocks a program's network access.
     Firewall {
         path: String,
@@ -587,6 +593,7 @@ impl Backend {
         let mut worker = Worker {
             local_hardware: None,
             startup_impact_at: None,
+            threads: Default::default(),
             data: data.clone(),
             ctx,
             notifications: notifications.clone(),
@@ -660,6 +667,8 @@ struct Worker {
     local_hardware: Option<wtm_core::hardware::LocalHardware>,
     /// When startup impact was last read.
     startup_impact_at: Option<Instant>,
+    /// Reads the threads panel's process while it is shown.
+    threads: crate::threads_view::ThreadReader,
     data: Arc<Mutex<Data>>,
     ctx: egui::Context,
     notifications: Arc<AtomicBool>,
@@ -880,6 +889,7 @@ impl Worker {
                     drop(data);
                     refresh_icons(&self.data);
                     refresh_gui_objects(&self.data);
+                    self.threads.refresh(&self.data);
                     self.sampler_paused = true;
                     return;
                 }
@@ -908,6 +918,7 @@ impl Worker {
         drop(data);
         refresh_icons(&self.data);
         refresh_gui_objects(&self.data);
+        self.threads.refresh(&self.data);
     }
 
     /// Refreshes the device facts for the devices of the latest sample.
@@ -1666,6 +1677,15 @@ impl Worker {
                     ),
                 });
                 self.load(Panel::Network);
+            }
+            UiCommand::Threads(target) => {
+                {
+                    let mut d = self.data();
+                    d.threads = target.map(crate::threads_view::ThreadsPanel::new);
+                    d.threads_wanted_ms
+                        .store(wtm_core::hardware::unix_ms(), Ordering::Relaxed);
+                }
+                self.threads.refresh(&self.data);
             }
             UiCommand::Modules(target) => {
                 self.data().modules = Some((target.clone(), None));
@@ -2773,6 +2793,7 @@ mod tests {
         Worker {
             local_hardware: None,
             startup_impact_at: None,
+            threads: Default::default(),
             data: Arc::new(Mutex::new(Data::default())),
             ctx: egui::Context::default(),
             notifications: Arc::new(AtomicBool::new(false)),

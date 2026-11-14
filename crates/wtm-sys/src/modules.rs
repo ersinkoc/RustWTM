@@ -40,6 +40,8 @@ pub struct Module {
     pub path: String,
     /// Bytes mapped into the process.
     pub size: u64,
+    /// Where it is mapped.
+    pub base: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -87,6 +89,7 @@ pub fn process_modules(pid: u32, create_time: i64) -> crate::Result<Vec<Module>>
             name: from_wide(&entry.szModule),
             path: from_wide(&entry.szExePath),
             size: u64::from(entry.modBaseSize),
+            base: entry.modBaseAddr as usize as u64,
         });
         // SAFETY: as above; `entry` keeps its size across calls.
         more = unsafe { Module32NextW(snapshot.raw(), &mut entry) }.is_ok();

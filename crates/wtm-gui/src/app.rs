@@ -2102,6 +2102,7 @@ impl eframe::App for App {
                 Intent::WaitChain(target) => backend.send(UiCommand::WaitChain(target)),
                 Intent::WhyAlive(target) => backend.send(UiCommand::WhyAlive(target)),
                 Intent::Modules(target) => backend.send(UiCommand::Modules(target)),
+                Intent::Threads(target) => backend.send(UiCommand::Threads(target)),
                 Intent::AskAi(target) => state.ai.open_process(target),
                 Intent::Network(target, block) => {
                     let path = backend
@@ -2771,6 +2772,16 @@ fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Int
         {
             intents.push(Intent::Modules(sel.clone()));
         }
+        let threads_open = data.threads.as_ref().is_some_and(|p| p.target == *sel);
+        if ui
+            .add_enabled(!threads_open, egui::Button::new(crate::i18n::tr("Threads")))
+            .on_hover_text(crate::i18n::tr(
+                "Each thread's CPU, start address, priority and state, updated every second",
+            ))
+            .clicked()
+        {
+            intents.push(Intent::Threads(Some(sel.clone())));
+        }
         if ui
             .button(crate::i18n::tr("Ask AI about it"))
             .on_hover_text(crate::i18n::tr(
@@ -2825,6 +2836,7 @@ fn diagnostics(ui: &mut Ui, data: &Data, sel: &ProcessRef, intents: &mut Vec<Int
         Some(Some(Ok(r))) => wait_report(ui, r),
         None => {}
     }
+    crate::threads_view::show(ui, data, sel, intents);
 }
 
 /// Unsigned and invalid modules first: they are the ones worth a look.
@@ -7319,6 +7331,7 @@ mod tests {
             UiCommand::WaitChain(t) => format!("wait chain {}", t.pid),
             UiCommand::WhyAlive(t) => format!("why alive {}", t.pid),
             UiCommand::Modules(t) => format!("modules {}", t.pid),
+            UiCommand::Threads(t) => format!("threads {:?}", t.as_ref().map(|t| t.pid)),
             UiCommand::CloseConnection { local, remote } => format!("close {local} {remote}"),
             UiCommand::Firewall { path, block } => format!("firewall {path} {block}"),
             UiCommand::Load(panel) => format!("load {panel:?}"),
@@ -7979,12 +7992,106 @@ mod tests {
     }
 
     #[test]
+    fn threads_panel_lists_busiest_threads_first_and_can_be_hidden() {
+        use crate::threads_view::{ThreadRow, ThreadsPanel};
+        use egui_kittest::kittest::NodeT;
+        let row = |tid: u32, cpu: f32, state: u32, wait: u32, start: Option<&str>| ThreadRow {
+            tid,
+            create_time: 1,
+            cpu_percent: cpu,
+            cpu_time: 12_345_000_000,
+            context_switches: 1_500,
+            switch_delta: 7,
+            priority: 10,
+            base_priority: 8,
+            state,
+            wait_reason: wait,
+            start: start.map(str::to_owned),
+        };
+        let mut d = data();
+        let alpha = ProcessRef::from(&crate::ui_tests::proc(100, 0, "alpha.exe", 20.0));
+        let mut panel = ThreadsPanel::new(alpha.clone());
+        panel.read = true;
+        panel.rows = vec![
+            row(11, 0.0, 5, 15, Some("ntdll.dll+0x2a3c0")),
+            row(12, 12.5, 2, 0, Some("alpha.exe+0x1f00")),
+            row(13, 0.0, 5, 6, None),
+        ];
+        d.threads = Some(panel);
+        let (backend, rx) = Backend::offline(d);
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([1400.0, 900.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Processes,
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.state_mut().state.processes.selected = Some(alpha);
+        h.run_steps(2);
+        assert!(h.query_by_label("Threads (3)").is_some());
+        for text in [
+            "alpha.exe+0x1f00",
+            "ntdll.dll+0x2a3c0",
+            "12.50%",
+            "Running",
+            "Waiting",
+            "10 (8)",
+            "+7",
+        ] {
+            assert!(
+                h.query_all_by_label_contains(text).next().is_some(),
+                "{text}"
+            );
+        }
+        // A waiting thread says what for on hover.
+        h.get_all_by_label("Waiting").next().unwrap().hover();
+        h.run();
+        assert!(h.query_by_label_contains("Wait reason: Wr").is_some());
+        // The busiest thread is listed first.
+        let y = |l: &str| h.get_by_label(l).rect().min.y;
+        assert!(y("12") < y("11"));
+        // The panel is drawn for this process, so its button is off.
+        // (The table's Threads column header is a button too.)
+        assert!(
+            h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Threads")
+                .any(|n| n.accesskit_node().is_disabled())
+        );
+        h.get_by_label("Hide threads").click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .map(describe_command)
+                .any(|c| c == "threads None")
+        );
+        // Without the panel, the button asks for this process's threads.
+        h.state().backend.data().threads = None;
+        h.run_steps(2);
+        h.get_all_by_role_and_label(egui::accesskit::Role::Button, "Threads")
+            .find(|n| !n.rect().is_negative() && n.rect().min.x > 900.0)
+            .unwrap()
+            .click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .map(describe_command)
+                .any(|c| c == "threads Some(100)")
+        );
+    }
+
+    #[test]
     fn modules_list_puts_unsigned_and_invalid_first() {
         use wtm_core::{Module, Signature};
         let m = |name: &str| Module {
             name: name.into(),
             path: format!("C:/x/{name}"),
             size: 4096,
+            base: 0,
         };
         let mut d = data();
         let alpha = ProcessRef::from(&crate::ui_tests::proc(100, 0, "alpha.exe", 20.0));

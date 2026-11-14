@@ -630,6 +630,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::WaitChain(t) => format!("wait chain {}", t.pid),
         Intent::WhyAlive(t) => format!("why alive {}", t.pid),
         Intent::Modules(t) => format!("modules {}", t.pid),
+        Intent::Threads(t) => format!("threads {:?}", t.as_ref().map(|t| t.pid)),
         Intent::Network(t, block) => format!("network {} {block}", t.pid),
         Intent::AskAi(t) => format!("ask ai {}", t.pid),
         Intent::ManageAccounts => "manage accounts".into(),

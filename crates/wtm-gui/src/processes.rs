@@ -556,6 +556,8 @@ pub enum Intent {
     WhyAlive(ProcessRef),
     /// List the modules the process has loaded, with their signatures.
     Modules(ProcessRef),
+    /// Show (or with `None` hide) the process's threads.
+    Threads(Option<ProcessRef>),
     /// Block (`true`) or unblock the program's network access with Windows Firewall.
     Network(ProcessRef, bool),
     /// Ask the AI assistant what the process is and what to do about it.
@@ -1308,7 +1310,7 @@ fn status(p: &ProcessInfo, extra: &Extra<'_>) -> Status {
 }
 
 /// Processor time as Task Manager writes it: `1:02:03` (hours unbounded).
-fn cpu_time_text(d: std::time::Duration) -> String {
+pub(crate) fn cpu_time_text(d: std::time::Duration) -> String {
     let s = d.as_secs();
     format!("{}:{:02}:{:02}", s / 3600, s % 3600 / 60, s % 60)
 }

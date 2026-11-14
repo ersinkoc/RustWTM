@@ -137,6 +137,14 @@ must be updated together.
   it. The CPU, Memory, I/O and Diagnostics profiles include the new columns
   that fit them, and the column menu gains Program and Security groups so
   that no group outgrows a small window.
+- "Threads" in a process's details lists its threads, as Process Explorer's
+  and System Informer's Threads tab: each thread's CPU since the last read
+  (counted like the process CPU column), start address as module+offset,
+  state (with the wait reason on hover), current and base priority, and
+  context switches. It is read again each second only while it is shown,
+  busiest first, at most 50 rows. A thread's start address is read once,
+  when it first appears, and needs rights to query the thread; otherwise it
+  shows "—". The view is read-only.
 
 ### Changed
 
