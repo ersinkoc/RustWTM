@@ -74,6 +74,8 @@ mod tests {
             net_tx_rate: 0.0,
             suspended: false,
             create_time,
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         }
     }
 

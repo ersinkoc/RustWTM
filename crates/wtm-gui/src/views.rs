@@ -63,6 +63,8 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
     });
     let mut request = None;
     let row_height = ui.spacing().interact_size.y;
+    // Rows answer right-clicks anywhere, text included.
+    ui.style_mut().interaction.selectable_labels = false;
     crate::theme::table_panel(ui, "users", 1100.0, |ui| {
         crate::theme::table(ui)
             .id_salt("user_sessions")
@@ -180,6 +182,11 @@ pub fn users(ui: &mut Ui, data: &Data) -> Option<(u32, String, crate::backend::S
                             }
                             if action(ui, crate::i18n::tr("Sign off")) {
                                 request = Some((session.id, account(session), SessionOp::SignOff));
+                            }
+                            if session.state == wtm_core::SessionState::Active
+                                && action(ui, crate::i18n::tr("Send message…"))
+                            {
+                                request = Some((session.id, account(session), SessionOp::Message));
                             }
                         },
                     );
@@ -638,13 +645,23 @@ pub fn services(
             ui,
             egui::Id::unique(("search", "services")),
             filter,
-            crate::i18n::tr("name or description"),
+            crate::i18n::tr("name, description or PID"),
             240.0,
         );
         for (value, label) in [(0, "All services"), (1, "Running"), (2, "Stopped")] {
             crate::theme::choice(ui, &mut group, value, crate::i18n::tr(label));
         }
         ui.data_mut(|d| d.insert_temp(group_id, group));
+        if ui
+            .button(crate::i18n::tr("Open Services"))
+            .on_hover_text(crate::i18n::tr("Opens the Windows Services console."))
+            .clicked()
+        {
+            *command = Some(UiCommand::Run {
+                line: "services.msc".into(),
+                elevated: false,
+            });
+        }
     });
     crate::theme::divider(ui);
     let list = match &data.services {
@@ -659,11 +676,15 @@ pub fn services(
         Some(Ok(l)) => l,
     };
     let f = filter.trim().to_lowercase();
+    // A number also finds the services that process hosts.
+    let pid = f.parse::<u32>().ok().filter(|p| *p != 0);
     let mut marks = crate::marks::Marks::load(ui, "services");
     let mut rows: Vec<_> = list
         .iter()
         .filter(|s| {
             f.is_empty()
+                || pid == Some(s.pid)
+                || s.group().is_some_and(|g| g.to_lowercase().contains(&f))
                 || s.name.to_lowercase().contains(&f)
                 || s.display_name.to_lowercase().contains(&f)
                 || marks.note_matches(&s.name, &f)
@@ -682,6 +703,7 @@ pub fn services(
             0 => text(&a.name, &b.name),
             1 => text(&a.display_name, &b.display_name),
             2 => a.pid.cmp(&b.pid),
+            5 => text(a.group().unwrap_or(""), b.group().unwrap_or("")),
             _ => text(
                 a.account.as_deref().unwrap_or(""),
                 b.account.as_deref().unwrap_or(""),
@@ -716,6 +738,7 @@ pub fn services(
         ("PID", 64.0),
         ("Status", 100.0),
         ("Startup", 90.0),
+        ("Group", 150.0),
     ]
     .iter()
     .map(|(label, width)| crate::sort::width(ui, label, *width))
@@ -733,6 +756,7 @@ pub fn services(
             .column(Column::initial(widths[2]))
             .column(Column::initial(widths[3]))
             .column(Column::initial(widths[4]))
+            .column(Column::initial(widths[5]).clip(true))
             .column(Column::remainder().clip(true))
             .header(row_height, |mut h| {
                 for (col, (label, numeric)) in [
@@ -741,6 +765,7 @@ pub fn services(
                     ("PID", true),
                     (crate::i18n::tr("Status"), false),
                     (crate::i18n::tr("Startup"), false),
+                    (crate::i18n::tr("Group"), false),
                     (crate::i18n::tr("Account"), false),
                 ]
                 .into_iter()
@@ -786,6 +811,11 @@ pub fn services(
                     row.col(|ui| {
                         crate::theme::table_cell(ui, |ui| {
                             ui.label(s.start_type.map(crate::i18n::debug).unwrap_or_default());
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            ui.label(s.group().unwrap_or(""));
                         })
                     });
                     row.col(|ui| {
@@ -929,9 +959,10 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
         4 => num(a.cpu_peak.into(), b.cpu_peak.into()),
         5 => num(a.gpu_avg.into(), b.gpu_avg.into()),
         6 => num(a.cpu_core_seconds, b.cpu_core_seconds),
-        7 => a.mem_avg.cmp(&b.mem_avg),
-        8 => a.mem_peak.cmp(&b.mem_peak),
-        9 => num(a.mem_growth_per_hour, b.mem_growth_per_hour),
+        7 => a.net.total().cmp(&b.net.total()),
+        8 => a.mem_avg.cmp(&b.mem_avg),
+        9 => a.mem_peak.cmp(&b.mem_peak),
+        10 => num(a.mem_growth_per_hour, b.mem_growth_per_hour),
         _ => text(&finding(a), &finding(b)),
     });
 
@@ -945,8 +976,8 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
     let selected = view.selected.clone();
     // Every numeric header fits at first.
     let widths: Vec<f32> = [
-        "Seen", "Avg CPU", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time", "Avg mem", "Peak mem",
-        "Growth/h",
+        "Seen", "Avg CPU", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time", "Network", "Avg mem",
+        "Peak mem", "Growth/h",
     ]
     .iter()
     .map(|label| crate::sort::width(ui, label, 80.0))
@@ -981,6 +1012,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                             crate::i18n::tr("Peak CPU"),
                             crate::i18n::tr("Avg GPU"),
                             crate::i18n::tr("CPU time"),
+                            crate::i18n::tr("Network"),
                             crate::i18n::tr("Avg mem"),
                             crate::i18n::tr("Peak mem"),
                             crate::i18n::tr("Growth/h"),
@@ -989,7 +1021,7 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                         .into_iter()
                         .enumerate()
                         {
-                            let numeric = !matches!(col, 0 | 10);
+                            let numeric = !matches!(col, 0 | 11);
                             h.col(|ui| {
                                 crate::theme::table_cell(ui, |ui| {
                                     header(ui, label, col, numeric, &mut sort);
@@ -1040,6 +1072,19 @@ pub fn app_history(ui: &mut Ui, data: &Data, view: &mut HistoryView) -> bool {
                                             &[format!("{:.2}", __wtm_i18n_0)],
                                         )
                                     })
+                                })
+                            });
+                            row.col(|ui| {
+                                crate::theme::table_cell(ui, |ui| {
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        ui.label(format_bytes(s.net.total() as f64)).on_hover_text(
+                                            format!(
+                                                "↓ {}  ↑ {}",
+                                                format_bytes(s.net.rx as f64),
+                                                format_bytes(s.net.tx as f64)
+                                            ),
+                                        );
+                                    });
                                 })
                             });
                             row.col(|ui| {
@@ -1211,6 +1256,28 @@ fn startup_key(e: &wtm_core::startup::StartupEntry) -> String {
     format!("{:?}|{:?}|{}", e.scope, e.source, e.name)
 }
 
+/// What Windows measured for a startup entry's program at the last sign-in:
+/// `None` while unknown (no reading yet, or not readable), `Some(None)` when
+/// nothing was measured for it, as Task Manager's "Not measured".
+fn startup_usage(
+    data: &Data,
+    e: &wtm_core::startup::StartupEntry,
+) -> Option<Option<wtm_core::startup_impact::BootUsage>> {
+    let measured = data.startup_impact.as_ref()?.as_ref().ok()?;
+    let path = wtm_core::startup::executable(&e.command, |v| std::env::var(v).ok())
+        .map(|p| p.to_lowercase());
+    Some(path.and_then(|p| measured.get(&p).copied()))
+}
+
+fn impact_label(impact: wtm_core::startup_impact::Impact) -> &'static str {
+    use wtm_core::startup_impact::Impact;
+    crate::i18n::tr(match impact {
+        Impact::High => "High impact",
+        Impact::Medium => "Medium impact",
+        Impact::Low => "Low impact",
+    })
+}
+
 fn startup_scope_label(scope: wtm_core::startup::StartupScope) -> &'static str {
     crate::i18n::tr(match scope {
         wtm_core::startup::StartupScope::CurrentUser => "Current user",
@@ -1261,18 +1328,36 @@ pub fn startup(
                     || marks.note_matches(&startup_key(entry), &query)
                     || entry.name.to_lowercase().contains(&query)
                     || entry.command.to_lowercase().contains(&query)
+                    || data
+                        .startup_publishers
+                        .get(&entry.command)
+                        .and_then(Option::as_deref)
+                        .is_some_and(|p| p.to_lowercase().contains(&query))
                     || startup_scope_label(entry.scope)
                         .to_lowercase()
                         .contains(&query)
                     || source_label(entry.source).to_lowercase().contains(&query))
         })
         .collect();
+    let publisher = |e: &wtm_core::startup::StartupEntry| -> &str {
+        data.startup_publishers
+            .get(&e.command)
+            .and_then(Option::as_deref)
+            .unwrap_or("")
+    };
     let mut sort = Sort::load(ui, "startup", Sort::new(0, false));
     sort.apply(&mut rows, |a, b, col| match col {
         0 => text(&a.name, &b.name),
         1 => a.enabled.cmp(&b.enabled),
         2 => text(startup_scope_label(a.scope), startup_scope_label(b.scope)),
         3 => text(source_label(a.source), source_label(b.source)),
+        4 => text(publisher(a), publisher(b)),
+        // Unknown, not measured, then low to high.
+        5 => {
+            let rank =
+                |e| startup_usage(data, e).map(|u| u.map(wtm_core::startup_impact::Impact::of));
+            rank(a).cmp(&rank(b))
+        }
         _ => text(&a.command, &b.command),
     });
     marks.pinned_first(&mut rows, |e| startup_key(e));
@@ -1339,6 +1424,8 @@ pub fn startup(
         ("Status", 140.0),
         ("Scope", 100.0),
         ("Source", 80.0),
+        ("Publisher", 160.0),
+        ("Startup impact", 120.0),
     ]
     .iter()
     .map(|(label, width)| crate::sort::width(ui, label, *width))
@@ -1355,6 +1442,8 @@ pub fn startup(
             .column(Column::initial(widths[1]))
             .column(Column::initial(widths[2]))
             .column(Column::initial(widths[3]))
+            .column(Column::initial(widths[4]).clip(true))
+            .column(Column::initial(widths[5]).clip(true))
             .column(Column::remainder().clip(true))
             .header(row_height, |mut h| {
                 for (col, label) in [
@@ -1362,6 +1451,8 @@ pub fn startup(
                     crate::i18n::tr("Status"),
                     crate::i18n::tr("Scope"),
                     crate::i18n::tr("Source"),
+                    crate::i18n::tr("Publisher"),
+                    crate::i18n::tr("Startup impact"),
                     crate::i18n::tr("Command"),
                 ]
                 .into_iter()
@@ -1417,6 +1508,43 @@ pub fn startup(
                     row.col(|ui| {
                         crate::theme::table_cell(ui, |ui| {
                             ui.label(source_label(e.source));
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| {
+                            let name = publisher(e);
+                            if name.is_empty() {
+                                ui.weak("—");
+                            } else {
+                                ui.label(name);
+                            }
+                        })
+                    });
+                    row.col(|ui| {
+                        crate::theme::table_cell(ui, |ui| match startup_usage(data, e) {
+                            Some(Some(u)) => {
+                                ui.label(impact_label(wtm_core::startup_impact::Impact::of(u)))
+                                    .on_hover_text(crate::i18n::format(
+                                        "CPU at startup: {0} · Disk I/O at startup: {1}",
+                                        &[
+                                            format!("{} ms", u.cpu_us / 1000),
+                                            format_bytes(u.disk_bytes as f64),
+                                        ],
+                                    ));
+                            }
+                            Some(None) => {
+                                ui.weak(crate::i18n::tr("Not measured"));
+                            }
+                            None => {
+                                let why = match &data.startup_impact {
+                                    Some(Err(e)) => e.clone(),
+                                    _ => String::new(),
+                                };
+                                let r = ui.weak("—");
+                                if !why.is_empty() {
+                                    r.on_hover_text(why);
+                                }
+                            }
                         })
                     });
                     row.col(|ui| {

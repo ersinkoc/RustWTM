@@ -33,6 +33,9 @@ impl From<crate::overview::Resource> for Page {
 #[derive(Default)]
 pub struct State {
     pub page: Page,
+    /// The device a Disk, Network or GPU page shows ([`disk_id`],
+    /// [`net_id`], [`gpu_id`]); `None` for the combined view.
+    pub device: Option<String>,
     pub class: Option<u8>,
     pub engine_search: String,
 }
@@ -46,20 +49,25 @@ const RAIL_SAMPLES: usize = 60;
 
 type Series = Vec<(VecDeque<f32>, egui::Color32)>;
 
-/// The newest `RAIL_SAMPLES` values of a history series.
+/// The newest `RAIL_SAMPLES` values of a history series; gaps read as 0.
 fn tail(values: &VecDeque<f32>) -> VecDeque<f32> {
     values
         .iter()
         .skip(values.len().saturating_sub(RAIL_SAMPLES))
-        .copied()
+        .map(|v| if v.is_finite() { *v } else { 0.0 })
         .collect()
 }
 
+fn device_tail(history: &crate::backend::History, key: &str) -> VecDeque<f32> {
+    history.devices.get(key).map(tail).unwrap_or_default()
+}
+
 fn rate(values: &VecDeque<f32>) -> String {
-    format!(
-        "{}/s",
-        wtm_core::format_bytes(f64::from(values.back().copied().unwrap_or(0.0).max(0.0)))
-    )
+    rate_text(f64::from(values.back().copied().unwrap_or(0.0)))
+}
+
+pub fn rate_text(v: f64) -> String {
+    format!("{}/s", wtm_core::format_bytes(v.max(0.0)))
 }
 
 fn percent(values: &VecDeque<f32>) -> String {
@@ -68,156 +76,330 @@ fn percent(values: &VecDeque<f32>) -> String {
         .map_or_else(|| "—".to_owned(), |v| format!("{v:.0}%"))
 }
 
+pub fn disk_id(number: u32) -> String {
+    format!("disk:{number}")
+}
+
+pub fn net_id(luid: u64) -> String {
+    format!("net:{luid:016x}")
+}
+
+pub fn gpu_id(luid: &str) -> String {
+    format!("gpu:{luid}")
+}
+
+/// "Disk 0 (C: D:)", as Task Manager names a disk.
+pub fn disk_label(d: &wtm_core::DiskUsage) -> String {
+    let number = d.number().map_or_else(|| d.name.clone(), |n| n.to_string());
+    let letters: Vec<&str> = d.letters().collect();
+    if letters.is_empty() {
+        crate::i18n::format("Disk {0}", &[number])
+    } else {
+        crate::i18n::format("Disk {0} ({1})", &[number, letters.join(" ")])
+    }
+}
+
+/// "SSD (NVMe)", "HDD", "Removable": the kind of disk, when known.
+pub fn disk_kind(disk: Option<&wtm_sys::physical_disk::PhysicalDisk>) -> Option<String> {
+    let disk = disk?;
+    let kind = if disk.removable {
+        crate::i18n::tr("Removable")
+    } else {
+        match disk.ssd {
+            Some(true) => "SSD",
+            Some(false) => "HDD",
+            None => return disk.bus_name().map(str::to_owned),
+        }
+    };
+    Some(match disk.bus_name() {
+        Some(bus @ ("NVMe" | "USB" | "SATA" | "SAS")) => format!("{kind} ({bus})"),
+        _ => kind.to_owned(),
+    })
+}
+
+/// The GPUs to show with their Task Manager number (DXGI order). GPUs that
+/// DXGI does not list, such as software renderers, are left out when it
+/// lists any.
+pub fn gpus<'a>(
+    s: &'a wtm_core::SystemStats,
+    facts: &crate::device_facts::Facts,
+) -> Vec<(usize, &'a wtm_sys::gpu::GpuAdapterUsage)> {
+    if facts.gpus.is_empty() {
+        return s.gpus.iter().enumerate().collect();
+    }
+    let mut shown: Vec<_> = s
+        .gpus
+        .iter()
+        .filter_map(|g| Some((facts.gpus.iter().position(|f| f.luid == g.luid)?, g)))
+        .collect();
+    shown.sort_by_key(|(i, _)| *i);
+    shown
+}
+
+/// One entry of the resource rail or chip row.
+pub struct Entry {
+    pub page: Page,
+    pub device: Option<String>,
+    /// "CPU", "Disk 0 (C:)", "Wi-Fi", "GPU 0".
+    pub label: String,
+    /// The latest reading, under the label.
+    pub reading: String,
+    series: Series,
+    percent_scale: bool,
+}
+
+impl Entry {
+    fn base(page: Page, label: &str, reading: String, series: Series, percent_scale: bool) -> Self {
+        Self {
+            page,
+            device: None,
+            label: crate::i18n::tr(label).to_owned(),
+            reading,
+            series,
+            percent_scale,
+        }
+    }
+}
+
+/// Every resource and device, in Task Manager's order: CPU, memory, each
+/// disk, each network adapter, each GPU. Combined network and GPU entries
+/// stand in only when no single device is reported.
+pub fn entries(data: &crate::backend::Data) -> Vec<Entry> {
+    use crate::theme::{CPU, DISK_READ, DISK_WRITE, GPU, MEMORY, NET_RX, NET_TX};
+    let history = &data.history;
+    let mut out = vec![
+        Entry::base(
+            Page::All,
+            "All resources",
+            format!(
+                "CPU {} · {} {}",
+                percent(&history.cpu),
+                crate::i18n::tr("Memory"),
+                percent(&history.memory)
+            ),
+            Vec::new(),
+            true,
+        ),
+        Entry::base(
+            Page::Cpu,
+            "CPU",
+            percent(&history.cpu),
+            vec![(tail(&history.cpu), CPU)],
+            true,
+        ),
+        Entry::base(
+            Page::Memory,
+            "Memory",
+            percent(&history.memory),
+            vec![(tail(&history.memory), MEMORY)],
+            true,
+        ),
+    ];
+    let stats = data.snapshot.as_ref().map(|s| &s.system);
+    let facts = &data.perf_facts;
+    let mut disks: Vec<&wtm_core::DiskUsage> = stats
+        .map(|s| s.disks.iter().filter(|d| d.number().is_some()).collect())
+        .unwrap_or_default();
+    disks.sort_by_key(|d| d.number());
+    for d in disks {
+        let Some(n) = d.number() else { continue };
+        let busy = format!("{:.0}%", d.active_percent);
+        out.push(Entry {
+            page: Page::Disk,
+            device: Some(disk_id(n)),
+            label: disk_label(d),
+            reading: match disk_kind(facts.disk(n)) {
+                Some(kind) => format!("{kind} · {busy}"),
+                None => busy,
+            },
+            series: vec![(
+                device_tail(history, &crate::device_facts::disk_key(n, "active")),
+                DISK_READ,
+            )],
+            percent_scale: true,
+        });
+    }
+    out.push(Entry::base(
+        Page::Disk,
+        "Disk & I/O",
+        format!(
+            "R {}  W {}",
+            rate(&history.io_read),
+            rate(&history.io_write)
+        ),
+        vec![
+            (tail(&history.io_read), DISK_READ),
+            (tail(&history.io_write), DISK_WRITE),
+        ],
+        false,
+    ));
+    let adapters = stats.map(|s| &s.net_adapters[..]).unwrap_or_default();
+    for a in adapters {
+        let key = |m| crate::device_facts::net_key(a.luid, m);
+        out.push(Entry {
+            page: Page::Network,
+            device: Some(net_id(a.luid)),
+            label: a.name.clone(),
+            reading: format!("↓ {}  ↑ {}", rate_text(a.rx_rate), rate_text(a.tx_rate)),
+            series: vec![
+                (device_tail(history, &key("rx")), NET_RX),
+                (device_tail(history, &key("tx")), NET_TX),
+            ],
+            percent_scale: false,
+        });
+    }
+    if adapters.is_empty() {
+        out.push(Entry::base(
+            Page::Network,
+            "Network",
+            format!("↓ {}  ↑ {}", rate(&history.net_rx), rate(&history.net_tx)),
+            vec![
+                (tail(&history.net_rx), NET_RX),
+                (tail(&history.net_tx), NET_TX),
+            ],
+            false,
+        ));
+    }
+    let shown = stats.map(|s| gpus(s, facts)).unwrap_or_default();
+    for (i, g) in &shown {
+        let name = facts.gpu(&g.luid).map(|f| f.name.as_str());
+        // "38% (46 °C)", as Task Manager writes a GPU's load and temperature.
+        let load = match facts.gpu_perf(&g.luid).and_then(|p| p.temperature) {
+            Some(t) => format!("{:.0}% ({t:.0} °C)", g.percent),
+            None => format!("{:.0}%", g.percent),
+        };
+        out.push(Entry {
+            page: Page::Gpu,
+            device: Some(gpu_id(&g.luid)),
+            label: crate::i18n::format("GPU {0}", &[i.to_string()]),
+            reading: match name {
+                Some(name) => format!("{load} · {name}"),
+                None => load,
+            },
+            series: vec![(
+                device_tail(history, &crate::device_facts::gpu_key(&g.luid, "load")),
+                GPU,
+            )],
+            percent_scale: true,
+        });
+    }
+    if shown.is_empty() {
+        out.push(Entry::base(
+            Page::Gpu,
+            "GPU",
+            percent(&history.gpu),
+            vec![(tail(&history.gpu), GPU)],
+            true,
+        ));
+    }
+    out
+}
+
 impl State {
+    /// Keeps the selection on something listed: a device that went away
+    /// falls back to its combined view, or to the first device of its kind
+    /// when that view is not listed.
+    pub fn settle(&mut self, entries: &[Entry]) {
+        let listed = |page: Page, device: &Option<String>| {
+            entries
+                .iter()
+                .any(|e| e.page == page && &e.device == device)
+        };
+        if matches!(self.page, Page::All | Page::Cpu | Page::Memory) {
+            self.device = None;
+            return;
+        }
+        if self.device.is_some() && !listed(self.page, &self.device) {
+            self.device = None;
+        }
+        if self.device.is_none() && !listed(self.page, &None) {
+            self.device = entries
+                .iter()
+                .find(|e| e.page == self.page)
+                .and_then(|e| e.device.clone());
+        }
+    }
+
+    fn select(&mut self, entry: &Entry) {
+        self.page = entry.page;
+        self.device = entry.device.clone();
+    }
+
+    fn selected(&self, entry: &Entry) -> bool {
+        self.page == entry.page && self.device == entry.device
+    }
+
     /// The resources as a vertical rail: each with its latest reading and a
     /// sparkline of the last minute. Returns whether the page changed.
-    pub fn rail(&mut self, ui: &mut Ui, history: &crate::backend::History) -> bool {
-        use crate::theme::{CPU, DISK_READ, DISK_WRITE, GPU, MEMORY, NET_RX, NET_TX};
-        let before = self.page;
-        let entries: [(Page, &str, String, Series, bool); 6] = [
-            (
-                Page::All,
-                "All resources",
-                format!(
-                    "CPU {} · {} {}",
-                    percent(&history.cpu),
-                    crate::i18n::tr("Memory"),
-                    percent(&history.memory)
-                ),
-                Vec::new(),
-                true,
-            ),
-            (
-                Page::Cpu,
-                "CPU",
-                percent(&history.cpu),
-                vec![(tail(&history.cpu), CPU)],
-                true,
-            ),
-            (
-                Page::Memory,
-                "Memory",
-                percent(&history.memory),
-                vec![(tail(&history.memory), MEMORY)],
-                true,
-            ),
-            (
-                Page::Gpu,
-                "GPU",
-                percent(&history.gpu),
-                vec![(tail(&history.gpu), GPU)],
-                true,
-            ),
-            (
-                Page::Network,
-                "Network",
-                format!("↓ {}  ↑ {}", rate(&history.net_rx), rate(&history.net_tx)),
-                vec![
-                    (tail(&history.net_rx), NET_RX),
-                    (tail(&history.net_tx), NET_TX),
-                ],
-                false,
-            ),
-            (
-                Page::Disk,
-                "Disk & I/O",
-                format!(
-                    "R {}  W {}",
-                    rate(&history.io_read),
-                    rate(&history.io_write)
-                ),
-                vec![
-                    (tail(&history.io_read), DISK_READ),
-                    (tail(&history.io_write), DISK_WRITE),
-                ],
-                false,
-            ),
-        ];
+    pub fn rail(&mut self, ui: &mut Ui, entries: &[Entry]) -> bool {
+        let before = (self.page, self.device.clone());
         ui.allocate_ui_with_layout(
             egui::vec2(RAIL_WIDTH, ui.available_height()),
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 ui.set_width(RAIL_WIDTH);
-                ui.spacing_mut().item_spacing.y = 4.0;
-                for (page, label, reading, series, percent_scale) in entries {
-                    if rail_entry(
-                        ui,
-                        self.page == page,
-                        label,
-                        &reading,
-                        &series,
-                        percent_scale,
-                    )
-                    .clicked()
-                    {
-                        self.page = page;
-                    }
-                }
+                egui::ScrollArea::vertical()
+                    .id_salt("performance-rail")
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        for entry in entries {
+                            if rail_entry(ui, self.selected(entry), entry).clicked() {
+                                self.select(entry);
+                            }
+                        }
+                    });
             },
         );
-        self.page != before
+        (self.page, self.device.clone()) != before
     }
 
     /// Keep navigation outside the content scroll area, including on compact windows.
-    pub fn navigation(&mut self, ui: &mut Ui) -> bool {
-        let before = self.page;
+    pub fn navigation(&mut self, ui: &mut Ui, entries: &[Entry]) -> bool {
+        let before = (self.page, self.device.clone());
         ui.horizontal_wrapped(|ui| {
-            for (page, label) in [
-                (Page::All, "All resources"),
-                (Page::Cpu, "CPU"),
-                (Page::Memory, "Memory"),
-                (Page::Gpu, "GPU"),
-                (Page::Network, "Network"),
-                (Page::Disk, "Disk & I/O"),
-            ] {
-                let response =
-                    crate::theme::choice(ui, &mut self.page, page, crate::i18n::tr(label));
-                if page != Page::All {
+            for entry in entries {
+                let mut current = self.selected(entry);
+                let response = crate::theme::choice(ui, &mut current, true, entry.label.as_str());
+                if entry.page != Page::All {
                     response.widget_info(|| {
                         egui::WidgetInfo::selected(
                             egui::accesskit::Role::Button,
                             ui.is_enabled(),
-                            self.page == page,
+                            self.selected(entry),
                             crate::i18n::format(
                                 "{0} performance view",
-                                &[crate::i18n::tr(label).into()],
+                                std::slice::from_ref(&entry.label),
                             ),
                         )
                     });
                 }
                 if response.clicked() {
-                    self.page = page;
+                    self.select(entry);
                 }
             }
         });
         ui.add_space(0.0);
-        self.page != before
+        (self.page, self.device.clone()) != before
     }
 }
 
 /// One resource in the rail: a sparkline, its name and latest reading. The
 /// selected one is raised and marked with the accent, like a chosen chip.
-fn rail_entry(
-    ui: &mut Ui,
-    selected: bool,
-    label: &str,
-    reading: &str,
-    series: &[(VecDeque<f32>, egui::Color32)],
-    percent_scale: bool,
-) -> egui::Response {
+fn rail_entry(ui: &mut Ui, selected: bool, entry: &Entry) -> egui::Response {
     let dark = ui.visuals().dark_mode;
     let height = 48.0;
     let (rect, response) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), height),
         egui::Sense::click(),
     );
-    let name = crate::i18n::tr(label);
+    let name = entry.label.as_str();
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::accesskit::Role::Button,
             ui.is_enabled(),
             selected,
-            if label == "All resources" {
+            if entry.page == Page::All {
                 name.to_owned()
             } else {
                 crate::i18n::format("{0} performance view", &[name.into()])
@@ -244,6 +426,7 @@ fn rail_entry(
         );
         painter.rect_filled(mark, egui::CornerRadius::same(2), crate::theme::ACCENT);
     }
+    let series = &entry.series;
     let text_left = if let Some((_, color)) = series.first() {
         let chart = egui::Rect::from_min_size(
             egui::pos2(rect.left() + 10.0, rect.top() + 7.0),
@@ -255,7 +438,7 @@ fn rail_entry(
             egui::Stroke::new(1.0, color.gamma_multiply(0.55)),
             egui::StrokeKind::Inside,
         );
-        let max = if percent_scale {
+        let max = if entry.percent_scale {
             100.0
         } else {
             let peak = series
@@ -278,7 +461,12 @@ fn rail_entry(
     } else {
         rect.left() + 14.0
     };
-    painter.text(
+    // Long device names end at the entry's edge instead of spilling over.
+    let text = painter.with_clip_rect(egui::Rect::from_min_max(
+        egui::pos2(text_left, rect.top()),
+        egui::pos2(rect.right() - 4.0, rect.bottom()),
+    ));
+    text.text(
         egui::pos2(text_left, rect.center().y - 1.0),
         egui::Align2::LEFT_BOTTOM,
         name,
@@ -289,14 +477,14 @@ fn rail_entry(
             ui.visuals().text_color()
         },
     );
-    painter.text(
+    text.text(
         egui::pos2(text_left, rect.center().y + 2.0),
         egui::Align2::LEFT_TOP,
-        reading,
+        &entry.reading,
         egui::TextStyle::Small.resolve(ui.style()),
         ui.visuals().weak_text_color(),
     );
-    response
+    response.on_hover_text(format!("{name}\n{}", entry.reading))
 }
 
 /// Flat usage arrays have no processor-group identity. Only use topology when

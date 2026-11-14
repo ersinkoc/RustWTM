@@ -21,12 +21,14 @@ pub mod project;
 mod protection;
 mod sampler;
 pub mod startup;
+pub mod startup_impact;
 pub mod task_manager;
 mod tree;
 pub mod update;
 
 pub use model::{
-    ProcessInfo, Snapshot, SortKey, SystemStats, format_bytes, format_duration, sort_processes,
+    GpuDetail, GpuEngineUse, MemoryCounters, NetAdapterUsage, ProcessInfo, Snapshot, SortKey,
+    SystemStats, format_bytes, format_duration, sort_processes,
 };
 pub use protection::{automatic_end_blocked, protection_reason};
 pub use sampler::{Sampler, StartWatcher};

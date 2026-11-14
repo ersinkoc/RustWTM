@@ -18,6 +18,9 @@ struct Acc {
     handles_sum: f64,
     threads_sum: f64,
     samples: u32,
+    /// Network bytes received and sent in the minute.
+    net_rx: f64,
+    net_tx: f64,
     /// Totals of the instances in the sample being added.
     sample: Sample,
 }
@@ -31,6 +34,9 @@ struct Sample {
     count: u32,
     handles: u64,
     threads: u64,
+    /// Bytes per second.
+    net_rx: f64,
+    net_tx: f64,
 }
 
 pub struct History {
@@ -71,6 +77,8 @@ const SCHEMA: &str = "
         handles_avg INTEGER NOT NULL DEFAULT 0,
         threads_avg INTEGER NOT NULL DEFAULT 0,
         samples INTEGER NOT NULL DEFAULT 0,
+        net_rx_bytes INTEGER NOT NULL DEFAULT 0,
+        net_tx_bytes INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (app, minute)
     ) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS app_minute_time ON app_minute (minute);
@@ -84,13 +92,15 @@ impl History {
     pub(crate) fn with(conn: Connection) -> rusqlite::Result<Self> {
         conn.execute_batch(SCHEMA)?;
         // Older databases lack the later columns: GPU (0.1.x), handles and
-        // threads (0.15), samples (0.19). A row without a sample count
-        // weighs as one sample when a minute is merged.
+        // threads (0.15), samples (0.19), network bytes (0.32). A row without
+        // a sample count weighs as one sample when a minute is merged.
         for (column, kind) in [
             ("gpu_avg", "REAL"),
             ("handles_avg", "INTEGER"),
             ("threads_avg", "INTEGER"),
             ("samples", "INTEGER"),
+            ("net_rx_bytes", "INTEGER"),
+            ("net_tx_bytes", "INTEGER"),
         ] {
             let present: bool = conn.query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('app_minute') WHERE name = ?1",
@@ -189,6 +199,11 @@ impl History {
         self.minute = Some(minute);
         self.minute_samples += 1;
 
+        // The time the sample's rates cover; untraced network is zero.
+        let seconds = snap
+            .interval
+            .map_or(1.0, |d| d.as_secs_f64())
+            .clamp(0.0, 3600.0);
         for p in snap.processes.iter().filter(|p| p.pid != 0) {
             let app = lower_name(&p.name, &mut self.lower);
             let add = |e: &mut Sample| {
@@ -198,6 +213,8 @@ impl History {
                 e.count += 1;
                 e.handles += u64::from(p.handle_count);
                 e.threads += u64::from(p.thread_count);
+                e.net_rx += p.net_rx_rate;
+                e.net_tx += p.net_tx_rate;
             };
             match self.apps.get_mut(app) {
                 Some(acc) => add(&mut acc.sample),
@@ -212,7 +229,12 @@ impl History {
                 count,
                 handles,
                 threads,
+                net_rx,
+                net_tx,
             } = std::mem::take(&mut acc.sample);
+            // Rates over the time this sample covers give bytes.
+            acc.net_rx += net_rx * seconds;
+            acc.net_tx += net_tx * seconds;
             acc.cpu_sum += f64::from(cpu);
             acc.cpu_peak = acc.cpu_peak.max(cpu);
             // Instances can share an engine; the total cannot exceed it.
@@ -239,8 +261,8 @@ impl History {
             let mut stmt = tx.prepare(
                 "INSERT INTO app_minute
                  (app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
-                  handles_avg, threads_avg, samples)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                  handles_avg, threads_avg, samples, net_rx_bytes, net_tx_bytes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT (app, minute) DO UPDATE SET
                   cpu_avg = (cpu_avg * MAX(samples, 1) + excluded.cpu_avg * excluded.samples)
                             / (MAX(samples, 1) + excluded.samples),
@@ -257,7 +279,9 @@ impl History {
                   threads_avg = CAST((threads_avg * MAX(samples, 1)
                                 + excluded.threads_avg * excluded.samples)
                             / (MAX(samples, 1) + excluded.samples) AS INTEGER),
-                  samples = MAX(samples, 1) + excluded.samples",
+                  samples = MAX(samples, 1) + excluded.samples,
+                  net_rx_bytes = net_rx_bytes + excluded.net_rx_bytes,
+                  net_tx_bytes = net_tx_bytes + excluded.net_tx_bytes",
             )?;
             // CPU and GPU are shares of the machine over the whole minute: an
             // app seen in 2 samples of 60 used a 30th of what it used then.
@@ -278,6 +302,8 @@ impl History {
                     (a.handles_sum / n) as i64,
                     (a.threads_sum / n) as i64,
                     samples,
+                    a.net_rx.clamp(0.0, i64::MAX as f64) as i64,
+                    a.net_tx.clamp(0.0, i64::MAX as f64) as i64,
                 ])?;
             }
         }
@@ -342,7 +368,7 @@ pub fn stats(
              WHERE a IS NOT NULL
          )
          SELECT app, minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
-                handles_avg, threads_avg
+                handles_avg, threads_avg, net_rx_bytes, net_tx_bytes
          FROM apps JOIN app_minute ON app = a AND minute >= ?1",
     )?;
     let mut out = Vec::new();
@@ -367,7 +393,7 @@ pub fn stats(
 pub fn series(conn: &Connection, app: &str, since_minute: i64) -> rusqlite::Result<Vec<MinuteRow>> {
     let mut stmt = conn.prepare(
         "SELECT minute, cpu_avg, cpu_peak, mem_avg, mem_peak, processes, gpu_avg,
-                handles_avg, threads_avg
+                handles_avg, threads_avg, net_rx_bytes, net_tx_bytes
          FROM app_minute WHERE app = ?1 AND minute >= ?2 ORDER BY minute",
     )?;
     let rows = stmt.query_map(params![app.to_lowercase(), since_minute], |r| row(r, 0))?;
@@ -385,6 +411,10 @@ fn row(r: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<MinuteRow> {
         gpu_avg: r.get::<_, f64>(first + 6)? as f32,
         handles_avg: r.get::<_, i64>(first + 7)?.clamp(0, i64::from(u32::MAX)) as u32,
         threads_avg: r.get::<_, i64>(first + 8)?.clamp(0, i64::from(u32::MAX)) as u32,
+        net: wtm_policy::NetBytes {
+            rx: r.get::<_, i64>(first + 9)?.max(0) as u64,
+            tx: r.get::<_, i64>(first + 10)?.max(0) as u64,
+        },
     })
 }
 
@@ -466,6 +496,8 @@ mod tests {
             net_tx_rate: 0.0,
             suspended: false,
             create_time: i64::from(pid),
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         }
     }
 
@@ -681,6 +713,32 @@ mod tests {
     }
 
     #[test]
+    fn network_bytes_add_up_per_app_and_across_a_restart() {
+        let mut h = History::with(Connection::open_in_memory().unwrap()).unwrap();
+        let p = |pid, rx, tx| ProcessInfo {
+            net_rx_rate: rx,
+            net_tx_rate: tx,
+            ..proc(pid, "browser.exe", 1.0, 10)
+        };
+        // Two instances, two one-second samples: 2 × (1000 + 500) received.
+        h.record(&snap(vec![p(1, 1000.0, 10.0), p(2, 500.0, 0.0)]), 60)
+            .unwrap();
+        h.record(&snap(vec![p(1, 1000.0, 10.0), p(2, 500.0, 0.0)]), 61)
+            .unwrap();
+        h.flush().unwrap();
+        let rows = series(h.connection(), "browser.exe", 0).unwrap();
+        assert_eq!(rows[0].net, wtm_policy::NetBytes { rx: 3000, tx: 20 });
+        // The service restarts within the minute: its bytes are added.
+        let mut again = History::with(h.conn).unwrap();
+        let mut two_seconds = snap(vec![p(1, 100.0, 0.0)]);
+        two_seconds.interval = Some(Duration::from_secs(2));
+        again.record(&two_seconds, 62).unwrap();
+        again.flush().unwrap();
+        let s = stats(again.connection(), 0, 4).unwrap();
+        assert_eq!(s[0].net, wtm_policy::NetBytes { rx: 3200, tx: 20 });
+    }
+
+    #[test]
     fn migrates_databases_without_a_gpu_column() {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
@@ -698,6 +756,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].gpu_avg, 0.0);
         assert_eq!((rows[0].handles_avg, rows[0].threads_avg), (0, 0));
+        assert_eq!(rows[0].net, wtm_policy::NetBytes::default());
         // Opening again does not try to add the column twice.
         let conn = h.conn;
         History::with(conn).unwrap();

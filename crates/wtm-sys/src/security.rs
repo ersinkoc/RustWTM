@@ -402,6 +402,65 @@ fn guarded(
     }
 }
 
+/// The SID of the account this thread impersonates, such as
+/// "S-1-5-21-…-1001"; an error when it impersonates nobody, so a server can
+/// never mistake its own account for the client's.
+pub fn thread_user_sid() -> Result<String> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Security::TOKEN_QUERY;
+    use windows::Win32::System::Threading::{GetCurrentThread, OpenThreadToken};
+    let mut raw = HANDLE::default();
+    // SAFETY: `raw` receives a token handle that OwnedHandle closes. The
+    // thread has a token only while impersonating; OpenAsSelf checks access
+    // with the process's own rights.
+    unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, true, &mut raw)? };
+    token_user_sid(&OwnedHandle::new(raw))
+}
+
+/// The SID of the account this process runs as.
+pub fn current_user_sid() -> Result<String> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Security::TOKEN_QUERY;
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    let mut raw = HANDLE::default();
+    // SAFETY: `raw` receives a token handle that OwnedHandle closes.
+    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut raw)? };
+    token_user_sid(&OwnedHandle::new(raw))
+}
+
+fn token_user_sid(token: &OwnedHandle) -> Result<String> {
+    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows::Win32::Security::{GetTokenInformation, TOKEN_USER, TokenUser};
+    let mut len = 0u32;
+    // SAFETY: a null buffer only reports the required size.
+    let _ = unsafe { GetTokenInformation(token.raw(), TokenUser, None, 0, &mut len) };
+    if len == 0 || len > 4096 {
+        return Err(windows::core::Error::from_thread().into());
+    }
+    let mut buf = vec![0u64; (len as usize).div_ceil(8)];
+    // SAFETY: `buf` is writable for `len` bytes and suitably aligned.
+    unsafe {
+        GetTokenInformation(
+            token.raw(),
+            TokenUser,
+            Some(buf.as_mut_ptr().cast()),
+            len,
+            &mut len,
+        )?
+    };
+    // SAFETY: on success the buffer holds a TOKEN_USER whose SID points
+    // into `buf`, alive for the conversion.
+    let sid = unsafe { (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid };
+    let mut text = windows::core::PWSTR::null();
+    // SAFETY: `sid` is valid; `text` is freed below.
+    unsafe {
+        ConvertSidToStringSidW(sid, &mut text)?;
+        let out = text.to_string();
+        LocalFree(Some(HLOCAL(text.0.cast())));
+        out.map_err(|_| windows::core::Error::from_thread().into())
+    }
+}
+
 /// NT SERVICE\TrustedInstaller, which owns much of Windows' own files.
 fn is_trusted_installer(sid: PSID) -> bool {
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
@@ -515,6 +574,13 @@ impl EncodeWideNul for std::ffi::OsStr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn this_process_has_a_user_sid_and_this_thread_impersonates_nobody() {
+        let sid = current_user_sid().unwrap();
+        assert!(sid.starts_with("S-1-"), "{sid}");
+        assert!(thread_user_sid().is_err(), "no client, no account");
+    }
 
     const SDDL: &str = "D:P(A;OICI;FA;;;OW)(A;OICI;FA;;;SY)";
 

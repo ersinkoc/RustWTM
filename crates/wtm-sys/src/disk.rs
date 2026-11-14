@@ -20,6 +20,47 @@ pub struct DiskUsage {
     pub active_percent: f32,
     pub read_rate: f64,
     pub write_rate: f64,
+    /// Average time one transfer took, in milliseconds.
+    #[serde(default)]
+    pub response_ms: f32,
+    /// Average number of requests waiting or in service.
+    #[serde(default)]
+    pub queue_length: f32,
+}
+
+impl DiskUsage {
+    /// The disk number at the start of the instance name.
+    pub fn number(&self) -> Option<u32> {
+        self.name.split_whitespace().next()?.parse().ok()
+    }
+
+    /// The drive letters in the instance name, e.g. `["C:", "D:"]`.
+    pub fn letters(&self) -> impl Iterator<Item = &str> {
+        self.name.split_whitespace().skip(1)
+    }
+}
+
+/// Counters of one disk, in the order they are added to the query.
+#[derive(Clone, Copy)]
+enum Field {
+    Idle,
+    Read,
+    Write,
+    Response,
+    Queue,
+}
+
+/// Puts one counter value into its disk's entry.
+fn apply(d: &mut DiskUsage, field: Field, v: f64) {
+    let v = if v.is_finite() { v } else { 0.0 };
+    match field {
+        Field::Idle => d.active_percent = (100.0 - v).clamp(0.0, 100.0) as f32,
+        Field::Read => d.read_rate = v.max(0.0),
+        Field::Write => d.write_rate = v.max(0.0),
+        // Seconds per transfer.
+        Field::Response => d.response_ms = (v * 1000.0).clamp(0.0, 1e7) as f32,
+        Field::Queue => d.queue_length = v.clamp(0.0, 1e6) as f32,
+    }
 }
 
 pub struct DiskSampler {
@@ -27,6 +68,8 @@ pub struct DiskSampler {
     idle: PDH_HCOUNTER,
     read: PDH_HCOUNTER,
     write: PDH_HCOUNTER,
+    response: PDH_HCOUNTER,
+    queue: PDH_HCOUNTER,
     reader: ArrayReader,
 }
 
@@ -52,12 +95,19 @@ impl DiskSampler {
             idle: PDH_HCOUNTER::default(),
             read: PDH_HCOUNTER::default(),
             write: PDH_HCOUNTER::default(),
+            response: PDH_HCOUNTER::default(),
+            queue: PDH_HCOUNTER::default(),
             reader: ArrayReader::default(),
         };
         for (path, counter) in [
             (w!(r"\PhysicalDisk(*)\% Idle Time"), &mut s.idle),
             (w!(r"\PhysicalDisk(*)\Disk Read Bytes/sec"), &mut s.read),
             (w!(r"\PhysicalDisk(*)\Disk Write Bytes/sec"), &mut s.write),
+            (
+                w!(r"\PhysicalDisk(*)\Avg. Disk sec/Transfer"),
+                &mut s.response,
+            ),
+            (w!(r"\PhysicalDisk(*)\Avg. Disk Queue Length"), &mut s.queue),
         ] {
             // SAFETY: valid query; static, NUL-terminated counter path.
             pdh("PdhAddEnglishCounterW", unsafe {
@@ -77,14 +127,20 @@ impl DiskSampler {
             PdhCollectQueryData(self.query)
         })?;
         let mut disks: BTreeMap<String, DiskUsage> = BTreeMap::new();
-        for (counter, field) in [(self.idle, 0), (self.read, 1), (self.write, 2)] {
+        for (counter, field) in [
+            (self.idle, Field::Idle),
+            (self.read, Field::Read),
+            (self.write, Field::Write),
+            (self.response, Field::Response),
+            (self.queue, Field::Queue),
+        ] {
             self.reader.read(counter, PDH_FMT_DOUBLE, |name, item| {
                 // SAFETY: requested as PDH_FMT_DOUBLE.
                 let v = unsafe { item.FmtValue.Anonymous.doubleValue };
                 if name == "_Total" {
                     return;
                 }
-                // The three counters report the same disks: name each once.
+                // The counters report the same disks: name each once.
                 if !disks.contains_key(name) {
                     let d = DiskUsage {
                         name: name.to_owned(),
@@ -95,11 +151,7 @@ impl DiskSampler {
                 let Some(d) = disks.get_mut(name) else {
                     return;
                 };
-                match field {
-                    0 => d.active_percent = (100.0 - v).clamp(0.0, 100.0) as f32,
-                    1 => d.read_rate = v.max(0.0),
-                    _ => d.write_rate = v.max(0.0),
-                }
+                apply(d, field, v);
             })?;
         }
         Ok(disks.into_values().collect())
@@ -118,6 +170,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reads_counter_values_and_instance_names() {
+        let mut d = DiskUsage {
+            name: "1 D: E:".into(),
+            ..Default::default()
+        };
+        apply(&mut d, Field::Idle, 75.0);
+        apply(&mut d, Field::Read, -4.0);
+        apply(&mut d, Field::Write, 2048.0);
+        apply(&mut d, Field::Response, 0.0042);
+        apply(&mut d, Field::Queue, f64::NAN);
+        assert_eq!(d.active_percent, 25.0);
+        assert_eq!((d.read_rate, d.write_rate), (0.0, 2048.0));
+        assert!((d.response_ms - 4.2).abs() < 1e-4, "{}", d.response_ms);
+        assert_eq!(d.queue_length, 0.0, "not a number reads as none");
+        assert_eq!(d.number(), Some(1));
+        assert_eq!(d.letters().collect::<Vec<_>>(), ["D:", "E:"]);
+        let odd = DiskUsage {
+            name: "HarddiskVolume".into(),
+            ..Default::default()
+        };
+        assert_eq!(odd.number(), None);
+    }
+
+    #[test]
     fn samples_every_physical_disk() {
         let mut s = DiskSampler::new().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -127,6 +203,7 @@ mod tests {
             assert_ne!(d.name, "_Total");
             assert!((0.0..=100.0).contains(&d.active_percent), "{d:?}");
             assert!(d.read_rate >= 0.0 && d.write_rate >= 0.0);
+            assert!(d.response_ms >= 0.0 && d.queue_length >= 0.0, "{d:?}");
         }
         assert!(format!("{s:?}") == "DiskSampler");
     }

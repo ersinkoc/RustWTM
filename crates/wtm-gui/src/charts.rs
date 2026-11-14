@@ -81,6 +81,9 @@ impl Timeline {
 pub enum Unit {
     Percent,
     Rate,
+    /// An amount of bytes out of a capacity, which tops the scale (as
+    /// Task Manager draws GPU memory); 0 when unknown.
+    Bytes(f64),
 }
 
 impl Unit {
@@ -93,6 +96,7 @@ impl Unit {
             |v| match self {
                 Self::Percent => format!("{v:.1}%"),
                 Self::Rate => format!("{}/s", wtm_core::format_bytes(f64::from(v))),
+                Self::Bytes(_) => wtm_core::format_bytes(f64::from(v)),
             },
         )
     }
@@ -131,6 +135,9 @@ pub struct State {
     /// The view Ctrl froze. Letting go returns to live only if the user did
     /// not move or zoom it meanwhile.
     ctrl_hold: Option<Window>,
+    /// The graph being drawn is a small one: no time span or sample line
+    /// under it (see [`State::plot_small`]).
+    small: bool,
 }
 
 impl Default for State {
@@ -144,6 +151,7 @@ impl Default for State {
             timeline: Timeline::default(),
             markers: Vec::new(),
             ctrl_hold: None,
+            small: false,
         }
     }
 }
@@ -534,6 +542,25 @@ impl State {
         values.get(i).copied().filter(|v| unit.valid(*v))
     }
 
+    /// A small graph of `height` among others on the same timeline, such as
+    /// a GPU's engines: only its scale above it, nothing under it.
+    pub fn plot_small(
+        &mut self,
+        ui: &mut Ui,
+        id: &str,
+        height: f32,
+        times: &VecDeque<u64>,
+        series: &[(&str, &VecDeque<f32>, Color32)],
+        unit: Unit,
+    ) {
+        let shared = self.plot_height;
+        self.plot_height = height;
+        self.small = true;
+        self.plot(ui, id, times, series, unit);
+        self.small = false;
+        self.plot_height = shared;
+    }
+
     pub fn plot(
         &mut self,
         ui: &mut Ui,
@@ -557,19 +584,22 @@ impl State {
         let end = (window.end as f64 / 1000.0).max(start + 0.001);
         let tint = series.first().map_or(crate::theme::CPU, |s| s.2);
         // Rates get a calm 1-2-5 scale from the busiest sample in view.
+        let peak = || {
+            series
+                .iter()
+                .flat_map(|(_, values, _)| {
+                    segments(&self.timeline, times, values, window, unit)
+                        .into_iter()
+                        .flatten()
+                })
+                .map(|p| p[1])
+                .fold(0.0, f64::max)
+        };
         let ceiling = match unit {
             Unit::Percent => 100.0,
-            Unit::Rate => crate::theme::rate_ceiling(
-                series
-                    .iter()
-                    .flat_map(|(_, values, _)| {
-                        segments(&self.timeline, times, values, window, unit)
-                            .into_iter()
-                            .flatten()
-                    })
-                    .map(|p| p[1])
-                    .fold(0.0, f64::max),
-            ),
+            Unit::Rate => crate::theme::rate_ceiling(peak()),
+            Unit::Bytes(capacity) if capacity > 0.0 => capacity.max(peak()),
+            Unit::Bytes(_) => crate::theme::rate_ceiling(peak()),
         };
         crate::theme::chart_scale(
             ui,
@@ -577,6 +607,7 @@ impl State {
             &match unit {
                 Unit::Percent => "100%".to_owned(),
                 Unit::Rate => format!("{}/s", wtm_core::format_bytes(ceiling)),
+                Unit::Bytes(_) => wtm_core::format_bytes(ceiling),
             },
         );
         let backdrop = egui::Rect::from_min_size(
@@ -618,6 +649,18 @@ impl State {
                 .include_y(0.0)
                 .include_y(1024.0)
                 .label_formatter(crate::app::rate_label),
+            Unit::Bytes(_) => plot.include_y(0.0).label_formatter(|hover| match hover {
+                egui_plot::HoverPosition::NearDataPoint {
+                    plot_name,
+                    position,
+                    ..
+                } => Some(format!(
+                    "{} · {plot_name}: {}",
+                    short_time(position.x),
+                    wtm_core::format_bytes(position.y.max(0.0))
+                )),
+                _ => None,
+            }),
         };
         let result = plot.show(ui, |plot| {
             plot.set_plot_bounds_x(start..=end);
@@ -702,6 +745,9 @@ impl State {
         result.response.on_hover_text(crate::i18n::tr(
             "Click a chart to inspect. Double-click to follow live.",
         ));
+        if self.small {
+            return;
+        }
         crate::theme::chart_scale(ui, &short_time(start), &short_time(end));
         ui.horizontal(|ui| {
             ui.set_min_height(18.0);

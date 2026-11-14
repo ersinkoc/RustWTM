@@ -93,6 +93,18 @@ pub struct ServiceEntry {
     pub account: Option<String>,
 }
 
+impl ServiceEntry {
+    /// The service host group, as Task Manager's Group column: the word
+    /// after `-k` in `svchost.exe -k netsvcs -p`. `None` for services in
+    /// their own program.
+    pub fn group(&self) -> Option<&str> {
+        let path = self.binary_path.as_deref()?;
+        let mut words = path.split_whitespace();
+        words.find(|w| w.eq_ignore_ascii_case("-k"))?;
+        words.next().filter(|g| !g.starts_with('-'))
+    }
+}
+
 struct ScHandle(SC_HANDLE);
 
 impl Drop for ScHandle {
@@ -350,6 +362,35 @@ pub fn set_start_type(name: &str, start_type: StartType) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_group_is_the_word_after_dash_k() {
+        let entry = |path: Option<&str>| ServiceEntry {
+            name: "s".into(),
+            display_name: "s".into(),
+            state: ServiceState::Running,
+            pid: 0,
+            start_type: None,
+            binary_path: path.map(Into::into),
+            account: None,
+        };
+        let group = |path| entry(path).group().map(str::to_owned);
+        assert_eq!(
+            group(Some(r"C:\WINDOWS\system32\svchost.exe -k netsvcs -p")).as_deref(),
+            Some("netsvcs")
+        );
+        assert_eq!(
+            group(Some(
+                r"C:\WINDOWS\System32\svchost.exe -K LocalServiceNoNetwork"
+            ))
+            .as_deref(),
+            Some("LocalServiceNoNetwork")
+        );
+        assert_eq!(group(Some(r#""C:\Program Files\App\svc.exe""#)), None);
+        assert_eq!(group(Some(r"svchost.exe -k")), None);
+        assert_eq!(group(Some(r"svchost.exe -k -p")), None);
+        assert_eq!(group(None), None);
+    }
 
     #[test]
     fn lists_well_known_services() {

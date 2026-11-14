@@ -30,7 +30,7 @@ pub const SERVICE_NAME: &str = "RustWTM";
 /// nobody else can serve its name alongside the service.
 pub const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x12008b;;;IU)";
 
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 
 const MAX_FRAME: usize = 32 * 1024 * 1024;
 
@@ -109,6 +109,10 @@ pub enum Request {
     Incidents {
         hours: u32,
     },
+    /// CPU and disk each program used at the client's last sign-in (Task
+    /// Manager's Startup impact). The account comes from the connection,
+    /// never from the request: a client sees only its own.
+    StartupImpact,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -164,6 +168,9 @@ pub enum Response {
         seconds: f64,
     },
     Incidents(wtm_core::incidents::Replay),
+    /// Usage per program (lower-case image path); empty when Windows
+    /// measured nothing.
+    StartupImpact(Vec<(String, wtm_core::startup_impact::BootUsage)>),
 }
 
 /// System-wide load at one sample, for history graphs.
@@ -771,6 +778,8 @@ mod tests {
                 net_tx_rate: 0.0,
                 suspended: false,
                 create_time: 133_000_000_000_000_000 + i64::from(i),
+                memory: Default::default(),
+                gpu_detail: Default::default(),
             })
             .collect();
         Snapshot {

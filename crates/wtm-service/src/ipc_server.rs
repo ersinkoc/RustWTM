@@ -349,6 +349,21 @@ fn serve(mut conn: PipeConnection, shared: &Shared, engine: &Sender<EngineMsg>) 
                     Err(e) => Response::Error(e),
                 }
             }
+            Request::StartupImpact => {
+                // Whose reports: the client's account, read from its token
+                // while impersonating. The file is read afterwards, as the
+                // service, since only administrators may open it.
+                match conn.client_user_sid() {
+                    Ok(sid) => match wtm_core::startup_impact::read_for(
+                        &wtm_core::startup_impact::default_dir(),
+                        &sid,
+                    ) {
+                        Ok(list) => Response::StartupImpact(list),
+                        Err(e) => Response::Error(e),
+                    },
+                    _ => Response::Error("The client's account could not be identified".into()),
+                }
+            }
             Request::Incidents { hours } => {
                 let hours = hours.clamp(1, 168);
                 match history_query(shared, hours, |conn, since, _| {

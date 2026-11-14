@@ -139,6 +139,8 @@ mod tests {
                 net_tx_rate: 0.0,
                 create_time: i64::from(pid) * 100,
                 suspended: false,
+                memory: Default::default(),
+                gpu_detail: Default::default(),
             })
             .collect();
         let snapshot = Snapshot {

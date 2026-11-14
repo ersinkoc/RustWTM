@@ -254,6 +254,41 @@ fn display_driver(vendor: u32, device: u32) -> Option<(String, Option<String>)> 
         })
 }
 
+/// What the Performance pages list under a GPU's graphs.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GpuFacts {
+    /// `{high:08x}_{low:08x}`, as the GPU usage counters name it.
+    pub luid: String,
+    pub name: String,
+    pub dedicated_total: u64,
+    pub shared_total: u64,
+    pub driver_version: Option<String>,
+    pub driver_date: Option<String>,
+    /// The highest Direct3D 12 feature level, such as "12_2".
+    pub directx: Option<String>,
+}
+
+/// Every hardware GPU, in DXGI order (Task Manager's GPU 0, GPU 1, ...).
+/// Reads the registry, so call it seldom.
+pub fn gpu_facts() -> Vec<GpuFacts> {
+    wtm_sys::gpu::adapters()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| {
+            let driver = display_driver(a.vendor_id, a.device_id);
+            GpuFacts {
+                directx: max_feature_level(a.luid_value),
+                driver_version: driver.as_ref().map(|d| d.0.clone()),
+                driver_date: driver.and_then(|d| d.1),
+                luid: a.luid,
+                name: a.name,
+                dedicated_total: a.dedicated_bytes,
+                shared_total: a.shared_bytes,
+            }
+        })
+        .collect()
+}
+
 /// SMART readings are asked for at most this often; between reads the last
 /// ones are shown, so spun-down disks are not woken on every refresh.
 const SMART_EVERY: Duration = Duration::from_secs(10 * 60);

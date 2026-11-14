@@ -73,6 +73,8 @@ fn machine() -> Vec<ProcessInfo> {
                 net_tx_rate: 0.0,
                 suspended: false,
                 create_time: i as i64 * 10,
+                memory: Default::default(),
+                gpu_detail: Default::default(),
             }
         })
         .collect()

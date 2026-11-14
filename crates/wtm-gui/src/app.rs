@@ -375,6 +375,9 @@ pub struct App {
 }
 
 struct UiState {
+    /// The page the window opens on; `None` reopens the last one, as
+    /// Task Manager's "Default start page".
+    start_tab: Option<Tab>,
     onboarding: crate::onboarding::View,
     numeric_tray: crate::numeric_tray::Preferences,
     experience: crate::experience::View,
@@ -406,6 +409,8 @@ struct UiState {
     confirm: Option<(ProcessRef, Command)>,
     /// A session to disconnect or sign out, once confirmed: (id, user, op).
     confirm_session: Option<(u32, String, crate::backend::SessionOp)>,
+    /// A message being written to a session: id, user, title, text.
+    compose_message: Option<(u32, String, String, String)>,
     /// Asking before the desktop's Explorer restarts.
     confirm_explorer: bool,
     /// A destructive command for every process of an app.
@@ -541,8 +546,11 @@ struct Prefs {
     display: crate::preferences::Display,
     inspector_mode: crate::workspace_inspector::Mode,
     performance_page: crate::performance_view::Page,
+    /// The disk, adapter or GPU last shown on its Performance page.
+    performance_device: Option<String>,
     language: crate::i18n::Language,
     tab: Tab,
+    start_tab: Option<Tab>,
     nav_collapsed: Option<bool>,
     process_mode: crate::processes::ViewMode,
     process_sort: crate::processes::Col,
@@ -635,8 +643,10 @@ impl UiState {
             display: self.display,
             inspector_mode: self.inspector_mode,
             performance_page: self.performance.page,
+            performance_device: self.performance.device.clone(),
             language: self.language,
             tab: self.tab,
+            start_tab: self.start_tab,
             nav_collapsed: self.nav_collapsed,
             process_mode: p.mode,
             process_sort: p.sort,
@@ -684,8 +694,10 @@ impl UiState {
         self.charts.options = prefs.chart_options;
         self.inspector_mode = prefs.inspector_mode;
         self.performance.page = prefs.performance_page;
+        self.performance.device = prefs.performance_device;
         self.language = prefs.language;
-        self.tab = prefs.tab;
+        self.start_tab = prefs.start_tab.filter(|t| NAV.iter().any(|n| n.0 == *t));
+        self.tab = self.start_tab.unwrap_or(prefs.tab);
         self.nav_collapsed = prefs.nav_collapsed;
         let p = &mut self.processes;
         p.mode = prefs.process_mode;
@@ -739,12 +751,14 @@ impl Default for UiState {
             language: crate::i18n::Language::System,
             language_error: None,
             tab: Tab::Overview,
+            start_tab: None,
             performance_focus: None,
             processes: ProcessView::default(),
             sensors: crate::sensors::SensorsView::default(),
             containers: crate::containers::View::default(),
             confirm: None,
             confirm_session: None,
+            compose_message: None,
             confirm_explorer: false,
             confirm_many: None,
             confirm_change: None,
@@ -1254,6 +1268,16 @@ impl eframe::App for App {
                     }
                     Tab::Processes => match &data.snapshot {
                         Some(snap) => {
+                            // Numbered as on the Performance page, else by LUID.
+                            let gpu_order: Vec<String> = if data.perf_facts.gpus.is_empty() {
+                                snap.system.gpus.iter().map(|g| g.luid.clone()).collect()
+                            } else {
+                                data.perf_facts
+                                    .gpus
+                                    .iter()
+                                    .map(|g| g.luid.clone())
+                                    .collect()
+                            };
                             let extra = crate::processes::Extra {
                                 topology: data.cpu_topology.as_ref(),
                                 labels: &managed,
@@ -1265,7 +1289,16 @@ impl eframe::App for App {
                                 facts: &data.facts,
                                 versions: &data.versions,
                                 services: &data.hosted_services,
+                                gpu_order: &gpu_order,
+                                gui_objects: &data.gui_objects,
                             };
+                            // GDI and USER objects are read only while shown.
+                            if state.processes.visible.iter().any(|c| c.gui_objects()) {
+                                data.gui_objects_wanted_ms.store(
+                                    wtm_core::hardware::unix_ms(),
+                                    std::sync::atomic::Ordering::Relaxed,
+                                );
+                            }
                             crate::theme::work_surface(ui, |ui| {
                                 intents.extend(state.processes.ui_cached(
                                     ui,
@@ -1381,8 +1414,14 @@ impl eframe::App for App {
                         }
                     }
                     Tab::Users => {
-                        if let Some(request) = views::users(ui, &data) {
-                            state.confirm_session = Some(request);
+                        if let Some((id, user, op)) = views::users(ui, &data) {
+                            if op == crate::backend::SessionOp::Message {
+                                let me = std::env::var("USERNAME").unwrap_or_default();
+                                let title = crate::i18n::format("Message from {0}", &[me]);
+                                state.compose_message = Some((id, user, title, String::new()));
+                            } else {
+                                state.confirm_session = Some((id, user, op));
+                            }
                         }
                     }
                     Tab::Overview => {
@@ -1605,6 +1644,11 @@ impl eframe::App for App {
                         "{0} \"{1}\" (PID {2})? Its windows stop responding and it does no work until it is resumed. Programs waiting for it may also stop responding.",
                         &values,
                     )
+                } else if command == Command::Priority(wtm_core::control::PriorityClass::Realtime) {
+                    crate::i18n::format(
+                        "{0} \"{1}\" (PID {2})? A realtime process runs before Windows itself, so a busy one can make the mouse, keyboard and disk stop responding. Windows gives High instead unless RustWTM runs as administrator or through its service.",
+                        &values,
+                    )
                 } else {
                     crate::i18n::format(
                         "{0} \"{1}\" (PID {2})? Unsaved data in that program will be lost.",
@@ -1646,6 +1690,8 @@ impl eframe::App for App {
                     crate::i18n::tr("Sign off"),
                     crate::i18n::tr("Their programs close and unsaved work is lost."),
                 ),
+                // Written in its own dialog below, never confirmed here.
+                SessionOp::Message => (crate::i18n::tr("Send message"), ""),
             };
             let modal = egui::Modal::new(egui::Id::unique("confirm_session")).show(&ctx, |ui| {
                 ui.heading(title);
@@ -1676,6 +1722,55 @@ impl eframe::App for App {
             });
             if modal.should_close() {
                 state.confirm_session = None;
+            }
+        }
+
+        if let Some((id, user, mut title, mut text)) = state.compose_message.take() {
+            let mut keep = true;
+            let modal = egui::Modal::new(egui::Id::unique("compose_message")).show(&ctx, |ui| {
+                ui.heading(crate::i18n::tr("Send message"));
+                ui.label(crate::i18n::format(
+                    "To {0} (session {1}). It appears on their screen.",
+                    &[user.clone(), id.to_string()],
+                ));
+                let title_label = ui.label(crate::i18n::tr("Message title"));
+                ui.add(
+                    egui::TextEdit::singleline(&mut title)
+                        .char_limit(wtm_sys::sessions::MESSAGE_TITLE_MAX)
+                        .desired_width(360.0),
+                )
+                .labelled_by(title_label.id);
+                let text_label = ui.label(crate::i18n::tr("Message"));
+                ui.add(
+                    egui::TextEdit::multiline(&mut text)
+                        .char_limit(wtm_sys::sessions::MESSAGE_TEXT_MAX)
+                        .desired_rows(4)
+                        .desired_width(360.0),
+                )
+                .labelled_by(text_label.id);
+                ui.add_space(0.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(
+                            !text.trim().is_empty(),
+                            egui::Button::new(crate::i18n::tr("Send now")),
+                        )
+                        .clicked()
+                    {
+                        service_cmds.push(UiCommand::SendMessage {
+                            id,
+                            title: title.clone(),
+                            text: text.clone(),
+                        });
+                        keep = false;
+                    }
+                    if ui.button(crate::i18n::tr("Cancel")).clicked() {
+                        keep = false;
+                    }
+                });
+            });
+            if keep && !modal.should_close() {
+                state.compose_message = Some((id, user, title, text));
             }
         }
 
@@ -1977,6 +2072,12 @@ impl eframe::App for App {
                 }
                 Intent::ShowContainers => state.tab = Tab::Containers,
                 Intent::ShowPorts => state.tab = Tab::Ports,
+                Intent::ShowServices(pid) => {
+                    // A number finds the services of that process.
+                    state.services_filter = pid.to_string();
+                    state.selected_service = None;
+                    state.tab = Tab::Services;
+                }
                 Intent::Dump(target) => backend.send(UiCommand::CreateDump(target)),
                 Intent::WatchExit(target) => backend.send(UiCommand::WatchExit(target)),
                 Intent::WaitChain(target) => backend.send(UiCommand::WaitChain(target)),
@@ -2234,6 +2335,36 @@ fn window_settings(ui: &mut Ui, state: &mut UiState, data: &Data) -> Option<UiCo
             crate::i18n::tr("Keep running in the tray when the window is closed"),
             "",
             &mut state.tray_on_close,
+        );
+        crate::theme::option_labelled(
+            ui,
+            crate::theme::icon::VIEW,
+            crate::i18n::tr("Default start page"),
+            "",
+            |ui, id| {
+                let name = |tab: Option<Tab>| match tab {
+                    None => crate::i18n::tr("Last page used"),
+                    Some(t) => NAV
+                        .iter()
+                        .find(|n| n.0 == t)
+                        .map_or("", |n| crate::i18n::tr(n.2)),
+                };
+                egui::ComboBox::from_id_salt("start_page")
+                    .width(220.0)
+                    .selected_text(name(state.start_tab))
+                    .show_ui(ui, |ui| {
+                        for tab in std::iter::once(None).chain(NAV.iter().map(|n| Some(n.0))) {
+                            if ui
+                                .selectable_label(state.start_tab == tab, name(tab))
+                                .clicked()
+                            {
+                                state.start_tab = tab;
+                            }
+                        }
+                    })
+                    .response
+                    .labelled_by(id);
+            },
         );
         crate::theme::option_switch(
             ui,
@@ -2938,6 +3069,9 @@ fn details_panel(
                 sel,
                 snap.system.logical_cpus,
                 data.cpu_topology.as_ref(),
+                data.hosted_services
+                    .get(&sel.pid)
+                    .map_or(&[][..], Vec::as_slice),
                 intents,
             );
         },
@@ -2966,6 +3100,9 @@ fn details_panel(
                 sel,
                 snap.system.logical_cpus,
                 data.cpu_topology.as_ref(),
+                data.hosted_services
+                    .get(&sel.pid)
+                    .map_or(&[][..], Vec::as_slice),
                 intents,
             )
         });
@@ -3162,6 +3299,13 @@ fn details_panel(
                 ),
             }
         });
+    if let Some((r, Ok(d))) = &data.details
+        && r == sel
+        && let Some((mask, system)) = d.affinity
+        && system != 0
+    {
+        affinity_editor(ui, sel, mask, system, intents);
+    }
 
     if let Some(Ok(conns)) = &data.connections {
         let uses: Vec<_> = wtm_core::ports::port_uses(conns)
@@ -3306,7 +3450,7 @@ pub(crate) fn rate_label(hover: &egui_plot::HoverPosition<'_>) -> Option<String>
 }
 
 /// Rows of name, a slim bar filled to `load` (0..=100) and its caption.
-fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, String)>) {
+pub(crate) fn load_bars(ui: &mut Ui, id: &str, rows: impl Iterator<Item = (String, f32, String)>) {
     egui::Grid::new(id)
         .num_columns(3)
         .spacing([8.0, 4.0])
@@ -3470,15 +3614,18 @@ fn performance_focused(
     let focused = focus.is_some();
     if let Some(resource) = focus {
         selection.page = resource.into();
+        selection.device = None;
     }
+    let entries = crate::performance_view::entries(data);
+    selection.settle(&entries);
     if ui.available_width() >= crate::performance_view::RAIL_FROM {
         ui.horizontal_top(|ui| {
-            let changed = selection.rail(ui, &data.history) || focused;
+            let changed = selection.rail(ui, &entries) || focused;
             ui.add_space(12.0);
             ui.vertical(|ui| performance_content(ui, data, s, changed, view, selection));
         });
     } else {
-        let changed = selection.navigation(ui) || focused;
+        let changed = selection.navigation(ui, &entries) || focused;
         performance_content(ui, data, s, changed, view, selection);
     }
 }
@@ -3492,12 +3639,21 @@ fn performance_content(
     selection: &mut crate::performance_view::State,
 ) {
     use crate::performance_view::Page;
-    view.plot_height = match selection.page {
-        Page::All => 128.0,
-        Page::Memory | Page::Network => (ui.available_height() - 240.0).clamp(128.0, 600.0),
+    let device = selection.device.clone();
+    let device = device.as_deref();
+    view.plot_height = match (selection.page, device) {
+        (Page::All, _) => 128.0,
+        // Two graphs: active time and transfer rate.
+        (Page::Disk, Some(_)) => (ui.available_height() * 0.24).clamp(96.0, 220.0),
+        (Page::Gpu, Some(_)) => (ui.available_height() * 0.26).clamp(110.0, 240.0),
+        (Page::Memory | Page::Network, _) => (ui.available_height() - 240.0).clamp(128.0, 600.0),
         _ => (ui.available_height() * 0.32).clamp(128.0, 280.0),
     };
-    let mut area = egui::ScrollArea::vertical().id_salt(("performance", selection.page));
+    let mut area = egui::ScrollArea::vertical().id_salt((
+        "performance",
+        selection.page,
+        device.map(str::to_owned),
+    ));
     let requested_scroll = crate::theme::take_scroll(ui, "performance");
     if changed {
         area = area.vertical_scroll_offset(0.0);
@@ -3509,20 +3665,37 @@ fn performance_content(
         let mut show_section = |ui: &mut Ui, page| {
             match page {
                 Page::Cpu => perf_cpu(ui, data, s, view, (selection.page == Page::Cpu).then_some(&mut selection.class)),
-                Page::Memory => perf_memory(ui, data, s, view),
-                Page::Gpu => perf_gpu(ui, data, s, view, (selection.page == Page::Gpu).then_some(&mut selection.engine_search)),
-                Page::Network => {
-                    if selection.page == Page::Network {
-                        ui.weak(crate::i18n::tr("Combined adapter traffic; individual adapter history is not recorded."));
+                Page::Memory => perf_memory(ui, data, s, view, selection.page == Page::Memory),
+                Page::Gpu => match device.and_then(|d| d.strip_prefix("gpu:")).filter(|_| selection.page == Page::Gpu) {
+                    Some(luid) => crate::perf_pages::gpu(ui, data, s, view, luid, &mut selection.engine_search),
+                    None => perf_gpu(ui, data, s, view, (selection.page == Page::Gpu).then_some(&mut selection.engine_search)),
+                },
+                Page::Network => match device
+                    .and_then(|d| d.strip_prefix("net:"))
+                    .and_then(|luid| u64::from_str_radix(luid, 16).ok())
+                    .filter(|_| selection.page == Page::Network)
+                {
+                    Some(luid) => crate::perf_pages::network(ui, data, s, view, luid),
+                    None => {
+                        if selection.page == Page::Network {
+                            ui.weak(crate::i18n::tr("Combined traffic of all adapters."));
+                        }
+                        perf_network(ui, data, s, view);
                     }
-                    perf_network(ui, data, s, view);
-                }
-                Page::Disk => {
-                    if selection.page == Page::Disk {
-                        ui.weak(crate::i18n::tr("The chart shows total process I/O. Physical disk counters below are current readings."));
+                },
+                Page::Disk => match device
+                    .and_then(|d| d.strip_prefix("disk:"))
+                    .and_then(|n| n.parse::<u32>().ok())
+                    .filter(|_| selection.page == Page::Disk)
+                {
+                    Some(number) => crate::perf_pages::disk(ui, data, s, view, number),
+                    None => {
+                        if selection.page == Page::Disk {
+                            ui.weak(crate::i18n::tr("The chart shows the I/O of all processes together; each disk has its own page with its graphs."));
+                        }
+                        perf_disk(ui, data, s, view);
                     }
-                    perf_disk(ui, data, s, view);
-                }
+                },
                 Page::All => perf_summary(ui, data, s, view),
             }
             ui.add_space(0.0);
@@ -3586,6 +3759,9 @@ fn perf_cpu(
                 crate::theme::CPU,
                 view,
             );
+            if filter.is_some() {
+                crate::perf_pages::cpu_details(ui, data, s);
+            }
             if !s.core_percent.is_empty() {
                 ui.add_space(0.0);
                 ui.weak({
@@ -3658,6 +3834,7 @@ fn perf_memory(
     data: &Data,
     s: &wtm_core::SystemStats,
     view: &mut crate::charts::State,
+    focused: bool,
 ) {
     let mem_pct = if s.memory_total > 0 {
         s.memory_used() as f64 / s.memory_total as f64 * 100.0
@@ -3708,6 +3885,9 @@ fn perf_memory(
                 });
             });
             crate::memory_view::show(ui, data.memory_composition.as_ref());
+            if focused {
+                crate::perf_pages::memory_details(ui, data);
+            }
         },
     );
 }
@@ -3896,7 +4076,7 @@ fn perf_disk(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats, view: &mut cra
 
 fn perf_summary(
     ui: &mut Ui,
-    _data: &Data,
+    data: &Data,
     s: &wtm_core::SystemStats,
     _view: &mut crate::charts::State,
 ) {
@@ -3926,6 +4106,9 @@ fn perf_summary(
                         format_bytes(s.commit_limit as f64)
                     ),
                 );
+                if let Some(up) = data.perf_facts.uptime {
+                    row(crate::i18n::tr("Up time"), crate::perf_pages::uptime(up));
+                }
             });
     });
 }
@@ -4443,6 +4626,65 @@ impl Change {
 }
 
 /// Actions for the selected service; requires elevation to take effect.
+/// Task Manager's Set affinity: the processors the process may run on, out
+/// of those of its processor group (`system`, as Windows reports it with the
+/// process's own mask).
+fn affinity_editor(
+    ui: &mut Ui,
+    sel: &ProcessRef,
+    mask: u64,
+    system: u64,
+    intents: &mut Vec<Intent>,
+) {
+    let id = egui::Id::unique(("affinity-editor", sel.pid, sel.create_time));
+    let mut editing: Option<u64> = ui.data(|d| d.get_temp(id));
+    if editing.is_none() && ui.small_button(crate::i18n::tr("Set affinity…")).clicked() {
+        editing = Some(mask & system);
+    }
+    let mut done = false;
+    if let Some(chosen) = editing.as_mut() {
+        ui.group(|ui| {
+            let mut all = *chosen == system;
+            if ui
+                .checkbox(&mut all, crate::i18n::tr("All processors"))
+                .changed()
+            {
+                *chosen = if all { system } else { 0 };
+            }
+            ui.horizontal_wrapped(|ui| {
+                for bit in (0..64).filter(|b| system >> b & 1 == 1) {
+                    let mut on = *chosen >> bit & 1 == 1;
+                    if ui
+                        .checkbox(&mut on, crate::i18n::format("CPU {0}", &[bit.to_string()]))
+                        .changed()
+                    {
+                        *chosen ^= 1 << bit;
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(*chosen != 0, egui::Button::new(crate::i18n::tr("Apply")))
+                    .on_disabled_hover_text(crate::i18n::tr("Choose at least one processor"))
+                    .clicked()
+                {
+                    intents.push(Intent::Command(sel.clone(), Command::Affinity(*chosen)));
+                    done = true;
+                }
+                if ui.button(crate::i18n::tr("Cancel")).clicked() {
+                    done = true;
+                }
+            });
+        });
+    }
+    ui.data_mut(|d| match editing.filter(|_| !done) {
+        Some(chosen) => {
+            d.insert_temp(id, chosen);
+        }
+        None => d.remove::<u64>(id),
+    });
+}
+
 fn service_bar(ui: &mut Ui, data: &Data, selected: Option<&str>) -> Option<UiCommand> {
     let service = selected.and_then(|name| {
         data.services
@@ -4709,7 +4951,7 @@ mod tests {
             data.image_paths.insert(key, r"C:\Example\alpha.exe".into());
         }
         h.run_steps(3);
-        h.get_by_label("alpha.exe").click_secondary();
+        h.get_by_label_contains("alpha.exe").click_secondary();
         h.run_steps(3);
         let point = h.get_by_label("Diagnostics").rect().center();
         assert_eq!(
@@ -4720,6 +4962,86 @@ mod tests {
         h.get_by_label("Diagnostics").hover();
         h.run_steps(3);
         assert!(h.query_by_label("Create memory dump file").is_some());
+    }
+
+    #[test]
+    fn go_to_services_finds_the_services_of_a_process_by_pid() {
+        let (mut h, rx) = kill_app(Tab::Processes);
+        {
+            // alpha.exe (100) hosts the Spooler service.
+            let mut data = h.state().backend.data();
+            data.hosted_services
+                .insert(100, vec!["Print Spooler".into()]);
+            if let Some(Ok(services)) = data.services.as_mut() {
+                services[0].pid = 100;
+            }
+        }
+        h.run_steps(2);
+        h.get_by_label_contains("alpha.exe").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Go to services").click();
+        h.run_steps(3);
+        assert_eq!(h.state().state.tab, Tab::Services);
+        assert_eq!(h.state().state.services_filter, "100");
+        assert!(h.query_by_label("Print Spooler").is_some());
+        assert!(h.query_by_label("Fax").is_none());
+        // Task Manager's "Open Services" link.
+        h.get_by_label("Open Services").click();
+        h.run_steps(2);
+        assert!(
+            rx.try_iter()
+                .map(describe_command)
+                .any(|c| c.contains("services.msc"))
+        );
+    }
+
+    #[test]
+    fn set_affinity_sends_the_chosen_processors() {
+        use egui_kittest::kittest::NodeT;
+        let (backend, rx) = Backend::offline(data());
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            // Tall enough that the whole details panel shows.
+            .with_size([1400.0, 2400.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Processes,
+                    check_updates: false,
+                    ..Default::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(2);
+        h.get_by_label("alpha.exe").click();
+        h.run_steps(2);
+        h.get_by_label("Set affinity…").click();
+        h.run_steps(2);
+        // The fixture's process may use all 8 processors.
+        for cpu in 0..8 {
+            assert!(
+                h.query_by_label(&format!("CPU {cpu}")).is_some(),
+                "CPU {cpu}"
+            );
+        }
+        h.get_by_label("CPU 0").click();
+        h.run_steps(2);
+        h.get_by_label("Apply").click();
+        h.run_steps(2);
+        let sent: Vec<String> = rx.try_iter().map(describe_command).collect();
+        assert!(
+            sent.iter().any(|c| c == "control 100 Affinity(254)"),
+            "{sent:?}"
+        );
+        // Applied: the editor closes.
+        assert!(h.query_by_label("Apply").is_none());
+        // No processor at all cannot be applied.
+        h.get_by_label("Set affinity…").click();
+        h.run_steps(2);
+        h.get_by_label("All processors").click();
+        h.run_steps(2);
+        assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
     }
 
     #[test]
@@ -5577,6 +5899,365 @@ mod tests {
     }
 
     #[test]
+    fn performance_gives_every_disk_adapter_and_gpu_its_own_page() {
+        use egui::accesskit::Role;
+        let (mut h, rx) = overview_app(crate::ui_tests::device_data());
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        for device in [
+            "Disk 0 (C:)",
+            "Disk 1 (D: E:)",
+            "Wi-Fi",
+            "Ethernet",
+            "GPU 0",
+            "GPU 1",
+        ] {
+            assert!(
+                h.query_by_role_and_label(Role::Button, &format!("{device} performance view"))
+                    .is_some(),
+                "{device} is listed"
+            );
+        }
+        // Single devices replace the combined entries; process I/O stays.
+        assert!(
+            h.query_by_role_and_label(Role::Button, "Network performance view")
+                .is_none()
+        );
+        assert!(
+            h.query_by_role_and_label(Role::Button, "GPU performance view")
+                .is_none()
+        );
+        assert!(
+            h.query_by_role_and_label(Role::Button, "Disk & I/O performance view")
+                .is_some()
+        );
+
+        h.get_by_role_and_label(Role::Button, "Disk 1 (D: E:) performance view")
+            .click();
+        h.run_steps(3);
+        let perf = &h.state().state.performance;
+        assert_eq!(perf.page, crate::performance_view::Page::Disk);
+        assert_eq!(perf.device.as_deref(), Some("disk:1"));
+        assert!(h.query_by_label("Active time history graph").is_some());
+        assert!(h.query_by_label("Read history graph").is_some());
+        for text in [
+            "12.5 ms",
+            "Example Desktop HDD 4TB",
+            "HDD (SATA)",
+            "3.6 TiB",
+        ] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+        assert!(h.query_by_label_contains("Games · NTFS").is_some());
+        // The open disk page asks the worker for that disk's temperature.
+        let wanted = h
+            .state()
+            .backend
+            .data()
+            .disk_wanted
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(wanted, 2);
+        // A spinning drive shows no temperature.
+        assert!(h.query_by_label("Temperature").is_none());
+
+        h.get_by_role_and_label(Role::Button, "Disk 0 (C:) performance view")
+            .click();
+        h.run_steps(3);
+        for text in ["38 °C", "60 °C", "70 °C"] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+
+        h.get_by_role_and_label(Role::Button, "Wi-Fi performance view")
+            .click();
+        h.run_steps(3);
+        for text in [
+            "Example Network",
+            "802.11be",
+            "86%",
+            "192.168.1.42",
+            "2.9 Gbit/s",
+            "Example Wi-Fi 7 BE200 320MHz",
+            "00-1A-2B-3C-4D-5E",
+        ] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+
+        h.get_by_role_and_label(Role::Button, "GPU 0 performance view")
+            .click();
+        h.run_steps(3);
+        for graph in [
+            "Utilization history graph",
+            "3D history graph",
+            "VideoDecode history graph",
+            "Dedicated GPU memory usage history graph",
+            "Shared GPU memory usage history graph",
+        ] {
+            assert!(h.query_by_label(graph).is_some(), "{graph}");
+        }
+        for text in [
+            "Example discrete graphics",
+            "32.0.15.6614",
+            "12_2",
+            "46 °C",
+            "88 °C",
+            "1\u{202F}250 RPM",
+            "405 MHz",
+        ] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+        assert!(h.query_by_label_contains("/ 12.0 GiB").is_some());
+        // The rail shows the GPU's temperature with its load, as Task Manager.
+        let entries = crate::performance_view::entries(&h.state().backend.data());
+        let gpu = entries
+            .iter()
+            .find(|e| e.label == "GPU 0")
+            .expect("GPU 0 entry");
+        assert!(gpu.reading.contains("(46 °C)"), "{}", gpu.reading);
+
+        h.get_by_role_and_label(Role::Button, "CPU performance view")
+            .click();
+        h.run_steps(3);
+        for text in [
+            "2.40 GHz",
+            "4.38 GHz",
+            "3:04:05:06",
+            "36.0 MiB",
+            "Enabled",
+            "Example 24-core processor",
+        ] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+        h.get_by_role_and_label(Role::Button, "Memory performance view")
+            .click();
+        h.run_steps(3);
+        for text in ["5200 MT/s", "2 of 2", "SODIMM", "DDR5"] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+        assert!(h.query_by_label("Copy details").is_some());
+        assert!(
+            rx.try_iter()
+                .all(|c| !matches!(c, UiCommand::Control { .. })),
+            "browsing pages changes nothing on the machine"
+        );
+    }
+
+    #[test]
+    fn the_default_start_page_wins_over_the_last_page() {
+        let mut last = UiState {
+            tab: Tab::Services,
+            ..UiState::default()
+        };
+        let mut restored = UiState::default();
+        restored.apply(last.prefs());
+        assert_eq!(restored.tab, Tab::Services, "last page used");
+
+        last.start_tab = Some(Tab::Processes);
+        let mut restored = UiState::default();
+        restored.apply(last.prefs());
+        assert_eq!(restored.tab, Tab::Processes);
+        assert_eq!(restored.start_tab, Some(Tab::Processes));
+    }
+
+    #[test]
+    fn performance_device_selection_is_saved_and_falls_back_when_a_device_leaves() {
+        use crate::performance_view::{Page, net_id};
+        use egui::accesskit::Role;
+        let (mut h, _) = overview_app(crate::ui_tests::device_data());
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Ethernet performance view")
+            .click();
+        h.run_steps(2);
+        let encoded = serde_json::to_string(&h.state().state.prefs()).unwrap();
+        let mut restored = UiState::default();
+        restored.apply(serde_json::from_str(&encoded).unwrap());
+        assert_eq!(restored.performance.page, Page::Network);
+        assert_eq!(
+            restored.performance.device,
+            Some(net_id(crate::ui_tests::ETHERNET))
+        );
+        // Older preferences have no device.
+        assert_eq!(
+            serde_json::from_str::<Prefs>(r#"{"performance_page":"Disk"}"#)
+                .unwrap()
+                .performance_device,
+            None
+        );
+        // Ethernet is unplugged: the page moves to the remaining adapter.
+        {
+            let mut d = h.state().backend.data();
+            let snap = std::sync::Arc::make_mut(d.snapshot.as_mut().unwrap());
+            snap.system.net_adapters.retain(|a| a.name != "Ethernet");
+        }
+        h.run_steps(3);
+        assert_eq!(
+            h.state().state.performance.device,
+            Some(net_id(crate::ui_tests::WIFI))
+        );
+        assert!(h.query_by_label("Example Network").is_some());
+        // No adapter reports at all: the combined view comes back.
+        {
+            let mut d = h.state().backend.data();
+            let snap = std::sync::Arc::make_mut(d.snapshot.as_mut().unwrap());
+            snap.system.net_adapters.clear();
+        }
+        h.run_steps(3);
+        assert_eq!(h.state().state.performance.device, None);
+        assert!(
+            h.query_by_role_and_label(Role::Button, "Network performance view")
+                .is_some()
+        );
+        assert!(
+            h.query_by_label("Combined traffic of all adapters.")
+                .is_some()
+        );
+        // A disk that leaves falls back to the process I/O view.
+        h.get_by_role_and_label(Role::Button, "Disk 1 (D: E:) performance view")
+            .click();
+        h.run_steps(2);
+        {
+            let mut d = h.state().backend.data();
+            let snap = std::sync::Arc::make_mut(d.snapshot.as_mut().unwrap());
+            snap.system.disks.truncate(1);
+        }
+        h.run_steps(3);
+        assert_eq!(h.state().state.performance.page, Page::Disk);
+        assert_eq!(h.state().state.performance.device, None);
+    }
+
+    #[test]
+    fn compact_performance_chips_reach_every_device() {
+        use egui::accesskit::Role;
+        let (backend, _rx) = Backend::offline(crate::ui_tests::device_data());
+        let mut h = Harness::builder()
+            .allow_missing_glyphs()
+            .with_size([820.0, 500.0])
+            .build_eframe(|_| App {
+                backend,
+                state: UiState {
+                    tab: Tab::Performance,
+                    ..UiState::default()
+                },
+                tray: None,
+                frames: Default::default(),
+            });
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "GPU 1 performance view")
+            .click();
+        h.run_steps(3);
+        assert_eq!(
+            h.state().state.performance.device.as_deref(),
+            Some("gpu:00000000_0000d1a0")
+        );
+        assert!(h.query_by_label("Example integrated graphics").is_some());
+        // The overview's network card opens the first adapter.
+        h.state_mut().state.performance_focus = Some(crate::overview::Resource::Network);
+        h.run_steps(3);
+        assert_eq!(
+            h.state().state.performance.device,
+            Some(crate::performance_view::net_id(crate::ui_tests::WIFI))
+        );
+    }
+
+    /// Screenshots of every per-device Performance page from synthetic
+    /// devices; nothing is read from the host. Run with
+    /// `--features visual-tests render_device_pages_review`;
+    /// `WTM_REVIEW_LANGS=en,tr` picks the languages (English by default).
+    #[cfg(feature = "visual-tests")]
+    #[test]
+    fn render_device_pages_review() {
+        use egui::accesskit::Role;
+        let root = std::env::var_os("WTM_REVIEW_OUTPUT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../target/device-pages-review")
+            });
+        let only = std::env::var("WTM_REVIEW_LANGS").unwrap_or_else(|_| "en".into());
+        for language in crate::i18n::Language::TRANSLATED {
+            let code = language.code();
+            if !only.split(',').any(|c| c == code) {
+                continue;
+            }
+            let _language = crate::i18n::scope(language);
+            let out = root.join(code);
+            std::fs::create_dir_all(&out).unwrap();
+            for (theme_name, theme) in [("dark", egui::Theme::Dark), ("light", egui::Theme::Light)]
+            {
+                for (size_name, size) in [("wide", [1440.0, 1000.0]), ("compact", [820.0, 500.0])] {
+                    let (backend, _rx) = Backend::offline(crate::ui_tests::device_data());
+                    let mut h = Harness::builder()
+                        .allow_missing_glyphs()
+                        .with_size(size)
+                        .with_theme(theme)
+                        .build_eframe(|cc| {
+                            crate::theme::install_fonts(&cc.egui_ctx);
+                            cc.egui_ctx.add_font_provider(std::sync::Arc::new(
+                                egui_system_font_provider::SystemFontProvider::new(),
+                            ));
+                            crate::theme::apply(&cc.egui_ctx);
+                            cc.egui_ctx.set_theme(theme);
+                            App {
+                                backend,
+                                state: UiState {
+                                    tab: Tab::Performance,
+                                    language,
+                                    check_updates: false,
+                                    ..UiState::default()
+                                },
+                                tray: None,
+                                frames: Default::default(),
+                            }
+                        });
+                    h.run_steps(3);
+                    for (entry, name) in [
+                        ("CPU".to_owned(), "Cpu"),
+                        (crate::i18n::tr("Memory").to_owned(), "Memory"),
+                        (
+                            crate::i18n::format("Disk {0} ({1})", &["0".into(), "C:".into()]),
+                            "Disk0",
+                        ),
+                        (
+                            crate::i18n::format("Disk {0} ({1})", &["1".into(), "D: E:".into()]),
+                            "Disk1",
+                        ),
+                        ("Wi-Fi".to_owned(), "WiFi"),
+                        ("Ethernet".to_owned(), "Ethernet"),
+                        (crate::i18n::format("GPU {0}", &["0".into()]), "Gpu0"),
+                        (crate::i18n::format("GPU {0}", &["1".into()]), "Gpu1"),
+                    ] {
+                        let label = crate::i18n::format("{0} performance view", &[entry]);
+                        h.get_by_role_and_label(Role::Button, &label).click();
+                        h.run_steps(3);
+                        for (part, scroll) in [("", 0.0), ("Bottom", -100_000.0)] {
+                            if scroll != 0.0 {
+                                h.event(egui::Event::PointerMoved(egui::pos2(
+                                    size[0] * 0.7,
+                                    size[1] * 0.6,
+                                )));
+                                h.event(egui::Event::MouseWheel {
+                                    unit: egui::MouseWheelUnit::Point,
+                                    delta: egui::vec2(0.0, scroll),
+                                    modifiers: egui::Modifiers::NONE,
+                                    phase: egui::TouchPhase::Move,
+                                    source: egui::MouseWheelSource::Unknown,
+                                });
+                                h.run_steps(20);
+                            }
+                            h.state().backend.data().sample_received_at = Some(Instant::now());
+                            h.run_steps(2);
+                            let path =
+                                out.join(format!("{theme_name}-{size_name}-{name}{part}.png"));
+                            h.render().expect("GPU render").save(&path).unwrap();
+                            println!("Rendered {}", path.display());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn performance_gpu_search_includes_idle_engines_and_explains_missing_counters() {
         let (mut h, _) = overview_app(timeline_fixture(false));
         h.state_mut().state.tab = Tab::Performance;
@@ -6386,6 +7067,7 @@ mod tests {
             UiCommand::CreateDump(t) => format!("dump {}", t.pid),
             UiCommand::WatchExit(t) => format!("watch exit {}", t.pid),
             UiCommand::Session { id, op } => format!("session {id} {op:?}"),
+            UiCommand::SendMessage { id, title, text } => format!("message {id} {title}: {text}"),
             UiCommand::RestartExplorer => "restart explorer".into(),
             UiCommand::OpenWindowsTaskManager => "open windows task manager".into(),
             UiCommand::OpenLocation(t) => format!("open {}", t.pid),
@@ -6438,6 +7120,7 @@ mod tests {
 
     #[test]
     fn users_are_signed_off_and_services_restarted_after_asking() {
+        use egui_kittest::kittest::NodeT;
         let (mut h, rx) = kill_app(Tab::Users);
         h.state().backend.data().sessions = Some(Ok(vec![wtm_core::Session {
             id: 3,
@@ -6466,6 +7149,29 @@ mod tests {
         h.get_by_label("Cancel").click();
         assert!(sent(&mut h).iter().all(|c| !c.starts_with("session")));
         assert!(h.state().state.confirm_session.is_none());
+
+        // Task Manager's Send message: written first, sent without waiting.
+        h.get_by_label("RDP-Tcp#1").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Send message…").click();
+        h.run_steps(2);
+        assert!(h.state().state.compose_message.is_some());
+        assert!(h.query_by_label_contains("To DESK").is_some());
+        assert!(
+            h.get_by_label("Send now").accesskit_node().is_disabled(),
+            "no text yet"
+        );
+        h.state_mut().state.compose_message.as_mut().unwrap().3 = "Back in 5".into();
+        h.run_steps(2);
+        h.get_by_label("Send now").click();
+        let commands = sent(&mut h);
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.starts_with("message 3 ") && c.ends_with(": Back in 5")),
+            "{commands:?}"
+        );
+        assert!(h.state().state.compose_message.is_none());
     }
 
     #[test]
@@ -7175,7 +7881,7 @@ mod tests {
         // From the process menu: its known program file is blocked.
         h.state_mut().state.tab = Tab::Processes;
         h.run_steps(2);
-        h.get_by_label("alpha.exe").click_secondary();
+        h.get_by_label_contains("alpha.exe").click_secondary();
         h.run_steps(2);
         h.get_by_label("Block network access").scroll_to_me();
         h.run_steps(3);

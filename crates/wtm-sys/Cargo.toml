@@ -16,6 +16,7 @@ thiserror.workspace = true
 [dependencies.windows]
 workspace = true
 features = [
+    "Wdk_Graphics_Direct3D",
     "Wdk_System_SystemInformation",
     "Win32_Foundation",
     "Win32_Globalization",
@@ -23,8 +24,10 @@ features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Networking_WinHttp",
+    "Win32_Networking_WinSock",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
+    "Win32_NetworkManagement_WiFi",
     "Win32_NetworkManagement_WindowsFirewall",
     "Win32_Security",
     "Win32_Security_Authorization",

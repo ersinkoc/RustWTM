@@ -15,6 +15,19 @@ use wtm_core::{ProcessInfo, protection_reason};
 
 use crate::{Action, Decision, Key, Source, glob_match};
 
+/// Network bytes an application received and sent.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetBytes {
+    pub rx: u64,
+    pub tx: u64,
+}
+
+impl NetBytes {
+    pub fn total(self) -> u64 {
+        self.rx.saturating_add(self.tx)
+    }
+}
+
 /// One minute of aggregated usage for one application (all its processes).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct MinuteRow {
@@ -36,6 +49,10 @@ pub struct MinuteRow {
     /// Average total threads of the app's processes.
     #[serde(default)]
     pub threads_avg: u32,
+    /// Bytes received and sent during the minute; zero while per-process
+    /// network is not measured.
+    #[serde(default)]
+    pub net: NetBytes,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -77,6 +94,10 @@ pub struct AppStats {
     pub thread_growth_per_hour: f64,
     #[serde(default)]
     pub thread_growth_fit: f64,
+    /// Network bytes received and sent in the window, as Task Manager's App
+    /// history Network column.
+    #[serde(default)]
+    pub net: NetBytes,
 }
 
 /// Least-squares slope of `ys` against `xs`, and its fit (R², 0..=1).
@@ -146,6 +167,10 @@ pub fn summarize(app: &str, rows: &[MinuteRow], logical_cpus: u32) -> Option<App
         threads_last: last.threads_avg,
         thread_growth_per_hour: thread_slope,
         thread_growth_fit: thread_fit,
+        net: rows.iter().fold(NetBytes::default(), |a, r| NetBytes {
+            rx: a.rx.saturating_add(r.net.rx),
+            tx: a.tx.saturating_add(r.net.tx),
+        }),
     })
 }
 
@@ -506,6 +531,7 @@ mod tests {
             processes: 1,
             handles_avg: 100,
             threads_avg: 10,
+            net: Default::default(),
         }
     }
 
@@ -531,6 +557,8 @@ mod tests {
             net_tx_rate: 0.0,
             suspended: false,
             create_time: i64::from(pid),
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         }
     }
 
@@ -582,6 +610,7 @@ mod tests {
             threads_last: 0,
             thread_growth_per_hour: 0.0,
             thread_growth_fit: 0.0,
+            net: Default::default(),
         }
     }
 

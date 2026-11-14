@@ -191,6 +191,12 @@ impl PipeConnection {
         Ok(out)
     }
 
+    /// The SID of the client's account, from its token while impersonating
+    /// it: never the server's own.
+    pub fn client_user_sid(&self) -> Result<String> {
+        self.as_client(crate::security::thread_user_sid)?
+    }
+
     /// Whether the client's (elevated) token is in BUILTIN\Administrators.
     pub fn client_is_admin(&self) -> Result<bool> {
         self.as_client(is_current_token_admin)?
@@ -266,6 +272,15 @@ mod tests {
         assert_eq!(
             conn.client_is_admin().unwrap(),
             is_current_token_admin().unwrap()
+        );
+        // The account seen through the connection is the client's, and the
+        // server is itself again afterwards.
+        // (`client_user_sid` reads only the impersonation token, which this
+        // thread lacks outside `as_client`, so a match is the client's.)
+        assert!(crate::security::thread_user_sid().is_err());
+        assert_eq!(
+            conn.client_user_sid().unwrap(),
+            crate::security::current_user_sid().unwrap()
         );
         conn.write_all(b"pong").unwrap();
         client.join().unwrap();

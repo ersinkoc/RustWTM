@@ -194,6 +194,8 @@ mod tests {
             net_tx_rate: 1024.0,
             suspended: false,
             create_time: 0,
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         };
         let traced = row(&p, usize::MAX, true);
         assert!(traced.contains("2.0 KiB"), "{traced}");

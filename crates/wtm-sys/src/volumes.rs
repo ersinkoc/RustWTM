@@ -58,15 +58,6 @@ fn text(buf: &[u16]) -> String {
 /// or DVD drive) and drives that do not answer are left out. A network drive
 /// that is slow to answer delays the call, so call it off the UI thread.
 pub fn volumes() -> Vec<Volume> {
-    let mut previous = THREAD_ERROR_MODE::default();
-    // SAFETY: plain FFI; suppresses "insert a disk" dialogs on this thread
-    // only, and the previous mode is restored below.
-    let _ = unsafe {
-        SetThreadErrorMode(
-            SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX,
-            Some(&mut previous),
-        )
-    };
     let mut buf = [0u16; 512];
     // SAFETY: `buf` is writable for its length.
     let len = unsafe { GetLogicalDriveStringsW(Some(&mut buf)) } as usize;
@@ -79,10 +70,50 @@ pub fn volumes() -> Vec<Volume> {
             .map(String::from_utf16_lossy)
             .collect()
     };
-    let list = roots.iter().filter_map(|r| volume(r)).collect();
+    volumes_at(&roots)
+}
+
+/// The volumes at these roots (`C:\`) only, such as the letters of local
+/// physical disks, which answer at once; roots without media are left out.
+pub fn volumes_at(roots: &[String]) -> Vec<Volume> {
+    let mut previous = THREAD_ERROR_MODE::default();
+    // SAFETY: plain FFI; suppresses "insert a disk" dialogs on this thread
+    // only, and the previous mode is restored below.
+    let _ = unsafe {
+        SetThreadErrorMode(
+            SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX,
+            Some(&mut previous),
+        )
+    };
+    let list = roots.iter().take(26).filter_map(|r| volume(r)).collect();
     // SAFETY: restores the mode saved above.
     let _ = unsafe { SetThreadErrorMode(previous, None) };
     list
+}
+
+/// The drive root of an absolute `X:\...` path, such as `C:\`; `None` for
+/// relative, UNC and device paths.
+fn drive_root(path: &str) -> Option<String> {
+    let mut chars = path.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(letter), Some(':'), Some('\\')) if letter.is_ascii_alphabetic() => {
+            Some(format!("{}:\\", letter.to_ascii_uppercase()))
+        }
+        _ => None,
+    }
+}
+
+/// Whether `path` is on a local fixed drive, so reading it answers at once:
+/// not a mapped network drive (a lost share can stall for many seconds),
+/// a removable or optical drive (an empty one can ask for media), or a
+/// UNC or device path. Asking Windows the drive type touches no media.
+pub fn on_fixed_drive(path: &str) -> bool {
+    let Some(root) = drive_root(path) else {
+        return false;
+    };
+    let root = wide(&root);
+    // SAFETY: `root` is NUL-terminated and outlives the call.
+    unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) == 3 }
 }
 
 fn volume(root: &str) -> Option<Volume> {
@@ -137,6 +168,23 @@ fn volume(root: &str) -> Option<Volume> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_absolute_drive_paths_have_a_root() {
+        assert_eq!(drive_root(r"c:\Apps\a.exe").as_deref(), Some(r"C:\"));
+        for path in [
+            r"C:a.exe",
+            r"\\server\share\a.exe",
+            r"\\?\C:\a.exe",
+            "a.exe",
+            "",
+        ] {
+            assert_eq!(drive_root(path), None, "{path:?}");
+        }
+        let system = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+        assert!(on_fixed_drive(&format!(r"{system}\Windows\notepad.exe")));
+        assert!(!on_fixed_drive(r"\\server\share\a.exe"));
+    }
 
     #[test]
     fn lists_the_system_drive_with_its_space() {

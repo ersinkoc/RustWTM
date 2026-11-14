@@ -273,6 +273,19 @@ impl ProcessHandle {
         self.handle.raw()
     }
 
+    /// GDI and USER objects the process holds, as Task Manager's columns;
+    /// 0 and 0 for processes without a window station.
+    pub fn gui_objects(&self) -> (u32, u32) {
+        use windows::Win32::System::Threading::{GR_GDIOBJECTS, GR_USEROBJECTS, GetGuiResources};
+        // SAFETY: valid handle owned by `self`; a failure returns 0.
+        unsafe {
+            (
+                GetGuiResources(self.raw(), GR_GDIOBJECTS),
+                GetGuiResources(self.raw(), GR_USEROBJECTS),
+            )
+        }
+    }
+
     /// Creation time as a FILETIME value; identifies the process across PID reuse.
     pub fn create_time(&self) -> Result<i64> {
         let mut create = FILETIME::default();

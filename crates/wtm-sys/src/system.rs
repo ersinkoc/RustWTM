@@ -19,9 +19,9 @@ struct ProcessorPerformance {
     idle: i64,
     kernel: i64,
     user: i64,
-    _dpc: i64,
-    _interrupt: i64,
-    _interrupt_count: u32,
+    dpc: i64,
+    interrupt: i64,
+    interrupt_count: u32,
 }
 
 const ALL_PROCESSOR_GROUPS: u16 = 0xFFFF;
@@ -32,6 +32,12 @@ pub struct CpuTimes {
     pub idle: u64,
     pub kernel: u64,
     pub user: u64,
+    /// Time in deferred procedure calls and interrupt service routines;
+    /// zero from [`cpu_times`], which does not report them.
+    pub dpc: u64,
+    pub interrupt: u64,
+    /// Interrupts serviced so far.
+    pub interrupts: u64,
 }
 
 pub fn cpu_times() -> Result<CpuTimes> {
@@ -44,6 +50,7 @@ pub fn cpu_times() -> Result<CpuTimes> {
         idle: filetime_to_u64(idle),
         kernel: filetime_to_u64(kernel),
         user: filetime_to_u64(user),
+        ..Default::default()
     })
 }
 
@@ -76,6 +83,9 @@ pub fn per_cpu_times() -> Result<Vec<CpuTimes>> {
             idle: p.idle as u64,
             kernel: p.kernel as u64,
             user: p.user as u64,
+            dpc: p.dpc as u64,
+            interrupt: p.interrupt as u64,
+            interrupts: u64::from(p.interrupt_count),
         })
         .collect())
 }
@@ -87,11 +97,34 @@ pub struct NetCounters {
     pub sent: u64,
 }
 
-/// The counters of every physical adapter that is up, keyed by its LUID.
-/// Adapters come and go (Wi-Fi reconnecting, a cable plugged back in,
-/// resume from sleep) and keep their counts meanwhile, so traffic must be
-/// taken per adapter, never as the difference of two totals.
-pub fn net_adapters() -> Result<Vec<(u64, NetCounters)>> {
+/// A physical network adapter that is up.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NetAdapter {
+    pub luid: u64,
+    /// The interface's name, such as "Wi-Fi" or "Ethernet".
+    pub alias: String,
+    /// The hardware, such as "Intel(R) Wi-Fi 6E AX211 160MHz".
+    pub description: String,
+    /// IANA interface type: 6 Ethernet, 71 Wi-Fi, 243 and 244 mobile.
+    pub if_type: u32,
+    /// Link speed in bits per second, of the faster direction.
+    pub link_speed: u64,
+    pub counters: NetCounters,
+}
+
+/// Most adapters reported; more are ignored.
+const MAX_ADAPTERS: usize = 32;
+
+fn wide_text(buf: &[u16]) -> String {
+    let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..end])
+}
+
+/// Every physical adapter that is up, with its counters. Adapters come
+/// and go (Wi-Fi reconnecting, a cable plugged back in, resume from
+/// sleep) and keep their counts meanwhile, so traffic must be taken per
+/// adapter (by LUID), never as the difference of two totals.
+pub fn net_adapters() -> Result<Vec<NetAdapter>> {
     let mut table: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
     // SAFETY: GetIfTable2 allocates the table; it is freed below.
     unsafe { GetIfTable2(&mut table).ok()? };
@@ -101,14 +134,24 @@ pub fn net_adapters() -> Result<Vec<(u64, NetCounters)>> {
         let rows =
             std::slice::from_raw_parts((*table).Table.as_ptr(), (*table).NumEntries as usize);
         // Virtual adapters (switches, filters) would count traffic twice.
-        for row in rows.iter().filter(|r| {
-            r.InterfaceAndOperStatusFlags._bitfield & 1 != 0 && r.OperStatus == IfOperStatusUp
-        }) {
-            let counters = NetCounters {
-                received: row.InOctets,
-                sent: row.OutOctets,
-            };
-            adapters.push((row.InterfaceLuid.Value, counters));
+        for row in rows
+            .iter()
+            .filter(|r| {
+                r.InterfaceAndOperStatusFlags._bitfield & 1 != 0 && r.OperStatus == IfOperStatusUp
+            })
+            .take(MAX_ADAPTERS)
+        {
+            adapters.push(NetAdapter {
+                luid: row.InterfaceLuid.Value,
+                alias: wide_text(&row.Alias),
+                description: wide_text(&row.Description),
+                if_type: row.Type,
+                link_speed: row.ReceiveLinkSpeed.max(row.TransmitLinkSpeed),
+                counters: NetCounters {
+                    received: row.InOctets,
+                    sent: row.OutOctets,
+                },
+            });
         }
         FreeMibTable(table.cast());
     }
@@ -156,6 +199,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn wide_text_stops_at_the_terminator() {
+        let mut buf = [0u16; 8];
+        for (slot, c) in buf.iter_mut().zip("Wi-Fi".encode_utf16()) {
+            *slot = c;
+        }
+        assert_eq!(wide_text(&buf), "Wi-Fi");
+        assert_eq!(wide_text(&[0x41, 0x42]), "AB", "no terminator");
+    }
+
+    #[test]
     fn counters_are_sane() {
         let t = cpu_times().unwrap();
         assert!(t.kernel >= t.idle);
@@ -167,10 +220,14 @@ mod tests {
         assert!(cores.iter().all(|c| c.kernel >= c.idle));
         let a = net_adapters().unwrap();
         let b = net_adapters().unwrap();
-        for (luid, now) in &b {
-            if let Some((_, before)) = a.iter().find(|(l, _)| l == luid) {
-                assert!(now.received >= before.received && now.sent >= before.sent);
+        assert!(b.len() <= MAX_ADAPTERS);
+        for now in &b {
+            assert!(!now.alias.is_empty(), "{now:?}");
+            if let Some(before) = a.iter().find(|x| x.luid == now.luid) {
+                let (x, y) = (before.counters, now.counters);
+                assert!(y.received >= x.received && y.sent >= x.sent);
             }
         }
+        assert!(cores.iter().all(|c| c.kernel >= c.dpc + c.interrupt));
     }
 }

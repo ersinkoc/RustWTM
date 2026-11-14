@@ -5,7 +5,7 @@ use windows::Win32::System::RemoteDesktop::{
     WTS_CONNECTSTATE_CLASS, WTS_INFO_CLASS, WTS_SESSION_INFOW, WTSActive, WTSConnectQuery,
     WTSConnected, WTSDisconnectSession, WTSDisconnected, WTSDomainName, WTSDown,
     WTSEnumerateSessionsW, WTSFreeMemory, WTSIdle, WTSInit, WTSListen, WTSLogoffSession,
-    WTSQuerySessionInformationW, WTSReset, WTSShadow, WTSUserName,
+    WTSQuerySessionInformationW, WTSReset, WTSSendMessageW, WTSShadow, WTSUserName,
 };
 use windows::core::PWSTR;
 
@@ -101,6 +101,50 @@ pub fn disconnect(session: u32) -> Result<()> {
     Ok(())
 }
 
+/// Longest title and text sent, in characters.
+pub const MESSAGE_TITLE_MAX: usize = 256;
+pub const MESSAGE_TEXT_MAX: usize = 4096;
+
+/// UTF-16 of `s`, cut to `max` characters.
+fn utf16_bounded(s: &str, max: usize) -> Vec<u16> {
+    s.chars()
+        .take(max)
+        .collect::<String>()
+        .encode_utf16()
+        .collect()
+}
+
+/// Shows a message box with `title` and `text` on `session`'s desktop, as
+/// Task Manager's Send message, without waiting for the user to close it.
+/// Other users' sessions need administrator rights.
+pub fn send_message(session: u32, title: &str, text: &str) -> Result<()> {
+    use windows::Win32::UI::WindowsAndMessaging::{MB_ICONINFORMATION, MB_OK, MESSAGEBOX_RESULT};
+    let mut title = utf16_bounded(title, MESSAGE_TITLE_MAX);
+    let mut text = utf16_bounded(text, MESSAGE_TEXT_MAX);
+    let (title_bytes, text_bytes) = ((title.len() * 2) as u32, (text.len() * 2) as u32);
+    title.push(0);
+    text.push(0);
+    let mut response = MESSAGEBOX_RESULT(0);
+    // SAFETY: both strings are NUL-terminated and outlive the call, their
+    // lengths are given in bytes without the NUL; `bwait` is false, so the
+    // call returns at once and `response` is only written, never awaited.
+    unsafe {
+        WTSSendMessageW(
+            None,
+            session,
+            windows::core::PCWSTR(title.as_ptr()),
+            title_bytes,
+            windows::core::PCWSTR(text.as_ptr()),
+            text_bytes,
+            MB_OK | MB_ICONINFORMATION,
+            0,
+            &mut response,
+            false,
+        )?
+    };
+    Ok(())
+}
+
 /// Signs the user of `session` out; their programs close and unsaved work
 /// is lost. Other users' sessions need administrator rights.
 pub fn log_off(session: u32) -> Result<()> {
@@ -112,6 +156,17 @@ pub fn log_off(session: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn messages_are_cut_to_their_limits_by_character() {
+        assert_eq!(
+            utf16_bounded("hello", 3),
+            "hel".encode_utf16().collect::<Vec<_>>()
+        );
+        // A character outside the BMP stays whole (two UTF-16 units).
+        assert_eq!(utf16_bounded("😀ab", 1).len(), 2);
+        assert!(utf16_bounded("", 10).is_empty());
+    }
 
     #[test]
     fn unknown_sessions_cannot_be_disconnected_or_signed_out() {

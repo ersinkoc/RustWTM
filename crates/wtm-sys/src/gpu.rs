@@ -16,12 +16,17 @@ use crate::{Error, Result};
 const PDH_CSTATUS_VALID_DATA: u32 = 0;
 const PDH_CSTATUS_NEW_DATA: u32 = 1;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct GpuUsage {
     /// Busiest engine type (3D, copy, video, ...) for this process, 0..=100.
     pub percent: f32,
     /// Dedicated GPU memory in bytes.
     pub dedicated_bytes: u64,
+    /// Shared (system) memory the GPU uses for this process, in bytes.
+    pub shared_bytes: u64,
+    /// The busiest engine while it is in use: the GPU's LUID (as
+    /// [`GpuAdapterUsage::luid`]) and the engine type, such as "3D".
+    pub engine: Option<(String, String)>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -31,12 +36,42 @@ pub struct GpuSample {
     pub total_percent: f32,
     /// Load of every engine type (3D, Copy, VideoDecode, ...), by name.
     pub engines: Vec<(String, f32)>,
+    /// Each GPU's own load and memory, ordered by LUID.
+    pub adapters: Vec<GpuAdapterUsage>,
+}
+
+/// The load and memory use of one GPU, as Task Manager shows per GPU.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GpuAdapterUsage {
+    /// `{high:08x}_{low:08x}`, the same text as [`Adapter::luid`].
+    pub luid: String,
+    /// Busiest engine type of this GPU, 0..=100.
+    pub percent: f32,
+    /// Load of each engine type of this GPU, by name.
+    pub engines: Vec<(String, f32)>,
+    /// Dedicated (on-board) and shared (system) memory in use, in bytes;
+    /// `None` without the "GPU Adapter Memory" counters.
+    pub dedicated_used: Option<u64>,
+    pub shared_used: Option<u64>,
+}
+
+/// Most GPUs reported; more are ignored.
+const MAX_ADAPTERS: usize = 16;
+
+/// The text of a LUID as [`Adapter::luid`] writes it.
+fn luid_text(high: u32, low: u32) -> String {
+    format!("{high:08x}_{low:08x}")
 }
 
 pub struct GpuSampler {
     query: PDH_HQUERY,
     engine: PDH_HCOUNTER,
     memory: PDH_HCOUNTER,
+    /// Per process; `None` where Windows lacks the counter.
+    shared_memory: Option<PDH_HCOUNTER>,
+    /// Per GPU; `None` where Windows lacks the "GPU Adapter Memory" set.
+    adapter_dedicated: Option<PDH_HCOUNTER>,
+    adapter_shared: Option<PDH_HCOUNTER>,
     /// Kept between samples: there is one engine instance per process and
     /// engine, often thousands.
     reader: ArrayReader,
@@ -73,6 +108,9 @@ impl GpuSampler {
             query,
             engine: PDH_HCOUNTER::default(),
             memory: PDH_HCOUNTER::default(),
+            shared_memory: None,
+            adapter_dedicated: None,
+            adapter_shared: None,
             reader: ArrayReader::default(),
             totals: Totals::default(),
         };
@@ -96,6 +134,27 @@ impl GpuSampler {
                     &mut sampler.memory,
                 ),
             )?;
+        }
+        for (path, slot) in [
+            (
+                w!(r"\GPU Process Memory(*)\Shared Usage"),
+                &mut sampler.shared_memory,
+            ),
+            (
+                w!(r"\GPU Adapter Memory(*)\Dedicated Usage"),
+                &mut sampler.adapter_dedicated,
+            ),
+            (
+                w!(r"\GPU Adapter Memory(*)\Shared Usage"),
+                &mut sampler.adapter_shared,
+            ),
+        ] {
+            let mut counter = PDH_HCOUNTER::default();
+            // SAFETY: valid query; static, NUL-terminated counter path.
+            // Optional: older builds have no per-adapter memory counters.
+            if unsafe { PdhAddEnglishCounterW(sampler.query, path, 0, &mut counter) } == 0 {
+                *slot = Some(counter);
+            }
         }
         // Utilization is a rate counter: prime it so the next sample has a delta.
         // SAFETY: valid query.
@@ -121,10 +180,31 @@ impl GpuSampler {
         let mut out = acc.finish();
         self.reader.read(self.memory, PDH_FMT_LARGE, |name, item| {
             // SAFETY: requested as PDH_FMT_LARGE.
-            add_memory(&mut out, name, unsafe {
+            add_memory(&mut out, name, false, unsafe {
                 item.FmtValue.Anonymous.largeValue
             });
         })?;
+        if let Some(counter) = self.shared_memory {
+            // A failed read leaves shared memory unknown, not the sample.
+            let _ = self.reader.read(counter, PDH_FMT_LARGE, |name, item| {
+                // SAFETY: requested as PDH_FMT_LARGE.
+                add_memory(&mut out, name, true, unsafe {
+                    item.FmtValue.Anonymous.largeValue
+                });
+            });
+        }
+        for (counter, shared) in [(self.adapter_dedicated, false), (self.adapter_shared, true)] {
+            let Some(counter) = counter else {
+                continue;
+            };
+            // A failed read leaves that figure unknown, not the sample.
+            let _ = self.reader.read(counter, PDH_FMT_LARGE, |name, item| {
+                // SAFETY: requested as PDH_FMT_LARGE.
+                add_adapter_memory(&mut out, name, shared, unsafe {
+                    item.FmtValue.Anonymous.largeValue
+                });
+            });
+        }
         Ok(out)
     }
 }
@@ -156,8 +236,8 @@ type EngineId = (u32, u32, u32, u32);
 /// type its busiest engine: two video engines at 60% each are a type at
 /// 60%, not 100%. An engine's load is what all processes put on it.
 struct Aggregate<'a> {
-    /// Busiest engine per process.
-    by_process: FastMap<u32, f64>,
+    /// Busiest engine per process: its load, the engine and its type's slot.
+    by_process: FastMap<u32, (f64, EngineId, usize)>,
     /// Summed over processes per engine, with its type's slot.
     by_engine: FastMap<EngineId, (usize, f64)>,
     totals: &'a mut Totals,
@@ -187,21 +267,41 @@ impl<'a> Aggregate<'a> {
             self.seen.resize(slot + 1, false);
         }
         self.seen[slot] = true;
-        let busiest = self.by_process.entry(pid).or_default();
-        *busiest = busiest.max(v);
+        let busiest = self.by_process.entry(pid).or_insert((v, engine, slot));
+        if v > busiest.0 {
+            *busiest = (v, engine, slot);
+        }
         self.by_engine.entry(engine).or_insert((slot, 0.0)).1 += v;
     }
 
     /// Types nothing reported this time are left out.
     fn finish(self) -> GpuSample {
-        for (slot, v) in self.by_engine.into_values() {
+        let mut out = GpuSample::default();
+        for ((high, low, _, _), (slot, v)) in self.by_engine {
             let total = &mut self.totals.0[slot].1;
             *total = total.max(v);
+            let Some(adapter) = adapter_entry(&mut out.adapters, high, low) else {
+                continue;
+            };
+            let name = &self.totals.0[slot].0;
+            let v = v.min(100.0) as f32;
+            match adapter.engines.iter_mut().find(|(n, _)| n == name) {
+                Some(engine) => engine.1 = engine.1.max(v),
+                None => adapter.engines.push((name.clone(), v)),
+            }
         }
-        let mut out = GpuSample::default();
+        for adapter in &mut out.adapters {
+            adapter.engines.sort_by(|a, b| a.0.cmp(&b.0));
+            adapter.percent = adapter.engines.iter().fold(0.0, |a, e| a.max(e.1));
+        }
         out.per_process.reserve(self.by_process.len());
-        for (pid, v) in self.by_process {
-            out.per_process.entry(pid).or_default().percent = v.clamp(0.0, 100.0) as f32;
+        for (pid, (v, (high, low, _, _), slot)) in self.by_process {
+            let usage = out.per_process.entry(pid).or_default();
+            usage.percent = v.clamp(0.0, 100.0) as f32;
+            // Named only while busy, as Task Manager's GPU engine column.
+            if v > 0.0 {
+                usage.engine = Some((luid_text(high, low), self.totals.0[slot].0.clone()));
+            }
         }
         let live = || {
             self.totals
@@ -220,12 +320,65 @@ impl<'a> Aggregate<'a> {
     }
 }
 
-/// Adds one instance of the dedicated memory counter.
-fn add_memory(out: &mut GpuSample, name: &str, v: i64) {
+/// The entry of one GPU, added in LUID order when new; `None` past
+/// [`MAX_ADAPTERS`].
+fn adapter_entry(
+    adapters: &mut Vec<GpuAdapterUsage>,
+    high: u32,
+    low: u32,
+) -> Option<&mut GpuAdapterUsage> {
+    let luid = luid_text(high, low);
+    let i = match adapters.binary_search_by(|a| a.luid.cmp(&luid)) {
+        Ok(i) => i,
+        Err(_) if adapters.len() >= MAX_ADAPTERS => return None,
+        Err(i) => {
+            adapters.insert(
+                i,
+                GpuAdapterUsage {
+                    luid,
+                    ..Default::default()
+                },
+            );
+            i
+        }
+    };
+    adapters.get_mut(i)
+}
+
+/// `luid_0x00000000_0x0000C9D3_phys_0` -> the LUID's two halves.
+fn parse_adapter_instance(name: &str) -> Option<(u32, u32)> {
+    let mut parts = name.strip_prefix("luid_")?.split('_');
+    let hex = |p: Option<&str>| u32::from_str_radix(p?.strip_prefix("0x")?, 16).ok();
+    Some((hex(parts.next())?, hex(parts.next())?))
+}
+
+/// Adds one instance of a "GPU Adapter Memory" counter to its GPU.
+fn add_adapter_memory(out: &mut GpuSample, name: &str, shared: bool, v: i64) {
+    let Some((high, low)) = parse_adapter_instance(name) else {
+        return;
+    };
+    let Some(adapter) = adapter_entry(&mut out.adapters, high, low) else {
+        return;
+    };
+    let slot = if shared {
+        &mut adapter.shared_used
+    } else {
+        &mut adapter.dedicated_used
+    };
+    *slot = Some(slot.unwrap_or(0) + v.max(0) as u64);
+}
+
+/// Adds one instance of the dedicated or shared process memory counter.
+fn add_memory(out: &mut GpuSample, name: &str, shared: bool, v: i64) {
     let Some(pid) = parse_pid(name) else {
         return;
     };
-    out.per_process.entry(pid).or_default().dedicated_bytes += v.max(0) as u64;
+    let usage = out.per_process.entry(pid).or_default();
+    if shared {
+        usage.shared_bytes += v.max(0) as u64;
+    } else {
+        usage.dedicated_bytes += v.max(0) as u64;
+    }
 }
 
 /// A sample from raw `(instance name, value)` pairs of the engine
@@ -239,7 +392,7 @@ fn aggregate(engine: &[(String, f64)], memory: &[(String, i64)]) -> GpuSample {
     }
     let mut out = acc.finish();
     for (name, v) in memory {
-        add_memory(&mut out, name, *v);
+        add_memory(&mut out, name, false, *v);
     }
     out
 }
@@ -398,14 +551,22 @@ mod tests {
             ("pid_4_luid_0x0_0x1_phys_0".to_owned(), -5),
             ("junk".to_owned(), 7),
         ];
-        let s = aggregate(&engine, &memory);
-        let get = |pid| s.per_process.get(&pid).copied();
+        let mut s = aggregate(&engine, &memory);
+        add_memory(&mut s, "pid_1_luid_0x0_0x1_phys_0", true, 4096);
+        let get = |pid| s.per_process.get(&pid).cloned();
         assert_eq!(
             get(1),
             Some(GpuUsage {
                 percent: 30.0,
-                dedicated_bytes: 1024
+                dedicated_bytes: 1024,
+                shared_bytes: 4096,
+                // The busiest engine names its GPU and type.
+                engine: Some(("00000000_00000001".into(), "3D".into())),
             })
+        );
+        assert_eq!(
+            get(3).and_then(|u| u.engine).map(|e| e.1).as_deref(),
+            Some("VideoDecode")
         );
         assert_eq!(get(2).map(|u| u.percent), Some(70.0));
         // Per-process and total values are capped at 100%.
@@ -505,6 +666,81 @@ mod tests {
     }
 
     #[test]
+    fn splits_load_and_memory_per_gpu() {
+        let mut totals = Totals::default();
+        let mut acc = Aggregate::new(&mut totals);
+        // GPU 0xA: two 3D engines and a copy engine; GPU 0xB: video only.
+        acc.engine(
+            "pid_1_luid_0x00000000_0x0000000A_phys_0_eng_0_engtype_3D",
+            30.0,
+        );
+        acc.engine(
+            "pid_2_luid_0x00000000_0x0000000A_phys_0_eng_0_engtype_3D",
+            20.0,
+        );
+        acc.engine(
+            "pid_1_luid_0x00000000_0x0000000A_phys_0_eng_1_engtype_3D",
+            40.0,
+        );
+        acc.engine(
+            "pid_1_luid_0x00000000_0x0000000A_phys_0_eng_2_engtype_Copy",
+            5.0,
+        );
+        acc.engine(
+            "pid_3_luid_0x00000001_0x0000000B_phys_0_eng_0_engtype_VideoDecode",
+            70.0,
+        );
+        let mut s = acc.finish();
+        for (name, shared, v) in [
+            ("luid_0x00000000_0x0000000A_phys_0", false, 1000),
+            ("luid_0x00000000_0x0000000A_phys_1", false, 24),
+            ("luid_0x00000000_0x0000000A_phys_0", true, 77),
+            ("luid_0x00000002_0x0000000C_phys_0", false, -3),
+            ("_Total", false, 5),
+        ] {
+            add_adapter_memory(&mut s, name, shared, v);
+        }
+        let luids: Vec<_> = s.adapters.iter().map(|a| a.luid.as_str()).collect();
+        assert_eq!(
+            luids,
+            [
+                "00000000_0000000a",
+                "00000001_0000000b",
+                "00000002_0000000c"
+            ]
+        );
+        let a = &s.adapters[0];
+        // Engine 0 carries 30 + 20; engine 1 is the busiest 3D engine.
+        assert_eq!(
+            a.engines,
+            [("3D".to_owned(), 50.0), ("Copy".to_owned(), 5.0)]
+        );
+        assert_eq!(a.percent, 50.0);
+        assert_eq!((a.dedicated_used, a.shared_used), (Some(1024), Some(77)));
+        let b = &s.adapters[1];
+        assert_eq!(b.percent, 70.0);
+        assert_eq!((b.dedicated_used, b.shared_used), (None, None));
+        // A GPU with memory but no engine instances still shows, idle.
+        let c = &s.adapters[2];
+        assert_eq!((c.percent, c.dedicated_used), (0.0, Some(0)));
+        assert_eq!(s.total_percent, 70.0);
+    }
+
+    #[test]
+    fn caps_the_number_of_gpus() {
+        let mut s = GpuSample::default();
+        for i in 0..(MAX_ADAPTERS as u32 + 5) {
+            add_adapter_memory(&mut s, &format!("luid_0x0_0x{i:x}_phys_0"), false, 1);
+        }
+        assert_eq!(s.adapters.len(), MAX_ADAPTERS);
+        assert_eq!(
+            parse_adapter_instance("luid_0x1_0xff_phys_0"),
+            Some((1, 255))
+        );
+        assert_eq!(parse_adapter_instance("pid_1_luid_0x1_0xff"), None);
+    }
+
+    #[test]
     fn engine_types_missing_from_a_sample_are_left_out() {
         let mut totals = Totals::default();
         let mut acc = Aggregate::new(&mut totals);
@@ -528,6 +764,9 @@ mod tests {
             query: PDH_HQUERY::default(),
             engine: PDH_HCOUNTER::default(),
             memory: PDH_HCOUNTER::default(),
+            shared_memory: None,
+            adapter_dedicated: None,
+            adapter_shared: None,
             reader: ArrayReader::default(),
             totals: Totals::default(),
         };

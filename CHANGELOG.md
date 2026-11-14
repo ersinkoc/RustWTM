@@ -6,6 +6,115 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Performance reaches Windows Task Manager parity: every disk, network adapter
+and GPU has its own page and graphs, and each page lists what Task Manager
+lists under its graph. IPC moves to protocol 17 (the sample carries each
+adapter's traffic and each GPU's load and memory); the GUI and the service
+must be updated together.
+
+### Added
+
+- Performance lists each physical disk ("Disk 0 (C:)"), each network adapter
+  ("Wi-Fi", "Ethernet") and each GPU ("GPU 0") in the rail and the compact
+  chip row, each with its own sparkline. The selected device is remembered; a
+  device that goes away falls back to the next one of its kind or to the
+  combined view.
+- Disk pages graph active time and the read/write transfer rate, and list the
+  active time, average response time, read and write speed and queue length,
+  then the model, SSD/HDD and bus, capacity, formatted size, system disk, page
+  file and each volume's free space. While the page of an internal SSD is
+  open it also shows the drive's temperature with its warning and critical
+  limits and, for NVMe drives, the remaining endurance, available spare,
+  power-on hours, data read and written, unsafe shutdowns and media errors.
+  Hard disks and USB drives show none, since asking could spin them up.
+- Network adapter pages graph the adapter's own receive and send traffic and
+  list it in bytes and bits per second, the link utilization, adapter name,
+  connection type, link speed, MAC address, IPv4 and IPv6 addresses and DNS
+  suffix; Wi-Fi
+  adds the network name, signal strength and radio standard, read only while
+  its page is open because Windows 11 24H2 ties them to location access.
+- GPU pages graph the GPU's utilization, four engine graphs (3D, Copy, Video
+  Encode, Video Decode first, as Task Manager), and dedicated and shared memory
+  against the card's capacity, and list the memory figures, temperature, fan
+  speed and memory clock, model, driver version and date and DirectX feature
+  level, with the engine search. The rail shows each GPU's temperature with
+  its load ("38% (46 °C)"), as Task Manager does.
+- The CPU page lists the utilization, current speed, processes, threads,
+  handles and up time, the kernel, DPC and interrupt time, interrupts, context
+  switches and system calls per second and the processor queue, then the
+  model, base speed, sockets, cores, logical processors, virtualization and
+  L1/L2/L3 cache sizes.
+- The Memory page adds compressed memory and, from the firmware's SMBIOS
+  table, the memory speed, slots used, form factor, memory type and each
+  module.
+- Every device page has a "Copy details" button, as Task Manager's Copy. The
+  All resources summary shows the up time.
+- Processes offers Task Manager's CPU time, Disk read, Disk write and Status
+  (Running, Suspended, Not responding) columns; the CPU, I/O and Diagnostics
+  column profiles include them.
+- Processes also offers Peak working set, Paged pool, Non-paged pool, Page
+  faults and Page faults/s (from the same kernel snapshot as the other memory
+  columns; the Memory profile includes them), and GPU engine ("GPU 0 - 3D",
+  numbered as on the Performance page, shown while the process uses it) and
+  Shared GPU memory.
+- Realtime priority is offered, after a warning, as in Task Manager. Without
+  administrator rights Windows quietly applies High instead; RustWTM reads
+  the priority back and reports that.
+- Users: "Send message…" in a session's menu shows a message on that user's
+  screen, as Task Manager's Send message, without waiting for an answer.
+- Processes offers GDI objects and USER objects. They are read only while one
+  of those columns is shown, opening each process for a moment with query
+  rights; processes this window cannot open show "—", and app rows show the
+  sum of what was read.
+- Services shows each service's host group (Task Manager's Group column, the
+  `svchost -k` group), searchable and sortable.
+- App history lists the network bytes each app received and sent in the
+  window (Task Manager's Network column; the total, with received and sent on
+  hover). The history database gains two columns, added to older databases
+  when the service opens them; minutes recorded before have none.
+- Settings has "Default start page": the window opens on the chosen page, or
+  on the last page used, as before.
+- Startup apps shows Task Manager's Startup impact: High, Medium or Low by
+  Microsoft's limits (more than 1 s of CPU or 3 MB of disk is High; 300 ms or
+  300 KB is Medium), with the CPU and disk figures on hover, or "Not
+  measured". The figures are those Windows records for the account at its
+  last sign-in (`WDI\LogFiles\StartupInfo`), with the processes a program
+  started counted toward it. Only administrators may read them, so the
+  service reads them for the connected account (taken from the connection,
+  never from the request, so nobody sees another account's) and an elevated
+  window reads them itself; otherwise the column shows "—". Command lines in
+  those reports are never read out. Startup-folder shortcuts are not matched
+  and show "Not measured".
+- Set affinity: the process details choose the processors a process may run
+  on, out of those of its processor group, as Task Manager's dialog.
+- "Go to services" in a process's menu opens Services with the services that
+  process hosts; the Services search also finds a service by its process ID,
+  and "Open Services" opens the Windows Services console.
+- Startup apps lists each program's publisher (the company in its version
+  resource), searchable and sortable. It is read once per command and only
+  for programs on local fixed drives, never mapped network, removable or
+  optical drives; a program on a sleeping hard disk may still wake it once.
+- Settings has "Always on top", which keeps the window above other windows
+  and comes back after an alert or the tray brings the window forward.
+
+### Changed
+
+- The combined Disk & I/O page explains that it graphs the I/O of all
+  processes and that each disk has its own page. Combined network and GPU
+  views appear only when Windows reports no single adapter.
+- IPC protocol 17: `SystemStats` gains `net_adapters` and `gpus`, each disk
+  its average response time and queue length, and each process `memory`
+  (peak working set, pools, page faults) and `gpu_detail` (shared GPU memory,
+  busiest engine as `{ "luid", "kind" }`). `wtm list --json` includes both
+  objects in each process. App history rows and summaries gain `net`
+  (bytes received and sent), and the new `StartupImpact` request returns the
+  connected account's startup usage per program.
+
+### Fixed
+
+- Right-clicking a user session's text now opens its menu; before, only the
+  empty parts of the row did.
+
 ## [0.31.0] - 2026-11-13
 
 A visual redesign after the Windows 11 (Fluent) look. No setting, default or

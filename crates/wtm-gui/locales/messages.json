@@ -359,18 +359,6 @@
     "fr": "Le filtre agit sur les tuiles des processeurs logiques ; le graphique principal affiche la charge CPU totale.",
     "es": "El filtro afecta a los mosaicos de procesadores lógicos; el gráfico principal muestra el uso total de CPU."
   },
-  "Combined adapter traffic; individual adapter history is not recorded.": {
-    "tr": "Birleşik bağdaştırıcı trafiği; ayrı bağdaştırıcı geçmişi kaydedilmez.",
-    "de": "Zusammengefasster Adapterverkehr; einzelne Adapterverläufe werden nicht aufgezeichnet.",
-    "fr": "Trafic cumulé des adaptateurs ; aucun historique individuel n’est enregistré.",
-    "es": "Tráfico combinado de adaptadores; no se registra el historial individual."
-  },
-  "The chart shows total process I/O. Physical disk counters below are current readings.": {
-    "tr": "Grafik toplam işlem G/Ç verisini gösterir. Aşağıdaki fiziksel disk sayaçları güncel ölçümlerdir.",
-    "de": "Das Diagramm zeigt die gesamte Prozess-E/A. Die physischen Datenträgerzähler darunter sind aktuelle Werte.",
-    "fr": "Le graphique montre les E/S totales des processus. Les compteurs des disques physiques ci-dessous sont actuels.",
-    "es": "El gráfico muestra la E/S total de procesos. Los contadores de discos físicos de abajo son actuales."
-  },
   "Current engine-type totals across GPUs; the chart follows the busiest engine. Per-device history and VRAM are not recorded here.": {
     "tr": "GPU’lar genelinde güncel motor türü toplamları; grafik en yoğun motoru izler. Burada cihaz başına geçmiş ve VRAM kaydedilmez.",
     "de": "Aktuelle Summen je Engine-Typ über alle GPUs; das Diagramm folgt der aktivsten Engine. Gerätespezifischer Verlauf und VRAM werden hier nicht aufgezeichnet.",
@@ -2926,12 +2914,6 @@
     "de": "Entfernt",
     "fr": "Distant",
     "es": "Remoto"
-  },
-  "name or description": {
-    "tr": "ad veya açıklama",
-    "de": "Name oder Beschreibung",
-    "fr": "nom ou description",
-    "es": "nombre o descripción"
   },
   "Description": {
     "tr": "Açıklama",
@@ -9706,5 +9688,563 @@
     "de": "Der Prozess arbeitet in diesem Ordner oder einem Unterordner; der Ordner kann daher erst entfernt oder umbenannt werden, wenn er woandershin wechselt oder beendet wird.",
     "fr": "Le processus travaille dans ce dossier ou l'un de ses sous-dossiers ; le dossier ne peut donc être ni supprimé ni renommé tant qu'il n'en sort pas ou ne se termine pas.",
     "es": "El proceso trabaja en esta carpeta o en una subcarpeta, así que la carpeta no se puede eliminar ni cambiar de nombre hasta que se mueva a otra parte o termine."
+  },
+  "Active time": {
+    "tr": "Etkin süre",
+    "de": "Aktive Zeit",
+    "fr": "Temps d'activité",
+    "es": "Tiempo de actividad"
+  },
+  "Adapter name": {
+    "tr": "Bağdaştırıcı adı",
+    "de": "Adaptername",
+    "fr": "Nom de l'adaptateur",
+    "es": "Nombre del adaptador"
+  },
+  "Average response time": {
+    "tr": "Ortalama yanıt süresi",
+    "de": "Durchschnittliche Antwortzeit",
+    "fr": "Temps de réponse moyen",
+    "es": "Tiempo medio de respuesta"
+  },
+  "Base speed": {
+    "tr": "Taban hız",
+    "de": "Grundgeschwindigkeit",
+    "fr": "Vitesse de base",
+    "es": "Velocidad base"
+  },
+  "Combined traffic of all adapters.": {
+    "tr": "Tüm bağdaştırıcıların toplam trafiği.",
+    "de": "Gesamtverkehr aller Adapter.",
+    "fr": "Trafic cumulé de tous les adaptateurs.",
+    "es": "Tráfico combinado de todos los adaptadores."
+  },
+  "Compressed": {
+    "tr": "Sıkıştırılmış",
+    "de": "Komprimiert",
+    "fr": "Compressée",
+    "es": "Comprimida"
+  },
+  "Connection type": {
+    "tr": "Bağlantı türü",
+    "de": "Verbindungstyp",
+    "fr": "Type de connexion",
+    "es": "Tipo de conexión"
+  },
+  "Context switches/s": {
+    "tr": "Bağlam geçişi/sn",
+    "de": "Kontextwechsel/s",
+    "fr": "Changements de contexte/s",
+    "es": "Cambios de contexto/s"
+  },
+  "Copy details": {
+    "tr": "Ayrıntıları kopyala",
+    "de": "Details kopieren",
+    "fr": "Copier les détails",
+    "es": "Copiar detalles"
+  },
+  "Copy these readings and facts as text, as Task Manager's Copy does.": {
+    "tr": "Bu ölçümleri ve bilgileri, Görev Yöneticisi’nin Kopyala komutu gibi metin olarak kopyalar.",
+    "de": "Diese Messwerte und Angaben als Text kopieren, wie „Kopieren“ im Task-Manager.",
+    "fr": "Copie ces mesures et informations sous forme de texte, comme la commande Copier du Gestionnaire des tâches.",
+    "es": "Copia estas lecturas y datos como texto, como hace Copiar en el Administrador de tareas."
+  },
+  "Cores": {
+    "tr": "Çekirdekler",
+    "de": "Kerne",
+    "fr": "Cœurs",
+    "es": "Núcleos"
+  },
+  "DNS suffix": {
+    "tr": "DNS soneki",
+    "de": "DNS-Suffix",
+    "fr": "Suffixe DNS",
+    "es": "Sufijo DNS"
+  },
+  "DPC time": {
+    "tr": "DPC süresi",
+    "de": "DPC-Zeit",
+    "fr": "Temps DPC",
+    "es": "Tiempo de DPC"
+  },
+  "Dedicated GPU memory": {
+    "tr": "Ayrılmış GPU belleği",
+    "de": "Dedizierter GPU-Speicher",
+    "fr": "Mémoire GPU dédiée",
+    "es": "Memoria de GPU dedicada"
+  },
+  "Dedicated GPU memory usage": {
+    "tr": "Ayrılmış GPU belleği kullanımı",
+    "de": "Nutzung des dedizierten GPU-Speichers",
+    "fr": "Utilisation de la mémoire GPU dédiée",
+    "es": "Uso de memoria de GPU dedicada"
+  },
+  "Disk transfer rate": {
+    "tr": "Disk aktarım hızı",
+    "de": "Datenträgerübertragungsrate",
+    "fr": "Taux de transfert du disque",
+    "es": "Velocidad de transferencia del disco"
+  },
+  "Disk {0} ({1})": {
+    "tr": "Disk {0} ({1})",
+    "de": "Datenträger {0} ({1})",
+    "fr": "Disque {0} ({1})",
+    "es": "Disco {0} ({1})"
+  },
+  "Ethernet": {
+    "tr": "Ethernet",
+    "de": "Ethernet",
+    "fr": "Ethernet",
+    "es": "Ethernet"
+  },
+  "Formatted": {
+    "tr": "Biçimlendirilmiş",
+    "de": "Formatiert",
+    "fr": "Formaté",
+    "es": "Formateado"
+  },
+  "GPU {0}": {
+    "tr": "GPU {0}",
+    "de": "GPU {0}",
+    "fr": "GPU {0}",
+    "es": "GPU {0}"
+  },
+  "IPv4 address": {
+    "tr": "IPv4 adresi",
+    "de": "IPv4-Adresse",
+    "fr": "Adresse IPv4",
+    "es": "Dirección IPv4"
+  },
+  "IPv6 address": {
+    "tr": "IPv6 adresi",
+    "de": "IPv6-Adresse",
+    "fr": "Adresse IPv6",
+    "es": "Dirección IPv6"
+  },
+  "Interrupt time": {
+    "tr": "Kesme süresi",
+    "de": "Interruptzeit",
+    "fr": "Temps d'interruption",
+    "es": "Tiempo de interrupción"
+  },
+  "Interrupts/s": {
+    "tr": "Kesme/sn",
+    "de": "Interrupts/s",
+    "fr": "Interruptions/s",
+    "es": "Interrupciones/s"
+  },
+  "Kernel time": {
+    "tr": "Çekirdek zamanı",
+    "de": "Kernelzeit",
+    "fr": "Temps noyau",
+    "es": "Tiempo de kernel"
+  },
+  "L1 cache": {
+    "tr": "L1 önbellek",
+    "de": "L1-Cache",
+    "fr": "Cache L1",
+    "es": "Caché L1"
+  },
+  "Link speed": {
+    "tr": "Bağlantı hızı",
+    "de": "Verbindungsgeschwindigkeit",
+    "fr": "Vitesse de liaison",
+    "es": "Velocidad del enlace"
+  },
+  "Link utilization": {
+    "tr": "Bağlantı kullanımı",
+    "de": "Verbindungsauslastung",
+    "fr": "Utilisation de la liaison",
+    "es": "Uso del enlace"
+  },
+  "Mobile broadband": {
+    "tr": "Mobil geniş bant",
+    "de": "Mobiles Breitband",
+    "fr": "Haut débit mobile",
+    "es": "Banda ancha móvil"
+  },
+  "Module": {
+    "tr": "Modül",
+    "de": "Modul",
+    "fr": "Module",
+    "es": "Módulo"
+  },
+  "Other": {
+    "tr": "Diğer",
+    "de": "Andere",
+    "fr": "Autre",
+    "es": "Otro"
+  },
+  "Page file": {
+    "tr": "Disk belleği dosyası",
+    "de": "Auslagerungsdatei",
+    "fr": "Fichier d'échange",
+    "es": "Archivo de paginación"
+  },
+  "Processor queue": {
+    "tr": "İşlemci kuyruğu",
+    "de": "Prozessorwarteschlange",
+    "fr": "File d'attente processeur",
+    "es": "Cola del procesador"
+  },
+  "Queue length": {
+    "tr": "Kuyruk uzunluğu",
+    "de": "Warteschlangenlänge",
+    "fr": "Longueur de file d'attente",
+    "es": "Longitud de la cola"
+  },
+  "Read speed": {
+    "tr": "Okuma hızı",
+    "de": "Lesegeschwindigkeit",
+    "fr": "Vitesse de lecture",
+    "es": "Velocidad de lectura"
+  },
+  "SSID": {
+    "tr": "SSID",
+    "de": "SSID",
+    "fr": "SSID",
+    "es": "SSID"
+  },
+  "Shared GPU memory": {
+    "tr": "Paylaşılan GPU belleği",
+    "de": "Gemeinsam genutzter GPU-Speicher",
+    "fr": "Mémoire GPU partagée",
+    "es": "Memoria de GPU compartida"
+  },
+  "Shared GPU memory usage": {
+    "tr": "Paylaşılan GPU belleği kullanımı",
+    "de": "Nutzung des gemeinsam genutzten GPU-Speichers",
+    "fr": "Utilisation de la mémoire GPU partagée",
+    "es": "Uso de memoria de GPU compartida"
+  },
+  "Signal strength": {
+    "tr": "Sinyal gücü",
+    "de": "Signalstärke",
+    "fr": "Puissance du signal",
+    "es": "Intensidad de la señal"
+  },
+  "Slots used": {
+    "tr": "Kullanılan yuvalar",
+    "de": "Verwendete Steckplätze",
+    "fr": "Emplacements utilisés",
+    "es": "Ranuras usadas"
+  },
+  "Sockets": {
+    "tr": "Yuvalar",
+    "de": "Sockets",
+    "fr": "Sockets",
+    "es": "Sockets"
+  },
+  "Speed": {
+    "tr": "Hız",
+    "de": "Geschwindigkeit",
+    "fr": "Vitesse",
+    "es": "Velocidad"
+  },
+  "System calls/s": {
+    "tr": "Sistem çağrısı/sn",
+    "de": "Systemaufrufe/s",
+    "fr": "Appels système/s",
+    "es": "Llamadas al sistema/s"
+  },
+  "System disk": {
+    "tr": "Sistem diski",
+    "de": "Systemdatenträger",
+    "fr": "Disque système",
+    "es": "Disco del sistema"
+  },
+  "The chart shows the I/O of all processes together; each disk has its own page with its graphs.": {
+    "tr": "Grafik tüm işlemlerin G/Ç verisini birlikte gösterir; her diskin kendi grafiklerini içeren ayrı bir sayfası vardır.",
+    "de": "Das Diagramm zeigt die E/A aller Prozesse zusammen; jeder Datenträger hat eine eigene Seite mit seinen Diagrammen.",
+    "fr": "Le graphique montre les E/S de tous les processus réunis ; chaque disque a sa propre page avec ses graphiques.",
+    "es": "El gráfico muestra la E/S de todos los procesos en conjunto; cada disco tiene su propia página con sus gráficos."
+  },
+  "Up time": {
+    "tr": "Çalışma süresi",
+    "de": "Betriebszeit",
+    "fr": "Durée d'activité",
+    "es": "Tiempo activo"
+  },
+  "Utilization": {
+    "tr": "Kullanım",
+    "de": "Auslastung",
+    "fr": "Utilisation",
+    "es": "Uso"
+  },
+  "Virtualization": {
+    "tr": "Sanallaştırma",
+    "de": "Virtualisierung",
+    "fr": "Virtualisation",
+    "es": "Virtualización"
+  },
+  "Wi-Fi": {
+    "tr": "Wi-Fi",
+    "de": "Wi-Fi",
+    "fr": "Wi-Fi",
+    "es": "Wi-Fi"
+  },
+  "Wi-Fi standard": {
+    "tr": "Wi-Fi standardı",
+    "de": "Wi-Fi-Standard",
+    "fr": "Norme Wi-Fi",
+    "es": "Estándar Wi-Fi"
+  },
+  "Write speed": {
+    "tr": "Yazma hızı",
+    "de": "Schreibgeschwindigkeit",
+    "fr": "Vitesse d'écriture",
+    "es": "Velocidad de escritura"
+  },
+  "{0}: {1} free of {2}": {
+    "tr": "{0}: {2} içinde {1} boş",
+    "de": "{0}: {1} von {2} frei",
+    "fr": "{0} : {1} libres sur {2}",
+    "es": "{0}: {1} libres de {2}"
+  },
+  "Temperature": {
+    "tr": "Sıcaklık",
+    "de": "Temperatur",
+    "fr": "Température",
+    "es": "Temperatura"
+  },
+  "Warning temperature": {
+    "tr": "Uyarı sıcaklığı",
+    "de": "Warntemperatur",
+    "fr": "Température d'alerte",
+    "es": "Temperatura de advertencia"
+  },
+  "Critical temperature": {
+    "tr": "Kritik sıcaklık",
+    "de": "Kritische Temperatur",
+    "fr": "Température critique",
+    "es": "Temperatura crítica"
+  },
+  "Fan speed": {
+    "tr": "Fan hızı",
+    "de": "Lüfterdrehzahl",
+    "fr": "Vitesse du ventilateur",
+    "es": "Velocidad del ventilador"
+  },
+  "Memory clock": {
+    "tr": "Bellek saati",
+    "de": "Speichertakt",
+    "fr": "Fréquence mémoire",
+    "es": "Reloj de memoria"
+  },
+  "Max memory clock": {
+    "tr": "En yüksek bellek saati",
+    "de": "Maximaler Speichertakt",
+    "fr": "Fréquence mémoire max.",
+    "es": "Reloj de memoria máx."
+  },
+  "MAC address": {
+    "tr": "MAC adresi",
+    "de": "MAC-Adresse",
+    "fr": "Adresse MAC",
+    "es": "Dirección MAC"
+  },
+  "Data read": {
+    "tr": "Okunan veri",
+    "de": "Gelesene Daten",
+    "fr": "Données lues",
+    "es": "Datos leídos"
+  },
+  "Data written": {
+    "tr": "Yazılan veri",
+    "de": "Geschriebene Daten",
+    "fr": "Données écrites",
+    "es": "Datos escritos"
+  },
+  "Set affinity…": {
+    "tr": "Benzeşimi ayarla…",
+    "de": "Zugehörigkeit festlegen…",
+    "fr": "Définir l'affinité…",
+    "es": "Establecer afinidad…"
+  },
+  "Choose at least one processor": {
+    "tr": "En az bir işlemci seçin",
+    "de": "Mindestens einen Prozessor auswählen",
+    "fr": "Choisissez au moins un processeur",
+    "es": "Elija al menos un procesador"
+  },
+  "Go to services": {
+    "tr": "Servislere git",
+    "de": "Zu Diensten wechseln",
+    "fr": "Accéder aux services",
+    "es": "Ir a servicios"
+  },
+  "Open Services": {
+    "tr": "Servisleri aç",
+    "de": "Dienste öffnen",
+    "fr": "Ouvrir les services",
+    "es": "Abrir servicios"
+  },
+  "Opens the Windows Services console.": {
+    "tr": "Windows Servisler konsolunu açar.",
+    "de": "Öffnet die Windows-Dienstekonsole.",
+    "fr": "Ouvre la console Services de Windows.",
+    "es": "Abre la consola Servicios de Windows."
+  },
+  "name, description or PID": {
+    "tr": "ad, açıklama veya PID",
+    "de": "Name, Beschreibung oder PID",
+    "fr": "nom, description ou PID",
+    "es": "nombre, descripción o PID"
+  },
+  "Always on top": {
+    "tr": "Her zaman üstte",
+    "de": "Immer im Vordergrund",
+    "fr": "Toujours au premier plan",
+    "es": "Siempre visible"
+  },
+  "Keeps the RustWTM window above other windows.": {
+    "tr": "RustWTM penceresini diğer pencerelerin üstünde tutar.",
+    "de": "Hält das RustWTM-Fenster über anderen Fenstern.",
+    "fr": "Garde la fenêtre RustWTM au-dessus des autres fenêtres.",
+    "es": "Mantiene la ventana de RustWTM sobre las demás ventanas."
+  },
+  "Peak working set": {
+    "tr": "En yüksek çalışma kümesi",
+    "de": "Maximaler Arbeitssatz",
+    "fr": "Plage de travail maximale",
+    "es": "Espacio de trabajo máximo"
+  },
+  "Page faults": {
+    "tr": "Sayfa hataları",
+    "de": "Seitenfehler",
+    "fr": "Défauts de page",
+    "es": "Errores de página"
+  },
+  "Page faults/s": {
+    "tr": "Sayfa hatası/sn",
+    "de": "Seitenfehler/s",
+    "fr": "Défauts de page/s",
+    "es": "Errores de página/s"
+  },
+  "Send message": {
+    "tr": "Mesaj gönder",
+    "de": "Nachricht senden",
+    "fr": "Envoyer un message",
+    "es": "Enviar mensaje"
+  },
+  "Send message…": {
+    "tr": "Mesaj gönder…",
+    "de": "Nachricht senden…",
+    "fr": "Envoyer un message…",
+    "es": "Enviar mensaje…"
+  },
+  "Send now": {
+    "tr": "Şimdi gönder",
+    "de": "Jetzt senden",
+    "fr": "Envoyer maintenant",
+    "es": "Enviar ahora"
+  },
+  "Message title": {
+    "tr": "Mesaj başlığı",
+    "de": "Nachrichtentitel",
+    "fr": "Titre du message",
+    "es": "Título del mensaje"
+  },
+  "Message from {0}": {
+    "tr": "{0} kullanıcısından mesaj",
+    "de": "Nachricht von {0}",
+    "fr": "Message de {0}",
+    "es": "Mensaje de {0}"
+  },
+  "Message sent to session {0}": {
+    "tr": "{0} oturumuna mesaj gönderildi",
+    "de": "Nachricht an Sitzung {0} gesendet",
+    "fr": "Message envoyé à la session {0}",
+    "es": "Mensaje enviado a la sesión {0}"
+  },
+  "To {0} (session {1}). It appears on their screen.": {
+    "tr": "Alıcı: {0} (oturum {1}). Mesaj ekranında görünür.",
+    "de": "An {0} (Sitzung {1}). Sie erscheint auf dem Bildschirm.",
+    "fr": "À {0} (session {1}). Il s'affiche sur son écran.",
+    "es": "Para {0} (sesión {1}). Aparece en su pantalla."
+  },
+  "GPU engine": {
+    "tr": "GPU altyapısı",
+    "de": "GPU-Modul",
+    "fr": "Moteur GPU",
+    "es": "Motor de GPU"
+  },
+  "{0} \"{1}\" (PID {2})? A realtime process runs before Windows itself, so a busy one can make the mouse, keyboard and disk stop responding. Windows gives High instead unless RustWTM runs as administrator or through its service.": {
+    "tr": "{0}: \"{1}\" (PID {2})? Gerçek zamanlı bir işlem Windows'un kendisinden önce çalışır; meşgul olursa fare, klavye ve disk yanıt vermeyebilir. RustWTM yönetici olarak ya da servisi üzerinden çalışmıyorsa Windows bunun yerine Yüksek uygular.",
+    "de": "{0} \"{1}\" (PID {2})? Ein Echtzeitprozess läuft noch vor Windows selbst; ist er ausgelastet, reagieren Maus, Tastatur und Datenträger womöglich nicht mehr. Ohne Administratorrechte oder Dienst für RustWTM setzt Windows stattdessen Hoch.",
+    "fr": "{0} « {1} » (PID {2}) ? Un processus en temps réel passe avant Windows lui-même ; s'il est occupé, la souris, le clavier et le disque peuvent ne plus répondre. Sans droits administrateur ni service pour RustWTM, Windows applique Haute à la place.",
+    "es": "¿{0} \"{1}\" (PID {2})? Un proceso en tiempo real se ejecuta antes que el propio Windows; si está ocupado, el ratón, el teclado y el disco pueden dejar de responder. Si RustWTM no se ejecuta como administrador ni a través de su servicio, Windows aplica Alta en su lugar."
+  },
+  "Default start page": {
+    "tr": "Varsayılan açılış sayfası",
+    "de": "Standardstartseite",
+    "fr": "Page de démarrage par défaut",
+    "es": "Página de inicio predeterminada"
+  },
+  "Last page used": {
+    "tr": "Son kullanılan sayfa",
+    "de": "Zuletzt verwendete Seite",
+    "fr": "Dernière page utilisée",
+    "es": "Última página usada"
+  },
+  "Group": {
+    "tr": "Grup",
+    "de": "Gruppe",
+    "fr": "Groupe",
+    "es": "Grupo"
+  },
+  "GDI objects": {
+    "tr": "GDI nesneleri",
+    "de": "GDI-Objekte",
+    "fr": "Objets GDI",
+    "es": "Objetos GDI"
+  },
+  "USER objects": {
+    "tr": "USER nesneleri",
+    "de": "USER-Objekte",
+    "fr": "Objets USER",
+    "es": "Objetos USER"
+  },
+  "Startup impact": {
+    "tr": "Başlangıç etkisi",
+    "de": "Startauswirkungen",
+    "fr": "Impact au démarrage",
+    "es": "Impacto de inicio"
+  },
+  "High impact": {
+    "tr": "Yüksek",
+    "de": "Hoch",
+    "fr": "Élevé",
+    "es": "Alto"
+  },
+  "Medium impact": {
+    "tr": "Orta",
+    "de": "Mittel",
+    "fr": "Moyen",
+    "es": "Medio"
+  },
+  "Low impact": {
+    "tr": "Düşük",
+    "de": "Niedrig",
+    "fr": "Faible",
+    "es": "Bajo"
+  },
+  "Not measured": {
+    "tr": "Ölçülmedi",
+    "de": "Nicht gemessen",
+    "fr": "Non mesuré",
+    "es": "No medido"
+  },
+  "CPU at startup: {0} · Disk I/O at startup: {1}": {
+    "tr": "Başlangıçtaki CPU: {0} · Başlangıçtaki disk G/Ç: {1}",
+    "de": "CPU beim Start: {0} · Datenträger-E/A beim Start: {1}",
+    "fr": "Processeur au démarrage : {0} · E/S disque au démarrage : {1}",
+    "es": "CPU al inicio: {0} · E/S de disco al inicio: {1}"
+  },
+  "Startup impact needs the RustWTM service or administrator rights.": {
+    "tr": "Başlangıç etkisi için RustWTM servisi veya yönetici hakları gerekir.",
+    "de": "Startauswirkungen erfordern den RustWTM-Dienst oder Administratorrechte.",
+    "fr": "L'impact au démarrage nécessite le service RustWTM ou les droits d'administrateur.",
+    "es": "El impacto de inicio requiere el servicio de RustWTM o derechos de administrador."
   }
 }

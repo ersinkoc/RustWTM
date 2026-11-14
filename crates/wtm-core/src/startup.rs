@@ -175,6 +175,33 @@ pub fn list_startup() -> Vec<StartupEntry> {
     out
 }
 
+/// The program a startup command runs: the quoted path, or else the text up
+/// to the first `.exe` (Run values often leave spaces unquoted), with
+/// `%VARIABLES%` expanded through `var`. `None` for shortcuts and anything
+/// that is not a plain executable path.
+pub fn executable(command: &str, var: impl Fn(&str) -> Option<String>) -> Option<String> {
+    let command = command.trim();
+    let path = if let Some(rest) = command.strip_prefix('"') {
+        &rest[..rest.find('"')?]
+    } else {
+        let lower = command.to_ascii_lowercase();
+        let end = lower.find(".exe").map(|i| i + 4)?;
+        &command[..end]
+    };
+    let mut out = String::new();
+    let mut rest = path;
+    while let Some(start) = rest.find('%') {
+        let after = &rest[start + 1..];
+        let end = after.find('%')?;
+        out.push_str(&rest[..start]);
+        out.push_str(&var(&after[..end])?);
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    let lower = out.to_ascii_lowercase();
+    (lower.ends_with(".exe") && out.len() <= 1024).then_some(out)
+}
+
 fn set_approved(
     root: &RegKey,
     approved_base: &str,
@@ -202,6 +229,29 @@ pub fn set_startup_enabled(entry: &StartupEntry, enabled: bool) -> io::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_commands_name_their_program() {
+        let var = |name: &str| (name == "ProgramFiles").then(|| r"C:\Program Files".to_owned());
+        assert_eq!(
+            executable(r#""C:\Apps\Tool\tool.exe" --tray"#, var).as_deref(),
+            Some(r"C:\Apps\Tool\tool.exe")
+        );
+        assert_eq!(
+            executable(r"C:\Program Files\App\app.exe /background", var).as_deref(),
+            Some(r"C:\Program Files\App\app.exe")
+        );
+        assert_eq!(
+            executable(r"%ProgramFiles%\App\App.EXE -min", var).as_deref(),
+            Some(r"C:\Program Files\App\App.EXE")
+        );
+        // Unknown variables, shortcuts and scripts name no program.
+        assert_eq!(executable(r"%Nope%\app.exe", var), None);
+        assert_eq!(executable(r"C:\Users\me\Start Menu\app.lnk", var), None);
+        assert_eq!(executable(r#""C:\scripts\run.cmd""#, var), None);
+        assert_eq!(executable(r#""unterminated"#, var), None);
+        assert_eq!(executable("", var), None);
+    }
 
     #[test]
     fn approved_flag_round_trip() {

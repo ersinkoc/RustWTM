@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::io;
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -24,6 +24,8 @@ pub type ModuleList = Vec<(wtm_core::Module, wtm_core::Signature)>;
 pub type HungMap = std::collections::HashMap<u32, String>;
 /// Running services by the PID that hosts them.
 pub type HostedServices = std::collections::HashMap<u32, Vec<String>>;
+/// GDI and USER objects per process instance.
+pub type GuiObjects = std::collections::HashMap<(u32, i64), (u32, u32)>;
 
 /// Groups running services by their host process, names sorted.
 pub fn hosted_services(services: &[ServiceEntry]) -> HostedServices {
@@ -164,6 +166,9 @@ pub struct History {
     pub core_kernel: Vec<VecDeque<f32>>,
     /// The per-processor times of the previous sample.
     core_times: Vec<wtm_sys::system::CpuTimes>,
+    /// Each disk's, network adapter's and GPU's readings, aligned with
+    /// `times`.
+    pub devices: crate::device_facts::DeviceSeries,
 }
 
 /// Percent of each processor's time spent in kernel mode (DPCs and
@@ -244,8 +249,23 @@ pub struct Data {
     /// Display names of the running services each process hosts, from the
     /// last service list (refreshed while Processes or Services is open).
     pub hosted_services: HostedServices,
+    /// GDI and USER objects per process, read only while one of those
+    /// columns is shown (`gui_objects_wanted_ms`, Unix ms).
+    pub gui_objects: GuiObjects,
+    pub gui_objects_wanted_ms: AtomicU64,
     /// Where physical memory goes, measured by this window with each sample.
     pub memory_composition: Option<wtm_sys::memory::Composition>,
+    /// What the Performance pages list under each device's graphs.
+    pub perf_facts: crate::device_facts::Facts,
+    /// When a Wi-Fi adapter's page was last shown (Unix ms): its network
+    /// details are read only then, since reading them may ask the user for
+    /// location access.
+    pub wifi_wanted_ms: AtomicU64,
+    /// The disk whose page was last shown (number + 1; 0 for none) and when
+    /// (Unix ms): its temperature and wear are read only then, since the
+    /// query may wake a sleeping drive.
+    pub disk_wanted: AtomicU32,
+    pub disk_wanted_ms: AtomicU64,
     /// Counts the updates of the snapshot, status, command lines, image
     /// paths and hung windows, so the window can keep what it derives from
     /// them until the next one instead of redoing it every frame.
@@ -265,6 +285,14 @@ pub struct Data {
     pub sessions: Option<Result<Vec<Session>, String>>,
     pub connections: Option<Result<Vec<Connection>, String>>,
     pub startup: Option<Vec<StartupEntry>>,
+    /// The publisher of each startup command's program, read once per
+    /// command.
+    pub startup_publishers: std::collections::HashMap<String, Option<String>>,
+    /// CPU and disk per program (lower-case image path) at the last
+    /// sign-in, or why they cannot be read.
+    pub startup_impact: Option<
+        Result<std::collections::HashMap<String, wtm_core::startup_impact::BootUsage>, String>,
+    >,
     pub app_history: Option<Result<AppHistory, String>>,
     /// Per-minute rows for the app selected in App history.
     pub series: Option<(String, Vec<MinuteRow>)>,
@@ -402,6 +430,12 @@ pub enum UiCommand {
         id: u32,
         op: SessionOp,
     },
+    /// Show a message on a logon session's desktop.
+    SendMessage {
+        id: u32,
+        title: String,
+        text: String,
+    },
     /// Show the process's executable in Explorer.
     OpenLocation(ProcessRef),
     /// Start a program like the Run dialog, optionally as administrator.
@@ -479,6 +513,9 @@ pub enum Panel {
 pub enum SessionOp {
     Disconnect,
     SignOff,
+    /// Write a message to the session's user; the window asks for its text
+    /// and sends [`UiCommand::SendMessage`].
+    Message,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -534,6 +571,7 @@ impl Backend {
         let docker = crate::docker_worker::DockerWorker::new(&data, ctx.clone());
         let mut worker = Worker {
             local_hardware: None,
+            startup_impact_at: None,
             data: data.clone(),
             ctx,
             notifications: notifications.clone(),
@@ -558,6 +596,7 @@ impl Backend {
             limiter: Limiter::new(),
             controls: None,
             sampler_paused: false,
+            facts: crate::device_facts::Collector::default(),
         };
         let worker = std::thread::Builder::new()
             .name("backend".into())
@@ -604,6 +643,8 @@ impl Backend {
 
 struct Worker {
     local_hardware: Option<wtm_core::hardware::LocalHardware>,
+    /// When startup impact was last read.
+    startup_impact_at: Option<Instant>,
     data: Arc<Mutex<Data>>,
     ctx: egui::Context,
     notifications: Arc<AtomicBool>,
@@ -647,6 +688,8 @@ struct Worker {
     /// The service measured since `sampler` last did: its next sample must
     /// not average over that time.
     sampler_paused: bool,
+    /// Reads the device facts of the Performance pages.
+    facts: crate::device_facts::Collector,
 }
 
 fn unexpected(r: Response) -> io::Error {
@@ -745,6 +788,7 @@ impl Worker {
     }
 
     fn tick(&mut self) {
+        self.collect_facts();
         if self.client.is_none() && Instant::now() >= self.next_connect {
             match Client::connect_to(&self.pipe) {
                 Ok(c) => {
@@ -820,6 +864,7 @@ impl Worker {
                     }
                     drop(data);
                     refresh_icons(&self.data);
+                    refresh_gui_objects(&self.data);
                     self.sampler_paused = true;
                     return;
                 }
@@ -847,6 +892,46 @@ impl Worker {
         publish_local(&mut data, sample);
         drop(data);
         refresh_icons(&self.data);
+        refresh_gui_objects(&self.data);
+    }
+
+    /// Refreshes the device facts for the devices of the latest sample.
+    fn collect_facts(&mut self) {
+        use crate::device_facts::Wanted;
+        type Disks = Vec<(u32, Vec<String>)>;
+        let (disks, gpus, wanted): (Disks, Vec<String>, Wanted) = {
+            let data = self.data();
+            let now = wtm_core::hardware::unix_ms();
+            let recent = |at: &AtomicU64| now.saturating_sub(at.load(Ordering::Relaxed)) < 10_000;
+            let wanted = Wanted {
+                wifi: recent(&data.wifi_wanted_ms),
+                disk: recent(&data.disk_wanted_ms)
+                    .then(|| data.disk_wanted.load(Ordering::Relaxed).checked_sub(1))
+                    .flatten(),
+            };
+            data.snapshot
+                .as_ref()
+                .map(|s| {
+                    (
+                        s.system
+                            .disks
+                            .iter()
+                            .filter_map(|d| {
+                                Some((d.number()?, d.letters().map(str::to_owned).collect()))
+                            })
+                            .collect(),
+                        s.system.gpus.iter().map(|g| g.luid.clone()).collect(),
+                        wanted,
+                    )
+                })
+                .unwrap_or_default()
+        };
+        let facts = self.facts.collect(&disks, &gpus, wanted);
+        let mut data = self.data();
+        // Measured with the samples, not by the collector.
+        let breakdown = data.perf_facts.breakdown;
+        data.perf_facts = facts;
+        data.perf_facts.breakdown = breakdown;
     }
 
     /// Notifies about watched processes that are gone from the snapshot.
@@ -1138,14 +1223,40 @@ impl Worker {
                     })
                 });
             }
+            UiCommand::SendMessage { id, title, text } => {
+                self.data().message =
+                    Some(match wtm_sys::sessions::send_message(id, &title, &text) {
+                        Ok(()) => (
+                            EventLevel::Info,
+                            crate::i18n::format("Message sent to session {0}", &[id.to_string()]),
+                        ),
+                        Err(e) if e.is_access_denied() => (
+                            EventLevel::Warn,
+                            crate::i18n::format(
+                                "Session {0}: access denied (run RustWTM as administrator)",
+                                &[id.to_string()],
+                            ),
+                        ),
+                        Err(e) => (
+                            EventLevel::Warn,
+                            crate::i18n::format(
+                                "Session {0}: {1}",
+                                &[id.to_string(), e.to_string()],
+                            ),
+                        ),
+                    });
+            }
             UiCommand::Session { id, op } => {
-                let result = match op {
-                    SessionOp::Disconnect => wtm_core::disconnect_session(id),
-                    SessionOp::SignOff => wtm_core::log_off_session(id),
-                };
-                let what = match op {
-                    SessionOp::Disconnect => crate::i18n::tr("Disconnected"),
-                    SessionOp::SignOff => crate::i18n::tr("Signed out"),
+                let (result, what) = match op {
+                    SessionOp::Disconnect => (
+                        wtm_core::disconnect_session(id),
+                        crate::i18n::tr("Disconnected"),
+                    ),
+                    SessionOp::SignOff => {
+                        (wtm_core::log_off_session(id), crate::i18n::tr("Signed out"))
+                    }
+                    // The text is written in the window first.
+                    SessionOp::Message => return,
                 };
                 self.data().message = Some(match result {
                     Ok(()) => (EventLevel::Info, {
@@ -1605,6 +1716,32 @@ impl Worker {
         }
     }
 
+    /// Startup impact through the service (which may read Windows' reports)
+    /// or, in an elevated window, directly; the reports are this account's.
+    fn startup_impact(
+        &mut self,
+    ) -> Result<Vec<(String, wtm_core::startup_impact::BootUsage)>, String> {
+        match self.client.as_mut() {
+            Some(c) => match c.call(&Request::StartupImpact) {
+                Ok(Response::StartupImpact(list)) => Ok(list),
+                Ok(other) => Err(unexpected(other).to_string()),
+                Err(e) => Err(e.to_string()),
+            },
+            None if wtm_core::launch::is_elevated() => wtm_sys::security::current_user_sid()
+                .map_err(|e| e.to_string())
+                .and_then(|sid| {
+                    wtm_core::startup_impact::read_for(
+                        &wtm_core::startup_impact::default_dir(),
+                        &sid,
+                    )
+                }),
+            None => Err(crate::i18n::tr(
+                "Startup impact needs the RustWTM service or administrator rights.",
+            )
+            .to_owned()),
+        }
+    }
+
     fn load(&mut self, panel: Panel) {
         match panel {
             Panel::Sensors => {
@@ -1671,7 +1808,39 @@ impl Worker {
                 self.data().telegram = Some(r);
             }
             Panel::Startup => {
-                self.data().startup = Some(wtm_core::startup::list_startup());
+                let list = wtm_core::startup::list_startup();
+                let known = self.data().startup_publishers.clone();
+                // Each command once, and only programs on local fixed drives:
+                // this thread also carries out commands, and a mapped share
+                // or an empty removable drive could hold it.
+                let found: Vec<(String, Option<String>)> = list
+                    .iter()
+                    .filter(|e| !known.contains_key(&e.command))
+                    .take(128)
+                    .map(|e| {
+                        let publisher =
+                            wtm_core::startup::executable(&e.command, |v| std::env::var(v).ok())
+                                .filter(|path| wtm_sys::volumes::on_fixed_drive(path))
+                                .and_then(|path| wtm_sys::image_metadata::company(&path));
+                        (e.command.clone(), publisher)
+                    })
+                    .collect();
+                // Written once per sign-in: read at most once a minute.
+                let impact = if self
+                    .startup_impact_at
+                    .is_none_or(|at| at.elapsed() >= Duration::from_secs(60))
+                {
+                    self.startup_impact_at = Some(Instant::now());
+                    Some(self.startup_impact())
+                } else {
+                    None
+                };
+                let mut data = self.data();
+                data.startup_publishers.extend(found);
+                data.startup = Some(list);
+                if let Some(impact) = impact {
+                    data.startup_impact = Some(impact.map(|l| l.into_iter().collect()));
+                }
             }
             Panel::DiskActivity => {
                 let result = match self.client.as_mut() {
@@ -2016,6 +2185,8 @@ fn fill_history(h: &mut History, points: &[wtm_ipc::SystemPoint]) {
     h.net_tx = series(|p| p.net_tx);
     h.io_read = series(|p| p.io_read);
     h.io_write = series(|p| p.io_write);
+    // The service keeps no device history: those graphs start now.
+    h.devices.clear();
     let recent = &points[points.len().saturating_sub(CORE_HISTORY_LEN)..];
     let cores = recent.last().map_or(0, |p| p.cores.len());
     h.cores = (0..cores)
@@ -2072,8 +2243,17 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
             series.push_back(load);
             trim(series, CORE_HISTORY_LEN);
         }
+        h.devices
+            .record(h.times.len(), crate::device_facts::readings(s));
         // Read here, in this window, so it needs no service protocol change.
         let times = wtm_sys::system::per_cpu_times().unwrap_or_default();
+        let secs = h
+            .times
+            .iter()
+            .rev()
+            .nth(1)
+            .map_or(0.0, |before| at_ms.saturating_sub(*before) as f64 / 1000.0);
+        data.perf_facts.breakdown = crate::device_facts::breakdown(&h.core_times, &times, secs);
         match kernel_percent(&h.core_times, &times).filter(|k| k.len() == s.core_percent.len()) {
             Some(kernel) => {
                 h.core_kernel.resize_with(kernel.len(), VecDeque::new);
@@ -2291,6 +2471,40 @@ fn update_image_paths(cache: &mut CommandLines, procs: &[wtm_core::ProcessInfo])
     }
 }
 
+/// Reads the GDI and USER objects of every process while the window shows
+/// one of those columns; forgets them otherwise. Each process is opened for
+/// a moment with query rights only, without holding the data lock.
+fn refresh_gui_objects(data: &Mutex<Data>) {
+    let keys: Vec<(u32, i64)> = {
+        let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
+        let wanted = wtm_core::hardware::unix_ms()
+            .saturating_sub(d.gui_objects_wanted_ms.load(Ordering::Relaxed))
+            < 5_000;
+        let snapshot = d.snapshot.as_ref().filter(|_| wanted);
+        let Some(snap) = snapshot else {
+            d.gui_objects.clear();
+            return;
+        };
+        snap.processes
+            .iter()
+            .filter(|p| p.pid > 4)
+            .take(8192)
+            .map(|p| (p.pid, p.create_time))
+            .collect()
+    };
+    let found: GuiObjects = keys
+        .into_iter()
+        .filter_map(|key| {
+            let h = wtm_sys::control::ProcessHandle::open(key.0, wtm_sys::control::Access::QUERY)
+                .ok()?;
+            Some((key, h.gui_objects()))
+        })
+        .collect();
+    data.lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .gui_objects = found;
+}
+
 /// Extracts the icons of image paths seen for the first time. Runs without
 /// holding the data lock: icon extraction touches the disk.
 fn refresh_icons(data: &Mutex<Data>) {
@@ -2438,6 +2652,35 @@ pub fn autostart_enabled() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gui_objects_are_read_only_while_their_column_is_shown() {
+        let mut snap = crate::ui_tests::snapshot();
+        // This test process, which can always be opened.
+        snap.processes[2].pid = std::process::id();
+        let me = (snap.processes[2].pid, snap.processes[2].create_time);
+        let data = Mutex::new(Data {
+            snapshot: Some(std::sync::Arc::new(snap)),
+            ..Data::default()
+        });
+        // Not asked for: nothing is read.
+        refresh_gui_objects(&data);
+        assert!(data.lock().unwrap().gui_objects.is_empty());
+        // Asked for: every process that can be opened.
+        data.lock()
+            .unwrap()
+            .gui_objects_wanted_ms
+            .store(wtm_core::hardware::unix_ms(), Ordering::Relaxed);
+        refresh_gui_objects(&data);
+        assert!(data.lock().unwrap().gui_objects.contains_key(&me));
+        // No longer shown: forgotten.
+        data.lock()
+            .unwrap()
+            .gui_objects_wanted_ms
+            .store(0, Ordering::Relaxed);
+        refresh_gui_objects(&data);
+        assert!(data.lock().unwrap().gui_objects.is_empty());
+    }
     use std::os::windows::process::CommandExt;
     use std::process::{Child, Command as Proc, Stdio};
 
@@ -2493,6 +2736,7 @@ mod tests {
     fn worker() -> Worker {
         Worker {
             local_hardware: None,
+            startup_impact_at: None,
             data: Arc::new(Mutex::new(Data::default())),
             ctx: egui::Context::default(),
             notifications: Arc::new(AtomicBool::new(false)),
@@ -2523,6 +2767,7 @@ mod tests {
             limiter: Limiter::new(),
             controls: None,
             sampler_paused: false,
+            facts: crate::device_facts::Collector::default(),
         }
     }
 
@@ -3229,6 +3474,7 @@ mod tests {
             Request::SetCooling { .. } => Response::Done,
             Request::CloseConnection { .. } => Response::Done,
             Request::Incidents { .. } => Response::Incidents(Default::default()),
+            Request::StartupImpact => Response::StartupImpact(Vec::new()),
             Request::Firewall { .. } => Response::Done,
             Request::FirewallBlocked => Response::Blocked(Vec::new()),
             Request::DiskActivity => Response::DiskActivity {
@@ -3558,6 +3804,7 @@ mod tests {
             Request::SetCooling { .. } => Response::Done,
             Request::CloseConnection { .. } => Response::Done,
             Request::Incidents { .. } => Response::Incidents(Default::default()),
+            Request::StartupImpact => Response::StartupImpact(Vec::new()),
             Request::Firewall { .. } => Response::Done,
             Request::FirewallBlocked => Response::Blocked(Vec::new()),
             Request::DiskActivity => Response::DiskActivity {
@@ -4086,7 +4333,12 @@ mod tests {
     #[test]
     fn kernel_share_per_processor_excludes_idle_and_needs_matching_samples() {
         use wtm_sys::system::CpuTimes;
-        let t = |idle, kernel, user| CpuTimes { idle, kernel, user };
+        let t = |idle, kernel, user| CpuTimes {
+            idle,
+            kernel,
+            user,
+            ..Default::default()
+        };
         let before = [t(100, 200, 100), t(0, 0, 0)];
         // CPU 0: 100 kernel (75 idle) + 100 user -> 25 of 200 in kernel mode.
         // CPU 1: no time passed.

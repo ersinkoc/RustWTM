@@ -41,6 +41,54 @@ pub struct ProcessInfo {
     /// Every thread is suspended: the process is frozen until resumed.
     #[serde(default)]
     pub suspended: bool,
+    /// Task Manager's further memory columns.
+    #[serde(default)]
+    pub memory: MemoryCounters,
+    /// Shared GPU memory and the busiest GPU engine.
+    #[serde(default)]
+    pub gpu_detail: GpuDetail,
+}
+
+/// Task Manager's "GPU engine" and "Shared GPU memory" for a process.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GpuDetail {
+    pub shared_memory: u64,
+    /// The busiest engine while the process uses one.
+    pub engine: Option<GpuEngineUse>,
+}
+
+/// One GPU engine type of one GPU, as in "GPU 0 - 3D".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GpuEngineUse {
+    /// The GPU's LUID, as `SystemStats::gpus` names it.
+    pub luid: String,
+    /// The engine type, such as "3D" or "VideoDecode".
+    pub kind: String,
+}
+
+/// The memory figures Task Manager's Details tab offers besides the working
+/// set, read from the same kernel snapshot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct MemoryCounters {
+    pub peak_working_set: u64,
+    /// Paged and non-paged kernel pool charged to the process.
+    pub paged_pool: u64,
+    pub nonpaged_pool: u64,
+    /// Page faults since the process started.
+    pub page_faults: u64,
+    /// Page faults per second, between the last two samples.
+    pub page_fault_rate: f64,
+}
+
+impl MemoryCounters {
+    /// Adds another process's figures, for app and user totals.
+    pub fn add(&mut self, other: &Self) {
+        self.peak_working_set += other.peak_working_set;
+        self.paged_pool += other.paged_pool;
+        self.nonpaged_pool += other.nonpaged_pool;
+        self.page_faults += other.page_faults;
+        self.page_fault_rate += other.page_fault_rate;
+    }
 }
 
 impl ProcessInfo {
@@ -97,6 +145,30 @@ pub struct SystemStats {
     /// Load of every GPU engine type, by name, 0..=100.
     #[serde(default)]
     pub gpu_engines: Vec<(String, f32)>,
+    /// Every physical network adapter that is up, with its own traffic.
+    #[serde(default)]
+    pub net_adapters: Vec<NetAdapterUsage>,
+    /// Every GPU with its own load and memory; empty without GPU counters.
+    #[serde(default)]
+    pub gpus: Vec<wtm_sys::gpu::GpuAdapterUsage>,
+}
+
+/// One network adapter's traffic, as Task Manager graphs each adapter.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct NetAdapterUsage {
+    /// Interface LUID: stable while the adapter exists.
+    pub luid: u64,
+    /// The interface's name, such as "Wi-Fi" or "Ethernet".
+    pub name: String,
+    /// The hardware, such as "Intel(R) Ethernet Connection I219-V".
+    pub description: String,
+    /// IANA interface type: 6 Ethernet, 71 Wi-Fi, 243 and 244 mobile.
+    pub if_type: u32,
+    /// Link speed in bits per second.
+    pub link_speed: u64,
+    /// Bytes per second; zero in an adapter's first sample.
+    pub rx_rate: f64,
+    pub tx_rate: f64,
 }
 
 impl SystemStats {
@@ -204,6 +276,8 @@ mod tests {
             net_tx_rate: 0.0,
             suspended: false,
             create_time: FILETIME_UNIX_OFFSET,
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         }
     }
 

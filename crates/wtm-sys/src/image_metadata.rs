@@ -71,6 +71,8 @@ fn block_bytes(block: &[u32]) -> &[u8] {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Metadata {
     pub description: Option<String>,
+    /// The company that made the image ("Publisher" in Task Manager).
+    pub company: Option<String>,
     /// `major.minor.build.revision` from the fixed file information.
     pub version: Option<String>,
 }
@@ -83,12 +85,18 @@ pub fn metadata(path: &str) -> Metadata {
     let bytes = block_bytes(&block);
     Metadata {
         description: description_in(bytes),
+        company: string_in(bytes, "CompanyName"),
         version: query(bytes, "\\", 1).and_then(fixed_version),
     }
 }
 
 pub fn description(path: &str) -> Option<String> {
     description_in(block_bytes(&version_block(path)?))
+}
+
+/// The company that made the image, as Task Manager's Publisher column.
+pub fn company(path: &str) -> Option<String> {
+    string_in(block_bytes(&version_block(path)?), "CompanyName")
 }
 
 /// `VS_FIXEDFILEINFO` file version, or `None` when the signature is wrong.
@@ -112,6 +120,11 @@ fn fixed_version(info: &[u8]) -> Option<String> {
 }
 
 fn description_in(bytes: &[u8]) -> Option<String> {
+    string_in(bytes, "FileDescription")
+}
+
+/// A string of the version resource, in the image's own language first.
+fn string_in(bytes: &[u8], field: &str) -> Option<String> {
     let translations = query(bytes, r"\VarFileInfo\Translation", 1).unwrap_or_default();
     let candidates = translations
         .as_chunks::<4>()
@@ -126,7 +139,7 @@ fn description_in(bytes: &[u8]) -> Option<String> {
         })
         .chain([(0x0409, 1200), (0x0409, 1252)]);
     for (language, code_page) in candidates {
-        let key = format!(r"\StringFileInfo\{language:04x}{code_page:04x}\FileDescription");
+        let key = format!(r"\StringFileInfo\{language:04x}{code_page:04x}\{field}");
         let Some(value) = query(bytes, &key, 2) else {
             continue;
         };
@@ -149,7 +162,7 @@ fn description_in(bytes: &[u8]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{description, fixed_version, metadata};
+    use super::{company, description, fixed_version, metadata};
 
     #[test]
     fn fixed_file_info_gives_four_part_version_and_checks_its_signature() {
@@ -168,6 +181,11 @@ mod tests {
         let dir = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
         let m = metadata(&format!(r"{dir}\System32\kernel32.dll"));
         assert!(m.version.is_some_and(|v| v.split('.').count() == 4));
+        assert!(m.company.is_some_and(|c| c.contains("Microsoft")));
+        assert_eq!(
+            company(&format!(r"{dir}\System32\kernel32.dll")),
+            metadata(&format!(r"{dir}\System32\kernel32.dll")).company
+        );
     }
 
     #[test]
@@ -182,6 +200,7 @@ mod tests {
             "C:\\app\0.exe",
         ] {
             assert!(description(path).is_none(), "{path:?}");
+            assert!(company(path).is_none(), "{path:?}");
         }
     }
 }

@@ -17,6 +17,8 @@ pub struct Preferences {
     /// minimized or in the tray for `background_memory_minutes`.
     pub background_memory: bool,
     pub background_memory_minutes: u16,
+    /// Keep the window above other windows, as Task Manager's option.
+    pub always_on_top: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
@@ -29,6 +31,7 @@ impl Default for Preferences {
             network_bits: false,
             background_memory: false,
             background_memory_minutes: 10,
+            always_on_top: false,
         }
     }
 }
@@ -51,6 +54,8 @@ pub struct View {
     /// Since when the window is minimized or hidden, and whether its memory
     /// priority is lowered for that time.
     hidden_since: Option<(std::time::Instant, bool)>,
+    /// The "always on top" state last given to the window.
+    on_top: Option<bool>,
 }
 pub fn cadence(ctx: &egui::Context, window: isize) -> u64 {
     let p = ctx
@@ -67,6 +72,13 @@ pub fn cadence(ctx: &egui::Context, window: isize) -> u64 {
     })
     .clamp(1, 60)
 }
+/// Whether the window's "always on top" state must be set: when the option
+/// changed, or when it is on and the window lost it. While the option is off
+/// the window is left alone, so a brief bring-to-front is not undone early.
+fn needs_on_top(applied: Option<bool>, on: bool, is_topmost: impl FnOnce() -> bool) -> bool {
+    applied != Some(on) || (on && !is_topmost())
+}
+
 pub fn network_bits(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<Preferences>(egui::Id::unique("experience-preferences")))
         .unwrap_or_default()
@@ -83,6 +95,16 @@ impl View {
         let raw = window.load(Ordering::Relaxed);
         let hidden =
             raw != 0 && (!wtm_core::window::is_visible(raw) || wtm_sys::window::is_minimized(raw));
+        if raw != 0 {
+            let on = self.prefs.always_on_top;
+            // Bringing the window forward (alerts, the tray) sets and then
+            // ends "on top" for a moment; while the option is on, it comes
+            // back on the next pass.
+            if needs_on_top(self.on_top, on, || wtm_sys::window::is_topmost(raw)) {
+                wtm_sys::window::set_topmost(raw, on);
+                self.on_top = Some(on);
+            }
+        }
         if let Some(low) = self.memory_priority_change(hidden, std::time::Instant::now()) {
             #[cfg(not(test))]
             let _ = wtm_sys::control::set_own_memory_priority(low);
@@ -168,6 +190,13 @@ impl View {
             crate::i18n::tr("Show Mbps in network device charts"),
             "",
             &mut self.prefs.network_bits,
+        );
+        option_switch(
+            ui,
+            icon::VIEW,
+            crate::i18n::tr("Always on top"),
+            crate::i18n::tr("Keeps the RustWTM window above other windows."),
+            &mut self.prefs.always_on_top,
         );
         option_switch(
             ui,
@@ -279,6 +308,21 @@ impl View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn always_on_top_is_set_on_change_and_kept_while_on() {
+        let lost = || false;
+        let kept = || true;
+        // First pass sets the window either way.
+        assert!(needs_on_top(None, true, kept));
+        assert!(needs_on_top(None, false, kept));
+        // On: restored whenever a bring-to-front ended it.
+        assert!(needs_on_top(Some(true), true, lost));
+        assert!(!needs_on_top(Some(true), true, kept));
+        // Off: a window raised for a moment is left alone.
+        assert!(!needs_on_top(Some(false), false, kept));
+        assert!(needs_on_top(Some(true), false, kept));
+    }
     use std::time::{Duration, Instant};
 
     #[test]

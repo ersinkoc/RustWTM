@@ -158,6 +158,8 @@ mod tests {
             net_tx_rate: 0.0,
             suspended: false,
             create_time: i64::from(pid),
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         }
     }
 

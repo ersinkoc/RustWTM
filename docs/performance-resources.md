@@ -34,32 +34,78 @@ once within one processor group. Missing, multi-group, duplicate-index or
 mismatched topology falls back to all processors with an explanation. A class
 that disappears also resets the selection. Filters are session-only.
 
-## GPU engine types
+## Devices
 
-The focused GPU view displays all current engine types, including idle ones,
-ordered by utilization, and offers a case-insensitive name search. No matches
-and unavailable counters have separate messages. The combined overview still
-shows the busiest four types and summarizes the remainder.
+Like Windows Task Manager, Performance lists each physical disk ("Disk 0
+(C:)"), each network adapter that is up ("Wi-Fi", "Ethernet") and each GPU
+("GPU 0", numbered in DXGI order) in the rail and in the compact chip row, each
+with its own sparkline. The rail scrolls when the devices outgrow it. The
+selected device is saved with the window preferences (`performance_device`).
+A device that goes away falls back to the combined view of its kind when that
+is listed, otherwise to the first device of that kind. Combined network and
+GPU entries appear only when Windows reports no single adapter; the combined
+Disk & I/O entry always remains, because it graphs process I/O, which no
+single disk measures.
 
-Engine counters aggregate by engine type across GPUs; the main history follows
-the busiest engine. This view does not identify physical GPU adapters or
-provide per-device engine history or VRAM measurements. Search is session-only.
+Device history lives in the window (`History::devices`), one series per
+measurement aligned with the shared timeline. A device absent from a sample
+leaves a gap there, never a guessed value; series that hold only gaps are
+dropped, and at most 512 are kept. The service's backfill has no device
+history, so device graphs start when the window connects.
 
-## Memory, network and disk
+Every page lists Task Manager's details under its graphs: live readings as
+large values, fixed facts beside them, and a Copy details button.
 
-Memory retains its aggregate usage history and current available/committed
-figures. Network explicitly identifies combined adapter traffic. Disk & I/O
-explicitly distinguishes total process I/O history from the current physical
-disk counters below it. Changing the selected resource does not relabel
-aggregate samples as device-specific measurements.
+- **CPU**: utilization, current speed (`% Processor Performance` × nominal
+  frequency), processes, threads, handles, up time, kernel, DPC and interrupt
+  time, interrupts, context switches and system calls per second, processor
+  queue; model, base speed, sockets, cores, logical processors,
+  virtualization, L1/L2/L3 cache (`GetLogicalProcessorInformationEx`).
+- **Memory**: compressed memory (the Memory Compression working set) and, from
+  the SMBIOS memory devices, speed, slots used, form factor, memory type and
+  each module, beside the existing breakdown.
+- **Disk**: active time and transfer-rate graphs; average response time and
+  queue length from the PhysicalDisk counters; model, SSD/HDD, bus and
+  capacity from read-only storage queries on a handle opened without access
+  rights; formatted size, system disk, page file and volumes. For internal
+  solid-state drives (NVMe, or no seek penalty on a non-USB bus), while the
+  page is open, every 5 seconds: the drive temperature with its warning and
+  critical limits (`StorageDeviceTemperatureProperty`) and, for NVMe drives,
+  the health log (remaining endurance, spare, power-on hours, data read and
+  written, unsafe shutdowns, media errors). Hard disks and USB drives are not
+  asked: on a spinning drive the query becomes an ATA command that can spin
+  it up for seconds on the worker that also carries out commands.
+- **Network adapter**: its own receive/send graph, bit rates, link
+  utilization, adapter name, connection type, link speed, MAC address,
+  addresses and DNS suffix (`GetAdaptersAddresses`); Wi-Fi adds SSID, signal and standard from
+  the WLAN service. From Windows 11 24H2 these Wi-Fi details depend on location
+  access, and Windows may ask for it the first time an app reads them, so they
+  are read only while a Wi-Fi adapter's page is open; without access they are
+  left out.
+- **GPU**: utilization (busiest engine type of that GPU), four engine graphs
+  (3D, Copy, Video Encode, Video Decode first), dedicated and shared memory
+  graphs scaled to the card's capacity (`GPU Adapter Memory` counters),
+  temperature, fan speed and memory clock with the rated maximums (the
+  driver's performance data, `D3DKMTQueryAdapterInfo` with
+  `KMTQAITYPE_ADAPTERPERFDATA`, read with each sample as Task Manager does;
+  drivers that report none show none), model, driver version and date,
+  DirectX feature level and the engine search. The rail shows the temperature
+  beside the load.
+
+The sample carries each adapter's traffic and each GPU's load and memory
+(IPC protocol 17). The facts are read by the window's worker, and only from
+sources that answer at once, since the same thread carries out commands:
+processor and memory-module facts once; addresses every 5 seconds; disk
+identity and the page files (`ExistingPageFiles` in the registry) when the set
+of disks changes; the free space of the local disks' own drive letters every
+minute (never network drives); GPU facts every minute or when the set of GPUs
+changes. None of them needs administrator rights, and all lists are bounded.
 
 ## Remaining scope
 
-This completes an initial focused-resource presentation within M3. Physical
-device selection and stable device identities, per-adapter/per-device history,
-GPU engine history grids and VRAM, rate-axis hysteresis and alternative network
-units remain pending. M4 still owns persistent system history. No collectors,
-IPC contracts, service settings or privileged operations were added here.
+Persistent system and device history (M4), user-selectable GPU engine graphs,
+NPU pages, rate-axis hysteresis and a choice of network units remain pending.
+Battery and motherboard sensor readings stay on the Sensors and Devices pages.
 
 ## Local validation
 

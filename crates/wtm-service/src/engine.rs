@@ -1126,16 +1126,32 @@ mod tests {
         }
     }
 
+    /// Starts `command`. A copy of a program written a moment ago can be
+    /// refused ("Access is denied") while antivirus still scans it, more
+    /// often on a busy machine; that one error is retried for a few seconds.
+    pub(super) fn start(command: &mut Proc) -> Child {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            match command.spawn() {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::PermissionDenied
+                        && std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                result => return result.unwrap(),
+            }
+        }
+    }
+
     fn spawn(exe: &Path) -> Guard {
-        Guard(
+        Guard(start(
             Proc::new(exe)
                 .raw_arg("/d /c ping -n 60 127.0.0.1")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap(),
-        )
+                .stderr(Stdio::null()),
+        ))
     }
 
     fn connect(pipe: &str) -> Client {
@@ -1276,15 +1292,13 @@ mod tests {
         // Kill list: of two CPU-burning copies only the one whose command
         // line names "burn" is ended.
         let busy = |tag: &str| {
-            Guard(
+            Guard(start(
                 Proc::new(&hog)
                     .raw_arg(format!("/d /c for /l %i in (0,0,1) do rem {tag}"))
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()
-                    .unwrap(),
-            )
+                    .stderr(Stdio::null()),
+            ))
         };
         let mut burner = busy("burn");
         let mut spared = busy("spare");
@@ -1301,15 +1315,13 @@ mod tests {
         // A swarm of idle copies is reported once, with who started them.
         let copies: Vec<Guard> = (0..12)
             .map(|_| {
-                Guard(
+                Guard(start(
                     Proc::new(&swarm)
                         .args(["/d", "/k"])
                         .stdin(Stdio::piped())
                         .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .spawn()
-                        .unwrap(),
-                )
+                        .stderr(Stdio::null()),
+                ))
             })
             .collect();
         let alert = wait_for("swarm reported", || {
@@ -1779,15 +1791,13 @@ mod unit_tests {
         std::fs::copy(r"C:\Windows\System32\PING.EXE", &exe).unwrap();
         let _copies: Vec<Guard> = (0..12)
             .map(|_| {
-                Guard(
+                Guard(super::tests::start(
                     Proc::new(&exe)
                         .args(["-n", "120", "127.0.0.1"])
                         .stdin(Stdio::null())
                         .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .spawn()
-                        .unwrap(),
-                )
+                        .stderr(Stdio::null()),
+                ))
             })
             .collect();
         let probe = |p: &ProcessInfo| p.name.eq_ignore_ascii_case("wtm-stuck-probe.exe");
@@ -2023,6 +2033,8 @@ mod unit_tests {
             net_tx_rate: 0.0,
             suspended: false,
             create_time: 1,
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         };
         let applied = insights.tick(std::slice::from_ref(&hog), &config.insights);
         assert!(!applied.is_empty());

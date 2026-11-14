@@ -52,6 +52,12 @@ pub enum ControlError {
     AccessDenied { pid: u32 },
     #[error("process {pid} is not limited by RustWTM in this session")]
     NotLimited { pid: u32 },
+    /// Windows quietly gives High instead of Realtime without the
+    /// increase-scheduling-priority privilege (administrators have it).
+    #[error(
+        "process {pid}: Windows applied {applied:?} priority instead of realtime; realtime needs administrator rights"
+    )]
+    PriorityLowered { pid: u32, applied: PriorityClass },
     #[error("process {pid}: {source}")]
     Sys { pid: u32, source: wtm_sys::Error },
 }
@@ -274,8 +280,22 @@ fn all_suspended(threads: &[wtm_sys::process::ThreadInfo]) -> bool {
 }
 
 pub fn set_priority(target: &ProcessRef, priority: PriorityClass) -> ControlResult<()> {
-    let h = open_controlled(target, Access::SET_INFORMATION)?;
-    sys(target.pid, h.set_priority(priority))
+    let h = open_controlled(target, Access::SET_INFORMATION | Access::QUERY)?;
+    sys(target.pid, h.set_priority(priority))?;
+    // Reports what Windows actually applied: the call succeeds either way.
+    match h.priority() {
+        Ok(applied) => check_applied(target.pid, priority, applied),
+        Err(_) => Ok(()),
+    }
+}
+
+/// An error when Windows applied less than the realtime class asked for.
+fn check_applied(pid: u32, wanted: PriorityClass, applied: PriorityClass) -> ControlResult<()> {
+    if wanted == PriorityClass::Realtime && applied != PriorityClass::Realtime {
+        Err(ControlError::PriorityLowered { pid, applied })
+    } else {
+        Ok(())
+    }
 }
 
 pub fn set_affinity(target: &ProcessRef, mask: u64) -> ControlResult<()> {
@@ -523,6 +543,21 @@ impl Limiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn realtime_priority_reports_when_windows_applies_less() {
+        assert!(check_applied(7, PriorityClass::Realtime, PriorityClass::Realtime).is_ok());
+        assert!(check_applied(7, PriorityClass::High, PriorityClass::High).is_ok());
+        let e = check_applied(7, PriorityClass::Realtime, PriorityClass::High).unwrap_err();
+        assert!(matches!(
+            e,
+            ControlError::PriorityLowered {
+                pid: 7,
+                applied: PriorityClass::High
+            }
+        ));
+        assert!(e.to_string().contains("administrator"));
+    }
 
     #[test]
     fn a_tree_whose_children_went_with_it_is_not_a_failure() {

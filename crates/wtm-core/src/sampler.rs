@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 use wtm_sys::disk::DiskSampler;
 use wtm_sys::gpu::GpuSampler;
 use wtm_sys::process::{ProcessSnapshotter, RawProcess};
-use wtm_sys::system::{self, CpuTimes, NetCounters};
+use wtm_sys::system::{self, CpuTimes, NetAdapter, NetCounters};
 
-use crate::model::{ProcessInfo, Snapshot, SystemStats};
+use crate::model::{NetAdapterUsage, ProcessInfo, Snapshot, SystemStats};
 
 /// Turns successive raw snapshots into rates (CPU %, I/O bytes/s).
 #[derive(Debug)]
@@ -30,7 +30,7 @@ struct Previous {
     at: Instant,
     cpu: CpuTimes,
     cores: Vec<CpuTimes>,
-    net: Option<Vec<(u64, NetCounters)>>,
+    net: Option<Vec<NetAdapter>>,
     // Keyed by (pid, create_time) so a reused PID does not inherit stale counters.
     procs: HashMap<(u32, i64), Counters>,
 }
@@ -40,6 +40,7 @@ struct Counters {
     cpu_time: u64,
     io_read: u64,
     io_write: u64,
+    page_faults: u32,
 }
 
 impl Counters {
@@ -48,6 +49,7 @@ impl Counters {
             cpu_time: p.user_time + p.kernel_time,
             io_read: p.io_read_bytes,
             io_write: p.io_write_bytes,
+            page_faults: p.page_faults,
         }
     }
 }
@@ -76,6 +78,14 @@ impl ProcessInfo {
             net_tx_rate: 0.0,
             suspended: p.suspended,
             create_time: p.create_time,
+            memory: crate::model::MemoryCounters {
+                peak_working_set: p.peak_working_set,
+                paged_pool: p.paged_pool,
+                nonpaged_pool: p.nonpaged_pool,
+                page_faults: u64::from(p.page_faults),
+                page_fault_rate: 0.0,
+            },
+            gpu_detail: Default::default(),
         }
     }
 }
@@ -189,6 +199,7 @@ impl Sampler {
             commit_available: mem.commit_avail,
             gpu_percent: gpu.total_percent,
             gpu_engines: std::mem::take(&mut gpu.engines),
+            gpus: std::mem::take(&mut gpu.adapters),
             disks: self
                 .disks
                 .as_mut()
@@ -213,6 +224,10 @@ impl Sampler {
                 system.net_rx_rate = moved.received as f64 / elapsed_secs;
                 system.net_tx_rate = moved.sent as f64 / elapsed_secs;
             }
+        }
+        if let Some(now) = &net {
+            let before = self.prev.as_ref().and_then(|p| p.net.as_deref());
+            system.net_adapters = adapter_rates(before, now, elapsed_secs);
         }
 
         let traffic = self
@@ -248,6 +263,11 @@ impl Sampler {
             counters.insert((p.pid, p.create_time), now_c);
 
             let mut info = ProcessInfo::from_raw(p);
+            if let Some(c) = prev_c.filter(|_| elapsed_secs > 0.0) {
+                // The kernel's count is 32-bit and wraps.
+                info.memory.page_fault_rate =
+                    f64::from(now_c.page_faults.wrapping_sub(c.page_faults)) / elapsed_secs;
+            }
             info.cpu_percent = cpu_percent;
             info.io_read_rate = io_read_rate;
             info.io_write_rate = io_write_rate;
@@ -257,9 +277,14 @@ impl Sampler {
                 info.net_rx_rate = *rx as f64 / elapsed_secs;
                 info.net_tx_rate = *tx as f64 / elapsed_secs;
             }
-            if let Some(g) = gpu.per_process.get(&info.pid) {
+            if let Some(g) = gpu.per_process.get_mut(&info.pid) {
                 info.gpu_percent = g.percent;
                 info.gpu_memory = g.dedicated_bytes;
+                info.gpu_detail.shared_memory = g.shared_bytes;
+                info.gpu_detail.engine = g
+                    .engine
+                    .take()
+                    .map(|(luid, kind)| crate::model::GpuEngineUse { luid, kind });
             }
             processes.push(info);
         }
@@ -288,15 +313,48 @@ impl Sampler {
 /// in both: one that has just come up would bring its whole count since
 /// boot, and one that went away would take its count out of the total. A
 /// counter that went down was reset and counts as no traffic.
-fn net_delta(prev: &[(u64, NetCounters)], now: &[(u64, NetCounters)]) -> NetCounters {
+fn net_delta(prev: &[NetAdapter], now: &[NetAdapter]) -> NetCounters {
     let mut moved = NetCounters::default();
-    for (luid, b) in now {
-        if let Some((_, a)) = prev.iter().find(|(l, _)| l == luid) {
-            moved.received += b.received.saturating_sub(a.received);
-            moved.sent += b.sent.saturating_sub(a.sent);
+    for b in now {
+        if let Some(a) = prev.iter().find(|a| a.luid == b.luid) {
+            moved.received += b.counters.received.saturating_sub(a.counters.received);
+            moved.sent += b.counters.sent.saturating_sub(a.counters.sent);
         }
     }
     moved
+}
+
+/// Each adapter's traffic since the previous reading, by the same rules as
+/// [`net_delta`]: an adapter new since then (or without an interval) shows
+/// no traffic yet rather than its count since boot.
+fn adapter_rates(
+    prev: Option<&[NetAdapter]>,
+    now: &[NetAdapter],
+    secs: f64,
+) -> Vec<NetAdapterUsage> {
+    now.iter()
+        .map(|b| {
+            let moved = prev
+                .and_then(|prev| prev.iter().find(|a| a.luid == b.luid))
+                .filter(|_| secs > 0.0)
+                .map(|a| {
+                    (
+                        b.counters.received.saturating_sub(a.counters.received) as f64 / secs,
+                        b.counters.sent.saturating_sub(a.counters.sent) as f64 / secs,
+                    )
+                })
+                .unwrap_or_default();
+            NetAdapterUsage {
+                luid: b.luid,
+                name: b.alias.clone(),
+                description: b.description.clone(),
+                if_type: b.if_type,
+                link_speed: b.link_speed,
+                rx_rate: moved.0,
+                tx_rate: moved.1,
+            }
+        })
+        .collect()
 }
 
 fn system_cpu_percent(prev: CpuTimes, now: CpuTimes) -> f32 {
@@ -316,14 +374,39 @@ mod tests {
     #[test]
     fn network_traffic_is_taken_per_adapter() {
         let c = |received, sent| NetCounters { received, sent };
-        let before = [(1, c(1_000, 500)), (2, c(9_000_000_000, 7_000_000_000))];
+        let a = |luid, counters| NetAdapter {
+            luid,
+            alias: format!("Adapter {luid}"),
+            counters,
+            ..Default::default()
+        };
+        let before = [a(1, c(1_000, 500)), a(2, c(9_000_000_000, 7_000_000_000))];
         // Adapter 2 went away, adapter 3 (up again with its old count) came
         // back, and adapter 1 moved 300 B in and 50 B out.
-        let after = [(3, c(5_000_000_000, 4_000_000_000)), (1, c(1_300, 550))];
+        let after = [a(3, c(5_000_000_000, 4_000_000_000)), a(1, c(1_300, 550))];
         assert_eq!(net_delta(&before, &after), c(300, 50));
         // A counter that went down was reset: no traffic, not a wrap.
-        assert_eq!(net_delta(&[(1, c(800, 80))], &[(1, c(100, 10))]), c(0, 0));
+        assert_eq!(net_delta(&[a(1, c(800, 80))], &[a(1, c(100, 10))]), c(0, 0));
         assert_eq!(net_delta(&[], &after), c(0, 0));
+        // Per adapter, over half a second: the returning adapter shows no
+        // traffic yet, adapter 1 its own.
+        let rates = adapter_rates(Some(&before), &after, 0.5);
+        let by = |luid| {
+            rates
+                .iter()
+                .find(|r| r.luid == luid)
+                .map(|r| (r.rx_rate, r.tx_rate))
+        };
+        assert_eq!(by(1), Some((600.0, 100.0)));
+        assert_eq!(by(3), Some((0.0, 0.0)));
+        assert_eq!(by(2), None, "gone");
+        assert_eq!(rates[1].name, "Adapter 1");
+        // The first sample has no interval: listed, without traffic.
+        assert!(
+            adapter_rates(None, &after, 0.0)
+                .iter()
+                .all(|r| r.rx_rate == 0.0)
+        );
     }
 
     #[test]
@@ -345,11 +428,13 @@ mod tests {
             idle: 100,
             kernel: 200,
             user: 100,
+            ..Default::default()
         };
         let b = CpuTimes {
             idle: 175,
             kernel: 300,
             user: 200,
+            ..Default::default()
         };
         // total = 100 + 100, idle = 75 -> 62.5% busy
         assert_eq!(system_cpu_percent(a, b), 62.5);
@@ -408,6 +493,15 @@ mod tests {
         assert!(!cores.is_empty() && cores.iter().any(|&c| c > 0.0));
         assert!(cores.iter().all(|c| (0.0..=100.0).contains(c)));
         assert!(second.system.net_rx_rate >= 0.0 && second.system.io_read_rate >= 0.0);
+        // This process's own memory figures come from the same snapshot.
+        let me = second
+            .processes
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .expect("own process");
+        assert!(me.memory.peak_working_set >= me.working_set);
+        assert!(me.memory.page_faults > 0);
+        assert!(me.memory.page_fault_rate.is_finite() && me.memory.page_fault_rate >= 0.0);
         assert!(!second.system.disks.is_empty(), "this machine has a disk");
     }
 }

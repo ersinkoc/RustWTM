@@ -32,7 +32,8 @@ pub use game::{GameChange, GameMode, GameModeConfig};
 pub use glob::glob_match;
 pub use governor::Governor;
 pub use insights::{
-    AppStats, Finding, FindingKind, InsightPolicy, InsightsConfig, MinuteRow, analyze, summarize,
+    AppStats, Finding, FindingKind, InsightPolicy, InsightsConfig, MinuteRow, NetBytes, analyze,
+    summarize,
 };
 pub use kill::{
     KillEntry, KillWatch, PanicTarget, panic_targets, remove_kill_entry, set_kill_entry,

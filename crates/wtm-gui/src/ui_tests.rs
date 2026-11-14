@@ -44,6 +44,8 @@ pub fn proc(pid: u32, parent_pid: u32, name: &str, cpu: f32) -> ProcessInfo {
         net_tx_rate: 0.0,
         suspended: false,
         create_time: 116_444_736_000_000_000 + i64::from(pid),
+        memory: Default::default(),
+        gpu_detail: Default::default(),
     }
 }
 
@@ -71,6 +73,8 @@ pub fn snapshot() -> Snapshot {
                 active_percent: 37.0,
                 read_rate: 2048.0,
                 write_rate: 0.0,
+                response_ms: 4.0,
+                queue_length: 0.1,
             }],
             gpu_engines: vec![
                 ("3D".into(), 12.0),
@@ -79,6 +83,9 @@ pub fn snapshot() -> Snapshot {
                 ("Video Decode".into(), 3.0),
                 ("OFA_0".into(), 0.0),
             ],
+            // Per-device pages have their own fixture.
+            net_adapters: Vec::new(),
+            gpus: Vec::new(),
         },
         processes: vec![
             proc(0, 0, "System Idle Process", 50.0),
@@ -90,6 +97,247 @@ pub fn snapshot() -> Snapshot {
         net_traced: false,
         taken_at_ms: 0,
     }
+}
+
+/// Wi-Fi's LUID in [`device_data`].
+pub(crate) const WIFI: u64 = 0x0047_0000_0001;
+/// Ethernet's LUID in [`device_data`].
+pub(crate) const ETHERNET: u64 = 0x0006_0000_0002;
+/// The discrete GPU's LUID in [`device_data`].
+pub(crate) const GPU0: &str = "00000000_0000c9d3";
+
+/// [`data`] with two disks, a Wi-Fi and an Ethernet adapter, two GPUs, the
+/// facts the Performance pages list and a full history for each device.
+/// Synthetic throughout: nothing is read from the host.
+pub(crate) fn device_data() -> Data {
+    use wtm_sys::gpu::GpuAdapterUsage;
+    let mut d = data();
+    let mut snap = snapshot();
+    snap.system.disks = vec![
+        wtm_core::DiskUsage {
+            name: "0 C:".into(),
+            active_percent: 7.0,
+            read_rate: 3.5 * 1024.0 * 1024.0,
+            write_rate: 900.0 * 1024.0,
+            response_ms: 0.4,
+            queue_length: 0.02,
+        },
+        wtm_core::DiskUsage {
+            name: "1 D: E:".into(),
+            active_percent: 64.0,
+            read_rate: 120.0 * 1024.0 * 1024.0,
+            write_rate: 0.0,
+            response_ms: 12.5,
+            queue_length: 1.4,
+        },
+    ];
+    snap.system.net_adapters = vec![
+        wtm_core::NetAdapterUsage {
+            luid: WIFI,
+            name: "Wi-Fi".into(),
+            description: "Example Wi-Fi 7 BE200 320MHz".into(),
+            if_type: 71,
+            link_speed: 2_882_000_000,
+            rx_rate: 1.8 * 1024.0 * 1024.0,
+            tx_rate: 96.0 * 1024.0,
+        },
+        wtm_core::NetAdapterUsage {
+            luid: ETHERNET,
+            name: "Ethernet".into(),
+            description: "Example 2.5GbE Controller".into(),
+            if_type: 6,
+            link_speed: 2_500_000_000,
+            rx_rate: 0.0,
+            tx_rate: 0.0,
+        },
+    ];
+    snap.system.gpus = vec![
+        GpuAdapterUsage {
+            luid: GPU0.into(),
+            percent: 38.0,
+            engines: vec![
+                ("3D".into(), 38.0),
+                ("Compute_0".into(), 4.0),
+                ("Copy".into(), 2.0),
+                ("VideoDecode".into(), 11.0),
+                ("VideoEncode".into(), 0.0),
+            ],
+            dedicated_used: Some(5 << 30),
+            shared_used: Some(300 << 20),
+        },
+        GpuAdapterUsage {
+            luid: "00000000_0000d1a0".into(),
+            percent: 3.0,
+            engines: vec![("3D".into(), 3.0), ("VideoProcessing".into(), 1.0)],
+            dedicated_used: Some(512 << 20),
+            shared_used: Some(1 << 30),
+        },
+    ];
+    let snap_system = snap.system.clone();
+    d.snapshot = Some(Arc::new(snap));
+    let f = &mut d.perf_facts;
+    f.cpu = Some(wtm_sys::cpu_info::CpuInfo {
+        name: Some("Example 24-core processor".into()),
+        base_mhz: Some(2400),
+        layout: wtm_sys::cpu_info::Layout {
+            sockets: 1,
+            cores: 24,
+            logical: 32,
+            l1: 2176 << 10,
+            l2: 32 << 20,
+            l3: 36 << 20,
+        },
+        virtualization: Some(true),
+    });
+    f.activity = wtm_sys::cpu_info::Activity {
+        current_mhz: Some(4380.0),
+        context_switches: Some(48_210.0),
+        system_calls: Some(312_400.0),
+        queue_length: Some(0.0),
+    };
+    f.breakdown = Some(crate::device_facts::CpuBreakdown {
+        dpc_percent: 0.4,
+        interrupt_percent: 0.2,
+        interrupts_per_sec: Some(21_380.0),
+    });
+    f.uptime = Some(Duration::from_secs(3 * 86_400 + 4 * 3600 + 5 * 60 + 6));
+    let module = |locator: &str| wtm_sys::smbios::MemoryModule {
+        size: 16 << 30,
+        form_factor: 0x0D,
+        memory_type: 0x22,
+        speed: Some(5600),
+        configured_speed: Some(5200),
+        locator: locator.into(),
+        bank: String::new(),
+        manufacturer: "Example Memory".into(),
+        part_number: "EX5-16G".into(),
+    };
+    f.memory = Some(vec![module("DIMM A"), module("DIMM B")]);
+    f.disks = vec![
+        wtm_sys::physical_disk::PhysicalDisk {
+            number: 0,
+            model: "Example NVMe SSD 2TB".into(),
+            bus: 17,
+            removable: false,
+            ssd: Some(true),
+            size: Some(2_000_398_934_016),
+        },
+        wtm_sys::physical_disk::PhysicalDisk {
+            number: 1,
+            model: "Example Desktop HDD 4TB".into(),
+            bus: 11,
+            removable: false,
+            ssd: Some(false),
+            size: Some(4_000_787_030_016),
+        },
+    ];
+    let volume = |root: &str, label: &str, total: u64, free: u64| wtm_core::Volume {
+        root: root.into(),
+        label: label.into(),
+        file_system: "NTFS".into(),
+        kind: wtm_core::DriveKind::Fixed,
+        total,
+        free,
+    };
+    f.volumes = vec![
+        volume(r"C:\", "Windows", 1_999_000_000_000, 812_000_000_000),
+        volume(r"D:\", "Data", 3_000_000_000_000, 1_200_000_000_000),
+        volume(r"E:\", "Games", 1_000_000_000_000, 120_000_000_000),
+    ];
+    f.system_drive = Some("C:".into());
+    f.page_file_drives = vec!["C:".into()];
+    f.addresses = vec![wtm_sys::net_info::Addresses {
+        luid: WIFI,
+        ipv4: vec![std::net::Ipv4Addr::new(192, 168, 1, 42)],
+        ipv6: vec!["fe80::1c2b:3a4d:5e6f:7081".parse().unwrap()],
+        dns_suffix: "home.example".into(),
+        mac: "00-1A-2B-3C-4D-5E".into(),
+    }];
+    f.wifi = vec![wtm_sys::net_info::WifiLink {
+        luid: WIFI,
+        ssid: "Example Network".into(),
+        signal: 86,
+        standard: Some("802.11be"),
+    }];
+    f.gpus = vec![
+        crate::device_facts::GpuFacts {
+            luid: GPU0.into(),
+            name: "Example discrete graphics".into(),
+            dedicated_total: 12 << 30,
+            shared_total: 16 << 30,
+            driver_version: Some("32.0.15.6614".into()),
+            driver_date: Some("2026-09-30".into()),
+            directx: Some("12_2".into()),
+        },
+        crate::device_facts::GpuFacts {
+            luid: "00000000_0000d1a0".into(),
+            name: "Example integrated graphics".into(),
+            dedicated_total: 512 << 20,
+            shared_total: 16 << 30,
+            driver_version: Some("31.0.101.5590".into()),
+            driver_date: None,
+            directx: Some("12_1".into()),
+        },
+    ];
+    f.gpu_perf = vec![(
+        GPU0.into(),
+        crate::device_facts::GpuPerf {
+            temperature: Some(46.3),
+            temperature_max: Some(88.0),
+            fan_rpm: Some(1250),
+            memory_mhz: Some(405),
+            memory_max_mhz: Some(15_001),
+        },
+    )];
+    f.disk_health = Some(crate::device_facts::DiskHealth {
+        number: 0,
+        temperature: Some(wtm_sys::physical_disk::DiskTemperature {
+            celsius: 38.0,
+            warning: Some(60.0),
+            critical: Some(70.0),
+        }),
+        nvme: None,
+    });
+    // A full, deterministic history for every graph.
+    let h = &mut d.history;
+    h.times.clear();
+    for series in [
+        &mut h.cpu,
+        &mut h.memory,
+        &mut h.gpu,
+        &mut h.net_rx,
+        &mut h.net_tx,
+        &mut h.io_read,
+        &mut h.io_write,
+    ] {
+        series.clear();
+    }
+    h.devices.clear();
+    for i in 0..crate::backend::HISTORY_LEN {
+        let wave =
+            |speed: f32, base: f32, swing: f32| (base + (i as f32 * speed).sin() * swing).max(0.0);
+        h.times.push_back(1_700_000_000_000 + i as u64 * 1000);
+        h.cpu.push_back(wave(0.09, 30.0, 18.0));
+        h.memory.push_back(wave(0.02, 50.0, 3.0));
+        h.gpu.push_back(wave(0.12, 30.0, 10.0));
+        h.net_rx.push_back(wave(0.1, 1.8e6, 1.2e6));
+        h.net_tx.push_back(wave(0.05, 9.0e4, 6.0e4));
+        h.io_read.push_back(wave(0.07, 4.0e6, 3.0e6));
+        h.io_write.push_back(wave(0.03, 8.0e5, 5.0e5));
+        let mut stats = snap_system.clone();
+        stats.disks[0].active_percent = wave(0.08, 8.0, 6.0);
+        stats.disks[1].active_percent = wave(0.05, 55.0, 30.0);
+        stats.disks[1].read_rate = f64::from(wave(0.05, 9.0e7, 6.0e7));
+        stats.net_adapters[0].rx_rate = f64::from(wave(0.1, 1.8e6, 1.2e6));
+        stats.net_adapters[0].tx_rate = f64::from(wave(0.05, 9.0e4, 6.0e4));
+        stats.gpus[0].percent = wave(0.12, 35.0, 12.0);
+        stats.gpus[0].engines[0].1 = wave(0.12, 35.0, 12.0);
+        stats.gpus[0].engines[3].1 = wave(0.2, 10.0, 8.0);
+        stats.gpus[0].dedicated_used = Some((5u64 << 30) + (wave(0.03, 1.0, 1.0) * 4.0e8) as u64);
+        h.devices
+            .record(h.times.len(), crate::device_facts::readings(&stats));
+    }
+    d
 }
 
 pub(crate) fn hybrid_topology() -> wtm_core::cpu::Topology {
@@ -134,6 +382,7 @@ fn cpu_type_menu_sends_tier_selection_and_hides_on_uniform_processors() {
                     },
                     8,
                     Some(&s.topology),
+                    &["Print Spooler".to_owned()],
                     &mut s.intents,
                 );
             },
@@ -159,6 +408,15 @@ fn cpu_type_menu_sends_tier_selection_and_hides_on_uniform_processors() {
     }
     h.run();
     assert!(h.query_by_label("CPU core type").is_none());
+    // A process that hosts services links to them, as Task Manager.
+    h.get_by_label("Go to services").click();
+    h.run();
+    assert!(
+        h.state()
+            .intents
+            .iter()
+            .any(|i| matches!(i, Intent::ShowServices(100)))
+    );
 }
 
 fn target(pid: u32, name: &str) -> ProcessRef {
@@ -239,7 +497,9 @@ pub fn data() -> Data {
                 state: ServiceState::Running,
                 pid: 300,
                 start_type: Some(StartType::Automatic),
-                binary_path: None,
+                binary_path: Some(
+                    r"C:\WINDOWS\system32\svchost.exe -k LocalSystemPrinting -p".into(),
+                ),
                 account: Some("LocalSystem".into()),
             },
             ServiceEntry {
@@ -306,6 +566,10 @@ pub fn data() -> Data {
                 mem_growth_per_hour: 5.0 * 1024.0 * 1024.0,
                 mem_growth_fit: 0.4,
                 cpu_core_seconds: 3600.0,
+                net: wtm_policy::NetBytes {
+                    rx: 3 << 30,
+                    tx: 1 << 30,
+                },
                 ..AppStats::default()
             }],
             vec![Finding {
@@ -358,6 +622,7 @@ fn describe_intent(i: &Intent) -> String {
         Intent::ConfirmMany(ts, c) => format!("confirm {} processes {c:?}", ts.len()),
         Intent::ShowContainers => "show containers".into(),
         Intent::ShowPorts => "show ports".into(),
+        Intent::ShowServices(pid) => format!("show services {pid}"),
         Intent::Dump(t) => format!("dump {}", t.pid),
         Intent::WatchExit(t) => format!("watch exit {}", t.pid),
         Intent::WaitChain(t) => format!("wait chain {}", t.pid),
@@ -379,9 +644,23 @@ fn process_harness() -> Harness<'static, ProcState> {
         .build_ui_state(
             |ui, st: &mut ProcState| {
                 let snap = st.snap.clone();
+                static GPUS: std::sync::LazyLock<Vec<String>> =
+                    std::sync::LazyLock::new(|| vec![GPU0.to_owned()]);
                 let mut extra = extra_with(&st.managed, &st.hung);
                 extra.descriptions = &st.descriptions;
                 extra.services = &st.services;
+                extra.gpu_order = &GPUS;
+                // alpha.exe's objects were read; nothing else's.
+                static GUI: std::sync::LazyLock<crate::backend::GuiObjects> =
+                    std::sync::LazyLock::new(|| {
+                        snapshot()
+                            .processes
+                            .iter()
+                            .filter(|p| p.pid == 100)
+                            .map(|p| ((p.pid, p.create_time), (321, 45)))
+                            .collect()
+                    });
+                extra.gui_objects = &GUI;
                 let intents = st.view.ui(ui, &snap, &extra);
                 st.intents.extend(intents.iter().map(describe_intent));
             },
@@ -1434,6 +1713,53 @@ fn services_and_startup_views_select_and_toggle() {
     h.state_mut().filter = "fax".into();
     h.run();
     assert!(h.query_by_label("Print Spooler").is_none());
+    // The service host group shows, and finds the service.
+    h.state_mut().filter = String::new();
+    h.run();
+    assert!(h.query_by_label("Group").is_some());
+    assert!(h.query_by_label("LocalSystemPrinting").is_some());
+    h.state_mut().filter = "systemprint".into();
+    h.run();
+    assert!(h.query_by_label("Print Spooler").is_some());
+    // A number finds the services of that process.
+    h.state_mut().filter = "300".into();
+    h.run();
+    assert!(h.query_by_label("Print Spooler").is_some());
+    assert!(h.query_by_label("Fax").is_none());
+
+    // Startup apps name each program's publisher, as Task Manager.
+    assert!(h.query_by_label("Publisher").is_some());
+    assert!(h.query_by_label("Example Software Ltd.").is_none());
+    h.state_mut().data.startup_publishers.insert(
+        r"C:\Apps\updater.exe /background".into(),
+        Some("Example Software Ltd.".into()),
+    );
+    h.run();
+    assert!(h.query_by_label("Example Software Ltd.").is_some());
+    // Startup impact: unknown, then measured as Windows reported it.
+    assert!(h.query_by_label("Startup impact").is_some());
+    assert!(h.query_by_label("High impact").is_none());
+    h.state_mut().data.startup_impact = Some(Ok([(
+        r"c:\apps\updater.exe".to_owned(),
+        wtm_core::startup_impact::BootUsage {
+            cpu_us: 2_500_000,
+            disk_bytes: 1 << 20,
+        },
+    )]
+    .into_iter()
+    .collect()));
+    h.run();
+    assert!(h.query_by_label("High impact").is_some());
+    // A program Windows did not see at sign-in.
+    h.state_mut().data.startup_impact = Some(Ok(Default::default()));
+    h.run();
+    assert!(h.query_by_label("Not measured").is_some());
+    h.state_mut().startup_filter = "example soft".into();
+    h.run();
+    assert!(
+        h.query_all_by_label("Updater").next().is_some(),
+        "found by publisher"
+    );
 }
 
 #[test]
@@ -1492,14 +1818,16 @@ fn app_history_view_switches_window_sort_and_selection() {
     assert_eq!(h.state().1.hours, 168);
     // Every column header sorts; the second click reverses.
     for header in [
-        "App", "Seen", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time", "Avg mem", "Peak mem",
-        "Growth/h", "Finding", "Finding", "Avg CPU",
+        "App", "Seen", "p95 CPU", "Peak CPU", "Avg GPU", "CPU time", "Network", "Avg mem",
+        "Peak mem", "Growth/h", "Finding", "Finding", "Avg CPU",
     ] {
         // Headers come after the findings list, which may repeat a word.
         h.get_all_by_label_contains(header).last().unwrap().click();
         h.run();
     }
     assert!(h.query_by_label("Avg CPU ↓").is_some());
+    // Network received and sent in the window, as Task Manager's column.
+    assert!(h.query_by_label("4.0 GiB").is_some());
     h.get_by_label("alpha.exe").click();
     h.run_steps(3);
     assert_eq!(h.state().1.selected.as_deref(), Some("alpha.exe"));
@@ -2010,6 +2338,12 @@ fn extra_with<'a>(
                 std::sync::LazyLock::new(Default::default);
             &EMPTY
         },
+        gpu_order: &[],
+        gui_objects: {
+            static EMPTY: std::sync::LazyLock<crate::backend::GuiObjects> =
+                std::sync::LazyLock::new(Default::default);
+            &EMPTY
+        },
     }
 }
 
@@ -2414,6 +2748,82 @@ fn not_responding_programs_are_marked_and_filterable() {
     h.run();
     assert!(h.query_by_label("alpha.exe").is_some());
     assert!(h.query_by_label("beta.exe").is_none());
+}
+
+#[test]
+fn details_columns_show_cpu_time_split_disk_io_and_status() {
+    use crate::processes::Col;
+    let mut h = process_harness();
+    {
+        let st = h.state_mut();
+        let alpha = st.snap.processes.iter_mut().find(|p| p.pid == 100).unwrap();
+        alpha.cpu_time = Duration::from_secs(3723);
+        alpha.io_read_rate = 3.0 * 1024.0 * 1024.0;
+        alpha.io_write_rate = 512.0;
+        alpha.memory = wtm_core::MemoryCounters {
+            peak_working_set: 300 << 20,
+            paged_pool: 400 << 10,
+            nonpaged_pool: 48 << 10,
+            page_faults: 1_234_567,
+            page_fault_rate: 89.0,
+        };
+        alpha.gpu_detail = wtm_core::GpuDetail {
+            shared_memory: 640 << 20,
+            engine: Some(wtm_core::GpuEngineUse {
+                luid: GPU0.into(),
+                kind: "3D".into(),
+            }),
+        };
+        let beta = st.snap.processes.iter_mut().find(|p| p.pid == 200).unwrap();
+        beta.suspended = true;
+        // A GPU the Performance page does not number shows its engine type.
+        beta.gpu_detail.engine = Some(wtm_core::GpuEngineUse {
+            luid: "ffffffff_00000001".into(),
+            kind: "VideoDecode".into(),
+        });
+        st.hung.insert(101, "Child - Window".into());
+        st.view.visible.extend([
+            Col::CpuTime,
+            Col::DiskRead,
+            Col::DiskWrite,
+            Col::Status,
+            Col::PeakWorkingSet,
+            Col::PagedPool,
+            Col::NonPagedPool,
+            Col::PageFaults,
+            Col::PageFaultRate,
+            Col::GpuEngine,
+            Col::SharedGpuMemory,
+            Col::GdiObjects,
+            Col::UserObjects,
+        ]);
+        st.view.normalize_columns();
+    }
+    h.run_steps(3);
+    for header in ["CPU time", "Disk read", "Disk write", "Status"] {
+        assert!(h.state().view.view_has(header), "{header}");
+    }
+    for text in [
+        "1:02:03",
+        "3.0 MiB/s",
+        "512 B/s",
+        "Running",
+        "300.0 MiB",
+        "400.0 KiB",
+        "48.0 KiB",
+        "1\u{202F}234\u{202F}567",
+        "89",
+        "GPU 0 - 3D",
+        "VideoDecode",
+        "640.0 MiB",
+        "321",
+        "45",
+    ] {
+        assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+    }
+    // The state column and the name badge both say it.
+    assert!(h.get_all_by_label("Suspended").count() >= 2);
+    assert!(h.get_all_by_label("Not responding").count() >= 3);
 }
 
 #[test]

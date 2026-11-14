@@ -70,13 +70,25 @@ impl Profile {
         use Col::*;
         let cols: &[Col] = match self {
             Self::Basic => &[Name, Pid, Cpu, Memory, Disk, Network, Gpu],
-            Self::Cpu => &[Name, Pid, Cpu, Threads, Priority, Limits],
-            Self::Memory => &[Name, Pid, Memory, Commit, WorkingSet, Handles],
-            Self::Io => &[Name, Pid, Disk, Handles, CommandLine],
+            Self::Cpu => &[Name, Pid, Cpu, CpuTime, Threads, Priority, Limits],
+            Self::Memory => &[
+                Name,
+                Pid,
+                Memory,
+                Commit,
+                WorkingSet,
+                PeakWorkingSet,
+                PageFaultRate,
+                PagedPool,
+                NonPagedPool,
+                Handles,
+            ],
+            Self::Io => &[Name, Pid, Disk, DiskRead, DiskWrite, Handles, CommandLine],
             Self::Network => &[Name, Pid, Network, CommandLine],
             Self::Diagnostics => &[
                 Name,
                 Pid,
+                Status,
                 User,
                 Elevated,
                 Architecture,

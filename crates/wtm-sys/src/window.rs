@@ -354,6 +354,34 @@ pub fn bring_to_front(raw: isize) -> bool {
     }
 }
 
+/// Whether the window stays above other windows.
+pub fn is_topmost(raw: isize) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, WS_EX_TOPMOST};
+    // SAFETY: fails harmlessly (returns 0) on a destroyed window.
+    let style = unsafe { GetWindowLongPtrW(hwnd(raw), GWL_EXSTYLE) };
+    style as u32 & WS_EX_TOPMOST.0 != 0
+}
+
+/// Keeps the window above other windows, or ends that, without moving or
+/// activating it: Task Manager's "Always on top".
+pub fn set_topmost(raw: isize, on: bool) {
+    if !on {
+        return release_topmost(raw);
+    }
+    // SAFETY: see `bring_to_front`.
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd(raw),
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
+
 /// Ends "always on top" without moving or activating the window.
 pub fn release_topmost(raw: isize) {
     // SAFETY: see `bring_to_front`.

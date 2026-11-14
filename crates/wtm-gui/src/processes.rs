@@ -104,13 +104,28 @@ pub enum Col {
     ImagePath,
     StartTime,
     Integrity,
+    /// Total processor time used, as Task Manager's Details column.
+    CpuTime,
+    DiskRead,
+    DiskWrite,
+    /// Running, Suspended or Not responding.
+    Status,
+    PeakWorkingSet,
+    PagedPool,
+    NonPagedPool,
+    PageFaults,
+    PageFaultRate,
+    GpuEngine,
+    SharedGpuMemory,
+    GdiObjects,
+    UserObjects,
     /// Forward-compatible saved preferences; never a rendered column.
     #[serde(other)]
     Unknown,
 }
 
 /// Column, header, initial width, numeric (sorts largest first), shown by default.
-pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 25] = [
+pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 38] = [
     (Col::Name, "Name", 240.0, false, true),
     (Col::Pid, "PID", 64.0, false, true),
     (Col::Cpu, "CPU", 64.0, true, true),
@@ -136,7 +151,33 @@ pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 25] = [
     (Col::ImagePath, "Image path", 320.0, false, false),
     (Col::StartTime, "Start time", 150.0, false, false),
     (Col::Integrity, "Integrity", 96.0, false, false),
+    (Col::CpuTime, "CPU time", 88.0, true, false),
+    (Col::DiskRead, "Disk read", 92.0, true, false),
+    (Col::DiskWrite, "Disk write", 92.0, true, false),
+    (Col::Status, "Status", 110.0, false, false),
+    (Col::PeakWorkingSet, "Peak working set", 104.0, true, false),
+    (Col::PagedPool, "Paged pool", 92.0, true, false),
+    (Col::NonPagedPool, "Non-paged pool", 92.0, true, false),
+    (Col::PageFaults, "Page faults", 96.0, true, false),
+    (Col::PageFaultRate, "Page faults/s", 96.0, true, false),
+    (Col::GpuEngine, "GPU engine", 130.0, false, false),
+    (
+        Col::SharedGpuMemory,
+        "Shared GPU memory",
+        104.0,
+        true,
+        false,
+    ),
+    (Col::GdiObjects, "GDI objects", 84.0, true, false),
+    (Col::UserObjects, "USER objects", 84.0, true, false),
 ];
+
+impl Col {
+    /// Columns read only while shown: the window asks for them.
+    pub fn gui_objects(self) -> bool {
+        matches!(self, Self::GdiObjects | Self::UserObjects)
+    }
+}
 
 /// A 16 px program icon (or the same space when there is none). Textures are
 /// kept in egui's memory per image path, so each icon is uploaded once.
@@ -175,6 +216,10 @@ pub struct Extra<'a> {
     pub versions: &'a HashMap<String, Option<String>>,
     /// Services each process hosts.
     pub services: &'a crate::backend::HostedServices,
+    /// GPU LUIDs in the order the Performance page numbers them ("GPU 0").
+    pub gpu_order: &'a [String],
+    /// GDI and USER objects, while one of their columns is shown.
+    pub gui_objects: &'a crate::backend::GuiObjects,
 }
 
 impl Extra<'_> {
@@ -190,6 +235,23 @@ impl Extra<'_> {
             .get(self.image_path(p)?)?
             .as_deref()
             .filter(|name| !name.eq_ignore_ascii_case(&p.name))
+    }
+
+    /// Task Manager's GPU engine text, such as "GPU 0 - 3D"; empty while the
+    /// process uses no GPU engine.
+    fn gpu_engine(&self, p: &ProcessInfo) -> String {
+        let Some(engine) = &p.gpu_detail.engine else {
+            return String::new();
+        };
+        match self.gpu_order.iter().position(|l| *l == engine.luid) {
+            Some(n) => format!("GPU {n} - {}", engine.kind),
+            None => engine.kind.clone(),
+        }
+    }
+
+    /// GDI and USER objects of `p`, when read.
+    fn gui(&self, p: &ProcessInfo) -> Option<(u32, u32)> {
+        self.gui_objects.get(&(p.pid, p.create_time)).copied()
     }
 
     /// The services `p` hosts, by display name.
@@ -322,6 +384,8 @@ pub enum Intent {
     ConfirmMany(Vec<ProcessRef>, Command),
     /// Open the Ports tab.
     ShowPorts,
+    /// Open the Services tab with the services this process hosts.
+    ShowServices(u32),
     ShowContainers,
     /// Write a full memory dump of the process.
     Dump(ProcessRef),
@@ -924,11 +988,18 @@ impl ProcessView {
 
 fn column_family(col: Col) -> usize {
     match col {
-        Col::Cpu | Col::Threads | Col::Priority => 1,
-        Col::Memory | Col::Commit | Col::WorkingSet => 2,
-        Col::Disk => 3,
+        Col::Cpu | Col::CpuTime | Col::Threads | Col::Priority => 1,
+        Col::Memory
+        | Col::Commit
+        | Col::WorkingSet
+        | Col::PeakWorkingSet
+        | Col::PagedPool
+        | Col::NonPagedPool
+        | Col::PageFaults
+        | Col::PageFaultRate => 2,
+        Col::Disk | Col::DiskRead | Col::DiskWrite => 3,
         Col::Network => 4,
-        Col::Gpu | Col::GpuMemory => 5,
+        Col::Gpu | Col::GpuMemory | Col::GpuEngine | Col::SharedGpuMemory => 5,
         _ => 0,
     }
 }
@@ -978,8 +1049,48 @@ fn compare(
         // Earliest first when ascending.
         Col::StartTime => a.create_time.cmp(&b.create_time),
         Col::Integrity => extra.integrity(a).cmp(&extra.integrity(b)),
+        Col::CpuTime => a.cpu_time.cmp(&b.cpu_time),
+        Col::DiskRead => a.io_read_rate.total_cmp(&b.io_read_rate),
+        Col::DiskWrite => a.io_write_rate.total_cmp(&b.io_write_rate),
+        Col::Status => status(a, extra).cmp(&status(b, extra)),
+        Col::PeakWorkingSet => a.memory.peak_working_set.cmp(&b.memory.peak_working_set),
+        Col::PagedPool => a.memory.paged_pool.cmp(&b.memory.paged_pool),
+        Col::NonPagedPool => a.memory.nonpaged_pool.cmp(&b.memory.nonpaged_pool),
+        Col::PageFaults => a.memory.page_faults.cmp(&b.memory.page_faults),
+        Col::PageFaultRate => a
+            .memory
+            .page_fault_rate
+            .total_cmp(&b.memory.page_fault_rate),
+        Col::GpuEngine => crate::sort::text(&extra.gpu_engine(a), &extra.gpu_engine(b)),
+        Col::GdiObjects => extra.gui(a).map(|g| g.0).cmp(&extra.gui(b).map(|g| g.0)),
+        Col::UserObjects => extra.gui(a).map(|g| g.1).cmp(&extra.gui(b).map(|g| g.1)),
+        Col::SharedGpuMemory => a.gpu_detail.shared_memory.cmp(&b.gpu_detail.shared_memory),
     }
     .then(a.pid.cmp(&b.pid))
+}
+
+/// A process's state, from running to not responding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Status {
+    Running,
+    Suspended,
+    NotResponding,
+}
+
+fn status(p: &ProcessInfo, extra: &Extra<'_>) -> Status {
+    if p.suspended {
+        Status::Suspended
+    } else if extra.hung.contains_key(&p.pid) {
+        Status::NotResponding
+    } else {
+        Status::Running
+    }
+}
+
+/// Processor time as Task Manager writes it: `1:02:03` (hours unbounded).
+fn cpu_time_text(d: std::time::Duration) -> String {
+    let s = d.as_secs();
+    format!("{}:{:02}:{:02}", s / 3600, s % 3600 / 60, s % 60)
 }
 
 /// `3d 04h`, `2h 05m`, `4m 10s`.
@@ -1225,6 +1336,8 @@ fn right_aligned(col: Col) -> bool {
             | Col::ImagePath
             | Col::StartTime
             | Col::Integrity
+            | Col::Status
+            | Col::GpuEngine
     )
 }
 
@@ -1811,6 +1924,82 @@ impl ProcessView {
                                         Col::Disk => {
                                             right(ui, format!("{}/s", format_bytes(p.io_rate())))
                                         }
+                                        Col::DiskRead => {
+                                            right(ui, format!("{}/s", format_bytes(p.io_read_rate)))
+                                        }
+                                        Col::DiskWrite => {
+                                            right(ui, format!("{}/s", format_bytes(p.io_write_rate)))
+                                        }
+                                        Col::CpuTime => right(ui, cpu_time_text(p.cpu_time)),
+                                        Col::PeakWorkingSet => {
+                                            right(ui, format_bytes(p.memory.peak_working_set as f64))
+                                        }
+                                        Col::PagedPool => {
+                                            right(ui, format_bytes(p.memory.paged_pool as f64))
+                                        }
+                                        Col::NonPagedPool => {
+                                            right(ui, format_bytes(p.memory.nonpaged_pool as f64))
+                                        }
+                                        Col::PageFaults => right(
+                                            ui,
+                                            crate::perf_pages::count(p.memory.page_faults as f64),
+                                        ),
+                                        Col::GpuEngine => {
+                                            ui.label(extra.gpu_engine(p));
+                                        }
+                                        Col::GdiObjects | Col::UserObjects => {
+                                            // A group shows the sum of what was read.
+                                            let read: Vec<(u32, u32)> = match group {
+                                                Some(g) => g
+                                                    .members
+                                                    .iter()
+                                                    .filter_map(|&i| extra.gui(&snap.processes[i]))
+                                                    .collect(),
+                                                None => extra.gui(p).into_iter().collect(),
+                                            };
+                                            if read.is_empty() {
+                                                ui.with_layout(
+                                                    Layout::right_to_left(Align::Center),
+                                                    |ui| {
+                                                        ui.weak("—").on_hover_text(crate::i18n::tr(
+                                                            "Not readable with this window's rights",
+                                                        ));
+                                                    },
+                                                );
+                                            } else {
+                                                let sum = read.iter().fold(0u64, |a, g| {
+                                                    a + u64::from(if *col == Col::GdiObjects { g.0 } else { g.1 })
+                                                });
+                                                right(ui, sum.to_string());
+                                            }
+                                        }
+                                        Col::SharedGpuMemory => right(
+                                            ui,
+                                            format_bytes(p.gpu_detail.shared_memory as f64),
+                                        ),
+                                        Col::PageFaultRate => right(
+                                            ui,
+                                            crate::perf_pages::count(p.memory.page_fault_rate),
+                                        ),
+                                        // Groups have no single state.
+                                        Col::Status if group.is_some() => {}
+                                        Col::Status => {
+                                            let (text, color) = match status(p, extra) {
+                                                Status::Running => (crate::i18n::tr("Running"), None),
+                                                Status::Suspended => {
+                                                    (crate::i18n::tr("Suspended"), Some(crate::theme::WARN))
+                                                }
+                                                Status::NotResponding => {
+                                                    (crate::i18n::tr("Not responding"), Some(crate::theme::BAD))
+                                                }
+                                            };
+                                            match color {
+                                                Some(c) => ui.label(
+                                                    RichText::new(text).color(crate::theme::text_color(ui, c)),
+                                                ),
+                                                None => ui.label(text),
+                                            };
+                                        }
                                         Col::Network if !snap.net_traced => {
                                             ui.with_layout(
                                                 Layout::right_to_left(Align::Center),
@@ -1943,6 +2132,7 @@ impl ProcessView {
                                             &target,
                                             logical_cpus,
                                             extra.topology,
+                                            if group.is_none() { extra.hosted(p) } else { &[] },
                                             &mut intents,
                                         )
                                     });
@@ -2330,14 +2520,27 @@ fn user_groups(procs: &[ProcessInfo], members: &[usize], extra: &Extra<'_>) -> V
                     t.io_write_rate += o.io_write_rate;
                     t.net_rx_rate += o.net_rx_rate;
                     t.net_tx_rate += o.net_tx_rate;
+                    t.memory.add(&o.memory);
+                    t.gpu_detail.shared_memory += o.gpu_detail.shared_memory;
                     a.members.extend(b.members);
                     a
                 })
                 .expect("every group has a member");
+            group.total.gpu_detail.engine = busiest_engine(procs, &group.members);
             group.key = key;
             group
         })
         .collect()
+}
+
+/// The GPU engine of the member that uses the GPU most, for a group row.
+fn busiest_engine(procs: &[ProcessInfo], members: &[usize]) -> Option<wtm_core::GpuEngineUse> {
+    members
+        .iter()
+        .map(|&i| &procs[i])
+        .filter(|p| p.gpu_detail.engine.is_some())
+        .max_by(|a, b| a.gpu_percent.total_cmp(&b.gpu_percent))
+        .and_then(|p| p.gpu_detail.engine.clone())
 }
 
 /// All processes sharing an image name, with their totals.
@@ -2379,7 +2582,12 @@ fn app_groups(procs: &[ProcessInfo], members: &[usize]) -> Vec<AppGroup> {
                 total.io_write_rate += p.io_write_rate;
                 total.net_rx_rate += p.net_rx_rate;
                 total.net_tx_rate += p.net_tx_rate;
+                total.memory.add(&p.memory);
+                total.gpu_detail.shared_memory += p.gpu_detail.shared_memory;
             }
+            // The total starts as the first member: its engine is not the
+            // group's.
+            total.gpu_detail.engine = busiest_engine(procs, &members);
             AppGroup {
                 key,
                 total,
@@ -2502,6 +2710,7 @@ pub fn context_menu(
     t: &ProcessRef,
     logical_cpus: u32,
     topology: Option<&wtm_core::cpu::Topology>,
+    hosted: &[String],
     intents: &mut Vec<Intent>,
 ) {
     if t.name.eq_ignore_ascii_case("explorer.exe")
@@ -2547,6 +2756,13 @@ pub fn context_menu(
         ] {
             cmd(ui, priority_label(p), Command::Priority(p), false);
         }
+        // As in Task Manager, realtime is offered but asked about first.
+        cmd(
+            ui,
+            priority_label(PriorityClass::Realtime),
+            Command::Priority(PriorityClass::Realtime),
+            true,
+        );
     });
     ui.menu_button(crate::i18n::tr("Efficiency mode"), |ui| {
         cmd(
@@ -2658,6 +2874,15 @@ pub fn context_menu(
     crate::theme::divider(ui);
     if ui.button(crate::i18n::tr("Open file location")).clicked() {
         intents.push(Intent::OpenLocation(t.clone()));
+        ui.close();
+    }
+    if !hosted.is_empty()
+        && ui
+            .button(crate::i18n::tr("Go to services"))
+            .on_hover_text(hosted.join(", "))
+            .clicked()
+    {
+        intents.push(Intent::ShowServices(t.pid));
         ui.close();
     }
     if ui
@@ -2820,6 +3045,8 @@ mod tests {
             net_tx_rate: 0.0,
             suspended: false,
             create_time,
+            memory: Default::default(),
+            gpu_detail: Default::default(),
         }
     }
 
@@ -2854,6 +3081,8 @@ mod tests {
             facts: Box::leak(Box::default()),
             versions: Box::leak(Box::default()),
             services: Box::leak(Box::default()),
+            gui_objects: Box::leak(Box::default()),
+            gpu_order: &[],
         }
     }
 
@@ -2869,6 +3098,43 @@ mod tests {
             user: Some(user.into()),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn app_rows_show_the_engine_of_their_busiest_member() {
+        let engine = |kind: &str| {
+            Some(wtm_core::GpuEngineUse {
+                luid: "00000000_00000001".into(),
+                kind: kind.into(),
+            })
+        };
+        let mut first = p(1, 0, 0.0, 1);
+        first.name = "game.exe".into();
+        first.gpu_percent = 2.0;
+        first.gpu_detail.engine = engine("Copy");
+        first.gpu_detail.shared_memory = 100;
+        let mut second = p(2, 0, 0.0, 2);
+        second.name = "game.exe".into();
+        second.gpu_percent = 60.0;
+        second.gpu_detail.engine = engine("3D");
+        second.gpu_detail.shared_memory = 50;
+        let idle = {
+            let mut q = p(3, 0, 0.0, 3);
+            q.name = "game.exe".into();
+            q
+        };
+        let procs = [first, second, idle];
+        let groups = app_groups(&procs, &[0, 1, 2]);
+        assert_eq!(groups.len(), 1);
+        let total = &groups[0].total;
+        assert_eq!(
+            total.gpu_detail.engine,
+            engine("3D"),
+            "not the first member's"
+        );
+        assert_eq!(total.gpu_detail.shared_memory, 150);
+        // No member busy: no engine.
+        assert_eq!(app_groups(&procs, &[2])[0].total.gpu_detail.engine, None);
     }
 
     #[test]
@@ -2911,6 +3177,14 @@ mod tests {
             "unknown, then least trusted"
         );
         assert_eq!(order(Col::StartTime), [11, 12, 10], "earliest first");
+        assert_eq!(
+            cpu_time_text(std::time::Duration::from_secs(3723)),
+            "1:02:03"
+        );
+        assert_eq!(
+            cpu_time_text(std::time::Duration::from_secs(360_000)),
+            "100:00:00"
+        );
         assert_eq!(order(Col::ParentPid), [11, 10, 12]);
         assert_eq!(integrity_label(Integrity::MediumPlus), "Medium plus");
         assert_eq!(integrity_label(Integrity::Other(0x2500)), "0x2500");
