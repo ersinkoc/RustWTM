@@ -36,6 +36,7 @@ features = [
     "Win32_Security_Cryptography_Sip",
     "Win32_Security_WinTrust",
     "Win32_Storage_FileSystem",
+    "Win32_Storage_Packaging_Appx",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Diagnostics_Etw",
     "Win32_System_Diagnostics_ProcessSnapshotting",

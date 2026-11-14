@@ -47,6 +47,13 @@ pub struct ProcessInfo {
     /// Shared GPU memory and the busiest GPU engine.
     #[serde(default)]
     pub gpu_detail: GpuDetail,
+    /// I/O operations and bytes since the process started.
+    #[serde(default)]
+    pub io: IoTotals,
+    /// Share of all processor cycles between the last two samples, the
+    /// idle process's included (Task Manager's Cycle).
+    #[serde(default)]
+    pub cycle_percent: f32,
 }
 
 /// Task Manager's "GPU engine" and "Shared GPU memory" for a process.
@@ -69,6 +76,7 @@ pub struct GpuEngineUse {
 /// The memory figures Task Manager's Details tab offers besides the working
 /// set, read from the same kernel snapshot.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MemoryCounters {
     pub peak_working_set: u64,
     /// Paged and non-paged kernel pool charged to the process.
@@ -78,6 +86,11 @@ pub struct MemoryCounters {
     pub page_faults: u64,
     /// Page faults per second, between the last two samples.
     pub page_fault_rate: f64,
+    /// Change of the working set since the last sample, in bytes (Task
+    /// Manager's Working set delta).
+    pub working_set_delta: i64,
+    /// Page faults since the last sample (Task Manager's PF Delta).
+    pub page_fault_delta: u64,
 }
 
 impl MemoryCounters {
@@ -88,6 +101,34 @@ impl MemoryCounters {
         self.nonpaged_pool += other.nonpaged_pool;
         self.page_faults += other.page_faults;
         self.page_fault_rate += other.page_fault_rate;
+        self.working_set_delta += other.working_set_delta;
+        self.page_fault_delta += other.page_fault_delta;
+    }
+}
+
+/// What a process has read, written and otherwise done through I/O since
+/// it started, as Task Manager's Details tab lists it. Windows counts every
+/// I/O here: files, network, pipes and devices.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IoTotals {
+    pub reads: u64,
+    pub writes: u64,
+    /// Operations that neither read nor write, such as device control.
+    pub other: u64,
+    pub read_bytes: u64,
+    pub write_bytes: u64,
+    pub other_bytes: u64,
+}
+
+impl IoTotals {
+    /// Adds another process's figures, for app and user totals.
+    pub fn add(&mut self, other: &Self) {
+        self.reads += other.reads;
+        self.writes += other.writes;
+        self.other += other.other;
+        self.read_bytes += other.read_bytes;
+        self.write_bytes += other.write_bytes;
+        self.other_bytes += other.other_bytes;
     }
 }
 
@@ -256,6 +297,8 @@ mod tests {
 
     fn proc(pid: u32, name: &str, cpu: f32) -> ProcessInfo {
         ProcessInfo {
+            io: Default::default(),
+            cycle_percent: 0.0,
             pid,
             parent_pid: 0,
             name: name.to_owned(),

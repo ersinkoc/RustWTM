@@ -11,9 +11,11 @@ use serde::{Deserialize, Serialize};
 
 use wtm_sys::control::{Access, ProcessHandle};
 pub use wtm_sys::control::{
-    Architecture, EcoQos, Integrity, PriorityClass, enter_background_mode, raise_current_thread,
+    Architecture, EcoQos, Integrity, IoPriority, PriorityClass, enter_background_mode,
+    raise_current_thread,
 };
 use wtm_sys::job::Job;
+pub use wtm_sys::mitigation::{StackProtection, UacVirtualization};
 
 use crate::ProcessInfo;
 use crate::protection::protection_reason;
@@ -406,17 +408,32 @@ pub struct ProcessFacts {
     pub elevated: Option<bool>,
     pub architecture: Option<Architecture>,
     pub integrity: Option<Integrity>,
+    /// Task Manager's UAC virtualization, Data execution prevention and
+    /// Hardware-enforced Stack Protection.
+    pub uac_virtualization: Option<UacVirtualization>,
+    pub dep: Option<bool>,
+    pub stack_protection: Option<StackProtection>,
+    /// The package a packaged (Store) app runs from; `None` for ordinary
+    /// programs and when it cannot be read.
+    pub package_name: Option<String>,
 }
 
-/// Opens the process once for its account, elevation, architecture and
-/// integrity level.
+/// Opens the process once for its account, elevation, architecture,
+/// integrity level and security settings. Full query rights are asked for
+/// first, since DEP and stack protection need them; without them the rest
+/// is still read.
 pub fn facts(target: &ProcessRef) -> ControlResult<ProcessFacts> {
-    let h = open_verified(target, Access::QUERY)?;
+    let h = open_verified(target, Access::QUERY_INFORMATION)
+        .or_else(|_| open_verified(target, Access::QUERY))?;
     Ok(ProcessFacts {
         user: h.user().ok(),
         elevated: h.elevated().ok(),
         architecture: h.architecture().ok(),
         integrity: h.integrity().ok(),
+        uac_virtualization: h.uac_virtualization().ok(),
+        dep: h.dep_enabled().ok(),
+        stack_protection: h.stack_protection().ok(),
+        package_name: h.package_full_name().ok().flatten(),
     })
 }
 

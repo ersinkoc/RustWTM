@@ -24,6 +24,8 @@ use crate::views;
 
 pub fn proc(pid: u32, parent_pid: u32, name: &str, cpu: f32) -> ProcessInfo {
     ProcessInfo {
+        io: Default::default(),
+        cycle_percent: 0.0,
         pid,
         parent_pid,
         name: name.into(),
@@ -661,6 +663,63 @@ fn process_harness() -> Harness<'static, ProcState> {
                             .collect()
                     });
                 extra.gui_objects = &GUI;
+                // alpha.exe's security settings were read; nothing else's.
+                static FACTS: std::sync::LazyLock<crate::backend::FactsMap> =
+                    std::sync::LazyLock::new(|| {
+                        snapshot()
+                            .processes
+                            .iter()
+                            .filter(|p| p.pid == 100)
+                            .map(|p| {
+                                (
+                                    (p.pid, p.create_time),
+                                    wtm_core::control::ProcessFacts {
+                                        uac_virtualization: Some(
+                                            wtm_core::control::UacVirtualization::NotAllowed,
+                                        ),
+                                        dep: Some(true),
+                                        package_name: Some(
+                                            "Example.Editor_1.0.0.0_x64__abc123".into(),
+                                        ),
+                                        stack_protection: Some(
+                                            wtm_core::control::StackProtection::CompatibleModules {
+                                                audit: false,
+                                            },
+                                        ),
+                                        ..Default::default()
+                                    },
+                                )
+                            })
+                            .collect()
+                    });
+                extra.facts = &FACTS;
+                static PUBLISHERS: std::sync::LazyLock<HashMap<String, Option<String>>> =
+                    std::sync::LazyLock::new(|| {
+                        HashMap::from([(
+                            r"C:\Apps\alpha.exe".to_owned(),
+                            Some("Example Corp".into()),
+                        )])
+                    });
+                extra.publishers = &PUBLISHERS;
+                // alpha.exe's I/O priority and efficiency mode were read.
+                static STATES: std::sync::LazyLock<crate::backend::ProcessStates> =
+                    std::sync::LazyLock::new(|| {
+                        snapshot()
+                            .processes
+                            .iter()
+                            .filter(|p| p.pid == 100)
+                            .map(|p| {
+                                (
+                                    (p.pid, p.create_time),
+                                    (
+                                        Some(wtm_core::control::IoPriority::Background),
+                                        Some(wtm_core::control::EcoQos::On),
+                                    ),
+                                )
+                            })
+                            .collect()
+                    });
+                extra.process_states = &STATES;
                 let intents = st.view.ui(ui, &snap, &extra);
                 st.intents.extend(intents.iter().map(describe_intent));
             },
@@ -2344,6 +2403,16 @@ fn extra_with<'a>(
                 std::sync::LazyLock::new(Default::default);
             &EMPTY
         },
+        publishers: {
+            static EMPTY: std::sync::LazyLock<HashMap<String, Option<String>>> =
+                std::sync::LazyLock::new(Default::default);
+            &EMPTY
+        },
+        process_states: {
+            static EMPTY: std::sync::LazyLock<crate::backend::ProcessStates> =
+                std::sync::LazyLock::new(Default::default);
+            &EMPTY
+        },
     }
 }
 
@@ -2751,6 +2820,75 @@ fn not_responding_programs_are_marked_and_filterable() {
 }
 
 #[test]
+fn details_columns_show_io_totals_cycles_publisher_and_security() {
+    use crate::processes::Col;
+    let mut h = process_harness();
+    {
+        let st = h.state_mut();
+        let alpha = st.snap.processes.iter_mut().find(|p| p.pid == 100).unwrap();
+        alpha.cycle_percent = 12.5;
+        alpha.working_set = 900 << 20;
+        alpha.private_working_set = 700 << 20;
+        alpha.io = wtm_core::IoTotals {
+            reads: 4_321,
+            writes: 765,
+            other: 98,
+            read_bytes: 7 << 30,
+            write_bytes: 3 << 20,
+            other_bytes: 5 << 10,
+        };
+        st.descriptions
+            .insert(r"C:\Apps\alpha.exe".into(), Some("Alpha Editor".into()));
+        st.view.visible.extend([
+            Col::Cycle,
+            Col::SharedWorkingSet,
+            Col::IoReads,
+            Col::IoWrites,
+            Col::IoOther,
+            Col::IoReadBytes,
+            Col::IoWriteBytes,
+            Col::IoOtherBytes,
+            Col::Description,
+            Col::Publisher,
+            Col::UacVirtualization,
+            Col::Dep,
+            Col::StackProtection,
+            Col::PackageName,
+        ]);
+        st.view.normalize_columns();
+    }
+    h.run_steps(3);
+    for header in [
+        "Cycle",
+        "Memory (shared working set)",
+        "I/O read bytes",
+        "UAC virtualization",
+        "Data execution prevention",
+        "Hardware-enforced Stack Protection",
+    ] {
+        assert!(h.state().view.view_has(header), "{header}");
+    }
+    for text in [
+        "12.5%",
+        "200.0 MiB",
+        "4\u{202F}321",
+        "765",
+        "98",
+        "7.0 GiB",
+        "3.0 MiB",
+        "5.0 KiB",
+        "Alpha Editor",
+        "Example Corp",
+        "Not allowed",
+        "Enabled",
+        "Compatible modules only",
+        "Example.Editor_1.0.0.0_x64__abc123",
+    ] {
+        assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+    }
+}
+
+#[test]
 fn details_columns_show_cpu_time_split_disk_io_and_status() {
     use crate::processes::Col;
     let mut h = process_harness();
@@ -2766,6 +2904,8 @@ fn details_columns_show_cpu_time_split_disk_io_and_status() {
             nonpaged_pool: 48 << 10,
             page_faults: 1_234_567,
             page_fault_rate: 89.0,
+            working_set_delta: -(1536 << 10),
+            page_fault_delta: 7_654,
         };
         alpha.gpu_detail = wtm_core::GpuDetail {
             shared_memory: 640 << 20,
@@ -2796,6 +2936,10 @@ fn details_columns_show_cpu_time_split_disk_io_and_status() {
             Col::SharedGpuMemory,
             Col::GdiObjects,
             Col::UserObjects,
+            Col::WorkingSetDelta,
+            Col::PageFaultDelta,
+            Col::IoPriority,
+            Col::EfficiencyMode,
         ]);
         st.view.normalize_columns();
     }
@@ -2818,8 +2962,22 @@ fn details_columns_show_cpu_time_split_disk_io_and_status() {
         "640.0 MiB",
         "321",
         "45",
+        "-1.5 MiB",
+        "7\u{202F}654",
+        "Background",
+        "On",
     ] {
         assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+    }
+    // "Background" and "On" come from the I/O priority and efficiency
+    // columns: hidden, they are gone.
+    h.state_mut()
+        .view
+        .visible
+        .retain(|c| !matches!(c, Col::IoPriority | Col::EfficiencyMode));
+    h.run_steps(3);
+    for text in ["Background", "On"] {
+        assert!(h.query_all_by_label(text).next().is_none(), "{text}");
     }
     // The state column and the name badge both say it.
     assert!(h.get_all_by_label("Suspended").count() >= 2);

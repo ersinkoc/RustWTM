@@ -107,6 +107,8 @@ mod tests {
     fn contributor_union_is_bounded_and_preserves_distinct_resource_leaders() {
         let rows = (1..=24)
             .map(|pid| ProcessInfo {
+                io: Default::default(),
+                cycle_percent: 0.0,
                 pid,
                 parent_pid: 0,
                 name: if pid == 1 {

@@ -174,6 +174,8 @@ mod tests {
     #[test]
     fn network_column_only_when_measured() {
         let p = ProcessInfo {
+            io: Default::default(),
+            cycle_percent: 0.0,
             pid: 42,
             parent_pid: 1,
             name: "app.exe".into(),

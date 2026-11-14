@@ -138,6 +138,8 @@ mod tests {
 
     fn proc(pid: u32, name: &str, ws_mb: u64) -> ProcessInfo {
         ProcessInfo {
+            io: Default::default(),
+            cycle_percent: 0.0,
             pid,
             parent_pid: 1,
             name: name.into(),

@@ -10330,5 +10330,137 @@
     "de": "Meiste E/A (alle Geräte)",
     "fr": "Plus forte activité E/S (tous les périphériques)",
     "es": "Mayor E/S (todos los dispositivos)"
+  },
+  "Cycle": {
+    "tr": "Döngü",
+    "de": "Zyklus",
+    "fr": "Cycle",
+    "es": "Ciclo"
+  },
+  "Memory (shared working set)": {
+    "tr": "Bellek (paylaşılan çalışma kümesi)",
+    "de": "Arbeitsspeicher (freigegebener Arbeitssatz)",
+    "fr": "Mémoire (plage de travail partagée)",
+    "es": "Memoria (espacio de trabajo compartido)"
+  },
+  "I/O reads": {
+    "tr": "G/Ç okumaları",
+    "de": "E/A-Lesevorgänge",
+    "fr": "Lectures E/S",
+    "es": "Lecturas de E/S"
+  },
+  "I/O writes": {
+    "tr": "G/Ç yazmaları",
+    "de": "E/A-Schreibvorgänge",
+    "fr": "Écritures E/S",
+    "es": "Escrituras de E/S"
+  },
+  "I/O other": {
+    "tr": "G/Ç diğer",
+    "de": "E/A (andere)",
+    "fr": "Autres E/S",
+    "es": "Otras E/S"
+  },
+  "I/O read bytes": {
+    "tr": "G/Ç okuma baytları",
+    "de": "E/A-Bytes gelesen",
+    "fr": "Octets lus (E/S)",
+    "es": "Bytes de lectura de E/S"
+  },
+  "I/O write bytes": {
+    "tr": "G/Ç yazma baytları",
+    "de": "E/A-Bytes geschrieben",
+    "fr": "Octets écrits (E/S)",
+    "es": "Bytes de escritura de E/S"
+  },
+  "I/O other bytes": {
+    "tr": "G/Ç diğer baytları",
+    "de": "E/A-Bytes (andere)",
+    "fr": "Autres octets (E/S)",
+    "es": "Otros bytes de E/S"
+  },
+  "UAC virtualization": {
+    "tr": "UAC sanallaştırması",
+    "de": "UAC-Virtualisierung",
+    "fr": "Virtualisation UAC",
+    "es": "Virtualización de UAC"
+  },
+  "Data execution prevention": {
+    "tr": "Veri yürütme engellemesi",
+    "de": "Datenausführungsverhinderung",
+    "fr": "Prévention de l'exécution des données",
+    "es": "Prevención de ejecución de datos"
+  },
+  "Hardware-enforced Stack Protection": {
+    "tr": "Donanım destekli yığın koruması",
+    "de": "Hardwaregestützter Stapelschutz",
+    "fr": "Protection de la pile appliquée par le matériel",
+    "es": "Protección de pila aplicada por hardware"
+  },
+  "Not allowed": {
+    "tr": "İzin verilmiyor",
+    "de": "Nicht zulässig",
+    "fr": "Non autorisée",
+    "es": "No permitida"
+  },
+  "Compatible modules only": {
+    "tr": "Yalnızca uyumlu modüller",
+    "de": "Nur kompatible Module",
+    "fr": "Modules compatibles uniquement",
+    "es": "Solo módulos compatibles"
+  },
+  "All modules": {
+    "tr": "Tüm modüller",
+    "de": "Alle Module",
+    "fr": "Tous les modules",
+    "es": "Todos los módulos"
+  },
+  "Compatible modules only (audit mode)": {
+    "tr": "Yalnızca uyumlu modüller (denetim modu)",
+    "de": "Nur kompatible Module (Überwachungsmodus)",
+    "fr": "Modules compatibles uniquement (mode audit)",
+    "es": "Solo módulos compatibles (modo de auditoría)"
+  },
+  "All modules (audit mode)": {
+    "tr": "Tüm modüller (denetim modu)",
+    "de": "Alle Module (Überwachungsmodus)",
+    "fr": "Tous les modules (mode audit)",
+    "es": "Todos los módulos (modo de auditoría)"
+  },
+  "Differs between these processes, or not readable": {
+    "tr": "Bu işlemler arasında farklı ya da okunamıyor",
+    "de": "Unterscheidet sich zwischen diesen Prozessen oder nicht lesbar",
+    "fr": "Diffère entre ces processus, ou illisible",
+    "es": "Distinto entre estos procesos o no se puede leer"
+  },
+  "Working set delta (memory)": {
+    "tr": "Çalışma kümesi değişimi (bellek)",
+    "de": "Arbeitssatzänderung (Arbeitsspeicher)",
+    "fr": "Variation de la plage de travail (mémoire)",
+    "es": "Diferencia de espacio de trabajo (memoria)"
+  },
+  "PF Delta": {
+    "tr": "SH değişimi",
+    "de": "Seitenfehleränderung",
+    "fr": "Variation des défauts de page",
+    "es": "Diferencia de errores de página"
+  },
+  "I/O priority": {
+    "tr": "G/Ç önceliği",
+    "de": "E/A-Priorität",
+    "fr": "Priorité d'E/S",
+    "es": "Prioridad de E/S"
+  },
+  "Package name": {
+    "tr": "Paket adı",
+    "de": "Paketname",
+    "fr": "Nom du package",
+    "es": "Nombre del paquete"
+  },
+  "Background": {
+    "tr": "Arka plan",
+    "de": "Hintergrund",
+    "fr": "Arrière-plan",
+    "es": "Segundo plano"
   }
 }

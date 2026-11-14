@@ -26,6 +26,15 @@ pub type HungMap = std::collections::HashMap<u32, String>;
 pub type HostedServices = std::collections::HashMap<u32, Vec<String>>;
 /// GDI and USER objects per process instance.
 pub type GuiObjects = std::collections::HashMap<(u32, i64), (u32, u32)>;
+/// I/O priority and efficiency mode per process, each `None` when it could
+/// not be read; read with the GDI and USER objects.
+pub type ProcessStates = std::collections::HashMap<
+    (u32, i64),
+    (
+        Option<wtm_core::control::IoPriority>,
+        Option<wtm_core::control::EcoQos>,
+    ),
+>;
 
 /// Groups running services by their host process, names sorted.
 pub fn hosted_services(services: &[ServiceEntry]) -> HostedServices {
@@ -253,6 +262,9 @@ pub struct Data {
     /// columns is shown (`gui_objects_wanted_ms`, Unix ms).
     pub gui_objects: GuiObjects,
     pub gui_objects_wanted_ms: AtomicU64,
+    /// I/O priority and efficiency mode, read with `gui_objects`: they can
+    /// change, so they are read again each time.
+    pub process_states: ProcessStates,
     /// Where physical memory goes, measured by this window with each sample.
     pub memory_composition: Option<wtm_sys::memory::Composition>,
     /// What the Performance pages list under each device's graphs.
@@ -304,6 +316,9 @@ pub struct Data {
     /// Small icon per image path; `None` when the file has none.
     pub icons: std::collections::HashMap<String, Option<Arc<wtm_core::IconImage>>>,
     pub descriptions: std::collections::HashMap<String, Option<String>>,
+    /// The company in each image's version resource (Task Manager's
+    /// Publisher), read with the description.
+    pub publishers: std::collections::HashMap<String, Option<String>>,
     /// File version per image path; `None` when the file has none.
     pub versions: std::collections::HashMap<String, Option<String>>,
     /// Facts per process instance, read once with this window's own rights.
@@ -2491,6 +2506,7 @@ fn refresh_gui_objects(data: &Mutex<Data>) {
         let snapshot = d.snapshot.as_ref().filter(|_| wanted);
         let Some(snap) = snapshot else {
             d.gui_objects.clear();
+            d.process_states.clear();
             return;
         };
         snap.processes
@@ -2500,17 +2516,21 @@ fn refresh_gui_objects(data: &Mutex<Data>) {
             .map(|p| (p.pid, p.create_time))
             .collect()
     };
-    let found: GuiObjects = keys
+    let found: Vec<_> = keys
         .into_iter()
         .filter_map(|key| {
             let h = wtm_sys::control::ProcessHandle::open(key.0, wtm_sys::control::Access::QUERY)
                 .ok()?;
-            Some((key, h.gui_objects()))
+            let state = (h.io_priority().ok(), h.eco_qos().ok());
+            Some((key, h.gui_objects(), state))
         })
         .collect();
-    data.lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .gui_objects = found;
+    let mut d = data.lock().unwrap_or_else(PoisonError::into_inner);
+    d.gui_objects = found.iter().map(|(key, gui, _)| (*key, *gui)).collect();
+    d.process_states = found
+        .into_iter()
+        .map(|(key, _, state)| (key, state))
+        .collect();
 }
 
 /// Extracts the icons of image paths seen for the first time. Runs without
@@ -2522,6 +2542,7 @@ fn refresh_icons(data: &Mutex<Data>) {
             image_paths,
             descriptions,
             versions,
+            publishers,
             icons,
             ..
         } = &mut *d;
@@ -2530,6 +2551,7 @@ fn refresh_icons(data: &Mutex<Data>) {
         paths.dedup();
         descriptions.retain(|path, _| paths.binary_search(&path).is_ok());
         versions.retain(|path, _| paths.binary_search(&path).is_ok());
+        publishers.retain(|path, _| paths.binary_search(&path).is_ok());
         let description_budget = 4096usize.saturating_sub(descriptions.len()).min(32);
         let pending_descriptions = paths
             .iter()
@@ -2555,10 +2577,12 @@ fn refresh_icons(data: &Mutex<Data>) {
             (p, icon)
         })
         .collect();
+    let mut publishers = Vec::with_capacity(missing_descriptions.len());
     let (descriptions, versions): (Vec<_>, Vec<_>) = missing_descriptions
         .into_iter()
         .map(|path: String| {
             let m = wtm_sys::image_metadata::metadata(&path);
+            publishers.push((path.clone(), m.company));
             ((path.clone(), m.description), (path, m.version))
         })
         .unzip();
@@ -2571,6 +2595,7 @@ fn refresh_icons(data: &Mutex<Data>) {
     }
     data.descriptions.extend(descriptions);
     data.versions.extend(versions);
+    data.publishers.extend(publishers);
 }
 
 /// Reads the command line of every new process once; a process's command
@@ -2681,6 +2706,8 @@ mod tests {
             .store(wtm_core::hardware::unix_ms(), Ordering::Relaxed);
         refresh_gui_objects(&data);
         assert!(data.lock().unwrap().gui_objects.contains_key(&me));
+        let state = data.lock().unwrap().process_states.get(&me).copied();
+        assert!(matches!(state, Some((Some(_), Some(_)))), "{state:?}");
         // No longer shown: forgotten.
         data.lock()
             .unwrap()
@@ -2688,6 +2715,7 @@ mod tests {
             .store(0, Ordering::Relaxed);
         refresh_gui_objects(&data);
         assert!(data.lock().unwrap().gui_objects.is_empty());
+        assert!(data.lock().unwrap().process_states.is_empty());
     }
     use std::os::windows::process::CommandExt;
     use std::process::{Child, Command as Proc, Stdio};

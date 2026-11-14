@@ -34,6 +34,11 @@ pub struct RawProcess {
     pub io_read_bytes: u64,
     pub io_write_bytes: u64,
     pub io_other_bytes: u64,
+    /// I/O operations since the process started: reads, writes, and other
+    /// operations (neither, such as device control).
+    pub io_reads: u64,
+    pub io_writes: u64,
+    pub io_other: u64,
     /// Every thread is suspended (e.g. by `NtSuspendProcess`).
     pub suspended: bool,
 }
@@ -240,6 +245,9 @@ fn to_raw(info: &ntapi::SystemProcessInformation) -> RawProcess {
         io_read_bytes: info.read_transfer_count.max(0) as u64,
         io_write_bytes: info.write_transfer_count.max(0) as u64,
         io_other_bytes: info.other_transfer_count.max(0) as u64,
+        io_reads: info.read_operation_count.max(0) as u64,
+        io_writes: info.write_operation_count.max(0) as u64,
+        io_other: info.other_operation_count.max(0) as u64,
         suspended: false,
     }
 }

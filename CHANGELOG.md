@@ -50,9 +50,10 @@ must be updated together.
   module.
 - Every device page has a "Copy details" button, as Task Manager's Copy. The
   All resources summary shows the up time.
-- Processes offers Task Manager's CPU time, Disk read, Disk write and Status
-  (Running, Suspended, Not responding) columns; the CPU, I/O and Diagnostics
-  column profiles include them.
+- Processes offers Task Manager's CPU time and Status (Running, Suspended,
+  Not responding) columns, and Disk read and Disk write, the two halves of
+  the Disk column (like it, all of a process's I/O); the CPU, I/O and
+  Diagnostics column profiles include them.
 - Processes also offers Peak working set, Paged pool, Non-paged pool, Page
   faults and Page faults/s (from the same kernel snapshot as the other memory
   columns; the Memory profile includes them), and GPU engine ("GPU 0 - 3D",
@@ -118,6 +119,24 @@ must be updated together.
 - A Battery page, a RustWTM addition, on PCs with a battery: the charge over
   time, power source, charging, time left and battery saver. Capacity and wear
   stay on the Devices page.
+- Processes offers more of Task Manager's Details columns: Cycle (the share
+  of all processor cycles, idle included), Memory (shared working set), I/O
+  reads, I/O writes, I/O other and their bytes (totals since the process
+  started, of every kind of I/O), Description, Publisher, UAC
+  virtualization (Not allowed, Disabled, Enabled), Data execution prevention
+  and Hardware-enforced Stack Protection (Compatible modules only, All
+  modules, or either in audit mode), Working set delta (memory) and PF
+  Delta (changes since the previous sample), I/O priority (Background, Low,
+  Normal, High, Critical) and Package name (for packaged apps), plus an
+  Efficiency mode column (On, Off, Windows decides), which Task Manager
+  shows only as a status. The security columns and the package
+  name are read once per process with the other process facts; I/O
+  priority and efficiency mode can change and, like GDI and USER objects,
+  are read only while their column is shown. Processes this window may not
+  query show "—", and app rows show a value only when every process shares
+  it. The CPU, Memory, I/O and Diagnostics profiles include the new columns
+  that fit them, and the column menu gains Program and Security groups so
+  that no group outgrows a small window.
 
 ### Changed
 
@@ -126,9 +145,11 @@ must be updated together.
   views appear only when Windows reports no single adapter.
 - IPC protocol 17: `SystemStats` gains `net_adapters` and `gpus`, each disk
   its average response time and queue length, and each process `memory`
-  (peak working set, pools, page faults) and `gpu_detail` (shared GPU memory,
-  busiest engine as `{ "luid", "kind" }`). `wtm list --json` includes both
-  objects in each process. App history rows and summaries gain `net`
+  (peak working set, pools, page faults, and the working set and page-fault
+  changes since the last sample) and `gpu_detail` (shared GPU memory,
+  busiest engine as `{ "luid", "kind" }`), `io` (I/O operations and bytes
+  since start) and `cycle_percent`. `wtm list --json` includes them in each
+  process. App history rows and summaries gain `net`
   (bytes received and sent), and the new `StartupImpact` request returns the
   connected account's startup usage per program.
 

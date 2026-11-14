@@ -2013,6 +2013,8 @@ mod unit_tests {
 
         // A running instance gets the finding's actions.
         let hog = wtm_core::ProcessInfo {
+            io: Default::default(),
+            cycle_percent: 0.0,
             pid: 999_990,
             parent_pid: 1,
             name: "hog.exe".into(),

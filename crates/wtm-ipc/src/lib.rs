@@ -758,6 +758,8 @@ mod tests {
     fn big_snapshot() -> Snapshot {
         let processes = (0..2000u32)
             .map(|i| wtm_core::ProcessInfo {
+                io: Default::default(),
+                cycle_percent: 0.0,
                 pid: i * 4,
                 parent_pid: i,
                 name: format!("process-{i}.exe"),

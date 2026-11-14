@@ -54,6 +54,8 @@ mod tests {
 
     fn p(pid: u32, parent_pid: u32, create_time: i64) -> ProcessInfo {
         ProcessInfo {
+            io: Default::default(),
+            cycle_percent: 0.0,
             pid,
             parent_pid,
             name: String::new(),

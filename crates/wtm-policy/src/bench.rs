@@ -53,6 +53,8 @@ fn machine() -> Vec<ProcessInfo> {
             // was started by an earlier one.
             let parent_pid = if i < 8 { 4 } else { 100 + (i as u32 / 3) * 4 };
             ProcessInfo {
+                io: Default::default(),
+                cycle_percent: 0.0,
                 pid,
                 parent_pid,
                 name: NAMES[i % NAMES.len()].into(),

@@ -78,6 +78,9 @@ pub struct Access(PROCESS_ACCESS_RIGHTS);
 
 impl Access {
     pub const QUERY: Self = Self(PROCESS_QUERY_LIMITED_INFORMATION);
+    /// Full query rights: needed for mitigation policies such as DEP;
+    /// granted for fewer processes than `QUERY`.
+    pub const QUERY_INFORMATION: Self = Self(PROCESS_QUERY_INFORMATION);
     pub const TERMINATE: Self = Self(PROCESS_TERMINATE);
     pub const SUSPEND_RESUME: Self = Self(PROCESS_SUSPEND_RESUME);
     pub const SET_INFORMATION: Self = Self(PROCESS_SET_INFORMATION);
@@ -157,6 +160,33 @@ pub enum EcoQos {
     On,
     /// Explicitly opted out of throttling.
     Off,
+}
+
+/// A process's I/O priority, in Task Manager's words.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub enum IoPriority {
+    /// `IoPriorityVeryLow`, used by background mode.
+    Background,
+    Low,
+    Normal,
+    High,
+    Critical,
+}
+
+impl IoPriority {
+    /// From an `IO_PRIORITY_HINT`.
+    pub fn from_hint(hint: u32) -> Option<Self> {
+        Some(match hint {
+            0 => Self::Background,
+            1 => Self::Low,
+            2 => Self::Normal,
+            3 => Self::High,
+            4 => Self::Critical,
+            _ => return None,
+        })
+    }
 }
 
 /// Lowers (`true`) or restores this process's memory priority. With a low
@@ -753,6 +783,53 @@ impl ProcessHandle {
         )
     }
 
+    /// The I/O priority the process's I/O gets by default.
+    pub fn io_priority(&self) -> Result<IoPriority> {
+        /// `PROCESSINFOCLASS::ProcessIoPriority`.
+        const PROCESS_IO_PRIORITY: u32 = 33;
+        let mut hint = 0u32;
+        let mut len = 0u32;
+        // SAFETY: `hint` is a writable ULONG of the size passed.
+        let status = unsafe {
+            NtQueryInformationProcess(
+                self.raw(),
+                PROCESS_IO_PRIORITY,
+                (&raw mut hint).cast(),
+                size_of::<u32>() as u32,
+                &mut len,
+            )
+        };
+        nt_ok("NtQueryInformationProcess", status)?;
+        IoPriority::from_hint(hint).ok_or_else(|| windows::core::Error::from(E_FAIL).into())
+    }
+
+    /// The full name of the package a packaged (Store) app runs from;
+    /// `None` for ordinary programs.
+    pub fn package_full_name(&self) -> Result<Option<String>> {
+        use windows::Win32::Foundation::{APPMODEL_ERROR_NO_PACKAGE, ERROR_SUCCESS};
+        use windows::Win32::Storage::Packaging::Appx::GetPackageFullName;
+        // PACKAGE_FULL_NAME_MAX_LENGTH is 127, plus the terminator.
+        let mut name = [0u16; 128];
+        let mut len = name.len() as u32;
+        // SAFETY: `name` is writable for `len` characters.
+        let error = unsafe {
+            GetPackageFullName(
+                self.raw(),
+                &mut len,
+                Some(windows::core::PWSTR(name.as_mut_ptr())),
+            )
+        };
+        if error == APPMODEL_ERROR_NO_PACKAGE {
+            return Ok(None);
+        }
+        if error != ERROR_SUCCESS {
+            return Err(windows::core::Error::from(error.to_hresult()).into());
+        }
+        // `len` counts the terminator.
+        let used = (len as usize).saturating_sub(1).min(name.len());
+        Ok(Some(String::from_utf16_lossy(&name[..used])))
+    }
+
     /// The process's default CPU Set IDs; empty when it may use every
     /// processor. Requires `Access::QUERY`.
     pub fn default_cpu_sets(&self) -> Result<Vec<u32>> {
@@ -940,6 +1017,18 @@ fn nt_ok(call: &'static str, status: NTSTATUS) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn io_priority_reads_task_managers_levels() {
+        assert_eq!(IoPriority::from_hint(0), Some(IoPriority::Background));
+        assert_eq!(IoPriority::from_hint(2), Some(IoPriority::Normal));
+        assert_eq!(IoPriority::from_hint(4), Some(IoPriority::Critical));
+        assert_eq!(IoPriority::from_hint(5), None);
+        let me = ProcessHandle::open(std::process::id(), Access::QUERY).unwrap();
+        assert!(me.io_priority().is_ok());
+        // A test binary is not a packaged app.
+        assert_eq!(me.package_full_name().unwrap(), None);
+    }
 
     #[test]
     fn integrity_levels_come_from_the_label_rid_and_order_by_trust() {

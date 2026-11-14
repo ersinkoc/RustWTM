@@ -41,6 +41,8 @@ struct Counters {
     io_read: u64,
     io_write: u64,
     page_faults: u32,
+    cycles: u64,
+    working_set: u64,
 }
 
 impl Counters {
@@ -50,6 +52,8 @@ impl Counters {
             io_read: p.io_read_bytes,
             io_write: p.io_write_bytes,
             page_faults: p.page_faults,
+            cycles: p.cycle_time,
+            working_set: p.working_set,
         }
     }
 }
@@ -84,8 +88,19 @@ impl ProcessInfo {
                 nonpaged_pool: p.nonpaged_pool,
                 page_faults: u64::from(p.page_faults),
                 page_fault_rate: 0.0,
+                working_set_delta: 0,
+                page_fault_delta: 0,
             },
             gpu_detail: Default::default(),
+            io: crate::model::IoTotals {
+                reads: p.io_reads,
+                writes: p.io_writes,
+                other: p.io_other,
+                read_bytes: p.io_read_bytes,
+                write_bytes: p.io_write_bytes,
+                other_bytes: p.io_other_bytes,
+            },
+            cycle_percent: 0.0,
         }
     }
 }
@@ -239,6 +254,8 @@ impl Sampler {
         counters.clear();
         counters.reserve(raw.len());
         let mut processes = Vec::with_capacity(raw.len());
+        // Each process's cycles since the last sample, for their shares.
+        let mut cycles = Vec::with_capacity(raw.len());
         for p in raw {
             let now_c = Counters::of(&p);
             let prev_c = self
@@ -265,9 +282,12 @@ impl Sampler {
             let mut info = ProcessInfo::from_raw(p);
             if let Some(c) = prev_c.filter(|_| elapsed_secs > 0.0) {
                 // The kernel's count is 32-bit and wraps.
-                info.memory.page_fault_rate =
-                    f64::from(now_c.page_faults.wrapping_sub(c.page_faults)) / elapsed_secs;
+                let faults = now_c.page_faults.wrapping_sub(c.page_faults);
+                info.memory.page_fault_rate = f64::from(faults) / elapsed_secs;
+                info.memory.page_fault_delta = u64::from(faults);
+                info.memory.working_set_delta = now_c.working_set as i64 - c.working_set as i64;
             }
+            cycles.push(prev_c.map_or(0, |c| now_c.cycles.saturating_sub(c.cycles)));
             info.cpu_percent = cpu_percent;
             info.io_read_rate = io_read_rate;
             info.io_write_rate = io_write_rate;
@@ -287,6 +307,12 @@ impl Sampler {
                     .map(|(luid, kind)| crate::model::GpuEngineUse { luid, kind });
             }
             processes.push(info);
+        }
+        let all_cycles: u64 = cycles.iter().sum();
+        if all_cycles > 0 {
+            for (info, c) in processes.iter_mut().zip(&cycles) {
+                info.cycle_percent = (*c as f64 / all_cycles as f64 * 100.0) as f32;
+            }
         }
 
         let replaced = self.prev.replace(Previous {
@@ -493,6 +519,20 @@ mod tests {
         assert!(!cores.is_empty() && cores.iter().any(|&c| c > 0.0));
         assert!(cores.iter().all(|c| (0.0..=100.0).contains(c)));
         assert!(second.system.net_rx_rate >= 0.0 && second.system.io_read_rate >= 0.0);
+        // Cycle shares cover all cycles, the idle process's included.
+        let cycles: f32 = second.processes.iter().map(|p| p.cycle_percent).sum();
+        assert!((99.0..=101.0).contains(&cycles), "{cycles}");
+        assert!(me.cycle_percent > 0.0);
+        assert!(first.processes.iter().all(|p| p.cycle_percent == 0.0));
+        // Deltas need two samples.
+        assert!(
+            first
+                .processes
+                .iter()
+                .all(|p| p.memory.working_set_delta == 0 && p.memory.page_fault_delta == 0)
+        );
+        // Loading the test binary took reads.
+        assert!(me.io.reads > 0 && me.io.read_bytes > 0);
         // This process's own memory figures come from the same snapshot.
         let me = second
             .processes

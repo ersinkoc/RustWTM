@@ -27,6 +27,7 @@ pub mod icon;
 pub mod image_metadata;
 pub mod job;
 pub mod memory;
+pub mod mitigation;
 pub mod modules;
 pub mod net;
 pub mod net_info;

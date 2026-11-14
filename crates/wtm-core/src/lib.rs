@@ -27,8 +27,8 @@ mod tree;
 pub mod update;
 
 pub use model::{
-    GpuDetail, GpuEngineUse, MemoryCounters, NetAdapterUsage, ProcessInfo, Snapshot, SortKey,
-    SystemStats, format_bytes, format_duration, sort_processes,
+    GpuDetail, GpuEngineUse, IoTotals, MemoryCounters, NetAdapterUsage, ProcessInfo, Snapshot,
+    SortKey, SystemStats, format_bytes, format_duration, sort_processes,
 };
 pub use protection::{automatic_end_blocked, protection_reason};
 pub use sampler::{Sampler, StartWatcher};

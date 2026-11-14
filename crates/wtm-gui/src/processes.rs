@@ -119,13 +119,33 @@ pub enum Col {
     SharedGpuMemory,
     GdiObjects,
     UserObjects,
+    /// Share of all processor cycles, as Task Manager's Cycle.
+    Cycle,
+    SharedWorkingSet,
+    IoReads,
+    IoWrites,
+    IoOther,
+    IoReadBytes,
+    IoWriteBytes,
+    IoOtherBytes,
+    /// The file description of the image.
+    Description,
+    Publisher,
+    UacVirtualization,
+    Dep,
+    StackProtection,
+    WorkingSetDelta,
+    PageFaultDelta,
+    IoPriority,
+    PackageName,
+    EfficiencyMode,
     /// Forward-compatible saved preferences; never a rendered column.
     #[serde(other)]
     Unknown,
 }
 
 /// Column, header, initial width, numeric (sorts largest first), shown by default.
-pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 38] = [
+pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 56] = [
     (Col::Name, "Name", 240.0, false, true),
     (Col::Pid, "PID", 64.0, false, true),
     (Col::Cpu, "CPU", 64.0, true, true),
@@ -170,12 +190,57 @@ pub(crate) const COLUMNS: [(Col, &str, f32, bool, bool); 38] = [
     ),
     (Col::GdiObjects, "GDI objects", 84.0, true, false),
     (Col::UserObjects, "USER objects", 84.0, true, false),
+    (Col::Cycle, "Cycle", 64.0, true, false),
+    (
+        Col::SharedWorkingSet,
+        "Memory (shared working set)",
+        120.0,
+        true,
+        false,
+    ),
+    (Col::IoReads, "I/O reads", 96.0, true, false),
+    (Col::IoWrites, "I/O writes", 96.0, true, false),
+    (Col::IoOther, "I/O other", 96.0, true, false),
+    (Col::IoReadBytes, "I/O read bytes", 100.0, true, false),
+    (Col::IoWriteBytes, "I/O write bytes", 100.0, true, false),
+    (Col::IoOtherBytes, "I/O other bytes", 100.0, true, false),
+    (Col::Description, "Description", 200.0, false, false),
+    (Col::Publisher, "Publisher", 160.0, false, false),
+    (
+        Col::UacVirtualization,
+        "UAC virtualization",
+        110.0,
+        false,
+        false,
+    ),
+    (Col::Dep, "Data execution prevention", 110.0, false, false),
+    (
+        Col::StackProtection,
+        "Hardware-enforced Stack Protection",
+        160.0,
+        false,
+        false,
+    ),
+    (
+        Col::WorkingSetDelta,
+        "Working set delta (memory)",
+        110.0,
+        true,
+        false,
+    ),
+    (Col::PageFaultDelta, "PF Delta", 80.0, true, false),
+    (Col::IoPriority, "I/O priority", 90.0, false, false),
+    (Col::PackageName, "Package name", 240.0, false, false),
+    (Col::EfficiencyMode, "Efficiency mode", 110.0, false, false),
 ];
 
 impl Col {
     /// Columns read only while shown: the window asks for them.
-    pub fn gui_objects(self) -> bool {
-        matches!(self, Self::GdiObjects | Self::UserObjects)
+    pub fn live(self) -> bool {
+        matches!(
+            self,
+            Self::GdiObjects | Self::UserObjects | Self::IoPriority | Self::EfficiencyMode
+        )
     }
 }
 
@@ -220,6 +285,10 @@ pub struct Extra<'a> {
     pub gpu_order: &'a [String],
     /// GDI and USER objects, while one of their columns is shown.
     pub gui_objects: &'a crate::backend::GuiObjects,
+    /// Company per image path.
+    pub publishers: &'a HashMap<String, Option<String>>,
+    /// I/O priority and efficiency mode, while one of their columns is shown.
+    pub process_states: &'a crate::backend::ProcessStates,
 }
 
 impl Extra<'_> {
@@ -247,6 +316,33 @@ impl Extra<'_> {
             Some(n) => format!("GPU {n} - {}", engine.kind),
             None => engine.kind.clone(),
         }
+    }
+
+    /// The image's file description, as Task Manager's Description column.
+    fn file_description(&self, p: &ProcessInfo) -> &str {
+        self.image_path(p)
+            .and_then(|path| self.descriptions.get(path)?.as_deref())
+            .unwrap_or("")
+    }
+
+    fn publisher(&self, p: &ProcessInfo) -> &str {
+        self.image_path(p)
+            .and_then(|path| self.publishers.get(path)?.as_deref())
+            .unwrap_or("")
+    }
+
+    fn io_priority(&self, p: &ProcessInfo) -> Option<wtm_core::control::IoPriority> {
+        self.process_states.get(&(p.pid, p.create_time))?.0
+    }
+
+    fn efficiency(&self, p: &ProcessInfo) -> Option<EcoQos> {
+        self.process_states.get(&(p.pid, p.create_time))?.1
+    }
+
+    fn package_name(&self, p: &ProcessInfo) -> &str {
+        self.facts(p)
+            .and_then(|f| f.package_name.as_deref())
+            .unwrap_or("")
     }
 
     /// GDI and USER objects of `p`, when read.
@@ -356,6 +452,69 @@ pub fn short_user(account: &str) -> &str {
 }
 
 /// Yes, No, or a dash when the token could not be read.
+/// A row's value of a per-process fact: the process's own, or for a group
+/// the one all members share; `None` when any member differs or could not
+/// be read.
+fn agreed<T: PartialEq + Copy>(
+    members: Option<&[usize]>,
+    procs: &[ProcessInfo],
+    p: &ProcessInfo,
+    read: impl Fn(&ProcessInfo) -> Option<T>,
+) -> Option<T> {
+    let Some(members) = members else {
+        return read(p);
+    };
+    let mut values = members.iter().map(|&i| read(&procs[i]));
+    let first = values.next()??;
+    values.all(|v| v == Some(first)).then_some(first)
+}
+
+/// Task Manager's words for UAC virtualization.
+fn uac_label(value: wtm_core::control::UacVirtualization) -> &'static str {
+    use wtm_core::control::UacVirtualization;
+    match value {
+        UacVirtualization::NotAllowed => crate::i18n::tr("Not allowed"),
+        UacVirtualization::Disabled => crate::i18n::tr("Disabled"),
+        UacVirtualization::Enabled => crate::i18n::tr("Enabled"),
+    }
+}
+
+/// Task Manager's words for hardware-enforced stack protection.
+fn stack_label(value: wtm_core::control::StackProtection) -> &'static str {
+    use wtm_core::control::StackProtection;
+    crate::i18n::tr(match value {
+        StackProtection::Disabled => "Disabled",
+        StackProtection::CompatibleModules { audit: false } => "Compatible modules only",
+        StackProtection::AllModules { audit: false } => "All modules",
+        StackProtection::CompatibleModules { audit: true } => {
+            "Compatible modules only (audit mode)"
+        }
+        StackProtection::AllModules { audit: true } => "All modules (audit mode)",
+    })
+}
+
+/// Task Manager's words for an I/O priority.
+fn io_priority_label(value: wtm_core::control::IoPriority) -> &'static str {
+    use wtm_core::control::IoPriority;
+    crate::i18n::tr(match value {
+        IoPriority::Background => "Background",
+        IoPriority::Low => "Low",
+        IoPriority::Normal => "Normal",
+        IoPriority::High => "High",
+        IoPriority::Critical => "Critical",
+    })
+}
+
+/// A change in bytes with its sign, such as "+1.5 MiB".
+fn signed_bytes(v: i64) -> String {
+    let sign = match v.signum() {
+        1 => "+",
+        -1 => "-",
+        _ => "",
+    };
+    format!("{sign}{}", format_bytes(v.unsigned_abs() as f64))
+}
+
 fn elevated_label(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => crate::i18n::tr("Yes"),
@@ -721,9 +880,11 @@ impl ProcessView {
             }
         });
         if grouped {
-            for (family, label) in ["Process", "CPU", "Memory", "Disk", "Network", "GPU"]
-                .into_iter()
-                .enumerate()
+            for (family, label) in [
+                "Process", "CPU", "Memory", "Disk", "Network", "GPU", "Program", "Security",
+            ]
+            .into_iter()
+            .enumerate()
             {
                 let columns = COLUMNS.iter().filter(|c| column_family(c.0) == family);
                 let visible = columns
@@ -988,7 +1149,7 @@ impl ProcessView {
 
 fn column_family(col: Col) -> usize {
     match col {
-        Col::Cpu | Col::CpuTime | Col::Threads | Col::Priority => 1,
+        Col::Cpu | Col::CpuTime | Col::Cycle | Col::Threads | Col::Priority => 1,
         Col::Memory
         | Col::Commit
         | Col::WorkingSet
@@ -996,10 +1157,34 @@ fn column_family(col: Col) -> usize {
         | Col::PagedPool
         | Col::NonPagedPool
         | Col::PageFaults
-        | Col::PageFaultRate => 2,
-        Col::Disk | Col::DiskRead | Col::DiskWrite => 3,
+        | Col::PageFaultRate
+        | Col::SharedWorkingSet
+        | Col::WorkingSetDelta
+        | Col::PageFaultDelta => 2,
+        Col::Disk
+        | Col::DiskRead
+        | Col::DiskWrite
+        | Col::IoReads
+        | Col::IoWrites
+        | Col::IoOther
+        | Col::IoReadBytes
+        | Col::IoWriteBytes
+        | Col::IoOtherBytes
+        | Col::IoPriority => 3,
         Col::Network => 4,
         Col::Gpu | Col::GpuMemory | Col::GpuEngine | Col::SharedGpuMemory => 5,
+        Col::CommandLine
+        | Col::ImagePath
+        | Col::Architecture
+        | Col::FileVersion
+        | Col::Description
+        | Col::Publisher
+        | Col::PackageName => 6,
+        Col::Elevated
+        | Col::Integrity
+        | Col::UacVirtualization
+        | Col::Dep
+        | Col::StackProtection => 7,
         _ => 0,
     }
 }
@@ -1065,8 +1250,43 @@ fn compare(
         Col::GdiObjects => extra.gui(a).map(|g| g.0).cmp(&extra.gui(b).map(|g| g.0)),
         Col::UserObjects => extra.gui(a).map(|g| g.1).cmp(&extra.gui(b).map(|g| g.1)),
         Col::SharedGpuMemory => a.gpu_detail.shared_memory.cmp(&b.gpu_detail.shared_memory),
+        Col::Cycle => a.cycle_percent.total_cmp(&b.cycle_percent),
+        Col::SharedWorkingSet => shared_working_set(a).cmp(&shared_working_set(b)),
+        Col::IoReads => a.io.reads.cmp(&b.io.reads),
+        Col::IoWrites => a.io.writes.cmp(&b.io.writes),
+        Col::IoOther => a.io.other.cmp(&b.io.other),
+        Col::IoReadBytes => a.io.read_bytes.cmp(&b.io.read_bytes),
+        Col::IoWriteBytes => a.io.write_bytes.cmp(&b.io.write_bytes),
+        Col::IoOtherBytes => a.io.other_bytes.cmp(&b.io.other_bytes),
+        Col::Description => crate::sort::text(extra.file_description(a), extra.file_description(b)),
+        Col::Publisher => crate::sort::text(extra.publisher(a), extra.publisher(b)),
+        Col::UacVirtualization => {
+            let v = |p| extra.facts(p).and_then(|f| f.uac_virtualization);
+            v(a).cmp(&v(b))
+        }
+        Col::Dep => {
+            let v = |p| extra.facts(p).and_then(|f| f.dep);
+            v(a).cmp(&v(b))
+        }
+        Col::StackProtection => {
+            let v = |p| extra.facts(p).and_then(|f| f.stack_protection);
+            v(a).cmp(&v(b))
+        }
+        Col::WorkingSetDelta => a.memory.working_set_delta.cmp(&b.memory.working_set_delta),
+        Col::PageFaultDelta => a.memory.page_fault_delta.cmp(&b.memory.page_fault_delta),
+        Col::IoPriority => extra.io_priority(a).cmp(&extra.io_priority(b)),
+        Col::PackageName => crate::sort::text(extra.package_name(a), extra.package_name(b)),
+        Col::EfficiencyMode => {
+            let v = |p| extra.efficiency(p).map(eco_label);
+            v(a).cmp(&v(b))
+        }
     }
     .then(a.pid.cmp(&b.pid))
+}
+
+/// Working set pages shared with other processes.
+fn shared_working_set(p: &ProcessInfo) -> u64 {
+    p.working_set.saturating_sub(p.private_working_set)
 }
 
 /// A process's state, from running to not responding.
@@ -1977,6 +2197,78 @@ impl ProcessView {
                                             ui,
                                             format_bytes(p.gpu_detail.shared_memory as f64),
                                         ),
+                                        Col::Cycle => right(ui, format!("{:.1}%", p.cycle_percent)),
+                                        Col::SharedWorkingSet => {
+                                            right(ui, format_bytes(shared_working_set(p) as f64))
+                                        }
+                                        Col::IoReads => right(ui, crate::perf_pages::count(p.io.reads as f64)),
+                                        Col::IoWrites => right(ui, crate::perf_pages::count(p.io.writes as f64)),
+                                        Col::IoOther => right(ui, crate::perf_pages::count(p.io.other as f64)),
+                                        Col::IoReadBytes => right(ui, format_bytes(p.io.read_bytes as f64)),
+                                        Col::IoWriteBytes => right(ui, format_bytes(p.io.write_bytes as f64)),
+                                        Col::IoOtherBytes => right(ui, format_bytes(p.io.other_bytes as f64)),
+                                        Col::Description => {
+                                            ui.label(extra.file_description(p));
+                                        }
+                                        Col::WorkingSetDelta => {
+                                            right(ui, signed_bytes(p.memory.working_set_delta))
+                                        }
+                                        Col::PageFaultDelta => right(
+                                            ui,
+                                            crate::perf_pages::count(p.memory.page_fault_delta as f64),
+                                        ),
+                                        Col::PackageName => {
+                                            let name = extra.package_name(p);
+                                            ui.label(RichText::new(name).small()).on_hover_text(name);
+                                        }
+                                        Col::IoPriority | Col::EfficiencyMode => {
+                                            let members = group.map(|g| g.members.as_slice());
+                                            let procs = &snap.processes;
+                                            let text = if *col == Col::IoPriority {
+                                                agreed(members, procs, p, |q| extra.io_priority(q)).map(io_priority_label)
+                                            } else {
+                                                agreed(members, procs, p, |q| extra.efficiency(q)).map(eco_label)
+                                            };
+                                            match text {
+                                                Some(t) => {
+                                                    ui.label(t);
+                                                }
+                                                None => {
+                                                    ui.weak("—").on_hover_text(crate::i18n::tr(if group.is_some() {
+                                                        "Differs between these processes, or not readable"
+                                                    } else {
+                                                        "Not readable with this window's rights"
+                                                    }));
+                                                }
+                                            }
+                                        }
+                                        Col::Publisher => {
+                                            ui.label(extra.publisher(p));
+                                        }
+                                        Col::UacVirtualization | Col::Dep | Col::StackProtection => {
+                                            let members = group.map(|g| g.members.as_slice());
+                                            let procs = &snap.processes;
+                                            let fact = |q: &ProcessInfo| extra.facts(q).cloned();
+                                            let text = match col {
+                                                Col::UacVirtualization => agreed(members, procs, p, |q| fact(q)?.uac_virtualization).map(uac_label),
+                                                Col::Dep => agreed(members, procs, p, |q| fact(q)?.dep).map(|on| {
+                                                    crate::i18n::tr(if on { "Enabled" } else { "Disabled" })
+                                                }),
+                                                _ => agreed(members, procs, p, |q| fact(q)?.stack_protection).map(stack_label),
+                                            };
+                                            match text {
+                                                Some(t) => {
+                                                    ui.label(t);
+                                                }
+                                                None => {
+                                                    ui.weak("—").on_hover_text(crate::i18n::tr(if group.is_some() {
+                                                        "Differs between these processes, or not readable"
+                                                    } else {
+                                                        "Not readable with this window's rights"
+                                                    }));
+                                                }
+                                            }
+                                        }
                                         Col::PageFaultRate => right(
                                             ui,
                                             crate::perf_pages::count(p.memory.page_fault_rate),
@@ -2521,6 +2813,8 @@ fn user_groups(procs: &[ProcessInfo], members: &[usize], extra: &Extra<'_>) -> V
                     t.net_rx_rate += o.net_rx_rate;
                     t.net_tx_rate += o.net_tx_rate;
                     t.memory.add(&o.memory);
+                    t.io.add(&o.io);
+                    t.cycle_percent += o.cycle_percent;
                     t.gpu_detail.shared_memory += o.gpu_detail.shared_memory;
                     a.members.extend(b.members);
                     a
@@ -2583,6 +2877,8 @@ fn app_groups(procs: &[ProcessInfo], members: &[usize]) -> Vec<AppGroup> {
                 total.net_rx_rate += p.net_rx_rate;
                 total.net_tx_rate += p.net_tx_rate;
                 total.memory.add(&p.memory);
+                total.io.add(&p.io);
+                total.cycle_percent += p.cycle_percent;
                 total.gpu_detail.shared_memory += p.gpu_detail.shared_memory;
             }
             // The total starts as the first member: its engine is not the
@@ -3025,6 +3321,8 @@ mod tests {
 
     fn p(pid: u32, parent_pid: u32, cpu: f32, create_time: i64) -> ProcessInfo {
         ProcessInfo {
+            io: Default::default(),
+            cycle_percent: 0.0,
             pid,
             parent_pid,
             name: format!("p{pid}"),
@@ -3082,6 +3380,8 @@ mod tests {
             versions: Box::leak(Box::default()),
             services: Box::leak(Box::default()),
             gui_objects: Box::leak(Box::default()),
+            publishers: Box::leak(Box::default()),
+            process_states: Box::leak(Box::default()),
             gpu_order: &[],
         }
     }
@@ -3098,6 +3398,21 @@ mod tests {
             user: Some(user.into()),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn group_rows_show_a_fact_only_when_every_member_shares_it() {
+        let procs = vec![p(1, 0, 0.0, 10), p(2, 0, 0.0, 20), p(3, 0, 0.0, 30)];
+        let read = |q: &ProcessInfo| match q.pid {
+            1 | 2 => Some(true),
+            _ => None,
+        };
+        assert_eq!(agreed(None, &procs, &procs[0], read), Some(true));
+        assert_eq!(agreed(Some(&[0, 1]), &procs, &procs[0], read), Some(true));
+        // One member unreadable: the group's value is unknown.
+        assert_eq!(agreed(Some(&[0, 1, 2]), &procs, &procs[0], read), None);
+        let differ = |q: &ProcessInfo| Some(q.pid == 1);
+        assert_eq!(agreed(Some(&[0, 1]), &procs, &procs[0], differ), None);
     }
 
     #[test]

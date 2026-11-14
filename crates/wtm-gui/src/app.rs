@@ -1307,9 +1307,12 @@ impl eframe::App for App {
                                 services: &data.hosted_services,
                                 gpu_order: &gpu_order,
                                 gui_objects: &data.gui_objects,
+                                publishers: &data.publishers,
+                                process_states: &data.process_states,
                             };
-                            // GDI and USER objects are read only while shown.
-                            if state.processes.visible.iter().any(|c| c.gui_objects()) {
+                            // GDI and USER objects, I/O priority and
+                            // efficiency mode are read only while shown.
+                            if state.processes.visible.iter().any(|c| c.live()) {
                                 data.gui_objects_wanted_ms.store(
                                     wtm_core::hardware::unix_ms(),
                                     std::sync::atomic::Ordering::Relaxed,
