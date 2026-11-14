@@ -43,7 +43,30 @@ usage history.
 
 [Product completion roadmap](docs/product-roadmap.md) · [Windows signing setup](docs/signing.md)
 
-## New in 0.31.0
+## New in 0.32.0
+
+[Release scope and validation](docs/0.32.0-review.md)
+
+- **Every device on Performance:** each disk, network adapter and GPU has its
+  own page and graphs with what Task Manager lists under them, plus disk and
+  GPU temperatures, NVMe wear, MAC addresses and the Wi-Fi network.
+- **Your own Performance rail:** hide or reorder devices, choose each GPU
+  engine graph, see every logical processor's speed, switch to a summary
+  view, and on laptops follow the battery.
+- **Task Manager's Details columns in Processes:** CPU time, cycles, I/O
+  totals, memory pools and page faults, GDI and USER objects, GPU engine,
+  publisher, UAC virtualization, DEP, stack protection, I/O priority and
+  more; plus Set affinity, Realtime priority and Go to services.
+- **Threads view:** each thread's CPU, start address, state and priority,
+  updated every second while shown.
+- **System tabs:** Startup impact and publishers in Startup apps, service
+  groups, Send message to a user session, network bytes in App history, a
+  default start page and Always on top.
+
+IPC moves to protocol 17: the GUI and the service must be updated together,
+which the installer does.
+
+## Included since 0.31.0
 
 [Release scope and validation](docs/0.31.0-review.md)
 
@@ -426,8 +449,8 @@ Start Menu shortcut. Uninstall it from *Settings → Apps*; configuration and
 history in `%ProgramData%\RustWTM` are kept.
 
 ```powershell
-msiexec /i RustWTM-0.31.0-x64.msi            # interactive
-msiexec /i RustWTM-0.31.0-x64.msi /qn        # silent
+msiexec /i RustWTM-0.32.0-x64.msi            # interactive
+msiexec /i RustWTM-0.32.0-x64.msi /qn        # silent
 ```
 
 ### Open with Ctrl+Shift+Esc

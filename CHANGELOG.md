@@ -6,11 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-11-14
+
 Performance reaches Windows Task Manager parity: every disk, network adapter
 and GPU has its own page and graphs, and each page lists what Task Manager
-lists under its graph. IPC moves to protocol 17 (the sample carries each
-adapter's traffic and each GPU's load and memory); the GUI and the service
-must be updated together.
+lists under its graph. Processes gains Task Manager's Details columns and a
+Threads view, and the system tabs gain Startup impact, publishers, service
+groups and Send message. IPC moves to protocol 17 (the sample carries each
+adapter's traffic, each GPU's load and memory and more per-process figures);
+the GUI and the service must be updated together.
 
 ### Added
 
@@ -1636,7 +1640,8 @@ First public release.
 - **Installer**: `scripts/install.ps1` / `scripts/uninstall.ps1`, release
   archives with SHA-256 checksums built by GitHub Actions.
 
-[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/rustwtm/rustwtm/compare/v0.32.0...HEAD
+[0.32.0]: https://github.com/rustwtm/rustwtm/compare/v0.31.0...v0.32.0
 [0.31.0]: https://github.com/rustwtm/rustwtm/compare/v0.30.4...v0.31.0
 [0.30.4]: https://github.com/rustwtm/rustwtm/compare/v0.30.3...v0.30.4
 [0.30.3]: https://github.com/rustwtm/rustwtm/compare/v0.30.2...v0.30.3
