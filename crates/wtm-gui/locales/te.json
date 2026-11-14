@@ -1706,5 +1706,19 @@
   "Low impact": "తక్కువ",
   "Not measured": "కొలవలేదు",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "ప్రారంభంలో CPU: {0} · ప్రారంభంలో డిస్క్ I/O: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "ప్రారంభ ప్రభావానికి RustWTM సేవ లేదా నిర్వాహక హక్కులు అవసరం."
+  "Startup impact needs the RustWTM service or administrator rights.": "ప్రారంభ ప్రభావానికి RustWTM సేవ లేదా నిర్వాహక హక్కులు అవసరం.",
+  "Battery saver": "బ్యాటరీ సేవర్",
+  "Choose the engine this graph shows": "ఈ గ్రాఫ్ చూపే ఇంజిన్‌ను ఎంచుకోండి",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "డిజైన్ సామర్థ్యం, పూర్తి ఛార్జ్ సామర్థ్యం, అరుగుదల పరికరాలు పేజీలో ఉన్నాయి.",
+  "Nothing measured now.": "ప్రస్తుతం ఏదీ కొలవలేదు.",
+  "On battery": "బ్యాటరీపై",
+  "Only the resources and their graphs, as Task Manager's summary view.": "వనరులు, వాటి గ్రాఫ్‌లు మాత్రమే, టాస్క్ మేనేజర్ సారాంశ వీక్షణలా.",
+  "Show details": "వివరాలు చూపండి",
+  "Show hidden devices ({0})": "దాచిన పరికరాలు చూపండి ({0})",
+  "Speed of each logical processor": "ప్రతి లాజికల్ ప్రాసెసర్ వేగం",
+  "Summary view": "సారాంశ వీక్షణ",
+  "Time left": "మిగిలిన సమయం",
+  "{0} left": "{0} మిగిలి ఉంది",
+  "Most network activity (all adapters)": "అత్యధిక నెట్‌వర్క్ కార్యకలాపం (అన్ని అడాప్టర్లు)",
+  "Most I/O (all devices)": "అత్యధిక I/O (అన్ని పరికరాలు)"
 }

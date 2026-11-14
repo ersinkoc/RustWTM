@@ -1706,5 +1706,19 @@
   "Low impact": "குறைவு",
   "Not measured": "அளவிடப்படவில்லை",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "தொடக்கத்தில் CPU: {0} · தொடக்கத்தில் வட்டு I/O: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "தொடக்கத் தாக்கத்திற்கு RustWTM சேவை அல்லது நிர்வாகி உரிமைகள் தேவை."
+  "Startup impact needs the RustWTM service or administrator rights.": "தொடக்கத் தாக்கத்திற்கு RustWTM சேவை அல்லது நிர்வாகி உரிமைகள் தேவை.",
+  "Battery saver": "பேட்டரி சேமிப்பான்",
+  "Choose the engine this graph shows": "இந்த வரைபடம் காட்டும் எஞ்சினைத் தேர்ந்தெடுக்கவும்",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "வடிவமைப்புத் திறன், முழு சார்ஜ் திறன், தேய்மானம் ஆகியவை சாதனங்கள் பக்கத்தில் உள்ளன.",
+  "Nothing measured now.": "இப்போது எதுவும் அளவிடப்படவில்லை.",
+  "On battery": "பேட்டரியில்",
+  "Only the resources and their graphs, as Task Manager's summary view.": "வளங்களும் அவற்றின் வரைபடங்களும் மட்டும், டாஸ்க் மேனேஜரின் சுருக்கக் காட்சி போல.",
+  "Show details": "விவரங்களைக் காட்டு",
+  "Show hidden devices ({0})": "மறைத்த சாதனங்களைக் காட்டு ({0})",
+  "Speed of each logical processor": "ஒவ்வொரு லாஜிக்கல் செயலியின் வேகம்",
+  "Summary view": "சுருக்கக் காட்சி",
+  "Time left": "மீதமுள்ள நேரம்",
+  "{0} left": "{0} மீதம்",
+  "Most network activity (all adapters)": "அதிக நெட்வொர்க் செயல்பாடு (எல்லா அடாப்டர்களும்)",
+  "Most I/O (all devices)": "அதிக I/O (அனைத்து சாதனங்கள்)"
 }

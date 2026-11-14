@@ -1706,5 +1706,19 @@
   "Low impact": "Baixo",
   "Not measured": "Não medido",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "CPU na inicialização: {0} · E/S de disco na inicialização: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "O impacto na inicialização requer o serviço do RustWTM ou direitos de administrador."
+  "Startup impact needs the RustWTM service or administrator rights.": "O impacto na inicialização requer o serviço do RustWTM ou direitos de administrador.",
+  "Battery saver": "Economia de bateria",
+  "Choose the engine this graph shows": "Escolha o mecanismo que este gráfico mostra",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "Capacidade de projeto, capacidade de carga total e desgaste estão na página Dispositivos.",
+  "Nothing measured now.": "Nada medido agora.",
+  "On battery": "Na bateria",
+  "Only the resources and their graphs, as Task Manager's summary view.": "Somente os recursos e seus gráficos, como a exibição resumida do Gerenciador de Tarefas.",
+  "Show details": "Mostrar detalhes",
+  "Show hidden devices ({0})": "Mostrar dispositivos ocultos ({0})",
+  "Speed of each logical processor": "Velocidade de cada processador lógico",
+  "Summary view": "Exibição resumida",
+  "Time left": "Tempo restante",
+  "{0} left": "{0} restantes",
+  "Most network activity (all adapters)": "Maior atividade de rede (todos os adaptadores)",
+  "Most I/O (all devices)": "Maior E/S (todos os dispositivos)"
 }

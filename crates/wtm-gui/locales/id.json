@@ -1706,5 +1706,19 @@
   "Low impact": "Rendah",
   "Not measured": "Tidak diukur",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "CPU saat startup: {0} · I/O disk saat startup: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "Dampak startup memerlukan layanan RustWTM atau hak administrator."
+  "Startup impact needs the RustWTM service or administrator rights.": "Dampak startup memerlukan layanan RustWTM atau hak administrator.",
+  "Battery saver": "Penghemat baterai",
+  "Choose the engine this graph shows": "Pilih mesin yang ditampilkan grafik ini",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "Kapasitas desain, kapasitas pengisian penuh, dan keausan ada di halaman Perangkat.",
+  "Nothing measured now.": "Belum ada yang terukur.",
+  "On battery": "Memakai baterai",
+  "Only the resources and their graphs, as Task Manager's summary view.": "Hanya sumber daya dan grafiknya, seperti tampilan ringkasan Task Manager.",
+  "Show details": "Tampilkan detail",
+  "Show hidden devices ({0})": "Tampilkan perangkat tersembunyi ({0})",
+  "Speed of each logical processor": "Kecepatan tiap prosesor logis",
+  "Summary view": "Tampilan ringkasan",
+  "Time left": "Sisa waktu",
+  "{0} left": "Sisa {0}",
+  "Most network activity (all adapters)": "Aktivitas jaringan terbanyak (semua adaptor)",
+  "Most I/O (all devices)": "I/O terbanyak (semua perangkat)"
 }

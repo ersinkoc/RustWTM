@@ -1706,5 +1706,19 @@
   "Low impact": "Chini",
   "Not measured": "Haijapimwa",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "CPU wakati wa kuanza: {0} · I/O ya diski wakati wa kuanza: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "Athari ya kuanza inahitaji huduma ya RustWTM au haki za msimamizi."
+  "Startup impact needs the RustWTM service or administrator rights.": "Athari ya kuanza inahitaji huduma ya RustWTM au haki za msimamizi.",
+  "Battery saver": "Kiokoa betri",
+  "Choose the engine this graph shows": "Chagua injini ambayo grafu hii inaonyesha",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "Uwezo wa muundo, uwezo wa chaji kamili na uchakavu viko kwenye ukurasa wa Vifaa.",
+  "Nothing measured now.": "Hakuna kilichopimwa sasa.",
+  "On battery": "Kwenye betri",
+  "Only the resources and their graphs, as Task Manager's summary view.": "Rasilimali na grafu zake tu, kama mwonekano wa muhtasari wa Kidhibiti cha Kazi.",
+  "Show details": "Onyesha maelezo",
+  "Show hidden devices ({0})": "Onyesha vifaa vilivyofichwa ({0})",
+  "Speed of each logical processor": "Kasi ya kila kichakataji cha kimantiki",
+  "Summary view": "Mwonekano wa muhtasari",
+  "Time left": "Muda uliobaki",
+  "{0} left": "Zimebaki {0}",
+  "Most network activity (all adapters)": "Shughuli nyingi zaidi za mtandao (adapta zote)",
+  "Most I/O (all devices)": "I/O nyingi zaidi (vifaa vyote)"
 }

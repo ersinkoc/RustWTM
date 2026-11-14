@@ -1706,5 +1706,19 @@
   "Low impact": "Laag",
   "Not measured": "Niet gemeten",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "CPU bij opstarten: {0} · Schijf-I/O bij opstarten: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "Impact bij opstarten vereist de RustWTM-service of administratorrechten."
+  "Startup impact needs the RustWTM service or administrator rights.": "Impact bij opstarten vereist de RustWTM-service of administratorrechten.",
+  "Battery saver": "Batterijbesparing",
+  "Choose the engine this graph shows": "Kies de engine die deze grafiek toont",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "Ontwerpcapaciteit, volledige laadcapaciteit en slijtage staan op de pagina Apparaten.",
+  "Nothing measured now.": "Nu niets gemeten.",
+  "On battery": "Op batterij",
+  "Only the resources and their graphs, as Task Manager's summary view.": "Alleen de bronnen en hun grafieken, zoals de overzichtsweergave van Taakbeheer.",
+  "Show details": "Details weergeven",
+  "Show hidden devices ({0})": "Verborgen apparaten weergeven ({0})",
+  "Speed of each logical processor": "Snelheid van elke logische processor",
+  "Summary view": "Overzichtsweergave",
+  "Time left": "Resterende tijd",
+  "{0} left": "Nog {0}",
+  "Most network activity (all adapters)": "Meeste netwerkactiviteit (alle adapters)",
+  "Most I/O (all devices)": "Meeste I/O (alle apparaten)"
 }

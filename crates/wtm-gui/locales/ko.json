@@ -1706,5 +1706,19 @@
   "Low impact": "낮음",
   "Not measured": "측정되지 않음",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "시작 시 CPU: {0} · 시작 시 디스크 I/O: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "시작 프로그램 영향을 보려면 RustWTM 서비스 또는 관리자 권한이 필요합니다."
+  "Startup impact needs the RustWTM service or administrator rights.": "시작 프로그램 영향을 보려면 RustWTM 서비스 또는 관리자 권한이 필요합니다.",
+  "Battery saver": "배터리 절약 모드",
+  "Choose the engine this graph shows": "이 그래프에 표시할 엔진 선택",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "설계 용량, 완충 용량 및 마모도는 장치 페이지에 있습니다.",
+  "Nothing measured now.": "현재 측정된 항목이 없습니다.",
+  "On battery": "배터리 사용 중",
+  "Only the resources and their graphs, as Task Manager's summary view.": "리소스와 그래프만 표시합니다(작업 관리자의 요약 보기와 같음).",
+  "Show details": "자세히 표시",
+  "Show hidden devices ({0})": "숨긴 장치 표시({0})",
+  "Speed of each logical processor": "각 논리 프로세서의 속도",
+  "Summary view": "요약 보기",
+  "Time left": "남은 시간",
+  "{0} left": "{0} 남음",
+  "Most network activity (all adapters)": "네트워크 사용이 많은 프로세스(모든 어댑터)",
+  "Most I/O (all devices)": "I/O가 가장 많은 프로세스 (모든 장치)"
 }

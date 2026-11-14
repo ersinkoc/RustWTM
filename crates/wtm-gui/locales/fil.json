@@ -1706,5 +1706,19 @@
   "Low impact": "Mababa",
   "Not measured": "Hindi nasukat",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "CPU sa startup: {0} · Disk I/O sa startup: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "Kailangan ng epekto sa startup ang serbisyo ng RustWTM o mga karapatan ng administrator."
+  "Startup impact needs the RustWTM service or administrator rights.": "Kailangan ng epekto sa startup ang serbisyo ng RustWTM o mga karapatan ng administrator.",
+  "Battery saver": "Battery saver",
+  "Choose the engine this graph shows": "Piliin ang engine na ipapakita ng graph na ito",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "Nasa page na Mga Device ang design capacity, full charge capacity at pagkasira.",
+  "Nothing measured now.": "Walang nasusukat ngayon.",
+  "On battery": "Naka-battery",
+  "Only the resources and their graphs, as Task Manager's summary view.": "Ang mga resource at ang kanilang mga graph lang, gaya ng summary view ng Task Manager.",
+  "Show details": "Ipakita ang mga detalye",
+  "Show hidden devices ({0})": "Ipakita ang mga nakatagong device ({0})",
+  "Speed of each logical processor": "Bilis ng bawat logical processor",
+  "Summary view": "Summary view",
+  "Time left": "Natitirang oras",
+  "{0} left": "{0} pa",
+  "Most network activity (all adapters)": "Pinakamaraming network activity (lahat ng adapter)",
+  "Most I/O (all devices)": "Pinakamaraming I/O (lahat ng device)"
 }

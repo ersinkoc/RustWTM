@@ -1706,5 +1706,19 @@
   "Low impact": "ਘੱਟ",
   "Not measured": "ਮਾਪਿਆ ਨਹੀਂ ਗਿਆ",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "ਸਟਾਰਟਅੱਪ 'ਤੇ CPU: {0} · ਸਟਾਰਟਅੱਪ 'ਤੇ ਡਿਸਕ I/O: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "ਸਟਾਰਟਅੱਪ ਪ੍ਰਭਾਵ ਲਈ RustWTM ਸੇਵਾ ਜਾਂ ਪ੍ਰਸ਼ਾਸਕ ਅਧਿਕਾਰ ਲੋੜੀਂਦੇ ਹਨ।"
+  "Startup impact needs the RustWTM service or administrator rights.": "ਸਟਾਰਟਅੱਪ ਪ੍ਰਭਾਵ ਲਈ RustWTM ਸੇਵਾ ਜਾਂ ਪ੍ਰਸ਼ਾਸਕ ਅਧਿਕਾਰ ਲੋੜੀਂਦੇ ਹਨ।",
+  "Battery saver": "ਬੈਟਰੀ ਸੇਵਰ",
+  "Choose the engine this graph shows": "ਚੁਣੋ ਕਿ ਇਹ ਗ੍ਰਾਫ਼ ਕਿਹੜਾ ਇੰਜਣ ਦਿਖਾਏ",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "ਡਿਜ਼ਾਈਨ ਸਮਰੱਥਾ, ਪੂਰੀ ਚਾਰਜ ਸਮਰੱਥਾ ਅਤੇ ਘਿਸਾਈ ਡਿਵਾਈਸਾਂ ਪੰਨੇ 'ਤੇ ਹਨ।",
+  "Nothing measured now.": "ਹੁਣ ਕੁਝ ਨਹੀਂ ਮਾਪਿਆ ਗਿਆ।",
+  "On battery": "ਬੈਟਰੀ 'ਤੇ",
+  "Only the resources and their graphs, as Task Manager's summary view.": "ਸਿਰਫ਼ ਸਰੋਤ ਅਤੇ ਉਹਨਾਂ ਦੇ ਗ੍ਰਾਫ਼, ਟਾਸਕ ਮੈਨੇਜਰ ਦੇ ਸਾਰ ਦ੍ਰਿਸ਼ ਵਾਂਗ।",
+  "Show details": "ਵੇਰਵੇ ਦਿਖਾਓ",
+  "Show hidden devices ({0})": "ਲੁਕੇ ਡਿਵਾਈਸ ਦਿਖਾਓ ({0})",
+  "Speed of each logical processor": "ਹਰ ਲਾਜ਼ੀਕਲ ਪ੍ਰੋਸੈਸਰ ਦੀ ਗਤੀ",
+  "Summary view": "ਸਾਰ ਦ੍ਰਿਸ਼",
+  "Time left": "ਬਾਕੀ ਸਮਾਂ",
+  "{0} left": "{0} ਬਾਕੀ",
+  "Most network activity (all adapters)": "ਸਭ ਤੋਂ ਵੱਧ ਨੈੱਟਵਰਕ ਗਤੀਵਿਧੀ (ਸਾਰੇ ਅਡੈਪਟਰ)",
+  "Most I/O (all devices)": "ਸਭ ਤੋਂ ਵੱਧ I/O (ਸਾਰੇ ਡਿਵਾਈਸ)"
 }

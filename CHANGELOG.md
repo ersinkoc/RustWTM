@@ -16,9 +16,10 @@ must be updated together.
 
 - Performance lists each physical disk ("Disk 0 (C:)"), each network adapter
   ("Wi-Fi", "Ethernet") and each GPU ("GPU 0") in the rail and the compact
-  chip row, each with its own sparkline. The selected device is remembered; a
-  device that goes away falls back to the next one of its kind or to the
-  combined view.
+  chip row, each with its own sparkline. The selected device is remembered by
+  its model and position rather than by the identifier Windows assigns at
+  each start, so it is still selected after a restart; a device that goes
+  away falls back to the next one of its kind or to the combined view.
 - Disk pages graph active time and the read/write transfer rate, and list the
   active time, average response time, read and write speed and queue length,
   then the model, SSD/HDD and bus, capacity, formatted size, system disk, page
@@ -96,6 +97,27 @@ must be updated together.
   optical drives; a program on a sleeping hard disk may still wake it once.
 - Settings has "Always on top", which keeps the window above other windows
   and comes back after an alert or the tray brings the window forward.
+- Performance: right-clicking a disk, adapter, GPU or the battery in the rail
+  hides it or moves it up or down; "Show hidden devices" under the rail brings
+  hidden ones back. CPU, Memory and the combined views always stay listed. The
+  choice is kept across restarts.
+- Each GPU engine graph has a menu to choose the engine it shows, as in Task
+  Manager; the choice is kept per GPU, and an engine the GPU does not have
+  falls back to Task Manager's choice.
+- The CPU page lists the current speed of each logical processor, read with
+  the same counter as the overall speed.
+- "Summary view" under the rail (or double-clicking a resource) shows only
+  the resource list, as Task Manager's summary view; choosing a resource or
+  "Show details" returns to its page.
+- Network adapter pages list the five processes with the most network
+  traffic now, and the combined Disk & I/O page the five with the most I/O.
+  Windows does not record which adapter or disk a process used, so the
+  lists cover all adapters, or all devices (the I/O counters also count
+  network and pipe I/O), and say so; per-process network needs the service
+  or administrator rights.
+- A Battery page, a RustWTM addition, on PCs with a battery: the charge over
+  time, power source, charging, time left and battery saver. Capacity and wear
+  stay on the Devices page.
 
 ### Changed
 

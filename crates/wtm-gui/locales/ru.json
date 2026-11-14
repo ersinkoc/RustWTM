@@ -1706,5 +1706,19 @@
   "Low impact": "Низкое",
   "Not measured": "Не измерено",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "ЦП при запуске: {0} · Ввод-вывод диска при запуске: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "Для влияния на запуск нужна служба RustWTM или права администратора."
+  "Startup impact needs the RustWTM service or administrator rights.": "Для влияния на запуск нужна служба RustWTM или права администратора.",
+  "Battery saver": "Экономия заряда",
+  "Choose the engine this graph shows": "Выберите ядро, показываемое на этом графике",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "Расчётная ёмкость, ёмкость полного заряда и износ — на странице «Устройства».",
+  "Nothing measured now.": "Сейчас ничего не измерено.",
+  "On battery": "От батареи",
+  "Only the resources and their graphs, as Task Manager's summary view.": "Только ресурсы и их графики, как в сводном виде диспетчера задач.",
+  "Show details": "Показать подробности",
+  "Show hidden devices ({0})": "Показать скрытые устройства ({0})",
+  "Speed of each logical processor": "Частота каждого логического процессора",
+  "Summary view": "Сводный вид",
+  "Time left": "Осталось времени",
+  "{0} left": "Осталось {0}",
+  "Most network activity (all adapters)": "Наибольшая сетевая активность (все адаптеры)",
+  "Most I/O (all devices)": "Больше всего ввода-вывода (все устройства)"
 }

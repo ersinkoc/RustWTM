@@ -12,6 +12,8 @@ pub enum Page {
     Gpu,
     Network,
     Disk,
+    /// A RustWTM addition: Task Manager has no battery page.
+    Battery,
     #[default]
     #[serde(other)]
     All,
@@ -38,6 +40,25 @@ pub struct State {
     pub device: Option<String>,
     pub class: Option<u8>,
     pub engine_search: String,
+    /// Devices left out of the rail, by stable key ([`Entry::key`]).
+    pub hidden: Vec<String>,
+    /// The user's order of devices, by stable key; others follow.
+    pub order: Vec<String>,
+    /// The engine each GPU graph shows, per GPU by stable key; empty or
+    /// absent names fall back to Task Manager's choice.
+    pub engines: std::collections::BTreeMap<String, Vec<String>>,
+    /// Task Manager's summary view: only the resources and their graphs.
+    pub summary: bool,
+    /// The saved device (stable key) to select once devices are listed.
+    pub restore: Option<(String, Option<std::time::Instant>)>,
+    /// Stable key of each listed device id, from the last arrangement.
+    keys: Vec<(String, String)>,
+}
+
+/// A change the user asked for in the rail's menu.
+enum RailAction {
+    Hide(String),
+    Move(String, bool),
 }
 
 /// Content at least this wide shows resources in a rail with sparklines
@@ -146,11 +167,17 @@ pub struct Entry {
     pub reading: String,
     series: Series,
     percent_scale: bool,
+    /// What identifies the device across restarts, for saved choices: GPU
+    /// LUIDs and disk numbers change, so GPUs go by name and disks by model
+    /// (with an ordinal among equals); adapters by their NET_LUID, which
+    /// Windows keeps. `None` for resources that are always listed.
+    pub key: Option<String>,
 }
 
 impl Entry {
     fn base(page: Page, label: &str, reading: String, series: Series, percent_scale: bool) -> Self {
         Self {
+            key: None,
             page,
             device: None,
             label: crate::i18n::tr(label).to_owned(),
@@ -201,10 +228,24 @@ pub fn entries(data: &crate::backend::Data) -> Vec<Entry> {
         .map(|s| s.disks.iter().filter(|d| d.number().is_some()).collect())
         .unwrap_or_default();
     disks.sort_by_key(|d| d.number());
+    let mut seen: Vec<String> = Vec::new();
     for d in disks {
         let Some(n) = d.number() else { continue };
         let busy = format!("{:.0}%", d.active_percent);
+        let key = match facts
+            .disk(n)
+            .map(|f| f.model.as_str())
+            .filter(|m| !m.is_empty())
+        {
+            Some(model) => {
+                let nth = seen.iter().filter(|m| *m == model).count();
+                seen.push(model.to_owned());
+                format!("disk:{model}#{nth}")
+            }
+            None => format!("disk:#{n}"),
+        };
         out.push(Entry {
+            key: Some(key),
             page: Page::Disk,
             device: Some(disk_id(n)),
             label: disk_label(d),
@@ -237,6 +278,7 @@ pub fn entries(data: &crate::backend::Data) -> Vec<Entry> {
     for a in adapters {
         let key = |m| crate::device_facts::net_key(a.luid, m);
         out.push(Entry {
+            key: Some(net_id(a.luid)),
             page: Page::Network,
             device: Some(net_id(a.luid)),
             label: a.name.clone(),
@@ -261,14 +303,24 @@ pub fn entries(data: &crate::backend::Data) -> Vec<Entry> {
         ));
     }
     let shown = stats.map(|s| gpus(s, facts)).unwrap_or_default();
+    let mut seen: Vec<&str> = Vec::new();
     for (i, g) in &shown {
         let name = facts.gpu(&g.luid).map(|f| f.name.as_str());
+        let key = match name {
+            Some(name) => {
+                let nth = seen.iter().filter(|n| **n == name).count();
+                seen.push(name);
+                format!("gpu:{name}#{nth}")
+            }
+            None => format!("gpu:#{i}"),
+        };
         // "38% (46 °C)", as Task Manager writes a GPU's load and temperature.
         let load = match facts.gpu_perf(&g.luid).and_then(|p| p.temperature) {
             Some(t) => format!("{:.0}% ({t:.0} °C)", g.percent),
             None => format!("{:.0}%", g.percent),
         };
         out.push(Entry {
+            key: Some(key),
             page: Page::Gpu,
             device: Some(gpu_id(&g.luid)),
             label: crate::i18n::format("GPU {0}", &[i.to_string()]),
@@ -292,21 +344,157 @@ pub fn entries(data: &crate::backend::Data) -> Vec<Entry> {
             true,
         ));
     }
+    // Only when the PC has a battery.
+    if let Some(b) = facts.battery {
+        out.push(Entry {
+            key: Some("battery".into()),
+            page: Page::Battery,
+            device: None,
+            label: crate::i18n::tr("Battery").to_owned(),
+            reading: battery_reading(&b),
+            series: vec![(
+                device_tail(history, crate::device_facts::BATTERY_CHARGE),
+                crate::theme::GOOD,
+            )],
+            percent_scale: true,
+        });
+    }
     out
 }
 
+/// "84% · Charging", "52% · 2:41 left".
+pub fn battery_reading(b: &wtm_sys::power::BatteryStatus) -> String {
+    let charge = b
+        .percent
+        .map_or_else(|| "—".to_owned(), |p| format!("{p}%"));
+    let state = if b.charging {
+        crate::i18n::tr("Charging").to_owned()
+    } else if let Some(s) = b.seconds_left.filter(|_| b.on_ac != Some(true)) {
+        crate::i18n::format("{0} left", &[format!("{}:{:02}", s / 3600, s % 3600 / 60)])
+    } else if b.on_ac == Some(true) {
+        crate::i18n::tr("Plugged in").to_owned()
+    } else {
+        crate::i18n::tr("On battery").to_owned()
+    };
+    format!("{charge} · {state}")
+}
+
 impl State {
+    /// The entries as the user arranged them: hidden devices left out, the
+    /// rest in the saved order within each kind (new devices last). Keeps
+    /// each device's stable key for [`Self::device_key`].
+    pub fn arrange(&mut self, mut entries: Vec<Entry>) -> Vec<Entry> {
+        self.keys = entries
+            .iter()
+            .filter_map(|e| Some((e.device.clone()?, e.key.clone()?)))
+            .collect();
+        entries.retain(|e| e.key.as_ref().is_none_or(|k| !self.hidden.contains(k)));
+        let rank = |e: &Entry| {
+            e.key
+                .as_ref()
+                .and_then(|k| self.order.iter().position(|o| o == k))
+                .unwrap_or(usize::MAX)
+        };
+        // Sort the keyed devices of each kind among their own positions.
+        for page in [Page::Disk, Page::Network, Page::Gpu] {
+            let slots: Vec<usize> = (0..entries.len())
+                .filter(|&i| entries[i].page == page && entries[i].key.is_some())
+                .collect();
+            let mut picked: Vec<Entry> = Vec::with_capacity(slots.len());
+            for &i in slots.iter().rev() {
+                picked.push(entries.remove(i));
+            }
+            picked.reverse();
+            picked.sort_by_key(|e| rank(e));
+            for (&i, e) in slots.iter().zip(picked) {
+                entries.insert(i, e);
+            }
+        }
+        entries
+    }
+
+    /// The stable key of the selected device, for saving; the device id
+    /// when it has none.
+    pub fn device_key(&self) -> Option<String> {
+        let device = self.device.as_ref()?;
+        Some(
+            self.keys
+                .iter()
+                .find(|(id, _)| id == device)
+                .map_or_else(|| device.clone(), |(_, key)| key.clone()),
+        )
+    }
+
+    /// Hides a device, or moves it one place within its kind.
+    fn apply(&mut self, action: RailAction, entries: &[Entry]) {
+        match action {
+            RailAction::Hide(key) => {
+                if !self.hidden.contains(&key) {
+                    self.hidden.push(key);
+                }
+            }
+            RailAction::Move(key, up) => {
+                let Some(page) = entries
+                    .iter()
+                    .find(|e| e.key.as_ref() == Some(&key))
+                    .map(|e| e.page)
+                else {
+                    return;
+                };
+                // The kind's current order becomes the saved one.
+                let mut kind: Vec<String> = entries
+                    .iter()
+                    .filter(|e| e.page == page)
+                    .filter_map(|e| e.key.clone())
+                    .collect();
+                let Some(i) = kind.iter().position(|k| *k == key) else {
+                    return;
+                };
+                let j = if up { i.checked_sub(1) } else { Some(i + 1) };
+                if let Some(j) = j.filter(|j| *j < kind.len()) {
+                    kind.swap(i, j);
+                }
+                self.order.retain(|k| !kind.contains(k));
+                self.order.extend(kind);
+            }
+        }
+    }
+
     /// Keeps the selection on something listed: a device that went away
     /// falls back to its combined view, or to the first device of its kind
     /// when that view is not listed.
     pub fn settle(&mut self, entries: &[Entry]) {
+        // A device saved by its stable key comes back once it is listed;
+        // its name and model may take a moment to be read.
+        if let Some((key, since)) = self.restore.take() {
+            let since = since.unwrap_or_else(std::time::Instant::now);
+            match entries
+                .iter()
+                .find(|e| e.key.as_ref() == Some(&key) || e.device.as_ref() == Some(&key))
+            {
+                Some(e) => {
+                    self.page = e.page;
+                    self.device = e.device.clone();
+                }
+                None if since.elapsed() < std::time::Duration::from_secs(15) => {
+                    self.restore = Some((key, Some(since)));
+                }
+                None => {}
+            }
+        }
         let listed = |page: Page, device: &Option<String>| {
             entries
                 .iter()
                 .any(|e| e.page == page && &e.device == device)
         };
-        if matches!(self.page, Page::All | Page::Cpu | Page::Memory) {
+        if matches!(
+            self.page,
+            Page::All | Page::Cpu | Page::Memory | Page::Battery
+        ) {
             self.device = None;
+            if self.page == Page::Battery && !entries.iter().any(|e| e.page == Page::Battery) {
+                self.page = Page::All;
+            }
             return;
         }
         if self.device.is_some() && !listed(self.page, &self.device) {
@@ -323,6 +511,89 @@ impl State {
     fn select(&mut self, entry: &Entry) {
         self.page = entry.page;
         self.device = entry.device.clone();
+        self.restore = None;
+    }
+
+    /// The menu of a device in the rail or chip row.
+    fn device_menu(response: &egui::Response, entry: &Entry, action: &mut Option<RailAction>) {
+        let Some(key) = entry.key.clone() else {
+            return;
+        };
+        crate::context_actions::menu(response, ("perf-device", &key), |ui| {
+            if crate::context_actions::action(ui, crate::i18n::tr("Hide")) {
+                *action = Some(RailAction::Hide(key.clone()));
+            }
+            if crate::context_actions::action(ui, crate::i18n::tr("Move up")) {
+                *action = Some(RailAction::Move(key.clone(), true));
+            }
+            if crate::context_actions::action(ui, crate::i18n::tr("Move down")) {
+                *action = Some(RailAction::Move(key.clone(), false));
+            }
+        });
+    }
+
+    /// "Show hidden devices (2)" while some are hidden, and the summary
+    /// view switch.
+    fn rail_footer(&mut self, ui: &mut Ui) {
+        if !self.hidden.is_empty()
+            && ui
+                .small_button(crate::i18n::format(
+                    "Show hidden devices ({0})",
+                    &[self.hidden.len().to_string()],
+                ))
+                .clicked()
+        {
+            self.hidden.clear();
+        }
+        if ui
+            .small_button(crate::i18n::tr("Summary view"))
+            .on_hover_text(crate::i18n::tr(
+                "Only the resources and their graphs, as Task Manager's summary view.",
+            ))
+            .clicked()
+        {
+            self.summary = true;
+        }
+    }
+
+    /// Task Manager's summary view: every resource as a card with its graph;
+    /// choosing one shows its page again.
+    pub fn summary_view(&mut self, ui: &mut Ui, entries: &[Entry]) -> bool {
+        let mut chosen = None;
+        ui.horizontal(|ui| {
+            ui.strong(crate::i18n::tr("Summary view"));
+            if ui.small_button(crate::i18n::tr("Show details")).clicked() {
+                self.summary = false;
+            }
+        });
+        ui.add_space(4.0);
+        let columns = ((ui.available_width() / (RAIL_WIDTH + 12.0)).floor() as usize).max(1);
+        egui::ScrollArea::vertical()
+            .id_salt("performance-summary")
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                egui::Grid::new("performance-summary-grid")
+                    .spacing(egui::vec2(12.0, 8.0))
+                    .show(ui, |ui| {
+                        for (i, entry) in entries.iter().enumerate() {
+                            ui.allocate_ui(egui::vec2(RAIL_WIDTH, 48.0), |ui| {
+                                ui.set_width(RAIL_WIDTH);
+                                if rail_entry(ui, self.selected(entry), entry).clicked() {
+                                    chosen = Some(i);
+                                }
+                            });
+                            if (i + 1) % columns == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+        if let Some(i) = chosen {
+            self.select(&entries[i]);
+            self.summary = false;
+            return true;
+        }
+        false
     }
 
     fn selected(&self, entry: &Entry) -> bool {
@@ -343,11 +614,23 @@ impl State {
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.y = 4.0;
+                        let mut action = None;
                         for entry in entries {
-                            if rail_entry(ui, self.selected(entry), entry).clicked() {
+                            let response = rail_entry(ui, self.selected(entry), entry);
+                            if response.clicked() {
                                 self.select(entry);
                             }
+                            // Double-click, as on Task Manager's graphs.
+                            if response.double_clicked() {
+                                self.summary = true;
+                            }
+                            Self::device_menu(&response, entry, &mut action);
                         }
+                        if let Some(action) = action {
+                            self.apply(action, entries);
+                        }
+                        ui.add_space(4.0);
+                        self.rail_footer(ui);
                     });
             },
         );
@@ -357,6 +640,7 @@ impl State {
     /// Keep navigation outside the content scroll area, including on compact windows.
     pub fn navigation(&mut self, ui: &mut Ui, entries: &[Entry]) -> bool {
         let before = (self.page, self.device.clone());
+        let mut action = None;
         ui.horizontal_wrapped(|ui| {
             for entry in entries {
                 let mut current = self.selected(entry);
@@ -377,8 +661,13 @@ impl State {
                 if response.clicked() {
                     self.select(entry);
                 }
+                Self::device_menu(&response, entry, &mut action);
             }
+            self.rail_footer(ui);
         });
+        if let Some(action) = action {
+            self.apply(action, entries);
+        }
         ui.add_space(0.0);
         (self.page, self.device.clone()) != before
     }

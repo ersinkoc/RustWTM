@@ -1706,5 +1706,19 @@
   "Low impact": "低",
   "Not measured": "未計測",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "スタートアップ時の CPU: {0} · スタートアップ時のディスク I/O: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "スタートアップへの負荷には RustWTM サービスまたは管理者権限が必要です。"
+  "Startup impact needs the RustWTM service or administrator rights.": "スタートアップへの負荷には RustWTM サービスまたは管理者権限が必要です。",
+  "Battery saver": "バッテリー節約機能",
+  "Choose the engine this graph shows": "このグラフに表示するエンジンを選択",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "設計容量、フル充電容量、劣化度は [デバイス] ページにあります。",
+  "Nothing measured now.": "現在は計測されていません。",
+  "On battery": "バッテリー駆動",
+  "Only the resources and their graphs, as Task Manager's summary view.": "リソースとそのグラフのみ (タスク マネージャーの簡易表示と同様)。",
+  "Show details": "詳細を表示",
+  "Show hidden devices ({0})": "非表示のデバイスを表示 ({0})",
+  "Speed of each logical processor": "各論理プロセッサの速度",
+  "Summary view": "簡易表示",
+  "Time left": "残り時間",
+  "{0} left": "残り {0}",
+  "Most network activity (all adapters)": "ネットワーク使用が多いプロセス (全アダプター)",
+  "Most I/O (all devices)": "I/O が多いプロセス (全デバイス)"
 }

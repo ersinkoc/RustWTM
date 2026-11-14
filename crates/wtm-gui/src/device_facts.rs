@@ -15,6 +15,9 @@ pub use wtm_sys::nvme_health::Health as NvmeHealth;
 use wtm_sys::physical_disk::{DiskTemperature, PhysicalDisk};
 use wtm_sys::smbios::MemoryModule;
 
+/// The battery charge series.
+pub const BATTERY_CHARGE: &str = "battery:charge";
+
 /// Most series kept: a dozen devices of a few series each fit many times.
 pub const MAX_SERIES: usize = 512;
 
@@ -174,6 +177,10 @@ pub struct Facts {
     pub gpu_perf: Vec<(String, GpuPerf)>,
     /// Temperature and wear of the disk whose page is open.
     pub disk_health: Option<DiskHealth>,
+    /// The system battery, on PCs that have one.
+    pub battery: Option<wtm_sys::power::BatteryStatus>,
+    /// Each logical processor's current speed in MHz.
+    pub core_mhz: Vec<f64>,
 }
 
 /// What a disk says about its own state.
@@ -310,6 +317,8 @@ impl Collector {
             f.memory = Some(wtm_sys::smbios::memory_modules().unwrap_or_default());
         }
         f.activity = wtm_sys::cpu_info::activity();
+        f.core_mhz = wtm_sys::cpu_info::core_mhz();
+        f.battery = wtm_sys::power::battery();
         f.uptime = Some(wtm_sys::cpu_info::uptime());
         if due(self.addresses_at, ADDRESSES_EVERY, now) {
             f.addresses = wtm_sys::net_info::addresses().unwrap_or_default();

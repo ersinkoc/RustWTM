@@ -287,6 +287,184 @@ pub fn cpu_details(ui: &mut Ui, data: &Data, s: &wtm_core::SystemStats) {
         }
     }
     details(ui, "cpu", "CPU", &readings, &facts);
+    core_speeds(ui, &f.core_mhz);
+}
+
+/// Each logical processor's current speed, in a compact grid: the fastest
+/// are brightest. Read with the same counter as the overall speed.
+fn core_speeds(ui: &mut Ui, cores: &[f64]) {
+    if cores.is_empty() {
+        return;
+    }
+    ui.add_space(6.0);
+    ui.weak(crate::i18n::tr("Speed of each logical processor"));
+    let max = cores.iter().copied().fold(1.0, f64::max);
+    let cell = 92.0;
+    let columns = tiles_per_row(ui.available_width(), cell).max(1);
+    egui::Grid::new("core-speeds")
+        .spacing(egui::vec2(TILE_GAP, 2.0))
+        .show(ui, |ui| {
+            for (i, mhz) in cores.iter().enumerate() {
+                let strength = (mhz / max).clamp(0.0, 1.0) as f32;
+                let color = ui
+                    .visuals()
+                    .weak_text_color()
+                    .lerp_to_gamma(crate::theme::text_color(ui, crate::theme::CPU), strength);
+                ui.allocate_ui(egui::vec2(cell, 16.0), |ui| {
+                    ui.set_width(cell);
+                    ui.label(
+                        RichText::new(format!("{i:>2}  {:.2} GHz", mhz / 1000.0))
+                            .monospace()
+                            .small()
+                            .color(color),
+                    );
+                });
+                if (i + 1) % columns == 0 {
+                    ui.end_row();
+                }
+            }
+        });
+}
+
+/// The battery: its charge over time and what Windows reports now. A
+/// RustWTM addition; capacity and wear are on the Devices page.
+pub fn battery(ui: &mut Ui, data: &Data, view: &mut crate::charts::State) {
+    let Some(b) = data.perf_facts.battery else {
+        return;
+    };
+    let empty = VecDeque::new();
+    let title = crate::i18n::tr("Battery");
+    let reading = crate::performance_view::battery_reading(&b);
+    crate::theme::card_with(
+        ui,
+        title,
+        &[(&reading, ui.visuals().weak_text_color())],
+        |ui| {
+            view.plot(
+                ui,
+                "battery_charge",
+                &data.history.times,
+                &[(
+                    crate::i18n::tr("Charge"),
+                    device_series(data, crate::device_facts::BATTERY_CHARGE, &empty),
+                    crate::theme::GOOD,
+                )],
+                Unit::Percent,
+            );
+            let mut readings = vec![row(
+                crate::i18n::tr("Charge"),
+                b.percent
+                    .map_or_else(|| "—".to_owned(), |p| format!("{p}%")),
+            )];
+            readings.push(row(
+                crate::i18n::tr("Power source"),
+                match b.on_ac {
+                    Some(true) => crate::i18n::tr("Plugged in"),
+                    Some(false) => crate::i18n::tr("On battery"),
+                    None => "—",
+                },
+            ));
+            readings.push(row(crate::i18n::tr("Charging"), yes_no(b.charging)));
+            if let Some(s) = b.seconds_left.filter(|_| b.on_ac != Some(true)) {
+                readings.push(row(
+                    crate::i18n::tr("Time left"),
+                    format!("{}:{:02}", s / 3600, s % 3600 / 60),
+                ));
+            }
+            readings.push(row(crate::i18n::tr("Battery saver"), yes_no(b.saver)));
+            details(ui, "battery", title, &readings, &Vec::new());
+            ui.weak(crate::i18n::tr(
+                "Design capacity, full charge capacity and wear are on the Devices page.",
+            ));
+        },
+    );
+}
+
+/// Processes listed under a disk or network page.
+const TOP_PROCESSES: usize = 5;
+
+/// The busiest processes now, by I/O or network traffic and both
+/// directions. Windows does not tell which disk or adapter a process's I/O
+/// or traffic used, so the list covers all of them and says so. The I/O
+/// counters also count network and pipe I/O, hence "all devices".
+pub fn top_processes(ui: &mut Ui, data: &Data, network: bool) {
+    let Some(snap) = &data.snapshot else {
+        return;
+    };
+    ui.add_space(6.0);
+    ui.strong(crate::i18n::tr(if network {
+        "Most network activity (all adapters)"
+    } else {
+        "Most I/O (all devices)"
+    }));
+    if network && !snap.net_traced {
+        ui.weak(crate::i18n::tr(
+            "Per-process network needs the RustWTM service or administrator rights",
+        ));
+        return;
+    }
+    let split = |p: &wtm_core::ProcessInfo| {
+        if network {
+            (p.net_rx_rate, p.net_tx_rate)
+        } else {
+            (p.io_read_rate, p.io_write_rate)
+        }
+    };
+    let mut busy: Vec<&wtm_core::ProcessInfo> = snap
+        .processes
+        .iter()
+        .filter(|p| p.pid != 0 && split(p).0 + split(p).1 > 0.0)
+        .collect();
+    busy.sort_by(|a, b| {
+        let total = |p| {
+            let (x, y) = split(p);
+            x + y
+        };
+        total(b).total_cmp(&total(a))
+    });
+    if busy.is_empty() {
+        ui.weak(crate::i18n::tr("Nothing measured now."));
+        return;
+    }
+    let (first, second) = if network {
+        (crate::i18n::tr("Receive"), crate::i18n::tr("Send"))
+    } else {
+        (crate::i18n::tr("Read"), crate::i18n::tr("Write"))
+    };
+    egui::Grid::new(("top-processes", network))
+        .num_columns(4)
+        .striped(true)
+        .show(ui, |ui| {
+            ui.weak(crate::i18n::tr("Name"));
+            ui.weak("PID");
+            ui.weak(first);
+            ui.weak(second);
+            ui.end_row();
+            for p in busy.into_iter().take(TOP_PROCESSES) {
+                let (x, y) = split(p);
+                ui.label(&p.name);
+                ui.label(p.pid.to_string());
+                ui.label(crate::performance_view::rate_text(x));
+                ui.label(crate::performance_view::rate_text(y));
+                ui.end_row();
+            }
+        });
+}
+
+/// The engines shown in the GPU's graphs: the user's choice where that
+/// engine exists, otherwise Task Manager's.
+pub fn chosen_engines<'a>(engines: &'a [(String, f32)], choice: &[String]) -> Vec<&'a str> {
+    let defaults = engine_graphs(engines);
+    defaults
+        .iter()
+        .enumerate()
+        .map(|(i, default)| {
+            choice
+                .get(i)
+                .and_then(|c| engines.iter().find(|(n, _)| n == c))
+                .map_or(*default, |(n, _)| n.as_str())
+        })
+        .collect()
 }
 
 /// Compressed memory and the modules, which Task Manager lists beside the
@@ -738,6 +916,7 @@ pub fn gpu(
     view: &mut crate::charts::State,
     luid: &str,
     search: &mut String,
+    choice: &mut Vec<String>,
 ) {
     let Some(g) = s.gpus.iter().find(|g| g.luid == luid) else {
         return;
@@ -764,19 +943,38 @@ pub fn gpu(
             )],
             Unit::Percent,
         );
-        let engines = engine_graphs(&g.engines);
+        let engines = chosen_engines(&g.engines, choice);
         if !engines.is_empty() {
             ui.add_space(4.0);
             let columns = if ui.available_width() >= 560.0 { 2 } else { 1 };
-            for pair in engines.chunks(columns) {
+            let mut picked: Option<(usize, String)> = None;
+            for (row_index, pair) in engines.chunks(columns).enumerate() {
                 ui.columns(columns, |c| {
-                    for (col, engine) in c.iter_mut().zip(pair) {
+                    for (slot, (col, engine)) in c.iter_mut().zip(pair).enumerate() {
+                        let slot = row_index * columns + slot;
                         let load = g
                             .engines
                             .iter()
                             .find(|(n, _)| n == engine)
                             .map_or(0.0, |e| e.1);
-                        col.weak(format!("{engine} · {load:.0}%"));
+                        // As in Task Manager, each graph's engine can be chosen.
+                        egui::ComboBox::from_id_salt(("gpu-engine", luid, slot))
+                            .selected_text(format!("{engine} · {load:.0}%"))
+                            .show_ui(col, |ui| {
+                                for (name, l) in &g.engines {
+                                    if ui
+                                        .selectable_label(
+                                            name == engine,
+                                            format!("{name} · {l:.0}%"),
+                                        )
+                                        .clicked()
+                                    {
+                                        picked = Some((slot, name.clone()));
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(crate::i18n::tr("Choose the engine this graph shows"));
                         plot_at(
                             col,
                             view,
@@ -796,6 +994,12 @@ pub fn gpu(
                         );
                     }
                 });
+            }
+            if let Some((slot, name)) = picked {
+                if choice.len() < engines.len() {
+                    *choice = engines.iter().map(|e| (*e).to_owned()).collect();
+                }
+                choice[slot] = name;
             }
         }
         let dedicated_total = facts_of.map_or(0, |f| f.dedicated_total);
@@ -943,6 +1147,35 @@ fn engine_list(ui: &mut Ui, luid: &str, engines: &[(String, f32)], search: &mut 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chosen_engines_fall_back_to_task_managers_choice() {
+        let e = |n: &str| (n.to_owned(), 1.0);
+        let nvidia = [
+            e("3D"),
+            e("Copy"),
+            e("VideoEncode"),
+            e("VideoDecode"),
+            e("Compute_0"),
+        ];
+        assert_eq!(
+            chosen_engines(&nvidia, &["Compute_0".into()]),
+            ["Compute_0", "Copy", "VideoEncode", "VideoDecode"]
+        );
+        // A saved engine this GPU lacks (another vendor's name) is skipped.
+        let amd = [
+            e("3D"),
+            e("Video Decode 1"),
+            e("Video Encode 0"),
+            e("High Priority 3D"),
+        ];
+        let defaults = engine_graphs(&amd);
+        assert_eq!(
+            chosen_engines(&amd, &["Compute_0".into(), "Video Encode 0".into()]),
+            [defaults[0], "Video Encode 0", defaults[2], defaults[3]]
+        );
+        assert_eq!(chosen_engines(&amd, &[]), defaults);
+    }
 
     #[test]
     fn nvme_wear_reads_like_windows_settings() {

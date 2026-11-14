@@ -212,6 +212,28 @@ thread_local! {
     static COUNTERS: RefCell<Option<Counters>> = const { RefCell::new(None) };
 }
 
+/// Each logical processor's current speed in MHz, in processor order, as
+/// of the latest [`activity`] call on this thread; empty before two calls
+/// or where the per-processor counter is missing.
+pub fn core_mhz() -> Vec<f64> {
+    COUNTERS.with(|cell| {
+        cell.try_borrow()
+            .ok()
+            .and_then(|c| c.as_ref().map(|c| c.cores.clone()))
+            .unwrap_or_default()
+    })
+}
+
+/// "group,index" of a per-processor instance; `None` for the totals
+/// ("_Total", "0,_Total").
+fn processor_instance(name: &str) -> Option<(u16, u16)> {
+    let (group, index) = name.split_once(',')?;
+    Some((group.parse().ok()?, index.parse().ok()?))
+}
+
+/// Most processors read.
+const MAX_CORES: usize = 2048;
+
 /// The latest activity. The first call on a thread opens the counter query
 /// that later calls on that thread reuse; it returns no rates yet.
 pub fn activity() -> Activity {
@@ -230,6 +252,11 @@ struct Counters {
     query: PDH_HQUERY,
     /// In the order of [`COUNTER_PATHS`]; a missing one stays `None`.
     counters: [Option<PDH_HCOUNTER>; 5],
+    /// `% Processor Performance` of every processor.
+    per_core: Option<PDH_HCOUNTER>,
+    reader: crate::gpu::ArrayReader,
+    /// The latest speed of each processor, in MHz.
+    cores: Vec<f64>,
 }
 
 const COUNTER_PATHS: [PCWSTR; 5] = [
@@ -251,7 +278,23 @@ impl Counters {
         let mut c = Self {
             query,
             counters: [None; 5],
+            per_core: None,
+            reader: Default::default(),
+            cores: Vec::new(),
         };
+        let mut counter = PDH_HCOUNTER::default();
+        // SAFETY: valid query; static, NUL-terminated counter path.
+        if unsafe {
+            PdhAddEnglishCounterW(
+                query,
+                w!(r"\Processor Information(*)\% Processor Performance"),
+                0,
+                &mut counter,
+            )
+        } == 0
+        {
+            c.per_core = Some(counter);
+        }
         for (path, slot) in COUNTER_PATHS.iter().zip(&mut c.counters) {
             let mut counter = PDH_HCOUNTER::default();
             // SAFETY: valid query; static, NUL-terminated counter path.
@@ -280,6 +323,22 @@ impl Counters {
             (status == 0 && v.is_finite() && v >= 0.0).then_some(v)
         };
         let [performance, frequency, switches, calls, queue] = self.counters;
+        self.cores.clear();
+        if let (Some(counter), Some(nominal)) = (self.per_core, value(frequency)) {
+            let mut found: Vec<((u16, u16), f64)> = Vec::new();
+            let _ = self.reader.read(counter, PDH_FMT_DOUBLE, |name, item| {
+                // SAFETY: requested as PDH_FMT_DOUBLE.
+                let v = unsafe { item.FmtValue.Anonymous.doubleValue };
+                if let Some(id) = processor_instance(name)
+                    && found.len() < MAX_CORES
+                    && let Some(mhz) = current_mhz(Some(v), Some(nominal))
+                {
+                    found.push((id, mhz));
+                }
+            });
+            found.sort_by_key(|(id, _)| *id);
+            self.cores.extend(found.into_iter().map(|(_, mhz)| mhz));
+        }
         Activity {
             current_mhz: current_mhz(value(performance), value(frequency)),
             context_switches: value(switches),
@@ -306,6 +365,14 @@ impl Drop for Counters {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn processor_instances_skip_the_totals() {
+        assert_eq!(processor_instance("0,7"), Some((0, 7)));
+        assert_eq!(processor_instance("1,63"), Some((1, 63)));
+        assert_eq!(processor_instance("_Total"), None);
+        assert_eq!(processor_instance("0,_Total"), None);
+    }
 
     fn record(kind: u32, body: &[u8]) -> Vec<u8> {
         let mut r = Vec::new();

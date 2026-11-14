@@ -1706,5 +1706,19 @@
   "Low impact": "低",
   "Not measured": "未測量",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "啟動時 CPU: {0} · 啟動時磁碟 I/O: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "啟動影響需要 RustWTM 服務或系統管理員權限。"
+  "Startup impact needs the RustWTM service or administrator rights.": "啟動影響需要 RustWTM 服務或系統管理員權限。",
+  "Battery saver": "省電模式",
+  "Choose the engine this graph shows": "選擇此圖表顯示的引擎",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "設計容量、完全充電容量和損耗在「裝置」頁面上。",
+  "Nothing measured now.": "目前沒有測量到任何內容。",
+  "On battery": "使用電池",
+  "Only the resources and their graphs, as Task Manager's summary view.": "僅顯示資源及其圖表，與工作管理員的摘要檢視相同。",
+  "Show details": "顯示詳細資料",
+  "Show hidden devices ({0})": "顯示隱藏的裝置 ({0})",
+  "Speed of each logical processor": "每個邏輯處理器的速度",
+  "Summary view": "摘要檢視",
+  "Time left": "剩餘時間",
+  "{0} left": "剩餘 {0}",
+  "Most network activity (all adapters)": "網路活動最多 (所有介面卡)",
+  "Most I/O (all devices)": "I/O 最多 (所有裝置)"
 }

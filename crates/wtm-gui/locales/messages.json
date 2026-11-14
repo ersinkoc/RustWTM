@@ -10246,5 +10246,89 @@
     "de": "Startauswirkungen erfordern den RustWTM-Dienst oder Administratorrechte.",
     "fr": "L'impact au démarrage nécessite le service RustWTM ou les droits d'administrateur.",
     "es": "El impacto de inicio requiere el servicio de RustWTM o derechos de administrador."
+  },
+  "Battery saver": {
+    "tr": "Pil tasarrufu",
+    "de": "Energiesparmodus",
+    "fr": "Économiseur de batterie",
+    "es": "Ahorro de batería"
+  },
+  "Choose the engine this graph shows": {
+    "tr": "Bu grafiğin göstereceği altyapıyı seçin",
+    "de": "Modul für dieses Diagramm wählen",
+    "fr": "Choisir le moteur affiché par ce graphique",
+    "es": "Elija el motor que muestra este gráfico"
+  },
+  "Design capacity, full charge capacity and wear are on the Devices page.": {
+    "tr": "Tasarım kapasitesi, tam şarj kapasitesi ve yıpranma Cihazlar sayfasında.",
+    "de": "Entwurfskapazität, volle Ladekapazität und Verschleiß stehen auf der Seite Geräte.",
+    "fr": "La capacité nominale, la capacité de charge complète et l'usure sont sur la page Appareils.",
+    "es": "La capacidad de diseño, la capacidad de carga completa y el desgaste están en la página Dispositivos."
+  },
+  "Nothing measured now.": {
+    "tr": "Şu an ölçülen bir şey yok.",
+    "de": "Derzeit nichts gemessen.",
+    "fr": "Rien de mesuré pour l'instant.",
+    "es": "Nada medido ahora."
+  },
+  "On battery": {
+    "tr": "Pilde",
+    "de": "Im Akkubetrieb",
+    "fr": "Sur batterie",
+    "es": "Con batería"
+  },
+  "Only the resources and their graphs, as Task Manager's summary view.": {
+    "tr": "Yalnızca kaynaklar ve grafikleri; Görev Yöneticisi'nin özet görünümü gibi.",
+    "de": "Nur die Ressourcen und ihre Diagramme, wie die Übersichtsansicht des Task-Managers.",
+    "fr": "Seulement les ressources et leurs graphiques, comme la vue résumée du Gestionnaire des tâches.",
+    "es": "Solo los recursos y sus gráficos, como la vista resumida del Administrador de tareas."
+  },
+  "Show details": {
+    "tr": "Ayrıntıları göster",
+    "de": "Details anzeigen",
+    "fr": "Afficher les détails",
+    "es": "Mostrar detalles"
+  },
+  "Show hidden devices ({0})": {
+    "tr": "Gizli cihazları göster ({0})",
+    "de": "Ausgeblendete Geräte anzeigen ({0})",
+    "fr": "Afficher les appareils masqués ({0})",
+    "es": "Mostrar dispositivos ocultos ({0})"
+  },
+  "Speed of each logical processor": {
+    "tr": "Her mantıksal işlemcinin hızı",
+    "de": "Geschwindigkeit jedes logischen Prozessors",
+    "fr": "Vitesse de chaque processeur logique",
+    "es": "Velocidad de cada procesador lógico"
+  },
+  "Summary view": {
+    "tr": "Özet görünüm",
+    "de": "Übersichtsansicht",
+    "fr": "Vue résumée",
+    "es": "Vista resumida"
+  },
+  "Time left": {
+    "tr": "Kalan süre",
+    "de": "Restzeit",
+    "fr": "Temps restant",
+    "es": "Tiempo restante"
+  },
+  "{0} left": {
+    "tr": "{0} kaldı",
+    "de": "{0} verbleibend",
+    "fr": "{0} restant",
+    "es": "Quedan {0}"
+  },
+  "Most network activity (all adapters)": {
+    "tr": "En çok ağ etkinliği (tüm bağdaştırıcılar)",
+    "de": "Meiste Netzwerkaktivität (alle Adapter)",
+    "fr": "Plus forte activité réseau (toutes les cartes)",
+    "es": "Mayor actividad de red (todos los adaptadores)"
+  },
+  "Most I/O (all devices)": {
+    "tr": "En çok G/Ç (tüm cihazlar)",
+    "de": "Meiste E/A (alle Geräte)",
+    "fr": "Plus forte activité E/S (tous les périphériques)",
+    "es": "Mayor E/S (todos los dispositivos)"
   }
 }

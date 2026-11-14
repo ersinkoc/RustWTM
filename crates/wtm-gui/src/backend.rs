@@ -2223,6 +2223,7 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
     };
     // The very first local sample has no interval and reads 0% everywhere.
     if snapshot.interval.is_some() && new {
+        let battery = data.perf_facts.battery;
         let h = &mut data.history;
         h.times.push_back(at_ms);
         trim(&mut h.times, HISTORY_LEN);
@@ -2243,8 +2244,15 @@ fn publish(data: &mut Data, snapshot: Snapshot) {
             series.push_back(load);
             trim(series, CORE_HISTORY_LEN);
         }
-        h.devices
-            .record(h.times.len(), crate::device_facts::readings(s));
+        let mut readings = crate::device_facts::readings(s);
+        // In line with the samples: the battery is read by this window.
+        if let Some(charge) = battery.and_then(|b| b.percent) {
+            readings.push((
+                crate::device_facts::BATTERY_CHARGE.to_owned(),
+                f32::from(charge),
+            ));
+        }
+        h.devices.record(h.times.len(), readings);
         // Read here, in this window, so it needs no service protocol change.
         let times = wtm_sys::system::per_cpu_times().unwrap_or_default();
         let secs = h

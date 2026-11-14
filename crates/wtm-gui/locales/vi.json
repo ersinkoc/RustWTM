@@ -1706,5 +1706,19 @@
   "Low impact": "Thấp",
   "Not measured": "Chưa đo",
   "CPU at startup: {0} · Disk I/O at startup: {1}": "CPU khi khởi động: {0} · I/O đĩa khi khởi động: {1}",
-  "Startup impact needs the RustWTM service or administrator rights.": "Tác động khởi động cần dịch vụ RustWTM hoặc quyền quản trị."
+  "Startup impact needs the RustWTM service or administrator rights.": "Tác động khởi động cần dịch vụ RustWTM hoặc quyền quản trị.",
+  "Battery saver": "Trình tiết kiệm pin",
+  "Choose the engine this graph shows": "Chọn công cụ mà biểu đồ này hiển thị",
+  "Design capacity, full charge capacity and wear are on the Devices page.": "Dung lượng thiết kế, dung lượng sạc đầy và độ hao mòn có ở trang Thiết bị.",
+  "Nothing measured now.": "Hiện chưa đo được gì.",
+  "On battery": "Đang dùng pin",
+  "Only the resources and their graphs, as Task Manager's summary view.": "Chỉ các tài nguyên và biểu đồ của chúng, như chế độ xem tóm tắt của Trình quản lý tác vụ.",
+  "Show details": "Hiện chi tiết",
+  "Show hidden devices ({0})": "Hiện thiết bị đã ẩn ({0})",
+  "Speed of each logical processor": "Tốc độ của từng bộ xử lý logic",
+  "Summary view": "Chế độ xem tóm tắt",
+  "Time left": "Thời gian còn lại",
+  "{0} left": "Còn {0}",
+  "Most network activity (all adapters)": "Hoạt động mạng nhiều nhất (mọi bộ điều hợp)",
+  "Most I/O (all devices)": "Nhiều I/O nhất (tất cả thiết bị)"
 }

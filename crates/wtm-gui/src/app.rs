@@ -546,8 +546,14 @@ struct Prefs {
     display: crate::preferences::Display,
     inspector_mode: crate::workspace_inspector::Mode,
     performance_page: crate::performance_view::Page,
-    /// The disk, adapter or GPU last shown on its Performance page.
+    /// The disk, adapter or GPU last shown on its Performance page, by
+    /// its stable key.
     performance_device: Option<String>,
+    /// Devices hidden from the Performance rail, its order and each GPU's
+    /// chosen engine graphs, by stable device key.
+    performance_hidden: Vec<String>,
+    performance_order: Vec<String>,
+    performance_engines: std::collections::BTreeMap<String, Vec<String>>,
     language: crate::i18n::Language,
     tab: Tab,
     start_tab: Option<Tab>,
@@ -643,7 +649,13 @@ impl UiState {
             display: self.display,
             inspector_mode: self.inspector_mode,
             performance_page: self.performance.page,
-            performance_device: self.performance.device.clone(),
+            performance_device: self
+                .performance
+                .device_key()
+                .or_else(|| self.performance.restore.as_ref().map(|r| r.0.clone())),
+            performance_hidden: self.performance.hidden.clone(),
+            performance_order: self.performance.order.clone(),
+            performance_engines: self.performance.engines.clone(),
             language: self.language,
             tab: self.tab,
             start_tab: self.start_tab,
@@ -694,7 +706,11 @@ impl UiState {
         self.charts.options = prefs.chart_options;
         self.inspector_mode = prefs.inspector_mode;
         self.performance.page = prefs.performance_page;
-        self.performance.device = prefs.performance_device;
+        // Selected once the devices are listed, by stable key.
+        self.performance.restore = prefs.performance_device.map(|k| (k, None));
+        self.performance.hidden = prefs.performance_hidden;
+        self.performance.order = prefs.performance_order;
+        self.performance.engines = prefs.performance_engines;
         self.language = prefs.language;
         self.start_tab = prefs.start_tab.filter(|t| NAV.iter().any(|n| n.0 == *t));
         self.tab = self.start_tab.unwrap_or(prefs.tab);
@@ -3616,8 +3632,14 @@ fn performance_focused(
         selection.page = resource.into();
         selection.device = None;
     }
-    let entries = crate::performance_view::entries(data);
+    let entries = selection.arrange(crate::performance_view::entries(data));
     selection.settle(&entries);
+    if selection.summary {
+        let changed = selection.summary_view(ui, &entries);
+        if !changed {
+            return;
+        }
+    }
     if ui.available_width() >= crate::performance_view::RAIL_FROM {
         ui.horizontal_top(|ui| {
             let changed = selection.rail(ui, &entries) || focused;
@@ -3662,12 +3684,22 @@ fn performance_content(
     }
     let out = area.show(ui, |ui| {
         view.controls(ui, data);
+        // The selected GPU's stable key, for its saved engine graphs.
+        let gpu_key = selection.device_key().unwrap_or_default();
         let mut show_section = |ui: &mut Ui, page| {
             match page {
                 Page::Cpu => perf_cpu(ui, data, s, view, (selection.page == Page::Cpu).then_some(&mut selection.class)),
                 Page::Memory => perf_memory(ui, data, s, view, selection.page == Page::Memory),
+                Page::Battery => crate::perf_pages::battery(ui, data, view),
                 Page::Gpu => match device.and_then(|d| d.strip_prefix("gpu:")).filter(|_| selection.page == Page::Gpu) {
-                    Some(luid) => crate::perf_pages::gpu(ui, data, s, view, luid, &mut selection.engine_search),
+                    Some(luid) => {
+                        // Saved only once an engine is chosen.
+                        let mut choice = selection.engines.get(&gpu_key).cloned().unwrap_or_default();
+                        crate::perf_pages::gpu(ui, data, s, view, luid, &mut selection.engine_search, &mut choice);
+                        if !choice.is_empty() {
+                            selection.engines.insert(gpu_key.clone(), choice);
+                        }
+                    }
                     None => perf_gpu(ui, data, s, view, (selection.page == Page::Gpu).then_some(&mut selection.engine_search)),
                 },
                 Page::Network => match device
@@ -3703,6 +3735,13 @@ fn performance_content(
         ui.add_space(0.0);
         if selection.page != Page::All {
             show_section(ui, selection.page);
+            match selection.page {
+                Page::Disk if !device.is_some_and(|d| d.starts_with("disk:")) => {
+                    crate::perf_pages::top_processes(ui, data, false)
+                }
+                Page::Network => crate::perf_pages::top_processes(ui, data, true),
+                _ => {}
+            }
         } else if ui.available_width() >= PERF_TWO_COLUMNS {
             ui.columns(2, |cols| {
                 for (col, list) in cols.iter_mut().zip([
@@ -6042,6 +6081,231 @@ mod tests {
     }
 
     #[test]
+    fn saved_device_choices_survive_a_new_gpu_luid() {
+        use crate::performance_view::{Page, gpu_id};
+        use egui::accesskit::Role;
+        let (mut h, _) = overview_app(crate::ui_tests::device_data());
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "GPU 0 performance view")
+            .click();
+        h.run_steps(2);
+        let key = h.state().state.performance.device_key().unwrap();
+        assert_eq!(key, "gpu:Example discrete graphics#0");
+        assert!(
+            h.state().state.performance.engines.is_empty(),
+            "nothing saved until an engine is chosen"
+        );
+        h.state_mut()
+            .state
+            .performance
+            .engines
+            .insert(key, vec!["Copy".into()]);
+        let prefs = serde_json::to_string(&h.state().state.prefs()).unwrap();
+
+        // After a restart Windows gives the same GPU another LUID.
+        let mut data = crate::ui_tests::device_data();
+        let new = "00000000_0000beef";
+        let snap = std::sync::Arc::make_mut(data.snapshot.as_mut().unwrap());
+        for g in &mut snap.system.gpus {
+            if g.luid == crate::ui_tests::GPU0 {
+                g.luid = new.into();
+            }
+        }
+        for g in &mut data.perf_facts.gpus {
+            if g.luid == crate::ui_tests::GPU0 {
+                g.luid = new.into();
+            }
+        }
+        let (mut h, _) = overview_app(data);
+        h.state_mut()
+            .state
+            .apply(serde_json::from_str(&prefs).unwrap());
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        assert_eq!(h.state().state.performance.page, Page::Gpu);
+        assert_eq!(h.state().state.performance.device, Some(gpu_id(new)));
+        // Its chosen engine graph came with it: Copy in the first graph,
+        // and Task Manager's second choice (also Copy) after it.
+        assert_eq!(h.query_all_by_label("Copy history graph").count(), 2);
+    }
+
+    #[test]
+    fn rail_devices_can_be_hidden_moved_and_shown_again() {
+        use egui::accesskit::Role;
+        let (mut h, _) = overview_app(crate::ui_tests::device_data());
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Disk 1 (D: E:) performance view")
+            .click_secondary();
+        h.run_steps(2);
+        h.get_all_by_label("Hide").last().unwrap().click();
+        h.run_steps(3);
+        assert!(
+            h.query_by_role_and_label(Role::Button, "Disk 1 (D: E:) performance view")
+                .is_none()
+        );
+        h.get_by_label("Show hidden devices (1)").click();
+        h.run_steps(3);
+        assert!(
+            h.query_by_role_and_label(Role::Button, "Disk 1 (D: E:) performance view")
+                .is_some()
+        );
+        // GPU 1 moves above GPU 0, and stays there.
+        h.get_by_role_and_label(Role::Button, "GPU 1 performance view")
+            .click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Move up").click();
+        h.run_steps(3);
+        let labels: Vec<String> = {
+            let data = h.state().backend.data();
+            let entries = crate::performance_view::entries(&data);
+            drop(data);
+            h.state_mut()
+                .state
+                .performance
+                .arrange(entries)
+                .into_iter()
+                .map(|e| e.label)
+                .collect()
+        };
+        let at = |l: &str| labels.iter().position(|x| x == l).unwrap();
+        assert!(at("GPU 1") < at("GPU 0"), "{labels:?}");
+        // Always-listed resources cannot be hidden.
+        h.get_by_role_and_label(Role::Button, "CPU performance view")
+            .click_secondary();
+        h.run_steps(2);
+        assert!(h.query_by_label("Move up").is_none());
+    }
+
+    #[test]
+    fn battery_page_shows_charge_and_time_left_only_on_pcs_with_a_battery() {
+        use egui::accesskit::Role;
+        let (mut h, _) = overview_app(crate::ui_tests::device_data());
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        assert!(
+            h.query_by_role_and_label(Role::Button, "Battery performance view")
+                .is_none(),
+            "no battery, no page"
+        );
+        h.state().backend.data().perf_facts.battery = Some(wtm_sys::power::BatteryStatus {
+            percent: Some(84),
+            on_ac: Some(false),
+            charging: false,
+            seconds_left: Some(9000),
+            saver: true,
+        });
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Battery performance view")
+            .click();
+        h.run_steps(3);
+        for text in ["2:30", "On battery"] {
+            assert!(h.query_all_by_label(text).next().is_some(), "{text}");
+        }
+        assert!(h.query_all_by_label_contains("84%").next().is_some());
+    }
+
+    #[test]
+    fn summary_view_shows_only_the_resources_and_returns_to_a_page() {
+        use egui::accesskit::Role;
+        let (mut h, _) = overview_app(crate::ui_tests::device_data());
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_label("Summary view").click();
+        h.run_steps(3);
+        assert!(h.state().state.performance.summary);
+        assert!(h.query_by_label("Show details").is_some());
+        assert!(h.query_by_label("Utilization history graph").is_none());
+        h.get_by_role_and_label(Role::Button, "CPU performance view")
+            .click();
+        h.run_steps(3);
+        assert!(!h.state().state.performance.summary);
+        assert_eq!(
+            h.state().state.performance.page,
+            crate::performance_view::Page::Cpu
+        );
+    }
+
+    #[test]
+    fn cpu_page_lists_each_processors_speed_and_disk_page_the_busiest_processes() {
+        use egui::accesskit::Role;
+        let mut data = crate::ui_tests::device_data();
+        data.perf_facts.core_mhz = vec![5364.0, 4210.0];
+        let snap = std::sync::Arc::make_mut(data.snapshot.as_mut().unwrap());
+        let alpha = snap.processes.iter_mut().find(|p| p.pid == 100).unwrap();
+        alpha.io_read_rate = 2.0 * 1024.0 * 1024.0;
+        let (mut h, _) = overview_app(data);
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "CPU performance view")
+            .click();
+        h.run_steps(3);
+        assert!(
+            h.query_by_label("Speed of each logical processor")
+                .is_some()
+        );
+        assert!(h.query_by_label_contains("5.36 GHz").is_some());
+        assert!(h.query_by_label_contains("4.21 GHz").is_some());
+        h.get_by_role_and_label(Role::Button, "Disk & I/O performance view")
+            .click();
+        h.run_steps(3);
+        assert!(h.query_by_label("Most I/O (all devices)").is_some());
+        assert!(h.query_all_by_label("alpha.exe").next().is_some());
+        assert!(h.query_all_by_label("2.0 MiB/s").next().is_some());
+        // Not on one disk's page: the list is not that disk's.
+        h.get_by_role_and_label(Role::Button, "Disk 0 (C:) performance view")
+            .click();
+        h.run_steps(3);
+        assert!(h.query_by_label("Most I/O (all devices)").is_none());
+        // Without tracing, the adapter page says why there is no list.
+        h.get_by_role_and_label(Role::Button, "Wi-Fi performance view")
+            .click();
+        h.run_steps(3);
+        assert!(
+            h.query_by_label("Most network activity (all adapters)")
+                .is_some()
+        );
+        assert!(
+            h.query_by_label(
+                "Per-process network needs the RustWTM service or administrator rights"
+            )
+            .is_some()
+        );
+    }
+
+    #[test]
+    fn adapter_pages_list_the_processes_with_the_most_traffic() {
+        use egui::accesskit::Role;
+        let mut data = crate::ui_tests::device_data();
+        let snap = std::sync::Arc::make_mut(data.snapshot.as_mut().unwrap());
+        snap.net_traced = true;
+        for p in &mut snap.processes {
+            (p.net_rx_rate, p.net_tx_rate) = (0.0, 0.0);
+        }
+        let beta = snap.processes.iter_mut().find(|p| p.pid == 200).unwrap();
+        beta.net_rx_rate = 3.0 * 1024.0 * 1024.0;
+        beta.net_tx_rate = 512.0 * 1024.0;
+        let (mut h, _) = overview_app(data);
+        h.state_mut().state.tab = Tab::Performance;
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Ethernet performance view")
+            .click();
+        h.run_steps(3);
+        assert!(
+            h.query_by_label("Most network activity (all adapters)")
+                .is_some()
+        );
+        assert!(h.query_all_by_label("beta.exe").next().is_some());
+        assert!(h.query_all_by_label("3.0 MiB/s").next().is_some());
+        assert!(h.query_all_by_label("512.0 KiB/s").next().is_some());
+        assert!(
+            h.query_by_label("alpha.exe").is_none(),
+            "idle processes are not listed"
+        );
+    }
+
+    #[test]
     fn the_default_start_page_wins_over_the_last_page() {
         let mut last = UiState {
             tab: Tab::Services,
@@ -6072,6 +6336,11 @@ mod tests {
         let mut restored = UiState::default();
         restored.apply(serde_json::from_str(&encoded).unwrap());
         assert_eq!(restored.performance.page, Page::Network);
+        // Selected again once the devices are listed.
+        let entries = restored
+            .performance
+            .arrange(crate::performance_view::entries(&h.state().backend.data()));
+        restored.performance.settle(&entries);
         assert_eq!(
             restored.performance.device,
             Some(net_id(crate::ui_tests::ETHERNET))

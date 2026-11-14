@@ -15,6 +15,59 @@ const FREQUENCY: [GUID; 2] = [
     GUID::from_u128(0x75b0ae3f_bce0_45a7_8c89_c9611c25e101),
 ];
 
+/// The battery as Windows reports it; each value `None` when unknown.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatteryStatus {
+    /// Charge, 0..=100.
+    pub percent: Option<u8>,
+    /// Plugged in.
+    pub on_ac: Option<bool>,
+    pub charging: bool,
+    /// Time left on battery, in seconds.
+    pub seconds_left: Option<u32>,
+    pub saver: bool,
+}
+
+/// What `SYSTEM_POWER_STATUS` says, or `None` without a system battery
+/// (desktops) or when Windows does not know.
+pub fn decode_battery(
+    ac_line: u8,
+    flag: u8,
+    percent: u8,
+    saver: u8,
+    seconds: u32,
+) -> Option<BatteryStatus> {
+    // 128: no system battery; 255: status unknown.
+    if flag & 128 != 0 || flag == 255 {
+        return None;
+    }
+    Some(BatteryStatus {
+        percent: (percent <= 100).then_some(percent),
+        on_ac: match ac_line {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        },
+        charging: flag & 8 != 0,
+        seconds_left: (seconds != u32::MAX).then_some(seconds),
+        saver: saver & 1 != 0,
+    })
+}
+
+/// The system battery, if the PC has one.
+pub fn battery() -> Option<BatteryStatus> {
+    let mut s = windows::Win32::System::Power::SYSTEM_POWER_STATUS::default();
+    // SAFETY: `s` is a writable SYSTEM_POWER_STATUS.
+    unsafe { windows::Win32::System::Power::GetSystemPowerStatus(&mut s) }.ok()?;
+    decode_battery(
+        s.ACLineStatus,
+        s.BatteryFlag,
+        s.BatteryLifePercent,
+        s.SystemStatusFlag,
+        s.BatteryLifeTime,
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PowerSource {
     Ac,
@@ -115,6 +168,20 @@ pub fn refresh_scheme(plan: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn battery_status_reads_windows_sentinels() {
+        assert_eq!(decode_battery(1, 128, 255, 0, u32::MAX), None, "no battery");
+        assert_eq!(decode_battery(255, 255, 255, 0, u32::MAX), None, "unknown");
+        let b = decode_battery(0, 1, 84, 1, 9000).unwrap();
+        assert_eq!(b.percent, Some(84));
+        assert_eq!(b.on_ac, Some(false));
+        assert!(!b.charging && b.saver);
+        assert_eq!(b.seconds_left, Some(9000));
+        let charging = decode_battery(1, 8, 255, 0, u32::MAX).unwrap();
+        assert!(charging.charging);
+        assert_eq!((charging.percent, charging.seconds_left), (None, None));
+    }
     #[test]
     fn reads_current_plan_without_changing_it() {
         let plan = active_scheme().unwrap();
